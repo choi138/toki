@@ -142,8 +142,11 @@ private struct PanelHeaderView: View {
     var body: some View {
         HStack(alignment: .center) {
             HStack(spacing: 6) {
-                Image(systemName: "sparkles")
-                    .font(.system(size: 11, weight: .semibold))
+                Image("MenuBarIcon")
+                    .renderingMode(.template)
+                    .resizable()
+                    .scaledToFit()
+                    .frame(width: 14, height: 14)
                     .foregroundColor(Color(red: 0.55, green: 0.45, blue: 1.0))
                 Text("Toki")
                     .font(.system(size: 13, weight: .semibold))
@@ -205,6 +208,25 @@ private struct PanelDatePickerView: View {
             }
 
             Spacer()
+
+            // Today 버튼 — 오늘이 아닐 때만 표시
+            if !isToday {
+                Button {
+                    service.isRangeMode = false
+                    service.selectDay(Date())
+                    Task { await service.refresh() }
+                } label: {
+                    Text("Today")
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundColor(Color(red: 0.55, green: 0.45, blue: 1.0))
+                        .padding(.horizontal, 7)
+                        .padding(.vertical, 3)
+                        .background(Color(red: 0.55, green: 0.45, blue: 1.0).opacity(0.12))
+                        .clipShape(RoundedRectangle(cornerRadius: 4))
+                }
+                .buttonStyle(.plain)
+                .padding(.trailing, 6)
+            }
 
             Button {
                 service.isRangeMode.toggle()
@@ -343,6 +365,11 @@ private struct PanelHeroView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
+            Text("TOTAL TOKENS")
+                .font(.system(size: 10, weight: .semibold))
+                .foregroundColor(Color.white.opacity(0.3))
+                .tracking(1.5)
+
             if isLoading {
                 SkeletonBar(width: 148, height: 44, cornerRadius: 8)
             } else {
@@ -356,7 +383,7 @@ private struct PanelHeroView: View {
                 let delta = usage.totalTokens - yt
                 let pct = Int(abs(Double(delta) / Double(yt) * 100))
                 let isUp = delta >= 0
-                HStack(spacing: 4) {
+                HStack(spacing: 3) {
                     Image(systemName: isUp ? "arrow.up" : "arrow.down")
                         .font(.system(size: 9, weight: .bold))
                     Text("\(pct)% from yesterday")
@@ -367,11 +394,6 @@ private struct PanelHeroView: View {
                     : Color(red: 0.4, green: 0.9, blue: 0.6))
             }
 
-            Text("TOTAL TOKENS")
-                .font(.system(size: 10, weight: .semibold))
-                .foregroundColor(Color.white.opacity(0.3))
-                .tracking(1.5)
-                .padding(.top, 2)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, 16)

@@ -77,15 +77,18 @@ extension Double {
 extension Int {
     func formattedTokens() -> String {
         let value = Double(self)
-        let isMega = value >= 1_000_000
-        let isKilo = value >= 1_000
-
-        if isMega {
-            return String(format: "%.1fM", value / 1_000_000)
-        }
-        if isKilo {
-            return String(format: "%.1fK", value / 1_000)
-        }
+        if value >= 1_000_000_000 { return Self.format(value / 1_000_000_000) + "B" }
+        if value >= 1_000_000     { return Self.format(value / 1_000_000)     + "M" }
+        if value >= 1_000         { return Self.format(value / 1_000)         + "K" }
         return "\(self)"
+    }
+
+    // ≥10 → 1 decimal, <10 → 2 decimals
+    // Strip trailing zeros but keep at least one decimal digit (e.g. "3.0" not "3")
+    private static func format(_ value: Double) -> String {
+        let places = value >= 10 ? 1 : 2
+        var s = String(format: "%.\(places)f", value)
+        while s.hasSuffix("0"), !s.hasSuffix(".0") { s.removeLast() }
+        return s
     }
 }
