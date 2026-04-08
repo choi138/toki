@@ -9,8 +9,6 @@ targets:
     platform: macOS
     sources:
       - path: Toki
-        excludes:
-          - main.swift
     info:
       path: Toki/Info.plist
       properties:
