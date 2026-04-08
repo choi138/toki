@@ -83,12 +83,12 @@ extension Int {
         return "\(self)"
     }
 
-    // ≥10 → 1 decimal, <10 → 2 decimals, strip trailing zeros
+    // ≥10 → 1 decimal, <10 → 2 decimals
+    // Strip trailing zeros but keep at least one decimal digit (e.g. "3.0" not "3")
     private static func format(_ value: Double) -> String {
         let places = value >= 10 ? 1 : 2
         var s = String(format: "%.\(places)f", value)
-        while s.hasSuffix("0") { s.removeLast() }
-        if s.hasSuffix(".")    { s.removeLast() }
+        while s.hasSuffix("0"), !s.hasSuffix(".0") { s.removeLast() }
         return s
     }
 }
