@@ -4,13 +4,28 @@ options:
   deploymentTarget:
     macOS: "13.0"
 targets:
+  TokiTests:
+    type: bundle.unit-test
+    platform: macOS
+    sources:
+      - path: TokiTests
+    dependencies:
+      - target: Toki
+        embed: false
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.toki.TokiTests
+        SWIFT_VERSION: "5.9"
+        MACOSX_DEPLOYMENT_TARGET: "13.0"
+        CODE_SIGN_STYLE: Automatic
+        TEST_HOST: $(BUILT_PRODUCTS_DIR)/Toki.app/Contents/MacOS/Toki
+        BUNDLE_LOADER: $(TEST_HOST)
+
   Toki:
     type: application
     platform: macOS
     sources:
       - path: Toki
-        excludes:
-          - main.swift
     info:
       path: Toki/Info.plist
       properties:

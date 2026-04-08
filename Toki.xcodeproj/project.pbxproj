@@ -7,36 +7,73 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		0163F1CBE17351C064A4ABEB /* UsagePanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C2781FED408DDFE99E1CC1C7 /* UsagePanelView.swift */; };
 		1339185C2F4682C15E7FD561 /* GeminiReader.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1ECBD121B3295E0A82BFEC6F /* GeminiReader.swift */; };
-		1BB60678B111056D256E0FED /* UsageService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5B881A382BF0E1A558012BD6 /* UsageService.swift */; };
 		1E7C53EF7BAF07A1C551C209 /* ClaudeCodeReader.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1E39FEDA1C54CC7963BE6666 /* ClaudeCodeReader.swift */; };
+		1FB4ED113446D352F95E0B54 /* UsageService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 44B24EEDF2DE68944ED1E2AF /* UsageService.swift */; };
+		2B6D19495FEB39ABA653D9CD /* TokiApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = B6780BA4E1370D9DC631805A /* TokiApp.swift */; };
+		2BDBAC61B6DA87BCC6518B13 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 831875CB342E2B92B39884E6 /* AppDelegate.swift */; };
+		2C51D50E2644F2AFCF78F400 /* rabbit_run_06.png in Resources */ = {isa = PBXBuildFile; fileRef = 0E640BFCC95D2085AA49840F /* rabbit_run_06.png */; };
+		339C9503BDA819E40DBC4232 /* rabbit_run_07.png in Resources */ = {isa = PBXBuildFile; fileRef = 4AFAEDCB4319F2927AF1C6BE /* rabbit_run_07.png */; };
+		3DAEE507EF8B9F72EDE9BE79 /* rabbit_run_01.png in Resources */ = {isa = PBXBuildFile; fileRef = 6505D569EA8EE2E43BC1107E /* rabbit_run_01.png */; };
+		425A029E55287884FADADEF6 /* rabbit_run_00.png in Resources */ = {isa = PBXBuildFile; fileRef = 913CCF13950428ECD3F610B8 /* rabbit_run_00.png */; };
+		43110D2C1421F86D10C82DE1 /* rabbit_run_03.png in Resources */ = {isa = PBXBuildFile; fileRef = 3B23FF3ABE5C9B83999FF4FA /* rabbit_run_03.png */; };
+		4F126E2832914FC8D7CEB111 /* rabbit_run_04.png in Resources */ = {isa = PBXBuildFile; fileRef = 9F0D700BB18FFF007E749E42 /* rabbit_run_04.png */; };
 		5ADB503329329A6D6460E16F /* ModelPricing.swift in Sources */ = {isa = PBXBuildFile; fileRef = C9069C6065B003DDF4FE03DE /* ModelPricing.swift */; };
 		5B6B5B1124C20DC165B0AFDC /* OpenCodeReader.swift in Sources */ = {isa = PBXBuildFile; fileRef = 22BEE93F954CDF93C482B74C /* OpenCodeReader.swift */; };
+		619CE27CFA8BE9B5B002E929 /* TokiTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FC070E1937FCAFFD5B807BF6 /* TokiTests.swift */; };
+		6D65C71BB51E72D5A2473282 /* UsageModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0320417FBAA7D0BD0DB4A7C0 /* UsageModel.swift */; };
+		7A1ADF172F4E2366CC4CE3E3 /* rabbit_run_02.png in Resources */ = {isa = PBXBuildFile; fileRef = 128D492BD818BC76538BE7CA /* rabbit_run_02.png */; };
 		AEFCAD47092D4DA5C27342A6 /* libsqlite3.tbd in Frameworks */ = {isa = PBXBuildFile; fileRef = 3BB2D1DD657FD734F8EC731D /* libsqlite3.tbd */; };
+		B8D4859384D31130ADF0F59A /* rabbit_run_08.png in Resources */ = {isa = PBXBuildFile; fileRef = 208C53C0F71DA6701BC0A967 /* rabbit_run_08.png */; };
 		B999F99D0634BF9E7760E045 /* OpenClawReader.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4DBBF772EC97A2E5F60E6518 /* OpenClawReader.swift */; };
 		C36760D5F31645546E54DD9F /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = E1DA65F57500D6F6BB7793AD /* Assets.xcassets */; };
 		CC3EDC4DDBF483121416415F /* TokenReader.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2C54E537E3AB749A6ABF0C1 /* TokenReader.swift */; };
-		E0C5BDFFF856541957A9A979 /* UsageModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6682D83971C7E74E600C1EAD /* UsageModel.swift */; };
+		D370E136A34511750F12DF91 /* rabbit_run_05.png in Resources */ = {isa = PBXBuildFile; fileRef = A169A412590D629F7E46349A /* rabbit_run_05.png */; };
+		D505F248C3575FED8841621F /* UsagePanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A263FBFA6968B6D3F28C1460 /* UsagePanelView.swift */; };
+		E4DBDA31F535DF1F2A5C9D79 /* rabbit_run_09.png in Resources */ = {isa = PBXBuildFile; fileRef = F530FE547E52625EFB2B8042 /* rabbit_run_09.png */; };
 		E9C407845894DFD785E6AB5B /* CodexReader.swift in Sources */ = {isa = PBXBuildFile; fileRef = 50B366E58A405FF989F7BC1E /* CodexReader.swift */; };
-		EF745EA8B094319166A11F3F /* TokiApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = AE7FE4C79CBCB80B723ACF04 /* TokiApp.swift */; };
+		FD1568B165A3D18461FBDB40 /* ActivityMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6BCDB2F5E443EC3A58199F36 /* ActivityMonitor.swift */; };
 /* End PBXBuildFile section */
 
+/* Begin PBXContainerItemProxy section */
+		2314E67A646E42B7468A2EE7 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = E67815167FB87B2547400755 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = B50363118EEADF28FE868455;
+			remoteInfo = Toki;
+		};
+/* End PBXContainerItemProxy section */
+
 /* Begin PBXFileReference section */
+		0320417FBAA7D0BD0DB4A7C0 /* UsageModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UsageModel.swift; sourceTree = "<group>"; };
+		0E640BFCC95D2085AA49840F /* rabbit_run_06.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = rabbit_run_06.png; sourceTree = "<group>"; };
+		128D492BD818BC76538BE7CA /* rabbit_run_02.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = rabbit_run_02.png; sourceTree = "<group>"; };
 		1E39FEDA1C54CC7963BE6666 /* ClaudeCodeReader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClaudeCodeReader.swift; sourceTree = "<group>"; };
 		1ECBD121B3295E0A82BFEC6F /* GeminiReader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GeminiReader.swift; sourceTree = "<group>"; };
+		208C53C0F71DA6701BC0A967 /* rabbit_run_08.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = rabbit_run_08.png; sourceTree = "<group>"; };
 		22BEE93F954CDF93C482B74C /* OpenCodeReader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OpenCodeReader.swift; sourceTree = "<group>"; };
+		3B23FF3ABE5C9B83999FF4FA /* rabbit_run_03.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = rabbit_run_03.png; sourceTree = "<group>"; };
 		3BB2D1DD657FD734F8EC731D /* libsqlite3.tbd */ = {isa = PBXFileReference; lastKnownFileType = "sourcecode.text-based-dylib-definition"; name = libsqlite3.tbd; path = usr/lib/libsqlite3.tbd; sourceTree = SDKROOT; };
+		44B24EEDF2DE68944ED1E2AF /* UsageService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UsageService.swift; sourceTree = "<group>"; };
+		4AFAEDCB4319F2927AF1C6BE /* rabbit_run_07.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = rabbit_run_07.png; sourceTree = "<group>"; };
 		4DBBF772EC97A2E5F60E6518 /* OpenClawReader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OpenClawReader.swift; sourceTree = "<group>"; };
 		50B366E58A405FF989F7BC1E /* CodexReader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodexReader.swift; sourceTree = "<group>"; };
-		5B881A382BF0E1A558012BD6 /* UsageService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UsageService.swift; sourceTree = "<group>"; };
-		6682D83971C7E74E600C1EAD /* UsageModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UsageModel.swift; sourceTree = "<group>"; };
-		AE7FE4C79CBCB80B723ACF04 /* TokiApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TokiApp.swift; sourceTree = "<group>"; };
+		6505D569EA8EE2E43BC1107E /* rabbit_run_01.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = rabbit_run_01.png; sourceTree = "<group>"; };
+		6BCDB2F5E443EC3A58199F36 /* ActivityMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActivityMonitor.swift; sourceTree = "<group>"; };
+		831875CB342E2B92B39884E6 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
+		913CCF13950428ECD3F610B8 /* rabbit_run_00.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = rabbit_run_00.png; sourceTree = "<group>"; };
+		9F0D700BB18FFF007E749E42 /* rabbit_run_04.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = rabbit_run_04.png; sourceTree = "<group>"; };
+		A169A412590D629F7E46349A /* rabbit_run_05.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = rabbit_run_05.png; sourceTree = "<group>"; };
+		A263FBFA6968B6D3F28C1460 /* UsagePanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UsagePanelView.swift; sourceTree = "<group>"; };
+		A935D97F072BD30BEA608E73 /* TokiTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = TokiTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		B2C54E537E3AB749A6ABF0C1 /* TokenReader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TokenReader.swift; sourceTree = "<group>"; };
 		B31BA1453045E7814FA75C65 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
-		C2781FED408DDFE99E1CC1C7 /* UsagePanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UsagePanelView.swift; sourceTree = "<group>"; };
+		B6780BA4E1370D9DC631805A /* TokiApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TokiApp.swift; sourceTree = "<group>"; };
 		C9069C6065B003DDF4FE03DE /* ModelPricing.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModelPricing.swift; sourceTree = "<group>"; };
 		E1DA65F57500D6F6BB7793AD /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		F530FE547E52625EFB2B8042 /* rabbit_run_09.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = rabbit_run_09.png; sourceTree = "<group>"; };
+		FC070E1937FCAFFD5B807BF6 /* TokiTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TokiTests.swift; sourceTree = "<group>"; };
 		FF845EBA9FB3CEFA39ACA935 /* Toki.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Toki.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
@@ -52,6 +89,57 @@
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
+		3BD800651BB248771B535149 /* Resources */ = {
+			isa = PBXGroup;
+			children = (
+				C28DAD1E01AE6D8F6B365285 /* Animation */,
+			);
+			path = Resources;
+			sourceTree = "<group>";
+		};
+		454A37AD28F814A2EDD5E2CF /* Views */ = {
+			isa = PBXGroup;
+			children = (
+				A263FBFA6968B6D3F28C1460 /* UsagePanelView.swift */,
+			);
+			path = Views;
+			sourceTree = "<group>";
+		};
+		AA9CBC7B351FF453D6392F64 /* App */ = {
+			isa = PBXGroup;
+			children = (
+				831875CB342E2B92B39884E6 /* AppDelegate.swift */,
+				B6780BA4E1370D9DC631805A /* TokiApp.swift */,
+			);
+			path = App;
+			sourceTree = "<group>";
+		};
+		C28DAD1E01AE6D8F6B365285 /* Animation */ = {
+			isa = PBXGroup;
+			children = (
+				913CCF13950428ECD3F610B8 /* rabbit_run_00.png */,
+				6505D569EA8EE2E43BC1107E /* rabbit_run_01.png */,
+				128D492BD818BC76538BE7CA /* rabbit_run_02.png */,
+				3B23FF3ABE5C9B83999FF4FA /* rabbit_run_03.png */,
+				9F0D700BB18FFF007E749E42 /* rabbit_run_04.png */,
+				A169A412590D629F7E46349A /* rabbit_run_05.png */,
+				0E640BFCC95D2085AA49840F /* rabbit_run_06.png */,
+				4AFAEDCB4319F2927AF1C6BE /* rabbit_run_07.png */,
+				208C53C0F71DA6701BC0A967 /* rabbit_run_08.png */,
+				F530FE547E52625EFB2B8042 /* rabbit_run_09.png */,
+			);
+			path = Animation;
+			sourceTree = "<group>";
+		};
+		CDE60B7C4A6443C9E536737C /* Models */ = {
+			isa = PBXGroup;
+			children = (
+				0320417FBAA7D0BD0DB4A7C0 /* UsageModel.swift */,
+				44B24EEDF2DE68944ED1E2AF /* UsageService.swift */,
+			);
+			path = Models;
+			sourceTree = "<group>";
+		};
 		D0192DBF629DD690E8D1193C /* Frameworks */ = {
 			isa = PBXGroup;
 			children = (
@@ -64,6 +152,7 @@
 			isa = PBXGroup;
 			children = (
 				FF845EBA9FB3CEFA39ACA935 /* Toki.app */,
+				A935D97F072BD30BEA608E73 /* TokiTests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -73,13 +162,22 @@
 			children = (
 				E1DA65F57500D6F6BB7793AD /* Assets.xcassets */,
 				B31BA1453045E7814FA75C65 /* Info.plist */,
-				AE7FE4C79CBCB80B723ACF04 /* TokiApp.swift */,
-				6682D83971C7E74E600C1EAD /* UsageModel.swift */,
-				C2781FED408DDFE99E1CC1C7 /* UsagePanelView.swift */,
-				5B881A382BF0E1A558012BD6 /* UsageService.swift */,
+				AA9CBC7B351FF453D6392F64 /* App */,
+				CDE60B7C4A6443C9E536737C /* Models */,
 				E1AE566B8CE2289537AAA6F2 /* Readers */,
+				3BD800651BB248771B535149 /* Resources */,
+				D5D339A397F7FA2CF2790F2C /* Utilities */,
+				454A37AD28F814A2EDD5E2CF /* Views */,
 			);
 			path = Toki;
+			sourceTree = "<group>";
+		};
+		D5D339A397F7FA2CF2790F2C /* Utilities */ = {
+			isa = PBXGroup;
+			children = (
+				6BCDB2F5E443EC3A58199F36 /* ActivityMonitor.swift */,
+			);
+			path = Utilities;
 			sourceTree = "<group>";
 		};
 		E1AE566B8CE2289537AAA6F2 /* Readers */ = {
@@ -100,14 +198,41 @@
 			isa = PBXGroup;
 			children = (
 				D500D0F5E7F34C79980692A1 /* Toki */,
+				F65F631829142481371DD97B /* TokiTests */,
 				D0192DBF629DD690E8D1193C /* Frameworks */,
 				D4F7CB66A43B020E76045F98 /* Products */,
 			);
 			sourceTree = "<group>";
 		};
+		F65F631829142481371DD97B /* TokiTests */ = {
+			isa = PBXGroup;
+			children = (
+				FC070E1937FCAFFD5B807BF6 /* TokiTests.swift */,
+			);
+			path = TokiTests;
+			sourceTree = "<group>";
+		};
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
+		4D074AE454450A4CD82EFD67 /* TokiTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = EF94A912C432E78951BF6C84 /* Build configuration list for PBXNativeTarget "TokiTests" */;
+			buildPhases = (
+				B7856DC33B74560999B9B038 /* Sources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				62B040DFEF05BEB13FC98384 /* PBXTargetDependency */,
+			);
+			name = TokiTests;
+			packageProductDependencies = (
+			);
+			productName = TokiTests;
+			productReference = A935D97F072BD30BEA608E73 /* TokiTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
 		B50363118EEADF28FE868455 /* Toki */ = {
 			isa = PBXNativeTarget;
 			buildConfigurationList = E661EAB52D27C72829628BBC /* Build configuration list for PBXNativeTarget "Toki" */;
@@ -136,6 +261,9 @@
 				BuildIndependentTargetsInParallel = YES;
 				LastUpgradeCheck = 1430;
 				TargetAttributes = {
+					4D074AE454450A4CD82EFD67 = {
+						ProvisioningStyle = Automatic;
+					};
 					B50363118EEADF28FE868455 = {
 						ProvisioningStyle = Automatic;
 					};
@@ -156,6 +284,7 @@
 			projectRoot = "";
 			targets = (
 				B50363118EEADF28FE868455 /* Toki */,
+				4D074AE454450A4CD82EFD67 /* TokiTests */,
 			);
 		};
 /* End PBXProject section */
@@ -166,6 +295,16 @@
 			buildActionMask = 2147483647;
 			files = (
 				C36760D5F31645546E54DD9F /* Assets.xcassets in Resources */,
+				425A029E55287884FADADEF6 /* rabbit_run_00.png in Resources */,
+				3DAEE507EF8B9F72EDE9BE79 /* rabbit_run_01.png in Resources */,
+				7A1ADF172F4E2366CC4CE3E3 /* rabbit_run_02.png in Resources */,
+				43110D2C1421F86D10C82DE1 /* rabbit_run_03.png in Resources */,
+				4F126E2832914FC8D7CEB111 /* rabbit_run_04.png in Resources */,
+				D370E136A34511750F12DF91 /* rabbit_run_05.png in Resources */,
+				2C51D50E2644F2AFCF78F400 /* rabbit_run_06.png in Resources */,
+				339C9503BDA819E40DBC4232 /* rabbit_run_07.png in Resources */,
+				B8D4859384D31130ADF0F59A /* rabbit_run_08.png in Resources */,
+				E4DBDA31F535DF1F2A5C9D79 /* rabbit_run_09.png in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -176,6 +315,8 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				FD1568B165A3D18461FBDB40 /* ActivityMonitor.swift in Sources */,
+				2BDBAC61B6DA87BCC6518B13 /* AppDelegate.swift in Sources */,
 				1E7C53EF7BAF07A1C551C209 /* ClaudeCodeReader.swift in Sources */,
 				E9C407845894DFD785E6AB5B /* CodexReader.swift in Sources */,
 				1339185C2F4682C15E7FD561 /* GeminiReader.swift in Sources */,
@@ -183,16 +324,51 @@
 				B999F99D0634BF9E7760E045 /* OpenClawReader.swift in Sources */,
 				5B6B5B1124C20DC165B0AFDC /* OpenCodeReader.swift in Sources */,
 				CC3EDC4DDBF483121416415F /* TokenReader.swift in Sources */,
-				EF745EA8B094319166A11F3F /* TokiApp.swift in Sources */,
-				E0C5BDFFF856541957A9A979 /* UsageModel.swift in Sources */,
-				0163F1CBE17351C064A4ABEB /* UsagePanelView.swift in Sources */,
-				1BB60678B111056D256E0FED /* UsageService.swift in Sources */,
+				2B6D19495FEB39ABA653D9CD /* TokiApp.swift in Sources */,
+				6D65C71BB51E72D5A2473282 /* UsageModel.swift in Sources */,
+				D505F248C3575FED8841621F /* UsagePanelView.swift in Sources */,
+				1FB4ED113446D352F95E0B54 /* UsageService.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		B7856DC33B74560999B9B038 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				619CE27CFA8BE9B5B002E929 /* TokiTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXSourcesBuildPhase section */
 
+/* Begin PBXTargetDependency section */
+		62B040DFEF05BEB13FC98384 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = B50363118EEADF28FE868455 /* Toki */;
+			targetProxy = 2314E67A646E42B7468A2EE7 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
 /* Begin XCBuildConfiguration section */
+		1052D1DB5EC877979A6E5B0B /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@loader_path/../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 13.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.toki.TokiTests;
+				SDKROOT = macosx;
+				SWIFT_VERSION = 5.9;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Toki.app/Contents/MacOS/Toki";
+			};
+			name = Debug;
+		};
 		15BC7E39359BF3D20D5ACD21 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -273,6 +449,25 @@
 				SWIFT_VERSION = 5.0;
 			};
 			name = Debug;
+		};
+		91A915C12E31A2A4B80A4AC1 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@loader_path/../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 13.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.toki.TokiTests;
+				SDKROOT = macosx;
+				SWIFT_VERSION = 5.9;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Toki.app/Contents/MacOS/Toki";
+			};
+			name = Release;
 		};
 		9BED3BA1892D7A274171A1FD /* Release */ = {
 			isa = XCBuildConfiguration;
@@ -365,6 +560,15 @@
 			buildConfigurations = (
 				15BC7E39359BF3D20D5ACD21 /* Debug */,
 				9BED3BA1892D7A274171A1FD /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		EF94A912C432E78951BF6C84 /* Build configuration list for PBXNativeTarget "TokiTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				1052D1DB5EC877979A6E5B0B /* Debug */,
+				91A915C12E31A2A4B80A4AC1 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Debug;
