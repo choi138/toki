@@ -11,9 +11,7 @@ A macOS menu bar app that tracks daily token usage and costs across multiple AI 
 
 ## Screenshot
 
-<p align="center">
-  <img src="assets/screenshot.png" width="310" alt="Toki screenshot" />
-</p>
+![Toki screenshot](assets/screenshot.png)
 
 ---
 
