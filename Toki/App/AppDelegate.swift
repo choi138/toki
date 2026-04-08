@@ -74,18 +74,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     // MARK: - Activity Detection
 
     private func startActivityChecks() {
-        updateAnimationState()
+        checkActivityInBackground()
         activityCheckTimer = Timer.scheduledTimer(
             withTimeInterval: Timing.activityCheck,
             repeats: true
         ) { [weak self] _ in
-            self?.updateAnimationState()
+            self?.checkActivityInBackground()
         }
         activityCheckTimer?.tolerance = 1.0
     }
 
-    private func updateAnimationState() {
-        let isActive = ActivityMonitor.isAnyToolActive()
+    private func checkActivityInBackground() {
+        // File I/O on background queue to avoid blocking the main run loop
+        DispatchQueue.global(qos: .utility).async { [weak self] in
+            let isActive = ActivityMonitor.isAnyToolActive()
+            DispatchQueue.main.async {
+                self?.applyAnimationState(isActive: isActive)
+            }
+        }
+    }
+
+    private func applyAnimationState(isActive: Bool) {
         let shouldStart = isActive && !isAnimating
         let shouldStop  = !isActive && isAnimating
 

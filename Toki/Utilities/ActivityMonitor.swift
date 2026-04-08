@@ -8,9 +8,10 @@ enum ActivityMonitor {
 
     static func isAnyToolActive() -> Bool {
         let threshold = Date().addingTimeInterval(-activeWindowSeconds)
-        return isClaudeCodeActive(since: threshold)
-            || isCodexActive(since: threshold)
+        // Cheap single-file checks first; expensive directory scan last
+        return isCodexActive(since: threshold)
             || isOpenCodeActive(since: threshold)
+            || isClaudeCodeActive(since: threshold)
     }
 
     // MARK: - Per-tool checks
