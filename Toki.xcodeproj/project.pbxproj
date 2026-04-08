@@ -1,0 +1,375 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		0163F1CBE17351C064A4ABEB /* UsagePanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C2781FED408DDFE99E1CC1C7 /* UsagePanelView.swift */; };
+		1339185C2F4682C15E7FD561 /* GeminiReader.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1ECBD121B3295E0A82BFEC6F /* GeminiReader.swift */; };
+		1BB60678B111056D256E0FED /* UsageService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5B881A382BF0E1A558012BD6 /* UsageService.swift */; };
+		1E7C53EF7BAF07A1C551C209 /* ClaudeCodeReader.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1E39FEDA1C54CC7963BE6666 /* ClaudeCodeReader.swift */; };
+		5ADB503329329A6D6460E16F /* ModelPricing.swift in Sources */ = {isa = PBXBuildFile; fileRef = C9069C6065B003DDF4FE03DE /* ModelPricing.swift */; };
+		5B6B5B1124C20DC165B0AFDC /* OpenCodeReader.swift in Sources */ = {isa = PBXBuildFile; fileRef = 22BEE93F954CDF93C482B74C /* OpenCodeReader.swift */; };
+		AEFCAD47092D4DA5C27342A6 /* libsqlite3.tbd in Frameworks */ = {isa = PBXBuildFile; fileRef = 3BB2D1DD657FD734F8EC731D /* libsqlite3.tbd */; };
+		B999F99D0634BF9E7760E045 /* OpenClawReader.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4DBBF772EC97A2E5F60E6518 /* OpenClawReader.swift */; };
+		C36760D5F31645546E54DD9F /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = E1DA65F57500D6F6BB7793AD /* Assets.xcassets */; };
+		CC3EDC4DDBF483121416415F /* TokenReader.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2C54E537E3AB749A6ABF0C1 /* TokenReader.swift */; };
+		E0C5BDFFF856541957A9A979 /* UsageModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6682D83971C7E74E600C1EAD /* UsageModel.swift */; };
+		E9C407845894DFD785E6AB5B /* CodexReader.swift in Sources */ = {isa = PBXBuildFile; fileRef = 50B366E58A405FF989F7BC1E /* CodexReader.swift */; };
+		EF745EA8B094319166A11F3F /* TokiApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = AE7FE4C79CBCB80B723ACF04 /* TokiApp.swift */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+		1E39FEDA1C54CC7963BE6666 /* ClaudeCodeReader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClaudeCodeReader.swift; sourceTree = "<group>"; };
+		1ECBD121B3295E0A82BFEC6F /* GeminiReader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GeminiReader.swift; sourceTree = "<group>"; };
+		22BEE93F954CDF93C482B74C /* OpenCodeReader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OpenCodeReader.swift; sourceTree = "<group>"; };
+		3BB2D1DD657FD734F8EC731D /* libsqlite3.tbd */ = {isa = PBXFileReference; lastKnownFileType = "sourcecode.text-based-dylib-definition"; name = libsqlite3.tbd; path = usr/lib/libsqlite3.tbd; sourceTree = SDKROOT; };
+		4DBBF772EC97A2E5F60E6518 /* OpenClawReader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OpenClawReader.swift; sourceTree = "<group>"; };
+		50B366E58A405FF989F7BC1E /* CodexReader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodexReader.swift; sourceTree = "<group>"; };
+		5B881A382BF0E1A558012BD6 /* UsageService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UsageService.swift; sourceTree = "<group>"; };
+		6682D83971C7E74E600C1EAD /* UsageModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UsageModel.swift; sourceTree = "<group>"; };
+		AE7FE4C79CBCB80B723ACF04 /* TokiApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TokiApp.swift; sourceTree = "<group>"; };
+		B2C54E537E3AB749A6ABF0C1 /* TokenReader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TokenReader.swift; sourceTree = "<group>"; };
+		B31BA1453045E7814FA75C65 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
+		C2781FED408DDFE99E1CC1C7 /* UsagePanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UsagePanelView.swift; sourceTree = "<group>"; };
+		C9069C6065B003DDF4FE03DE /* ModelPricing.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModelPricing.swift; sourceTree = "<group>"; };
+		E1DA65F57500D6F6BB7793AD /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		FF845EBA9FB3CEFA39ACA935 /* Toki.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Toki.app; sourceTree = BUILT_PRODUCTS_DIR; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		79CCC847788060700D18287D /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				AEFCAD47092D4DA5C27342A6 /* libsqlite3.tbd in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		D0192DBF629DD690E8D1193C /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+				3BB2D1DD657FD734F8EC731D /* libsqlite3.tbd */,
+			);
+			name = Frameworks;
+			sourceTree = "<group>";
+		};
+		D4F7CB66A43B020E76045F98 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				FF845EBA9FB3CEFA39ACA935 /* Toki.app */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		D500D0F5E7F34C79980692A1 /* Toki */ = {
+			isa = PBXGroup;
+			children = (
+				E1DA65F57500D6F6BB7793AD /* Assets.xcassets */,
+				B31BA1453045E7814FA75C65 /* Info.plist */,
+				AE7FE4C79CBCB80B723ACF04 /* TokiApp.swift */,
+				6682D83971C7E74E600C1EAD /* UsageModel.swift */,
+				C2781FED408DDFE99E1CC1C7 /* UsagePanelView.swift */,
+				5B881A382BF0E1A558012BD6 /* UsageService.swift */,
+				E1AE566B8CE2289537AAA6F2 /* Readers */,
+			);
+			path = Toki;
+			sourceTree = "<group>";
+		};
+		E1AE566B8CE2289537AAA6F2 /* Readers */ = {
+			isa = PBXGroup;
+			children = (
+				1E39FEDA1C54CC7963BE6666 /* ClaudeCodeReader.swift */,
+				50B366E58A405FF989F7BC1E /* CodexReader.swift */,
+				1ECBD121B3295E0A82BFEC6F /* GeminiReader.swift */,
+				C9069C6065B003DDF4FE03DE /* ModelPricing.swift */,
+				4DBBF772EC97A2E5F60E6518 /* OpenClawReader.swift */,
+				22BEE93F954CDF93C482B74C /* OpenCodeReader.swift */,
+				B2C54E537E3AB749A6ABF0C1 /* TokenReader.swift */,
+			);
+			path = Readers;
+			sourceTree = "<group>";
+		};
+		F318A0B53D228A28053AC05F = {
+			isa = PBXGroup;
+			children = (
+				D500D0F5E7F34C79980692A1 /* Toki */,
+				D0192DBF629DD690E8D1193C /* Frameworks */,
+				D4F7CB66A43B020E76045F98 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		B50363118EEADF28FE868455 /* Toki */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = E661EAB52D27C72829628BBC /* Build configuration list for PBXNativeTarget "Toki" */;
+			buildPhases = (
+				0AED3256AF30ABACDA10DACA /* Sources */,
+				5F16307A79D02802CFF38970 /* Resources */,
+				79CCC847788060700D18287D /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = Toki;
+			packageProductDependencies = (
+			);
+			productName = Toki;
+			productReference = FF845EBA9FB3CEFA39ACA935 /* Toki.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		E67815167FB87B2547400755 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = YES;
+				LastUpgradeCheck = 1430;
+				TargetAttributes = {
+					B50363118EEADF28FE868455 = {
+						ProvisioningStyle = Automatic;
+					};
+				};
+			};
+			buildConfigurationList = BF8894522CD09D5EBB16FFE4 /* Build configuration list for PBXProject "Toki" */;
+			compatibilityVersion = "Xcode 14.0";
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				Base,
+				en,
+			);
+			mainGroup = F318A0B53D228A28053AC05F;
+			minimizedProjectReferenceProxies = 1;
+			preferredProjectObjectVersion = 77;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				B50363118EEADF28FE868455 /* Toki */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		5F16307A79D02802CFF38970 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				C36760D5F31645546E54DD9F /* Assets.xcassets in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		0AED3256AF30ABACDA10DACA /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				1E7C53EF7BAF07A1C551C209 /* ClaudeCodeReader.swift in Sources */,
+				E9C407845894DFD785E6AB5B /* CodexReader.swift in Sources */,
+				1339185C2F4682C15E7FD561 /* GeminiReader.swift in Sources */,
+				5ADB503329329A6D6460E16F /* ModelPricing.swift in Sources */,
+				B999F99D0634BF9E7760E045 /* OpenClawReader.swift in Sources */,
+				5B6B5B1124C20DC165B0AFDC /* OpenCodeReader.swift in Sources */,
+				CC3EDC4DDBF483121416415F /* TokenReader.swift in Sources */,
+				EF745EA8B094319166A11F3F /* TokiApp.swift in Sources */,
+				E0C5BDFFF856541957A9A979 /* UsageModel.swift in Sources */,
+				0163F1CBE17351C064A4ABEB /* UsagePanelView.swift in Sources */,
+				1BB60678B111056D256E0FED /* UsageService.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+		15BC7E39359BF3D20D5ACD21 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				INFOPLIST_FILE = Toki/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 13.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.toki.app;
+				SDKROOT = macosx;
+				SWIFT_VERSION = 5.9;
+			};
+			name = Debug;
+		};
+		3A3C658AF1D5A41D521616DB /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"$(inherited)",
+					"DEBUG=1",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 13.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+		9BED3BA1892D7A274171A1FD /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				INFOPLIST_FILE = Toki/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 13.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.toki.app;
+				SDKROOT = macosx;
+				SWIFT_VERSION = 5.9;
+			};
+			name = Release;
+		};
+		E115315FA31390509A83957B /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 13.0;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		BF8894522CD09D5EBB16FFE4 /* Build configuration list for PBXProject "Toki" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				3A3C658AF1D5A41D521616DB /* Debug */,
+				E115315FA31390509A83957B /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		E661EAB52D27C72829628BBC /* Build configuration list for PBXNativeTarget "Toki" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				15BC7E39359BF3D20D5ACD21 /* Debug */,
+				9BED3BA1892D7A274171A1FD /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = E67815167FB87B2547400755 /* Project object */;
+}

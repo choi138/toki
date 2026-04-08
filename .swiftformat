@@ -1,0 +1,82 @@
+# SwiftFormat configuration
+# Swift version
+--swiftversion 5.9
+
+# Indentation
+--indent 4
+--tabwidth 4
+--smarttabs enabled
+--indentcase false
+
+# Line breaks
+--linebreaks lf
+--maxwidth 120
+--wraparguments before-first
+--wrapparameters before-first
+--wrapcollections before-first
+--closingparen same-line
+--wrapreturntype preserve
+
+# Spacing
+--operatorfunc spaced
+--nospaceoperators ...,..<
+--ranges spaced
+
+# Braces
+--allman false
+--elseposition same-line
+--guardelse same-line
+
+# Semicolons
+--semicolons never
+
+# Comments
+--stripunusedargs closure-only
+
+# Self
+--self remove
+--selfrequired
+
+# Redundant
+--redundanttype inferred
+--redundantreturn always
+
+# Imports
+--importgrouping testable-bottom
+
+# Rules — enable
+--enable blankLineAfterImports
+--enable blankLinesBetweenImports
+--enable consecutiveBlankLines
+--enable consecutiveSpaces
+--enable duplicateImports
+--enable emptyBraces
+--enable leadingDelimiters
+--enable redundantBreak
+--enable redundantNilInit
+--enable redundantObjc
+--enable redundantParens
+--enable redundantPattern
+--enable redundantRawValues
+--enable redundantReturn
+--enable redundantSelf
+--enable redundantType
+--enable redundantVoidReturnType
+--enable semicolons
+--enable spaceAroundBraces
+--enable spaceAroundBrackets
+--enable spaceAroundComments
+--enable spaceAroundGenerics
+--enable spaceAroundOperators
+--enable spaceAroundParens
+--enable spaceInsideBraces
+--enable spaceInsideBrackets
+--enable spaceInsideComments
+--enable spaceInsideGenerics
+--enable spaceInsideParens
+--enable todos
+--enable trailingClosures
+--enable trailingCommas
+--enable trailingSpace
+--enable unusedArguments
+--enable void

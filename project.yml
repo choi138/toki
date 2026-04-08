@@ -1,0 +1,29 @@
+name: Toki
+options:
+  bundleIdPrefix: com.toki
+  deploymentTarget:
+    macOS: "13.0"
+targets:
+  Toki:
+    type: application
+    platform: macOS
+    sources:
+      - path: Toki
+        excludes:
+          - main.swift
+    info:
+      path: Toki/Info.plist
+      properties:
+        CFBundleName: Toki
+        CFBundleDisplayName: Toki
+        NSHighResolutionCapable: true
+        LSUIElement: true
+    dependencies:
+      - sdk: libsqlite3.tbd
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.toki.app
+        SWIFT_VERSION: "5.9"
+        MACOSX_DEPLOYMENT_TARGET: "13.0"
+        CODE_SIGN_STYLE: Automatic
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
