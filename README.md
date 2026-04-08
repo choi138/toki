@@ -12,9 +12,9 @@ A macOS menu bar app that tracks daily token usage and costs across multiple AI 
 ## Screenshot
 
 <p align="center">
-  <img src="assets/screenshot_overview.png" width="300" alt="Overview tab" />
+  <img src="Screenshots/screenshot_overview.png" width="300" alt="Overview tab" />
   &nbsp;&nbsp;&nbsp;
-  <img src="assets/screenshot.png" width="300" alt="By Model tab" />
+  <img src="Screenshots/screenshot.png" width="300" alt="By Model tab" />
 </p>
 
 ---
