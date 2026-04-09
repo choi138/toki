@@ -89,7 +89,17 @@ enum ActivityMonitor {
             data = Data(data[(firstNewline + 1)...])
         }
 
-        guard let text = String(data: data, encoding: .utf8) else { return false }
+        // If Claude is mid-write the last record may be incomplete, breaking UTF-8 decode.
+        // Fall back to trimming up to the last complete newline and retrying.
+        let text: String
+        if let decoded = String(data: data, encoding: .utf8) {
+            text = decoded
+        } else if let lastNewline = data.lastIndex(of: UInt8(ascii: "\n")),
+                  let decoded = String(data: Data(data[...lastNewline]), encoding: .utf8) {
+            text = decoded
+        } else {
+            return false
+        }
 
         let decoder = JSONDecoder()
         return text
@@ -113,8 +123,10 @@ enum ActivityMonitor {
         guard FileManager.default.fileExists(atPath: path) else { return 0 }
 
         var db: OpaquePointer?
-        guard sqlite3_open(path, &db) == SQLITE_OK else { return 0 }
+        // sqlite3_close(NULL) is a no-op, so defer is safe even on open failure.
+        // sqlite3_open may return a non-NULL handle even when it fails — always close it.
         defer { sqlite3_close(db) }
+        guard sqlite3_open_v2(path, &db, SQLITE_OPEN_READONLY, nil) == SQLITE_OK else { return 0 }
         sqlite3_busy_timeout(db, 1000)
 
         var stmt: OpaquePointer?
