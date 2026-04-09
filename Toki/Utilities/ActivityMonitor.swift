@@ -77,12 +77,15 @@ enum ActivityMonitor {
 
         // 64 KB — large enough to cover big tool outputs (long command results, etc.)
         let readSize = UInt64(min(65536, fileSize))
-        try? handle.seek(toOffset: fileSize - readSize)
+        let readOffset = fileSize - readSize
+        try? handle.seek(toOffset: readOffset)
         var data = handle.readDataToEndOfFile()
 
-        // Skip bytes before the first newline to avoid landing mid-UTF-8-char
-        // at the arbitrary read boundary (fixes intermittent nil decode)
-        if let firstNewline = data.firstIndex(of: UInt8(ascii: "\n")) {
+        // Only skip to the first newline when we started mid-file (offset > 0).
+        // This avoids landing on a split UTF-8 character at the arbitrary boundary.
+        // When reading from the start (offset == 0), the first line is complete
+        // and must not be discarded — it could be the only tool_use entry.
+        if readOffset > 0, let firstNewline = data.firstIndex(of: UInt8(ascii: "\n")) {
             data = Data(data[(firstNewline + 1)...])
         }
 
