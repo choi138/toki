@@ -75,9 +75,16 @@ enum ActivityMonitor {
         let fileSize = (try? handle.seekToEnd()) ?? 0
         guard fileSize > 0 else { return false }
 
-        let readSize = UInt64(min(4096, fileSize))
+        // 64 KB — large enough to cover big tool outputs (long command results, etc.)
+        let readSize = UInt64(min(65536, fileSize))
         try? handle.seek(toOffset: fileSize - readSize)
-        let data = handle.readDataToEndOfFile()
+        var data = handle.readDataToEndOfFile()
+
+        // Skip bytes before the first newline to avoid landing mid-UTF-8-char
+        // at the arbitrary read boundary (fixes intermittent nil decode)
+        if let firstNewline = data.firstIndex(of: UInt8(ascii: "\n")) {
+            data = Data(data[(firstNewline + 1)...])
+        }
 
         guard let text = String(data: data, encoding: .utf8) else { return false }
 
