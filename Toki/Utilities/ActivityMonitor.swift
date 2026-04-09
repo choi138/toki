@@ -54,14 +54,14 @@ enum ActivityMonitor {
 
     // MARK: - OpenCode
 
-    /// Queries message.time.created (milliseconds) — only true when
-    /// a message was created recently (active session).
+    /// Queries the indexed message timestamp (milliseconds) — only true
+    /// when a message was created recently (active session).
     private static func isOpenCodeActive(since threshold: Date) -> Bool {
         let dbPath = homeDir().appendingPathComponent(".local/share/opencode/opencode.db").path
         let epochMs = Int64(threshold.timeIntervalSince1970 * 1000)
         return queryCount(
             db: dbPath,
-            sql: "SELECT COUNT(*) FROM message WHERE json_extract(data,'$.time.created') >= ?",
+            sql: "SELECT COUNT(*) FROM message WHERE time_created >= ?",
             param: epochMs
         ) > 0
     }
@@ -77,17 +77,17 @@ enum ActivityMonitor {
 
         let decoder = JSONDecoder()
 
-        // Start at 256 KB; double until we find complete lines or reach the file start.
+        // Start at 256 KB; double until recent records are complete or we reach the file start.
         var readSize = UInt64(min(262144, fileSize))
         while true {
             let readOffset = fileSize - readSize
+            let startsAtRecordBoundary = isJSONLRecordBoundary(handle: handle, offset: readOffset)
             try? handle.seek(toOffset: readOffset)
             var data = handle.readDataToEndOfFile()
 
-            // Skip to first newline only when mid-record at the cut point.
-            // JSONL records always start with '{', so if the buffer already starts
-            // with '{' the offset is line-aligned and the first record is complete.
-            if readOffset > 0, data.first != UInt8(ascii: "{"),
+            // If the window starts mid-record, skip the truncated prefix for this pass,
+            // but keep growing until that newest omitted record becomes complete.
+            if !startsAtRecordBoundary,
                let firstNewline = data.firstIndex(of: UInt8(ascii: "\n")) {
                 data = Data(data[(firstNewline + 1)...])
             }
@@ -100,6 +100,9 @@ enum ActivityMonitor {
             } else if let lastNewline = data.lastIndex(of: UInt8(ascii: "\n")),
                       let decoded = String(data: Data(data[...lastNewline]), encoding: .utf8) {
                 text = decoded
+            } else if readSize < fileSize {
+                readSize = min(readSize * 2, fileSize)
+                continue
             } else {
                 return false
             }
@@ -113,7 +116,7 @@ enum ActivityMonitor {
                 continue
             }
 
-            return lines.reversed().contains { line in
+            if lines.reversed().contains(where: { line in
                 guard let lineData = line.data(using: .utf8),
                       let entry = try? decoder.decode(JSONLEntry.self, from: lineData),
                       let tsStr = entry.timestamp,
@@ -121,8 +124,26 @@ enum ActivityMonitor {
                       date >= threshold
                 else { return false }
                 return entry.hasToolActivity
+            }) {
+                return true
             }
+
+            // Later lines were complete but the newest omitted record was still truncated.
+            // Keep expanding so a large recent tool_use/tool_result line is retried.
+            if !startsAtRecordBoundary, readSize < fileSize {
+                readSize = min(readSize * 2, fileSize)
+                continue
+            }
+
+            return false
         }
+    }
+
+    private static func isJSONLRecordBoundary(handle: FileHandle, offset: UInt64) -> Bool {
+        guard offset > 0 else { return true }
+
+        try? handle.seek(toOffset: offset - 1)
+        return handle.readData(ofLength: 1).first == UInt8(ascii: "\n")
     }
 
     // MARK: - SQLite helper
