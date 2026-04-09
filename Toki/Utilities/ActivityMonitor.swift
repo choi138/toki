@@ -1,21 +1,23 @@
 import Foundation
+import SQLite3
 
-// Detects whether any AI coding tool is currently active
-// by checking file modification times of known data sources.
+// Detects whether any AI coding tool is currently active.
 enum ActivityMonitor {
 
     private static let activeWindowSeconds: TimeInterval = 30
 
     static func isAnyToolActive() -> Bool {
         let threshold = Date().addingTimeInterval(-activeWindowSeconds)
-        // Cheap single-file checks first; expensive directory scan last
+        // Cheap DB queries first; expensive directory scan last
         return isCodexActive(since: threshold)
             || isOpenCodeActive(since: threshold)
             || isClaudeCodeActive(since: threshold)
     }
 
-    // MARK: - Per-tool checks
+    // MARK: - Claude Code
 
+    /// Returns true only when Claude Code is actively using tools
+    /// (tool_use / tool_result entries in JSONL), not just chatting.
     private static func isClaudeCodeActive(since threshold: Date) -> Bool {
         let projectsURL = homeDir().appendingPathComponent(".claude/projects")
         guard FileManager.default.fileExists(atPath: projectsURL.path),
@@ -25,32 +27,112 @@ enum ActivityMonitor {
                   options: [.skipsHiddenFiles]
               ) else { return false }
 
-        // Early-exit: return true on first matching file (avoids full scan of 800+ files)
         for case let url as URL in enumerator {
             guard url.pathExtension == "jsonl",
-                  let mod = (try? url.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate
+                  let mod = (try? url.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate,
+                  mod >= threshold
             else { continue }
-            if mod >= threshold { return true }
+
+            if hasRecentToolUse(in: url, since: threshold) { return true }
         }
         return false
     }
 
+    // MARK: - Codex
+
+    /// Queries threads.updated_at — only true when a thread was
+    /// actually active recently, not just when the app is open.
     private static func isCodexActive(since threshold: Date) -> Bool {
-        // sqlite-shm is touched whenever Codex holds an active DB connection
-        let path = homeDir().appendingPathComponent(".codex/state_5.sqlite-shm").path
-        return isFileModified(at: path, since: threshold)
+        let dbPath = homeDir().appendingPathComponent(".codex/state_5.sqlite").path
+        let epoch = Int64(threshold.timeIntervalSince1970)
+        return queryCount(
+            db: dbPath,
+            sql: "SELECT COUNT(*) FROM threads WHERE updated_at >= ?",
+            param: epoch
+        ) > 0
     }
 
+    // MARK: - OpenCode
+
+    /// Queries message.time.created (milliseconds) — only true when
+    /// a message was created recently (active session).
     private static func isOpenCodeActive(since threshold: Date) -> Bool {
-        let path = homeDir().appendingPathComponent(".local/share/opencode/opencode.db-wal").path
-        return isFileModified(at: path, since: threshold)
+        let dbPath = homeDir().appendingPathComponent(".local/share/opencode/opencode.db").path
+        let epochMs = Int64(threshold.timeIntervalSince1970 * 1000)
+        return queryCount(
+            db: dbPath,
+            sql: "SELECT COUNT(*) FROM message WHERE json_extract(data,'$.time.created') >= ?",
+            param: epochMs
+        ) > 0
     }
 
-    // MARK: - Helpers
+    // MARK: - JSONL tool use detection
 
-    private static func isFileModified(at path: String, since threshold: Date) -> Bool {
-        guard let attrs = try? FileManager.default.attributesOfItem(atPath: path),
-              let modDate = attrs[.modificationDate] as? Date else { return false }
-        return modDate > threshold
+    private static func hasRecentToolUse(in url: URL, since threshold: Date) -> Bool {
+        guard let handle = try? FileHandle(forReadingFrom: url) else { return false }
+        defer { try? handle.close() }
+
+        let fileSize = (try? handle.seekToEnd()) ?? 0
+        guard fileSize > 0 else { return false }
+
+        let readSize = UInt64(min(4096, fileSize))
+        try? handle.seek(toOffset: fileSize - readSize)
+        let data = handle.readDataToEndOfFile()
+
+        guard let text = String(data: data, encoding: .utf8) else { return false }
+
+        let decoder = JSONDecoder()
+        return text
+            .components(separatedBy: .newlines)
+            .filter { !$0.isEmpty }
+            .reversed()
+            .contains { line in
+                guard let lineData = line.data(using: .utf8),
+                      let entry = try? decoder.decode(JSONLEntry.self, from: lineData),
+                      let tsStr = entry.timestamp,
+                      let date = DateParser.parse(tsStr),
+                      date >= threshold
+                else { return false }
+                return entry.hasToolActivity
+            }
+    }
+
+    // MARK: - SQLite helper
+
+    private static func queryCount(db path: String, sql: String, param: Int64) -> Int {
+        guard FileManager.default.fileExists(atPath: path) else { return 0 }
+
+        var db: OpaquePointer?
+        guard sqlite3_open(path, &db) == SQLITE_OK else { return 0 }
+        defer { sqlite3_close(db) }
+        sqlite3_busy_timeout(db, 1000)
+
+        var stmt: OpaquePointer?
+        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else { return 0 }
+        defer { sqlite3_finalize(stmt) }
+
+        sqlite3_bind_int64(stmt, 1, param)
+        guard sqlite3_step(stmt) == SQLITE_ROW else { return 0 }
+        return Int(sqlite3_column_int64(stmt, 0))
+    }
+}
+
+// MARK: - Claude Code JSONL entry
+
+private struct JSONLEntry: Decodable {
+    let timestamp: String?
+    let message: Message?
+
+    struct Message: Decodable {
+        let content: [ContentItem]?
+    }
+
+    struct ContentItem: Decodable {
+        let type: String?
+    }
+
+    var hasToolActivity: Bool {
+        guard let items = message?.content else { return false }
+        return items.contains { $0.type == "tool_use" || $0.type == "tool_result" }
     }
 }
