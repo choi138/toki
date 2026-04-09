@@ -75,38 +75,45 @@ enum ActivityMonitor {
         let fileSize = (try? handle.seekToEnd()) ?? 0
         guard fileSize > 0 else { return false }
 
-        // 256 KB — covers even large tool_result records (long command outputs, file reads)
-        let readSize = UInt64(min(262144, fileSize))
-        let readOffset = fileSize - readSize
-        try? handle.seek(toOffset: readOffset)
-        var data = handle.readDataToEndOfFile()
-
-        // Only skip to the first newline when we started mid-file (offset > 0).
-        // This avoids landing on a split UTF-8 character at the arbitrary boundary.
-        // When reading from the start (offset == 0), the first line is complete
-        // and must not be discarded — it could be the only tool_use entry.
-        if readOffset > 0, let firstNewline = data.firstIndex(of: UInt8(ascii: "\n")) {
-            data = Data(data[(firstNewline + 1)...])
-        }
-
-        // If Claude is mid-write the last record may be incomplete, breaking UTF-8 decode.
-        // Fall back to trimming up to the last complete newline and retrying.
-        let text: String
-        if let decoded = String(data: data, encoding: .utf8) {
-            text = decoded
-        } else if let lastNewline = data.lastIndex(of: UInt8(ascii: "\n")),
-                  let decoded = String(data: Data(data[...lastNewline]), encoding: .utf8) {
-            text = decoded
-        } else {
-            return false
-        }
-
         let decoder = JSONDecoder()
-        return text
-            .components(separatedBy: .newlines)
-            .filter { !$0.isEmpty }
-            .reversed()
-            .contains { line in
+
+        // Start at 256 KB; double until we find complete lines or reach the file start.
+        var readSize = UInt64(min(262144, fileSize))
+        while true {
+            let readOffset = fileSize - readSize
+            try? handle.seek(toOffset: readOffset)
+            var data = handle.readDataToEndOfFile()
+
+            // Skip to first newline only when mid-record at the cut point.
+            // JSONL records always start with '{', so if the buffer already starts
+            // with '{' the offset is line-aligned and the first record is complete.
+            if readOffset > 0, data.first != UInt8(ascii: "{"),
+               let firstNewline = data.firstIndex(of: UInt8(ascii: "\n")) {
+                data = Data(data[(firstNewline + 1)...])
+            }
+
+            // If Claude is mid-write the last record may be incomplete.
+            // Fall back to trimming up to the last complete newline and retrying.
+            let text: String
+            if let decoded = String(data: data, encoding: .utf8) {
+                text = decoded
+            } else if let lastNewline = data.lastIndex(of: UInt8(ascii: "\n")),
+                      let decoded = String(data: Data(data[...lastNewline]), encoding: .utf8) {
+                text = decoded
+            } else {
+                return false
+            }
+
+            let lines = text.components(separatedBy: .newlines).filter { !$0.isEmpty }
+
+            // No complete lines in the window — grow and retry if possible.
+            let hasCompleteLine = lines.contains { $0.hasPrefix("{") }
+            if !hasCompleteLine, readSize < fileSize {
+                readSize = min(readSize * 2, fileSize)
+                continue
+            }
+
+            return lines.reversed().contains { line in
                 guard let lineData = line.data(using: .utf8),
                       let entry = try? decoder.decode(JSONLEntry.self, from: lineData),
                       let tsStr = entry.timestamp,
@@ -115,6 +122,7 @@ enum ActivityMonitor {
                 else { return false }
                 return entry.hasToolActivity
             }
+        }
     }
 
     // MARK: - SQLite helper
