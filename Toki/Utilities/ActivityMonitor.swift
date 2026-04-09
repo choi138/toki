@@ -75,8 +75,8 @@ enum ActivityMonitor {
         let fileSize = (try? handle.seekToEnd()) ?? 0
         guard fileSize > 0 else { return false }
 
-        // 64 KB — large enough to cover big tool outputs (long command results, etc.)
-        let readSize = UInt64(min(65536, fileSize))
+        // 256 KB — covers even large tool_result records (long command outputs, file reads)
+        let readSize = UInt64(min(262144, fileSize))
         let readOffset = fileSize - readSize
         try? handle.seek(toOffset: readOffset)
         var data = handle.readDataToEndOfFile()
