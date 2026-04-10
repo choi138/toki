@@ -5,6 +5,7 @@ import Foundation
 struct PerModelUsage {
     var totalTokens: Int = 0
     var cost: Double = 0
+    var sources: Set<String> = []
 }
 
 // MARK: - Raw Token Usage
@@ -35,6 +36,7 @@ func += (lhs: inout RawTokenUsage, rhs: RawTokenUsage) {
     rhs.perModel.forEach { id, usage in
         lhs.perModel[id, default: PerModelUsage()].totalTokens += usage.totalTokens
         lhs.perModel[id, default: PerModelUsage()].cost += usage.cost
+        lhs.perModel[id, default: PerModelUsage()].sources.formUnion(usage.sources)
     }
 }
 

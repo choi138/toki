@@ -77,6 +77,7 @@ struct OpenCodeReader: TokenReader {
                 let msgTokens = input + output + cacheRead + cacheWrite + reasoning
                 result.perModel[modelID, default: PerModelUsage()].totalTokens += msgTokens
                 result.perModel[modelID, default: PerModelUsage()].cost += msgCost
+                result.perModel[modelID, default: PerModelUsage()].sources.insert(name)
             }
         }
 

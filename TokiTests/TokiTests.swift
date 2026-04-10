@@ -115,6 +115,48 @@ final class TokiTests: XCTestCase {
         XCTAssertEqual(usage.totalTokens, 0)
     }
 
+    // MARK: - modelPrice
+
+    func test_modelPrice_matches_currentCodexSlugs() {
+        let codex = modelPrice(for: "gpt-5.3-codex")
+        XCTAssertNotNil(codex)
+        XCTAssertEqual(codex!.inputPerMillion, 1.75, accuracy: 0.0001)
+        XCTAssertEqual(codex!.outputPerMillion, 14.0, accuracy: 0.0001)
+        XCTAssertEqual(codex!.cacheReadPerMillion, 0.175, accuracy: 0.0001)
+
+        let codexPrevious = modelPrice(for: "gpt-5.2-codex")
+        XCTAssertNotNil(codexPrevious)
+        XCTAssertEqual(codexPrevious!.inputPerMillion, 1.75, accuracy: 0.0001)
+        XCTAssertEqual(codexPrevious!.outputPerMillion, 14.0, accuracy: 0.0001)
+        XCTAssertEqual(codexPrevious!.cacheReadPerMillion, 0.175, accuracy: 0.0001)
+
+        let codexBase = modelPrice(for: "gpt-5-codex")
+        XCTAssertNotNil(codexBase)
+        XCTAssertEqual(codexBase!.inputPerMillion, 1.25, accuracy: 0.0001)
+        XCTAssertEqual(codexBase!.outputPerMillion, 10.0, accuracy: 0.0001)
+        XCTAssertEqual(codexBase!.cacheReadPerMillion, 0.125, accuracy: 0.0001)
+
+        let codexMini = modelPrice(for: "gpt-5.1-codex-mini")
+        XCTAssertNotNil(codexMini)
+        XCTAssertEqual(codexMini!.inputPerMillion, 0.25, accuracy: 0.0001)
+        XCTAssertEqual(codexMini!.outputPerMillion, 2.0, accuracy: 0.0001)
+        XCTAssertEqual(codexMini!.cacheReadPerMillion, 0.025, accuracy: 0.0001)
+
+        let legacyMini = modelPrice(for: "codex-mini-latest")
+        XCTAssertNotNil(legacyMini)
+        XCTAssertEqual(legacyMini!.inputPerMillion, 1.50, accuracy: 0.0001)
+        XCTAssertEqual(legacyMini!.outputPerMillion, 6.0, accuracy: 0.0001)
+        XCTAssertEqual(legacyMini!.cacheReadPerMillion, 0.375, accuracy: 0.0001)
+    }
+
+    func test_modelPrice_prefers_specificCodexMiniOverGenericGpt5() {
+        let specific = modelPrice(for: "gpt-5.1-codex-mini-2025-11-03")
+        XCTAssertNotNil(specific)
+        XCTAssertEqual(specific!.inputPerMillion, 0.25, accuracy: 0.0001)
+        XCTAssertEqual(specific!.outputPerMillion, 2.0, accuracy: 0.0001)
+        XCTAssertEqual(specific!.cacheReadPerMillion, 0.025, accuracy: 0.0001)
+    }
+
     // MARK: - CodexReader
 
     func test_codexReader_usesBaselineBeforeRangeAndDeduplicatesSnapshots() {
@@ -142,7 +184,7 @@ final class TokiTests: XCTestCase {
         XCTAssertEqual(usage.reasoningTokens, 10)
         XCTAssertEqual(usage.totalTokens, 140)
         XCTAssertEqual(usage.perModel["gpt-5.4"]?.totalTokens, 140)
-        XCTAssertEqual(usage.cost, 0.00245, accuracy: 0.000001)
+        XCTAssertEqual(usage.cost, 0.0007825, accuracy: 0.000001)
     }
 
     func test_codexReader_countsInitialSnapshotWhenSessionStartsInsideRange() {
@@ -164,7 +206,7 @@ final class TokiTests: XCTestCase {
         XCTAssertEqual(usage.reasoningTokens, 5)
         XCTAssertEqual(usage.totalTokens, 150)
         XCTAssertEqual(usage.perModel["gpt-5.4-mini"]?.totalTokens, 150)
-        XCTAssertEqual(usage.cost, 0.0023, accuracy: 0.000001)
+        XCTAssertEqual(usage.cost, 0.0002115, accuracy: 0.000001)
     }
 
     private func tokenCountLine(

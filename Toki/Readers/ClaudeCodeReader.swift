@@ -69,6 +69,7 @@ struct ClaudeCodeReader: TokenReader {
                 let entryTokens = entry.input + entry.output + entry.cacheRead + entry.cacheWrite
                 acc.perModel[modelKey, default: PerModelUsage()].totalTokens += entryTokens
                 acc.perModel[modelKey, default: PerModelUsage()].cost += entryCost
+                acc.perModel[modelKey, default: PerModelUsage()].sources.insert(name)
             }
         }
     }
