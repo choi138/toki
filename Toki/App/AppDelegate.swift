@@ -54,14 +54,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func startAnimation() {
         guard !runFrames.isEmpty else { return }
         currentFrame = 0
-        animationTimer = Timer.scheduledTimer(
-            withTimeInterval: Timing.frameInterval,
+        let timer = Timer(
+            timeInterval: Timing.frameInterval,
             repeats: true
         ) { [weak self] _ in
             guard let self, let button = self.statusItem.button else { return }
             button.image = self.runFrames[self.currentFrame % self.runFrames.count]
             self.currentFrame &+= 1
         }
+        RunLoop.main.add(timer, forMode: .common)
+        animationTimer = timer
     }
 
     private func stopAnimation() {
@@ -75,13 +77,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func startActivityChecks() {
         checkActivityInBackground()
-        activityCheckTimer = Timer.scheduledTimer(
-            withTimeInterval: Timing.activityCheck,
+        let checkTimer = Timer(
+            timeInterval: Timing.activityCheck,
             repeats: true
         ) { [weak self] _ in
             self?.checkActivityInBackground()
         }
-        activityCheckTimer?.tolerance = 1.0
+        checkTimer.tolerance = 1.0
+        RunLoop.main.add(checkTimer, forMode: .common)
+        activityCheckTimer = checkTimer
     }
 
     private func checkActivityInBackground() {
@@ -99,7 +103,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let shouldStop  = !isActive && isAnimating
 
         if shouldStart { startAnimation() }
-        if shouldStop  { stopAnimation()  }
+        if shouldStop { stopAnimation()  }
     }
 
     // MARK: - Popover

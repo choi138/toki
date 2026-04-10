@@ -45,11 +45,51 @@ enum ActivityMonitor {
     private static func isCodexActive(since threshold: Date) -> Bool {
         let dbPath = homeDir().appendingPathComponent(".codex/state_5.sqlite").path
         let epoch = Int64(threshold.timeIntervalSince1970)
-        return queryCount(
+        if queryCount(
             db: dbPath,
             sql: "SELECT COUNT(*) FROM threads WHERE updated_at >= ?",
             param: epoch
-        ) > 0
+        ) > 0 {
+            return true
+        }
+
+        return hasRecentCodexRollout(since: threshold)
+    }
+
+    private static func hasRecentCodexRollout(since threshold: Date) -> Bool {
+        let cal = Calendar.current
+        let today = cal.startOfDay(for: Date())
+        let yesterday = cal.date(byAdding: .day, value: -1, to: today) ?? today
+        let candidateDays = [yesterday, cal.startOfDay(for: threshold), today]
+
+        let sessionDirs = Set(candidateDays.map { day in
+            let comps = cal.dateComponents([.year, .month, .day], from: day)
+            return homeDir()
+                .appendingPathComponent(".codex/sessions")
+                .appendingPathComponent(String(format: "%04d", comps.year ?? 0))
+                .appendingPathComponent(String(format: "%02d", comps.month ?? 0))
+                .appendingPathComponent(String(format: "%02d", comps.day ?? 0))
+                .path
+        })
+
+        for dirPath in sessionDirs {
+            let dirURL = URL(fileURLWithPath: dirPath)
+            guard FileManager.default.fileExists(atPath: dirURL.path),
+                  let enumerator = FileManager.default.enumerator(
+                      at: dirURL,
+                      includingPropertiesForKeys: [.contentModificationDateKey],
+                      options: [.skipsHiddenFiles]
+                  ) else { continue }
+
+            for case let url as URL in enumerator {
+                guard url.pathExtension == "jsonl",
+                      let mod = (try? url.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate,
+                      mod >= threshold else { continue }
+                return true
+            }
+        }
+
+        return false
     }
 
     // MARK: - OpenCode

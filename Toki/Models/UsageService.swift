@@ -4,8 +4,8 @@ import Foundation
 final class UsageService: ObservableObject {
     @Published var usageData: UsageData = .empty
     @Published var isLoading: Bool = false
-    @Published var lastFetchedAt: Date? = nil
-    @Published var yesterdayTotalTokens: Int? = nil
+    @Published var lastFetchedAt: Date?
+    @Published var yesterdayTotalTokens: Int?
 
     // Date range
     @Published var startDate: Date
@@ -17,7 +17,7 @@ final class UsageService: ObservableObject {
         CodexReader(),
         GeminiReader(),
         OpenCodeReader(),
-        OpenClawReader(),
+        OpenClawReader()
     ]
 
     init() {
@@ -52,7 +52,7 @@ final class UsageService: ObservableObject {
         let combined = await fetchRange(from: startDate, to: endDate)
 
         // fetch previous period sequentially to avoid concurrent SQLite conflicts
-        var prev: RawTokenUsage? = nil
+        var prev: RawTokenUsage?
         if isSingleDay {
             let prevStart = Calendar.current.date(byAdding: .day, value: -1, to: startDate)!
             prev = await fetchRange(from: prevStart, to: startDate)
