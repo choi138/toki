@@ -86,9 +86,18 @@ struct CodexReader: TokenReader {
 
     private func overlappingSessions(from startDate: Date, to endDate: Date) -> [CodexSession] {
         let dbSessions = overlappingSessionsFromDB(from: startDate, to: endDate)
-        guard dbSessions.isEmpty else { return dbSessions }
-        // DB is stale or empty — fall back to scanning JSONL files directly
-        return overlappingSessionsFromJSONL(from: startDate, to: endDate)
+        let jsonlSessions = overlappingSessionsFromJSONL(from: startDate, to: endDate)
+
+        // Merge by rolloutPath. DB entry wins because it carries model info;
+        // JSONL-only paths fill gaps when state_5.sqlite is partially stale.
+        var byPath: [String: CodexSession] = [:]
+        dbSessions.forEach { byPath[$0.rolloutPath] = $0 }
+        jsonlSessions.forEach { session in
+            if byPath[session.rolloutPath] == nil {
+                byPath[session.rolloutPath] = session
+            }
+        }
+        return Array(byPath.values)
     }
 
     private func overlappingSessionsFromDB(from startDate: Date, to endDate: Date) -> [CodexSession] {
@@ -161,9 +170,38 @@ struct CodexReader: TokenReader {
                           forKeys: [.contentModificationDateKey]
                       ))?.contentModificationDate,
                       mod >= startDate else { return nil }
-                return CodexSession(rolloutPath: fileURL.path, model: nil)
+                return CodexSession(rolloutPath: fileURL.path, model: extractModel(from: fileURL))
             }
         }
+    }
+
+    /// Reads the first 64 KB of a rollout JSONL to find the model name from a
+    /// `turn_context` entry (e.g. `{"type":"turn_context","payload":{"model":"gpt-5.4",...}}`).
+    private func extractModel(from url: URL) -> String? {
+        guard let handle = try? FileHandle(forReadingFrom: url) else { return nil }
+        defer { try? handle.close() }
+
+        let data = handle.readData(ofLength: 65536)
+        let text = String(data: data, encoding: .utf8) ?? ""
+        let decoder = JSONDecoder()
+
+        return text.components(separatedBy: .newlines).compactMap { line -> String? in
+            guard let lineData = line.data(using: .utf8),
+                  let entry = try? decoder.decode(CodexModelEntry.self, from: lineData),
+                  entry.type == "turn_context",
+                  let model = entry.payload?.model,
+                  !model.isEmpty else { return nil }
+            return model
+        }.first
+    }
+}
+
+private struct CodexModelEntry: Decodable {
+    let type: String?
+    let payload: Payload?
+
+    struct Payload: Decodable {
+        let model: String?
     }
 }
 
