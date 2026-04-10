@@ -40,11 +40,11 @@ extension UsageData {
         date: Calendar.current.date(
             from: DateComponents(year: 2026, month: 4, day: 8)
         )!,
-        inputTokens:     11_000_000,
-        outputTokens:       401_900,
+        inputTokens: 11_000_000,
+        outputTokens: 401_900,
         cacheReadTokens: 112_600_000,
-        cacheWriteTokens:         0,
-        reasoningTokens:    176_400,
+        cacheWriteTokens: 0,
+        reasoningTokens: 176_400,
         cost: 64.33,
         perModel: []
     )
@@ -68,8 +68,8 @@ extension UsageData {
 extension Double {
     func formattedCost() -> String {
         if self >= 1_000 { return String(format: "$%.1fK", self / 1_000) }
-        if self >= 100   { return String(format: "$%.0f",  self) }
-        if self >= 10    { return String(format: "$%.1f",  self) }
+        if self >= 100 { return String(format: "$%.0f", self) }
+        if self >= 10 { return String(format: "$%.1f", self) }
         return String(format: "$%.2f", self)
     }
 }
@@ -78,8 +78,8 @@ extension Int {
     func formattedTokens() -> String {
         let value = Double(self)
         if value >= 1_000_000_000 { return Self.format(value / 1_000_000_000) + "B" }
-        if value >= 1_000_000     { return Self.format(value / 1_000_000)     + "M" }
-        if value >= 1_000         { return Self.format(value / 1_000)         + "K" }
+        if value >= 1_000_000 { return Self.format(value / 1_000_000)     + "M" }
+        if value >= 1_000 { return Self.format(value / 1_000)         + "K" }
         return "\(self)"
     }
 

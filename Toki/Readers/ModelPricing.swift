@@ -27,29 +27,29 @@ struct ModelPrice {
 
 private let pricingTable: [String: ModelPrice] = [
     // Claude Opus 4 (specific versions)
-    "claude-opus-4-5-thinking-high":         ModelPrice(inputPerMillion: 15.0,  outputPerMillion: 75.0,  cacheReadPerMillion: 1.50,  cacheWritePerMillion: 18.75),
-    "claude-opus-4-6":                       ModelPrice(inputPerMillion: 15.0,  outputPerMillion: 75.0,  cacheReadPerMillion: 1.50,  cacheWritePerMillion: 18.75),
-    "claude-opus-4-5":                       ModelPrice(inputPerMillion: 15.0,  outputPerMillion: 75.0,  cacheReadPerMillion: 1.50,  cacheWritePerMillion: 18.75),
-    "claude-opus-4":                         ModelPrice(inputPerMillion: 15.0,  outputPerMillion: 75.0,  cacheReadPerMillion: 1.50,  cacheWritePerMillion: 18.75),
+    "claude-opus-4-5-thinking-high": ModelPrice(inputPerMillion: 15.0, outputPerMillion: 75.0, cacheReadPerMillion: 1.50, cacheWritePerMillion: 18.75),
+    "claude-opus-4-6": ModelPrice(inputPerMillion: 15.0, outputPerMillion: 75.0, cacheReadPerMillion: 1.50, cacheWritePerMillion: 18.75),
+    "claude-opus-4-5": ModelPrice(inputPerMillion: 15.0, outputPerMillion: 75.0, cacheReadPerMillion: 1.50, cacheWritePerMillion: 18.75),
+    "claude-opus-4": ModelPrice(inputPerMillion: 15.0, outputPerMillion: 75.0, cacheReadPerMillion: 1.50, cacheWritePerMillion: 18.75),
     // Claude Sonnet 4 (specific versions)
-    "claude-sonnet-4-5-thinking-medium":     ModelPrice(inputPerMillion: 3.0,   outputPerMillion: 15.0,  cacheReadPerMillion: 0.30,  cacheWritePerMillion: 3.75),
-    "claude-sonnet-4-6":                     ModelPrice(inputPerMillion: 3.0,   outputPerMillion: 15.0,  cacheReadPerMillion: 0.30,  cacheWritePerMillion: 3.75),
-    "claude-sonnet-4-5":                     ModelPrice(inputPerMillion: 3.0,   outputPerMillion: 15.0,  cacheReadPerMillion: 0.30,  cacheWritePerMillion: 3.75),
-    "claude-sonnet-4":                       ModelPrice(inputPerMillion: 3.0,   outputPerMillion: 15.0,  cacheReadPerMillion: 0.30,  cacheWritePerMillion: 3.75),
+    "claude-sonnet-4-5-thinking-medium": ModelPrice(inputPerMillion: 3.0, outputPerMillion: 15.0, cacheReadPerMillion: 0.30, cacheWritePerMillion: 3.75),
+    "claude-sonnet-4-6": ModelPrice(inputPerMillion: 3.0, outputPerMillion: 15.0, cacheReadPerMillion: 0.30, cacheWritePerMillion: 3.75),
+    "claude-sonnet-4-5": ModelPrice(inputPerMillion: 3.0, outputPerMillion: 15.0, cacheReadPerMillion: 0.30, cacheWritePerMillion: 3.75),
+    "claude-sonnet-4": ModelPrice(inputPerMillion: 3.0, outputPerMillion: 15.0, cacheReadPerMillion: 0.30, cacheWritePerMillion: 3.75),
     // Claude Haiku 4
-    "claude-haiku-4-5":                      ModelPrice(inputPerMillion: 0.80,  outputPerMillion: 4.0,   cacheReadPerMillion: 0.08,  cacheWritePerMillion: 1.00),
-    "claude-haiku-4":                        ModelPrice(inputPerMillion: 0.80,  outputPerMillion: 4.0,   cacheReadPerMillion: 0.08,  cacheWritePerMillion: 1.00),
+    "claude-haiku-4-5": ModelPrice(inputPerMillion: 0.80, outputPerMillion: 4.0, cacheReadPerMillion: 0.08, cacheWritePerMillion: 1.00),
+    "claude-haiku-4": ModelPrice(inputPerMillion: 0.80, outputPerMillion: 4.0, cacheReadPerMillion: 0.08, cacheWritePerMillion: 1.00),
     // OpenAI
-    "gpt-5.4":                               ModelPrice(inputPerMillion: 10.0,  outputPerMillion: 40.0,  cacheReadPerMillion: 5.0,   cacheWritePerMillion: 0.0),
-    "gpt-5.2-pro":                           ModelPrice(inputPerMillion: 10.0,  outputPerMillion: 40.0,  cacheReadPerMillion: 5.0,   cacheWritePerMillion: 0.0),
-    "gpt-5":                                 ModelPrice(inputPerMillion: 10.0,  outputPerMillion: 40.0,  cacheReadPerMillion: 5.0,   cacheWritePerMillion: 0.0),
+    "gpt-5.4": ModelPrice(inputPerMillion: 10.0, outputPerMillion: 40.0, cacheReadPerMillion: 5.0, cacheWritePerMillion: 0.0),
+    "gpt-5.2-pro": ModelPrice(inputPerMillion: 10.0, outputPerMillion: 40.0, cacheReadPerMillion: 5.0, cacheWritePerMillion: 0.0),
+    "gpt-5": ModelPrice(inputPerMillion: 10.0, outputPerMillion: 40.0, cacheReadPerMillion: 5.0, cacheWritePerMillion: 0.0),
     // Google Gemini (estimates)
-    "gemini-3-pro-high":                     ModelPrice(inputPerMillion: 2.0,   outputPerMillion: 8.0,   cacheReadPerMillion: 0.5,   cacheWritePerMillion: 0.0),
-    "gemini-3-flash":                        ModelPrice(inputPerMillion: 0.10,  outputPerMillion: 0.40,  cacheReadPerMillion: 0.025, cacheWritePerMillion: 0.0),
-    "gemini-3":                              ModelPrice(inputPerMillion: 1.0,   outputPerMillion: 4.0,   cacheReadPerMillion: 0.25,  cacheWritePerMillion: 0.0),
+    "gemini-3-pro-high": ModelPrice(inputPerMillion: 2.0, outputPerMillion: 8.0, cacheReadPerMillion: 0.5, cacheWritePerMillion: 0.0),
+    "gemini-3-flash": ModelPrice(inputPerMillion: 0.10, outputPerMillion: 0.40, cacheReadPerMillion: 0.025, cacheWritePerMillion: 0.0),
+    "gemini-3": ModelPrice(inputPerMillion: 1.0, outputPerMillion: 4.0, cacheReadPerMillion: 0.25, cacheWritePerMillion: 0.0),
     // xAI Grok (estimate)
-    "grok-code":                             ModelPrice(inputPerMillion: 3.0,   outputPerMillion: 15.0,  cacheReadPerMillion: 0.30,  cacheWritePerMillion: 0.0),
-    "grok":                                  ModelPrice(inputPerMillion: 3.0,   outputPerMillion: 15.0,  cacheReadPerMillion: 0.30,  cacheWritePerMillion: 0.0),
+    "grok-code": ModelPrice(inputPerMillion: 3.0, outputPerMillion: 15.0, cacheReadPerMillion: 0.30, cacheWritePerMillion: 0.0),
+    "grok": ModelPrice(inputPerMillion: 3.0, outputPerMillion: 15.0, cacheReadPerMillion: 0.30, cacheWritePerMillion: 0.0)
 ]
 
 // Pre-sorted once at startup — longest key first so most specific prefix wins

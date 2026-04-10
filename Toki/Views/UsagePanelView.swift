@@ -57,7 +57,7 @@ struct UsagePanelView: View {
 // MARK: - Skeleton Bar
 
 private struct SkeletonBar: View {
-    var width: CGFloat? = nil
+    var width: CGFloat?
     var height: CGFloat = 12
     var cornerRadius: CGFloat = 4
 
@@ -409,11 +409,11 @@ private struct PanelTokenBreakdownView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            StatRowView(label: "Input",      value: usage.inputTokens.formattedTokens(),     accent: Color(red: 0.4, green: 0.8, blue: 1.0), isLoading: isLoading)
-            StatRowView(label: "Output",     value: usage.outputTokens.formattedTokens(),    accent: Color(red: 0.6, green: 1.0, blue: 0.7), isLoading: isLoading)
+            StatRowView(label: "Input", value: usage.inputTokens.formattedTokens(), accent: Color(red: 0.4, green: 0.8, blue: 1.0), isLoading: isLoading)
+            StatRowView(label: "Output", value: usage.outputTokens.formattedTokens(), accent: Color(red: 0.6, green: 1.0, blue: 0.7), isLoading: isLoading)
             StatRowView(label: "Cache Read", value: usage.cacheReadTokens.formattedTokens(), accent: Color(red: 1.0, green: 0.8, blue: 0.4), isLoading: isLoading)
-            StatRowView(label: "Cache Hit",  value: String(format: "%.1f%%", usage.cacheEfficiency), accent: Color(red: 1.0, green: 0.65, blue: 0.2), isLoading: isLoading)
-            StatRowView(label: "Cost",       value: usage.cost.formattedCost(),              accent: Color(red: 0.4, green: 0.9, blue: 0.6), isLoading: isLoading)
+            StatRowView(label: "Cache Hit", value: String(format: "%.1f%%", usage.cacheEfficiency), accent: Color(red: 1.0, green: 0.65, blue: 0.2), isLoading: isLoading)
+            StatRowView(label: "Cost", value: usage.cost.formattedCost(), accent: Color(red: 0.4, green: 0.9, blue: 0.6), isLoading: isLoading)
         }
         .padding(.vertical, 6)
     }
@@ -518,9 +518,9 @@ private struct ModelStatRowView: View {
     private var accentColor: Color {
         let id = stat.id
         if id.hasPrefix("claude-") { return Color(red: 0.55, green: 0.45, blue: 1.0) }
-        if id.hasPrefix("gpt-")    { return Color(red: 0.4,  green: 0.9,  blue: 0.5) }
-        if id.hasPrefix("gemini-") { return Color(red: 0.3,  green: 0.7,  blue: 1.0) }
-        if id.hasPrefix("grok-")   { return Color(red: 1.0,  green: 0.8,  blue: 0.2) }
+        if id.hasPrefix("gpt-") { return Color(red: 0.4, green: 0.9, blue: 0.5) }
+        if id.hasPrefix("gemini-") { return Color(red: 0.3, green: 0.7, blue: 1.0) }
+        if id.hasPrefix("grok-") { return Color(red: 1.0, green: 0.8, blue: 0.2) }
         return Color.white.opacity(0.5)
     }
 }

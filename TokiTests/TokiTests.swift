@@ -6,42 +6,42 @@ final class TokiTests: XCTestCase {
     // MARK: - formattedTokens
 
     func test_formattedTokens_belowThousand() {
-        XCTAssertEqual(0.formattedTokens(),   "0")
-        XCTAssertEqual(1.formattedTokens(),   "1")
+        XCTAssertEqual(0.formattedTokens(), "0")
+        XCTAssertEqual(1.formattedTokens(), "1")
         XCTAssertEqual(999.formattedTokens(), "999")
     }
 
     func test_formattedTokens_thousands() {
-        XCTAssertEqual(1_000.formattedTokens(),   "1.0K")
-        XCTAssertEqual(1_500.formattedTokens(),   "1.5K")
-        XCTAssertEqual(10_000.formattedTokens(),  "10.0K")
+        XCTAssertEqual(1_000.formattedTokens(), "1.0K")
+        XCTAssertEqual(1_500.formattedTokens(), "1.5K")
+        XCTAssertEqual(10_000.formattedTokens(), "10.0K")
         XCTAssertEqual(999_999.formattedTokens(), "1000.0K")
     }
 
     func test_formattedTokens_millions() {
-        XCTAssertEqual(1_000_000.formattedTokens(),   "1.0M")
-        XCTAssertEqual(1_230_000.formattedTokens(),   "1.23M")
-        XCTAssertEqual(11_000_000.formattedTokens(),  "11.0M")
+        XCTAssertEqual(1_000_000.formattedTokens(), "1.0M")
+        XCTAssertEqual(1_230_000.formattedTokens(), "1.23M")
+        XCTAssertEqual(11_000_000.formattedTokens(), "11.0M")
         XCTAssertEqual(112_600_000.formattedTokens(), "112.6M")
     }
 
     func test_formattedTokens_billions() {
-        XCTAssertEqual(1_000_000_000.formattedTokens(),   "1.0B")
-        XCTAssertEqual(3_560_000_000.formattedTokens(),   "3.56B")
-        XCTAssertEqual(10_000_000_000.formattedTokens(),  "10.0B")
+        XCTAssertEqual(1_000_000_000.formattedTokens(), "1.0B")
+        XCTAssertEqual(3_560_000_000.formattedTokens(), "3.56B")
+        XCTAssertEqual(10_000_000_000.formattedTokens(), "10.0B")
     }
 
     // MARK: - formattedCost
 
     func test_formattedCost_small() {
-        XCTAssertEqual(0.0.formattedCost(),  "$0.00")
-        XCTAssertEqual(1.5.formattedCost(),  "$1.50")
+        XCTAssertEqual(0.0.formattedCost(), "$0.00")
+        XCTAssertEqual(1.5.formattedCost(), "$1.50")
         XCTAssertEqual(9.99.formattedCost(), "$9.99")
     }
 
     func test_formattedCost_medium() {
-        XCTAssertEqual(10.0.formattedCost(),  "$10.0")
-        XCTAssertEqual(99.9.formattedCost(),  "$99.9")
+        XCTAssertEqual(10.0.formattedCost(), "$10.0")
+        XCTAssertEqual(99.9.formattedCost(), "$99.9")
         XCTAssertEqual(100.0.formattedCost(), "$100")
         XCTAssertEqual(289.0.formattedCost(), "$289")
     }
@@ -113,5 +113,82 @@ final class TokiTests: XCTestCase {
             reasoningTokens: 0, cost: 0, perModel: []
         )
         XCTAssertEqual(usage.totalTokens, 0)
+    }
+
+    // MARK: - CodexReader
+
+    func test_codexReader_usesBaselineBeforeRangeAndDeduplicatesSnapshots() {
+        let lines = [
+            tokenCountLine(ts: "2026-04-09T14:59:00Z",
+                           input: 100, cachedInput: 20, output: 40, reasoning: 10, total: 140),
+            tokenCountLine(ts: "2026-04-10T00:01:00Z",
+                           input: 140, cachedInput: 30, output: 55, reasoning: 15, total: 195),
+            tokenCountLine(ts: "2026-04-10T00:02:00Z",
+                           input: 140, cachedInput: 30, output: 55, reasoning: 15, total: 195),
+            tokenCountLine(ts: "2026-04-10T00:03:00Z",
+                           input: 200, cachedInput: 50, output: 80, reasoning: 20, total: 280)
+        ]
+
+        let usage = CodexReader.usage(
+            fromRolloutLines: lines,
+            model: "gpt-5.4",
+            from: isoDate("2026-04-10T00:00:00Z"),
+            to: isoDate("2026-04-11T00:00:00Z")
+        )
+
+        XCTAssertEqual(usage.inputTokens, 70)
+        XCTAssertEqual(usage.cacheReadTokens, 30)
+        XCTAssertEqual(usage.outputTokens, 30)
+        XCTAssertEqual(usage.reasoningTokens, 10)
+        XCTAssertEqual(usage.totalTokens, 140)
+        XCTAssertEqual(usage.perModel["gpt-5.4"]?.totalTokens, 140)
+        XCTAssertEqual(usage.cost, 0.00245, accuracy: 0.000001)
+    }
+
+    func test_codexReader_countsInitialSnapshotWhenSessionStartsInsideRange() {
+        let lines = [
+            tokenCountLine(ts: "2026-04-10T09:00:00Z",
+                           input: 120, cachedInput: 20, output: 30, reasoning: 5, total: 150)
+        ]
+
+        let usage = CodexReader.usage(
+            fromRolloutLines: lines,
+            model: "gpt-5.4-mini",
+            from: isoDate("2026-04-10T00:00:00Z"),
+            to: isoDate("2026-04-11T00:00:00Z")
+        )
+
+        XCTAssertEqual(usage.inputTokens, 100)
+        XCTAssertEqual(usage.cacheReadTokens, 20)
+        XCTAssertEqual(usage.outputTokens, 25)
+        XCTAssertEqual(usage.reasoningTokens, 5)
+        XCTAssertEqual(usage.totalTokens, 150)
+        XCTAssertEqual(usage.perModel["gpt-5.4-mini"]?.totalTokens, 150)
+        XCTAssertEqual(usage.cost, 0.0023, accuracy: 0.000001)
+    }
+
+    private func tokenCountLine(
+        ts: String,
+        input: Int, cachedInput: Int, output: Int, reasoning: Int, total: Int
+    ) -> String {
+        let usage = [
+            "\"input_tokens\":\(input)",
+            "\"cached_input_tokens\":\(cachedInput)",
+            "\"output_tokens\":\(output)",
+            "\"reasoning_output_tokens\":\(reasoning)",
+            "\"total_tokens\":\(total)"
+        ].joined(separator: ",")
+        return """
+        {"timestamp":"\(ts)","type":"event_msg",\
+        "payload":{"type":"token_count","info":{"total_token_usage":{\(usage)}}}}
+        """
+    }
+
+    private func isoDate(_ value: String) -> Date {
+        guard let date = DateParser.parse(value) else {
+            XCTFail("Failed to parse ISO date: \(value)")
+            return Date.distantPast
+        }
+        return date
     }
 }

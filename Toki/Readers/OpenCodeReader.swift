@@ -60,7 +60,6 @@ struct OpenCodeReader: TokenReader {
             result.cacheWriteTokens += cacheWrite
             result.reasoningTokens += reasoning
 
-
             let msgCost: Double
             if let price = modelPrice(for: msg.modelID ?? "") {
                 msgCost = price.cost(

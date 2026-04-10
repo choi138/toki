@@ -50,7 +50,6 @@ struct ClaudeCodeReader: TokenReader {
             acc.cacheReadTokens += entry.cacheRead
             acc.cacheWriteTokens += entry.cacheWrite
 
-
             let entryCost: Double
             if let price = modelPrice(for: entry.model ?? "") {
                 entryCost = price.cost(
