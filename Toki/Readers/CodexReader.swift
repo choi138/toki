@@ -143,9 +143,10 @@ struct CodexReader: TokenReader {
         let startDay = cal.startOfDay(for: startDate)
         let endDay = cal.startOfDay(for: endDate)
         let numberOfDays = cal.dateComponents([.day], from: startDay, to: endDay).day ?? 0
-        // Include the day before startDay: a session that started at e.g. 23:55
-        // yesterday writes to yesterday's directory and may still be active today.
-        let dirURLs = ([-1] + (0...max(0, numberOfDays)).map { $0 }).compactMap { offset in
+        // Look back 3 days before startDay to cover sessions that started before
+        // the range but are still writing tokens into it (DB-stale edge cases).
+        let lookback = [-3, -2, -1]
+        let dirURLs = (lookback + (0...max(0, numberOfDays)).map { $0 }).compactMap { offset in
             cal.date(byAdding: .day, value: offset, to: startDay)
         }.map { day -> URL in
             let comps = cal.dateComponents([.year, .month, .day], from: day)
@@ -182,7 +183,10 @@ struct CodexReader: TokenReader {
         defer { try? handle.close() }
 
         let data = handle.readData(ofLength: 65536)
-        let text = String(data: data, encoding: .utf8) ?? ""
+        // Trim to the last complete newline to avoid mid-multibyte UTF-8 truncation
+        let trimmedData: Data = data.lastIndex(of: UInt8(ascii: "\n"))
+            .map { Data(data[...$0]) } ?? data
+        let text = String(data: trimmedData, encoding: .utf8) ?? ""
         let decoder = JSONDecoder()
 
         return text.components(separatedBy: .newlines).compactMap { line -> String? in
