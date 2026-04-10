@@ -58,10 +58,9 @@ enum ActivityMonitor {
 
     private static func hasRecentCodexRollout(since threshold: Date) -> Bool {
         let cal = Calendar.current
-        let candidateDays = [
-            cal.startOfDay(for: threshold),
-            cal.startOfDay(for: Date())
-        ]
+        let today = cal.startOfDay(for: Date())
+        let yesterday = cal.date(byAdding: .day, value: -1, to: today) ?? today
+        let candidateDays = [yesterday, cal.startOfDay(for: threshold), today]
 
         let sessionDirs = Set(candidateDays.map { day in
             let comps = cal.dateComponents([.year, .month, .day], from: day)

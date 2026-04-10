@@ -85,6 +85,13 @@ struct CodexReader: TokenReader {
     }
 
     private func overlappingSessions(from startDate: Date, to endDate: Date) -> [CodexSession] {
+        let dbSessions = overlappingSessionsFromDB(from: startDate, to: endDate)
+        guard dbSessions.isEmpty else { return dbSessions }
+        // DB is stale or empty — fall back to scanning JSONL files directly
+        return overlappingSessionsFromJSONL(from: startDate, to: endDate)
+    }
+
+    private func overlappingSessionsFromDB(from startDate: Date, to endDate: Date) -> [CodexSession] {
         var db: OpaquePointer?
         defer { sqlite3_close(db) }
         guard sqlite3_open_v2(dbPath, &db, SQLITE_OPEN_READONLY, nil) == SQLITE_OK else {
@@ -117,6 +124,45 @@ struct CodexReader: TokenReader {
             sessions.append(CodexSession(rolloutPath: rolloutPath, model: model))
         }
         return sessions
+    }
+
+    /// Scans ~/.codex/sessions/YYYY/MM/DD/*.jsonl for files modified within the
+    /// range. Used as a fallback when state_5.sqlite is stale (e.g. cross-midnight
+    /// sessions not yet reflected in updated_at).
+    private func overlappingSessionsFromJSONL(from startDate: Date, to endDate: Date) -> [CodexSession] {
+        let cal = Calendar.current
+        let startDay = cal.startOfDay(for: startDate)
+        let endDay = cal.startOfDay(for: endDate)
+        let numberOfDays = cal.dateComponents([.day], from: startDay, to: endDay).day ?? 0
+
+        let dirURLs = (0...max(0, numberOfDays)).compactMap { offset in
+            cal.date(byAdding: .day, value: offset, to: startDay)
+        }.map { day -> URL in
+            let comps = cal.dateComponents([.year, .month, .day], from: day)
+            return homeDir()
+                .appendingPathComponent(".codex/sessions")
+                .appendingPathComponent(String(format: "%04d", comps.year ?? 0))
+                .appendingPathComponent(String(format: "%02d", comps.month ?? 0))
+                .appendingPathComponent(String(format: "%02d", comps.day ?? 0))
+        }
+
+        return dirURLs.flatMap { dirURL -> [CodexSession] in
+            guard FileManager.default.fileExists(atPath: dirURL.path),
+                  let contents = try? FileManager.default.contentsOfDirectory(
+                      at: dirURL,
+                      includingPropertiesForKeys: [.contentModificationDateKey],
+                      options: [.skipsHiddenFiles]
+                  ) else { return [] }
+
+            return contents.compactMap { fileURL -> CodexSession? in
+                guard fileURL.pathExtension == "jsonl",
+                      let mod = (try? fileURL.resourceValues(
+                          forKeys: [.contentModificationDateKey]
+                      ))?.contentModificationDate,
+                      mod >= startDate else { return nil }
+                return CodexSession(rolloutPath: fileURL.path, model: nil)
+            }
+        }
     }
 }
 
