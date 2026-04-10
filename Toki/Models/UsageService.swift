@@ -60,7 +60,14 @@ final class UsageService: ObservableObject {
 
         let sortedModels = combined.perModel
             .filter { $0.value.totalTokens > 0 }
-            .map { ModelStat(id: $0.key, totalTokens: $0.value.totalTokens, cost: $0.value.cost) }
+            .map {
+                ModelStat(
+                    id: $0.key,
+                    totalTokens: $0.value.totalTokens,
+                    cost: $0.value.cost,
+                    sources: $0.value.sources.sorted()
+                )
+            }
             .sorted { $0.totalTokens > $1.totalTokens }
 
         usageData = UsageData(

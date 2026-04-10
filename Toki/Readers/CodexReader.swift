@@ -78,6 +78,7 @@ struct CodexReader: TokenReader {
             if let model = normalizedModel {
                 result.perModel[model, default: PerModelUsage()].totalTokens += usage.totalTokens
                 result.perModel[model, default: PerModelUsage()].cost += entryCost
+                result.perModel[model, default: PerModelUsage()].sources.insert("Codex")
             }
         }
 

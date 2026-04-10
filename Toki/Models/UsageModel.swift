@@ -6,6 +6,7 @@ struct ModelStat {
     let id: String
     let totalTokens: Int
     let cost: Double
+    let sources: [String]
 }
 
 // MARK: - Model

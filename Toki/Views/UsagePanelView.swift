@@ -413,7 +413,7 @@ private struct PanelTokenBreakdownView: View {
             StatRowView(label: "Output", value: usage.outputTokens.formattedTokens(), accent: Color(red: 0.6, green: 1.0, blue: 0.7), isLoading: isLoading)
             StatRowView(label: "Cache Read", value: usage.cacheReadTokens.formattedTokens(), accent: Color(red: 1.0, green: 0.8, blue: 0.4), isLoading: isLoading)
             StatRowView(label: "Cache Hit", value: String(format: "%.1f%%", usage.cacheEfficiency), accent: Color(red: 1.0, green: 0.65, blue: 0.2), isLoading: isLoading)
-            StatRowView(label: "Cost", value: usage.cost.formattedCost(), accent: Color(red: 0.4, green: 0.9, blue: 0.6), isLoading: isLoading)
+            StatRowView(label: "Estimated Cost", value: usage.cost.formattedCost(), accent: Color(red: 0.4, green: 0.9, blue: 0.6), isLoading: isLoading)
         }
         .padding(.vertical, 6)
     }
@@ -427,7 +427,7 @@ private struct PanelSummaryView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            StatRowView(label: "Cost", value: String(format: "$%.2f", usage.cost), accent: Color(red: 0.4, green: 0.9, blue: 0.6), isLoading: isLoading)
+            StatRowView(label: "Estimated Cost", value: String(format: "$%.2f", usage.cost), accent: Color(red: 0.4, green: 0.9, blue: 0.6), isLoading: isLoading)
         }
         .padding(.vertical, 6)
     }
@@ -511,8 +511,16 @@ private struct ModelStatRowView: View {
 
     private var displayName: String {
         let id = stat.id
-        if id.hasPrefix("claude-") { return String(id.dropFirst(7)) }
-        return id
+        let baseName = id.hasPrefix("claude-") ? String(id.dropFirst(7)) : id
+        guard !stat.sources.isEmpty else { return baseName }
+        return "\(baseName) · \(sourceLabel)"
+    }
+
+    private var sourceLabel: String {
+        if stat.sources.count == 1 { return stat.sources[0] }
+        let head = stat.sources.prefix(2).joined(separator: ", ")
+        let remainder = stat.sources.count - 2
+        return remainder > 0 ? "\(head) +\(remainder)" : head
     }
 
     private var accentColor: Color {
