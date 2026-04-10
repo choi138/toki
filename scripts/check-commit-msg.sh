@@ -5,10 +5,9 @@
 set -euo pipefail
 
 COMMIT_MSG_FILE="$1"
-COMMIT_MSG=$(cat "$COMMIT_MSG_FILE")
 
-# Strip comment lines before validation
-STRIPPED=$(grep -v '^\s*#' "$COMMIT_MSG_FILE" || true)
+# Strip comment lines before validation (POSIX-compatible character class)
+STRIPPED=$(grep -v '^[[:space:]]*#' "$COMMIT_MSG_FILE" || true)
 
 # 1. Block AI co-author
 if echo "$STRIPPED" | grep -qiE '^Co-Authored-By:.*claude|^Co-Authored-By:.*codex|^Co-Authored-By:.*openai|^Co-Authored-By:.*anthropic'; then
@@ -18,7 +17,12 @@ if echo "$STRIPPED" | grep -qiE '^Co-Authored-By:.*claude|^Co-Authored-By:.*code
 fi
 
 # 2. Conventional Commits format check (first non-empty, non-comment line)
-SUBJECT=$(echo "$STRIPPED" | grep -v '^\s*$' | head -1)
+SUBJECT=$(echo "$STRIPPED" | grep -v '^[[:space:]]*$' | head -1 || true)
+
+if [ -z "$SUBJECT" ]; then
+  echo "❌ [commit-msg] 커밋 메시지가 비어 있습니다."
+  exit 1
+fi
 
 CONVENTIONAL_PATTERN='^(feat|fix|docs|style|refactor|perf|test|build|ci|chore|revert)(\(.+\))?: .+'
 if ! echo "$SUBJECT" | grep -qE "$CONVENTIONAL_PATTERN"; then
