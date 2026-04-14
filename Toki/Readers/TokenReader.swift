@@ -166,10 +166,6 @@ func jsonlFileOverlapsRange(
     // do not accidentally undercount usage because of a format edge case.
     guard !bounds.isEmpty else { return true }
 
-    if let last = bounds.last, last < startDate {
-        return false
-    }
-
     if let first = bounds.first, first >= endDate {
         return false
     }

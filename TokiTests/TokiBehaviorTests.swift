@@ -88,14 +88,14 @@ final class TokiBehaviorTests: XCTestCase {
         XCTAssertEqual(jsonLineStringValue(line, forKey: "timestamp"), "2026-04-10T12:34:56Z")
     }
 
-    func test_jsonlFileOverlapsRange_skipsDisjointHistoricFile() async throws {
+    func test_jsonlFileOverlapsRange_skipsFutureOnlyFile() async throws {
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString)
             .appendingPathExtension("jsonl")
 
         let content = """
-        {"timestamp":"2026-04-01T09:00:00Z","type":"assistant"}
-        {"timestamp":"2026-04-01T11:30:00Z","type":"assistant"}
+        {"timestamp":"2026-04-04T09:00:00Z","type":"assistant"}
+        {"timestamp":"2026-04-04T11:30:00Z","type":"assistant"}
         """
         try content.write(to: url, atomically: true, encoding: .utf8)
         defer { try? FileManager.default.removeItem(at: url) }
@@ -108,6 +108,29 @@ final class TokiBehaviorTests: XCTestCase {
         )
 
         XCTAssertFalse(overlaps)
+    }
+
+    func test_jsonlFileOverlapsRange_keepsPotentiallyRelevantOutOfOrderFile() async throws {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)
+            .appendingPathExtension("jsonl")
+
+        let content = """
+        {"timestamp":"2026-04-01T09:00:00Z","type":"assistant"}
+        {"timestamp":"2026-04-02T09:00:00Z","type":"assistant"}
+        {"timestamp":"2026-04-01T11:30:00Z","type":"assistant"}
+        """
+        try content.write(to: url, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let overlaps = await jsonlFileOverlapsRange(
+            at: url,
+            startDate: behaviorTestISODate("2026-04-02T00:00:00Z"),
+            endDate: behaviorTestISODate("2026-04-03T00:00:00Z"),
+            timestampKeys: ["timestamp"]
+        )
+
+        XCTAssertTrue(overlaps)
     }
 
     func test_codexDayKey_changesAcrossTimeZones() {
