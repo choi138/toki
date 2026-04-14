@@ -21,6 +21,7 @@ final class UsageService: ObservableObject {
     @Published var isRangeMode: Bool = false
 
     private let readers: [any TokenReader]
+    private var needsRefreshAfterCurrentLoad = false
 
     init(readers: [any TokenReader] = defaultUsageReaders) {
         self.readers = readers
@@ -52,9 +53,20 @@ final class UsageService: ObservableObject {
     }
 
     func refresh() async {
-        guard !isLoading else { return }
+        guard !isLoading else {
+            needsRefreshAfterCurrentLoad = true
+            return
+        }
+
         isLoading = true
-        defer { isLoading = false }
+        defer {
+            isLoading = false
+
+            if needsRefreshAfterCurrentLoad {
+                needsRefreshAfterCurrentLoad = false
+                Task { await refresh() }
+            }
+        }
 
         let requestedStart = startDate
         let requestedEnd = endDate
@@ -74,7 +86,10 @@ final class UsageService: ObservableObject {
             previousTotalTokens = await fetchRange(from: prevStart, to: requestedStart).totalTokens
         }
 
-        guard requestedStart == startDate, requestedEnd == endDate else { return }
+        guard requestedStart == startDate, requestedEnd == endDate else {
+            needsRefreshAfterCurrentLoad = true
+            return
+        }
 
         let sortedModels = combined.perModel
             .filter { $0.value.totalTokens > 0 }

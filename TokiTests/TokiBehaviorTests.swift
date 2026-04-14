@@ -50,6 +50,39 @@ final class TokiBehaviorTests: XCTestCase {
         XCTAssertTrue(shouldCompare)
     }
 
+    func test_usageService_retriesRefreshAfterRangeChangesDuringLoad() async {
+        let gate = BlockingReaderGate()
+        let today = Calendar.current.startOfDay(for: Date())
+        let firstDay = Calendar.current.date(byAdding: .day, value: -2, to: today)!
+        let secondDay = Calendar.current.date(byAdding: .day, value: -1, to: today)!
+        let reader = BlockingMockReader(name: "Mock", gate: gate) { startDate, _ in
+            mockUsage(totalTokens: startDate == firstDay ? 100 : 200)
+        }
+
+        let service = await MainActor.run { UsageService(readers: [reader]) }
+        await MainActor.run { service.selectDay(firstDay) }
+        let initialRefresh = Task { await service.refresh() }
+
+        await gate.waitForFirstRequest()
+        await MainActor.run { service.selectDay(secondDay) }
+        await service.refresh()
+        await gate.release()
+        await initialRefresh.value
+        await gate.waitForRequestCount(2)
+
+        var totalTokens = await MainActor.run { service.usageData.totalTokens }
+        var date = await MainActor.run { service.usageData.date }
+
+        for _ in 0..<20 where totalTokens != 200 {
+            try? await Task.sleep(for: .milliseconds(10))
+            totalTokens = await MainActor.run { service.usageData.totalTokens }
+            date = await MainActor.run { service.usageData.date }
+        }
+
+        XCTAssertEqual(totalTokens, 200)
+        XCTAssertEqual(date, secondDay)
+    }
+
     func test_jsonLineStringValue_extractsISODateString() {
         let line = #"{"timestamp":"2026-04-10T12:34:56Z","type":"assistant"}"#
         XCTAssertEqual(jsonLineStringValue(line, forKey: "timestamp"), "2026-04-10T12:34:56Z")
