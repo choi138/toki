@@ -16,10 +16,10 @@ struct OpenCodeReader: TokenReader {
         }
 
         var db: OpaquePointer?
+        defer { sqlite3_close(db) }
         guard sqlite3_open_v2(dbPath, &db, SQLITE_OPEN_READONLY, nil) == SQLITE_OK else {
             return RawTokenUsage()
         }
-        defer { sqlite3_close(db) }
         sqlite3_busy_timeout(db, 2000)
 
         let startEpoch = startDate.timeIntervalSince1970 * 1000

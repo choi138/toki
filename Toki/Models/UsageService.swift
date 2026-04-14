@@ -56,16 +56,25 @@ final class UsageService: ObservableObject {
         isLoading = true
         defer { isLoading = false }
 
-        let combined = await fetchRange(from: startDate, to: endDate)
+        let requestedStart = startDate
+        let requestedEnd = endDate
+        let cal = Calendar.current
+        let compareAgainstYesterday =
+            cal.dateComponents([.day], from: requestedStart, to: requestedEnd).day == 1
+            && cal.isDateInToday(requestedStart)
+
+        let combined = await fetchRange(from: requestedStart, to: requestedEnd)
 
         // Keep the previous-day comparison only for today's single-day view.
         // Running this for arbitrary past dates doubles the slow path without
         // affecting what the UI can show.
         var previousTotalTokens: Int?
-        if shouldCompareAgainstYesterday {
-            let prevStart = Calendar.current.date(byAdding: .day, value: -1, to: startDate)!
-            previousTotalTokens = await fetchRange(from: prevStart, to: startDate).totalTokens
+        if compareAgainstYesterday {
+            let prevStart = cal.date(byAdding: .day, value: -1, to: requestedStart)!
+            previousTotalTokens = await fetchRange(from: prevStart, to: requestedStart).totalTokens
         }
+
+        guard requestedStart == startDate, requestedEnd == endDate else { return }
 
         let sortedModels = combined.perModel
             .filter { $0.value.totalTokens > 0 }
@@ -80,7 +89,7 @@ final class UsageService: ObservableObject {
             .sorted { $0.totalTokens > $1.totalTokens }
 
         usageData = UsageData(
-            date: startDate,
+            date: requestedStart,
             inputTokens: combined.inputTokens,
             outputTokens: combined.outputTokens,
             cacheReadTokens: combined.cacheReadTokens,

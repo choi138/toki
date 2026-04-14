@@ -12,15 +12,39 @@ private struct JSONLDateBounds {
 private actor JSONLDateBoundsCache {
     static let shared = JSONLDateBoundsCache()
 
-    private var storage: [String: JSONLDateBounds] = [:]
+    private var storage: [String: JSONLDateBoundsCacheEntry] = [:]
 
-    func bounds(for key: String) -> JSONLDateBounds? {
-        storage[key]
+    func bounds(
+        for identityKey: String,
+        signature: JSONLDateBoundsSignature
+    ) -> JSONLDateBounds? {
+        guard let cached = storage[identityKey],
+              cached.signature == signature else {
+            return nil
+        }
+        return cached.bounds
     }
 
-    func store(_ bounds: JSONLDateBounds, for key: String) {
-        storage[key] = bounds
+    func store(
+        _ bounds: JSONLDateBounds,
+        for identityKey: String,
+        signature: JSONLDateBoundsSignature
+    ) {
+        storage[identityKey] = JSONLDateBoundsCacheEntry(
+            signature: signature,
+            bounds: bounds
+        )
     }
+}
+
+private struct JSONLDateBoundsCacheEntry {
+    let signature: JSONLDateBoundsSignature
+    let bounds: JSONLDateBounds
+}
+
+private struct JSONLDateBoundsSignature: Equatable {
+    let modifiedAt: TimeInterval
+    let fileSize: Int
 }
 
 // MARK: - Per-Model Usage
@@ -157,28 +181,42 @@ private func cachedJSONLDateBounds(
     at url: URL,
     timestampKeys: [String]
 ) async -> JSONLDateBounds {
-    if let cacheKey = jsonlDateBoundsCacheKey(for: url),
-       let cached = await JSONLDateBoundsCache.shared.bounds(for: cacheKey) {
+    guard let identityKey = jsonlDateBoundsIdentityKey(for: url, timestampKeys: timestampKeys),
+          let signature = jsonlDateBoundsSignature(for: url) else {
+        return computeJSONLDateBounds(at: url, timestampKeys: timestampKeys)
+    }
+
+    if let cached = await JSONLDateBoundsCache.shared.bounds(
+        for: identityKey,
+        signature: signature
+    ) {
         return cached
     }
 
     let computed = computeJSONLDateBounds(at: url, timestampKeys: timestampKeys)
 
-    if let cacheKey = jsonlDateBoundsCacheKey(for: url) {
-        await JSONLDateBoundsCache.shared.store(computed, for: cacheKey)
-    }
+    await JSONLDateBoundsCache.shared.store(computed, for: identityKey, signature: signature)
 
     return computed
 }
 
-private func jsonlDateBoundsCacheKey(for url: URL) -> String? {
+private func jsonlDateBoundsIdentityKey(for url: URL, timestampKeys: [String]) -> String? {
+    guard !url.path.isEmpty else { return nil }
+    let keys = timestampKeys.sorted().joined(separator: ",")
+    return "\(url.path)|\(keys)"
+}
+
+private func jsonlDateBoundsSignature(for url: URL) -> JSONLDateBoundsSignature? {
     guard let values = try? url.resourceValues(forKeys: [.contentModificationDateKey, .fileSizeKey]),
           let modifiedAt = values.contentModificationDate,
           let fileSize = values.fileSize else {
         return nil
     }
 
-    return "\(url.path)|\(modifiedAt.timeIntervalSince1970)|\(fileSize)"
+    return JSONLDateBoundsSignature(
+        modifiedAt: modifiedAt.timeIntervalSince1970,
+        fileSize: fileSize
+    )
 }
 
 private func computeJSONLDateBounds(

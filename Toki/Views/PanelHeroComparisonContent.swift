@@ -28,8 +28,16 @@ struct PanelHeroComparisonContent {
         }
 
         let delta = currentTotal - yesterdayTotal
+        if delta == 0 {
+            return PanelHeroComparisonContent(
+                symbolName: "minus",
+                text: "0% from yesterday",
+                color: Color.white.opacity(0.35)
+            )
+        }
+
         let pct = Int(abs(Double(delta) / Double(yesterdayTotal) * 100))
-        let isUp = delta >= 0
+        let isUp = delta > 0
 
         return PanelHeroComparisonContent(
             symbolName: isUp ? "arrow.up" : "arrow.down",
