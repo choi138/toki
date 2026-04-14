@@ -23,7 +23,7 @@ struct UsagePanelView: View {
                     PanelHeroView(
                         usage: service.usageData,
                         isLoading: service.isLoading,
-                        yesterdayTotal: service.isSingleDay && Calendar.current.isDateInToday(service.startDate)
+                        yesterdayTotal: service.shouldCompareAgainstYesterday
                         ? service.yesterdayTotalTokens : nil
                     )
                     panelDivider
@@ -379,25 +379,27 @@ private struct PanelHeroView: View {
                     .foregroundColor(.white)
             }
 
-            if !isLoading, let yt = yesterdayTotal, yt > 0 {
-                let delta = usage.totalTokens - yt
-                let pct = Int(abs(Double(delta) / Double(yt) * 100))
-                let isUp = delta >= 0
+            if !isLoading, let comparison = comparisonContent {
                 HStack(spacing: 3) {
-                    Image(systemName: isUp ? "arrow.up" : "arrow.down")
+                    Image(systemName: comparison.symbolName)
                         .font(.system(size: 9, weight: .bold))
-                    Text("\(pct)% from yesterday")
+                    Text(comparison.text)
                         .font(.system(size: 10, weight: .medium))
                 }
-                .foregroundColor(isUp
-                    ? Color(red: 1.0, green: 0.45, blue: 0.4)
-                    : Color(red: 0.4, green: 0.9, blue: 0.6))
+                .foregroundColor(comparison.color)
             }
 
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, 16)
         .padding(.vertical, 20)
+    }
+
+    private var comparisonContent: PanelHeroComparisonContent? {
+        PanelHeroComparisonContent.make(
+            currentTotal: usage.totalTokens,
+            yesterdayTotal: yesterdayTotal
+        )
     }
 }
 

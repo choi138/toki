@@ -1,5 +1,28 @@
 import Foundation
 
+private struct JSONLDateBounds {
+    let first: Date?
+    let last: Date?
+
+    var isEmpty: Bool {
+        first == nil && last == nil
+    }
+}
+
+private actor JSONLDateBoundsCache {
+    static let shared = JSONLDateBoundsCache()
+
+    private var storage: [String: JSONLDateBounds] = [:]
+
+    func bounds(for key: String) -> JSONLDateBounds? {
+        storage[key]
+    }
+
+    func store(_ bounds: JSONLDateBounds, for key: String) {
+        storage[key] = bounds
+    }
+}
+
 // MARK: - Per-Model Usage
 
 struct PerModelUsage {
@@ -84,6 +107,124 @@ func findFiles(in directory: URL, withExtension ext: String, modifiedAfter: Date
 func readJSONLLines(at url: URL) -> [String] {
     guard let content = try? String(contentsOf: url, encoding: .utf8) else { return [] }
     return content
+        .components(separatedBy: .newlines)
+        .map { $0.trimmingCharacters(in: .whitespaces) }
+        .filter { !$0.isEmpty }
+}
+
+func jsonLineStringValue(_ line: String, forKey key: String) -> String? {
+    let prefix = "\"\(key)\":\""
+    guard let start = line.range(of: prefix)?.upperBound,
+          let end = line[start...].firstIndex(of: "\"") else {
+        return nil
+    }
+    return String(line[start..<end])
+}
+
+func jsonLineDate(_ line: String, keys: [String]) -> Date? {
+    for key in keys {
+        guard let value = jsonLineStringValue(line, forKey: key),
+              let date = DateParser.parse(value) else { continue }
+        return date
+    }
+    return nil
+}
+
+func jsonlFileOverlapsRange(
+    at url: URL,
+    startDate: Date,
+    endDate: Date,
+    timestampKeys: [String]
+) async -> Bool {
+    let bounds = await cachedJSONLDateBounds(at: url, timestampKeys: timestampKeys)
+
+    // If we fail to infer file bounds, keep the file in the candidate set so we
+    // do not accidentally undercount usage because of a format edge case.
+    guard !bounds.isEmpty else { return true }
+
+    if let last = bounds.last, last < startDate {
+        return false
+    }
+
+    if let first = bounds.first, first >= endDate {
+        return false
+    }
+
+    return true
+}
+
+private func cachedJSONLDateBounds(
+    at url: URL,
+    timestampKeys: [String]
+) async -> JSONLDateBounds {
+    if let cacheKey = jsonlDateBoundsCacheKey(for: url),
+       let cached = await JSONLDateBoundsCache.shared.bounds(for: cacheKey) {
+        return cached
+    }
+
+    let computed = computeJSONLDateBounds(at: url, timestampKeys: timestampKeys)
+
+    if let cacheKey = jsonlDateBoundsCacheKey(for: url) {
+        await JSONLDateBoundsCache.shared.store(computed, for: cacheKey)
+    }
+
+    return computed
+}
+
+private func jsonlDateBoundsCacheKey(for url: URL) -> String? {
+    guard let values = try? url.resourceValues(forKeys: [.contentModificationDateKey, .fileSizeKey]),
+          let modifiedAt = values.contentModificationDate,
+          let fileSize = values.fileSize else {
+        return nil
+    }
+
+    return "\(url.path)|\(modifiedAt.timeIntervalSince1970)|\(fileSize)"
+}
+
+private func computeJSONLDateBounds(
+    at url: URL,
+    timestampKeys: [String]
+) -> JSONLDateBounds {
+    let headLines = readJSONLWindowLines(at: url, maxBytes: 65_536, fromStart: true)
+    let tailLines = readJSONLWindowLines(at: url, maxBytes: 65_536, fromStart: false)
+
+    let first = headLines.lazy.compactMap { jsonLineDate($0, keys: timestampKeys) }.first
+    let last = tailLines.reversed().lazy.compactMap { jsonLineDate($0, keys: timestampKeys) }.first
+
+    return JSONLDateBounds(first: first, last: last)
+}
+
+private func readJSONLWindowLines(
+    at url: URL,
+    maxBytes: Int,
+    fromStart: Bool
+) -> [String] {
+    guard let handle = try? FileHandle(forReadingFrom: url) else { return [] }
+    defer { try? handle.close() }
+
+    let fileSize = (try? handle.seekToEnd()) ?? 0
+    guard fileSize > 0 else { return [] }
+
+    let windowSize = min(UInt64(maxBytes), fileSize)
+    let offset = fromStart ? 0 : fileSize - windowSize
+    try? handle.seek(toOffset: offset)
+
+    var data = handle.readData(ofLength: Int(windowSize))
+    guard !data.isEmpty else { return [] }
+
+    if fromStart {
+        if fileSize > windowSize,
+           let lastNewline = data.lastIndex(of: UInt8(ascii: "\n")) {
+            data = Data(data[...lastNewline])
+        }
+    } else if offset > 0,
+              let firstNewline = data.firstIndex(of: UInt8(ascii: "\n")) {
+        data = Data(data[data.index(after: firstNewline)...])
+    }
+
+    guard let text = String(data: data, encoding: .utf8) else { return [] }
+
+    return text
         .components(separatedBy: .newlines)
         .map { $0.trimmingCharacters(in: .whitespaces) }
         .filter { !$0.isEmpty }
