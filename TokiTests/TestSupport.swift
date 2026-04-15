@@ -32,8 +32,8 @@ struct MockReader: TokenReader {
 
 actor BlockingReaderGate {
     private var requestCount = 0
-    private var firstRequestContinuation: CheckedContinuation<Void, Never>?
-    private var releaseContinuation: CheckedContinuation<Void, Never>?
+    private var firstRequestContinuations: [CheckedContinuation<Void, Never>] = []
+    private var releaseContinuations: [CheckedContinuation<Void, Never>] = []
     private var requestWaiters: [(target: Int, continuation: CheckedContinuation<Void, Never>)] = []
     private var isReleased = false
 
@@ -41,15 +41,15 @@ actor BlockingReaderGate {
         requestCount += 1
 
         if requestCount == 1 {
-            firstRequestContinuation?.resume()
-            firstRequestContinuation = nil
+            firstRequestContinuations.forEach { $0.resume() }
+            firstRequestContinuations.removeAll()
         }
 
         resumeSatisfiedWaiters()
 
         if !isReleased {
             await withCheckedContinuation { continuation in
-                releaseContinuation = continuation
+                releaseContinuations.append(continuation)
             }
         }
     }
@@ -58,7 +58,7 @@ actor BlockingReaderGate {
         if requestCount >= 1 { return }
 
         await withCheckedContinuation { continuation in
-            firstRequestContinuation = continuation
+            firstRequestContinuations.append(continuation)
         }
     }
 
@@ -73,8 +73,8 @@ actor BlockingReaderGate {
     func release() {
         guard !isReleased else { return }
         isReleased = true
-        releaseContinuation?.resume()
-        releaseContinuation = nil
+        releaseContinuations.forEach { $0.resume() }
+        releaseContinuations.removeAll()
     }
 
     private func resumeSatisfiedWaiters() {

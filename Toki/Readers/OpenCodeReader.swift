@@ -45,8 +45,10 @@ struct OpenCodeReader: TokenReader {
         }
         defer { sqlite3_finalize(stmt) }
 
-        sqlite3_bind_int64(stmt, 1, Int64(startEpoch))
-        sqlite3_bind_int64(stmt, 2, Int64(endEpoch))
+        guard sqlite3_bind_int64(stmt, 1, Int64(startEpoch)) == SQLITE_OK,
+              sqlite3_bind_int64(stmt, 2, Int64(endEpoch)) == SQLITE_OK else {
+            return RawTokenUsage()
+        }
 
         var result = RawTokenUsage()
 

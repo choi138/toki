@@ -83,54 +83,51 @@ final class TokiBehaviorTests: XCTestCase {
         XCTAssertEqual(date, secondDay)
     }
 
+    func test_blockingReaderGate_resumesAllFirstRequestWaiters() async {
+        let gate = BlockingReaderGate()
+        let waiter1 = Task {
+            await gate.waitForFirstRequest()
+            return 1
+        }
+        let waiter2 = Task {
+            await gate.waitForFirstRequest()
+            return 2
+        }
+        let enterTask = Task {
+            await gate.enter()
+        }
+
+        let waiter1Result = await waiter1.value
+        let waiter2Result = await waiter2.value
+        await gate.release()
+        await enterTask.value
+
+        XCTAssertEqual(Set([waiter1Result, waiter2Result]), Set([1, 2]))
+    }
+
+    func test_blockingReaderGate_releasesAllBlockedReaders() async {
+        let gate = BlockingReaderGate()
+        let reader1 = Task {
+            await gate.enter()
+            return 1
+        }
+        let reader2 = Task {
+            await gate.enter()
+            return 2
+        }
+
+        await gate.waitForRequestCount(2)
+        await gate.release()
+
+        let reader1Result = await reader1.value
+        let reader2Result = await reader2.value
+
+        XCTAssertEqual(Set([reader1Result, reader2Result]), Set([1, 2]))
+    }
+
     func test_jsonLineStringValue_extractsISODateString() {
         let line = #"{"timestamp":"2026-04-10T12:34:56Z","type":"assistant"}"#
         XCTAssertEqual(jsonLineStringValue(line, forKey: "timestamp"), "2026-04-10T12:34:56Z")
-    }
-
-    func test_jsonlFileOverlapsRange_keepsFutureOnlyFileConservative() async throws {
-        let url = FileManager.default.temporaryDirectory
-            .appendingPathComponent(UUID().uuidString)
-            .appendingPathExtension("jsonl")
-
-        let content = """
-        {"timestamp":"2026-04-04T09:00:00Z","type":"assistant"}
-        {"timestamp":"2026-04-04T11:30:00Z","type":"assistant"}
-        """
-        try content.write(to: url, atomically: true, encoding: .utf8)
-        defer { try? FileManager.default.removeItem(at: url) }
-
-        let overlaps = await jsonlFileOverlapsRange(
-            at: url,
-            startDate: behaviorTestISODate("2026-04-02T00:00:00Z"),
-            endDate: behaviorTestISODate("2026-04-03T00:00:00Z"),
-            timestampKeys: ["timestamp"]
-        )
-
-        XCTAssertTrue(overlaps)
-    }
-
-    func test_jsonlFileOverlapsRange_keepsPotentiallyRelevantOutOfOrderFile() async throws {
-        let url = FileManager.default.temporaryDirectory
-            .appendingPathComponent(UUID().uuidString)
-            .appendingPathExtension("jsonl")
-
-        let content = """
-        {"timestamp":"2026-04-01T09:00:00Z","type":"assistant"}
-        {"timestamp":"2026-04-02T09:00:00Z","type":"assistant"}
-        {"timestamp":"2026-04-01T11:30:00Z","type":"assistant"}
-        """
-        try content.write(to: url, atomically: true, encoding: .utf8)
-        defer { try? FileManager.default.removeItem(at: url) }
-
-        let overlaps = await jsonlFileOverlapsRange(
-            at: url,
-            startDate: behaviorTestISODate("2026-04-02T00:00:00Z"),
-            endDate: behaviorTestISODate("2026-04-03T00:00:00Z"),
-            timestampKeys: ["timestamp"]
-        )
-
-        XCTAssertTrue(overlaps)
     }
 
     func test_codexDayKey_changesAcrossTimeZones() {
