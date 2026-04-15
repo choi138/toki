@@ -88,7 +88,7 @@ final class TokiBehaviorTests: XCTestCase {
         XCTAssertEqual(jsonLineStringValue(line, forKey: "timestamp"), "2026-04-10T12:34:56Z")
     }
 
-    func test_jsonlFileOverlapsRange_skipsFutureOnlyFile() async throws {
+    func test_jsonlFileOverlapsRange_keepsFutureOnlyFileConservative() async throws {
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString)
             .appendingPathExtension("jsonl")
@@ -107,7 +107,7 @@ final class TokiBehaviorTests: XCTestCase {
             timestampKeys: ["timestamp"]
         )
 
-        XCTAssertFalse(overlaps)
+        XCTAssertTrue(overlaps)
     }
 
     func test_jsonlFileOverlapsRange_keepsPotentiallyRelevantOutOfOrderFile() async throws {

@@ -17,13 +17,6 @@ struct ClaudeCodeReader: TokenReader {
         await ClaudeUsageCache.shared.beginBatch()
 
         for file in files {
-            guard await jsonlFileOverlapsRange(
-                at: file,
-                startDate: startDate,
-                endDate: endDate,
-                timestampKeys: ["timestamp"]
-            ) else { continue }
-
             let records = await Self.cachedUsageRecords(at: file)
             records.forEach { record in
                 let date = Date(timeIntervalSince1970: record.timestamp)

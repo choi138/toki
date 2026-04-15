@@ -41,12 +41,46 @@ struct CodexReader: TokenReader {
         from startDate: Date,
         to endDate: Date
     ) -> RawTokenUsage {
-        usage(
-            fromDailyUsage: dailyUsage(fromRolloutLines: lines),
-            model: model,
-            from: startDate,
-            to: endDate
-        )
+        let normalizedModel = model?.isEmpty == false ? model : nil
+
+        var previousSnapshot: CodexUsageSnapshot?
+        var result = RawTokenUsage()
+
+        for entry in codexRolloutSnapshots(fromRolloutLines: lines) {
+            let delta = entry.snapshot.delta(since: previousSnapshot)
+            previousSnapshot = entry.snapshot
+
+            guard entry.date >= startDate && entry.date < endDate else { continue }
+
+            let usage = delta.normalizedUsage
+            guard usage.totalTokens > 0 else { continue }
+
+            result.inputTokens += usage.inputTokens
+            result.outputTokens += usage.outputTokens
+            result.cacheReadTokens += usage.cacheReadTokens
+            result.reasoningTokens += usage.reasoningTokens
+
+            let entryCost: Double
+            if let model = normalizedModel, let price = modelPrice(for: model) {
+                entryCost = price.cost(
+                    input: usage.inputTokens,
+                    output: usage.outputTokens + usage.reasoningTokens,
+                    cacheRead: usage.cacheReadTokens,
+                    cacheWrite: 0
+                )
+                result.cost += entryCost
+            } else {
+                entryCost = 0
+            }
+
+            if let model = normalizedModel {
+                result.perModel[model, default: PerModelUsage()].totalTokens += usage.totalTokens
+                result.perModel[model, default: PerModelUsage()].cost += entryCost
+                result.perModel[model, default: PerModelUsage()].sources.insert("Codex")
+            }
+        }
+
+        return result
     }
 
     private static func usage(
@@ -98,24 +132,17 @@ struct CodexReader: TokenReader {
     }
 
     private static func dailyUsage(fromRolloutLines lines: [String]) -> [String: CodexCachedDailyUsage] {
-        let decoder = JSONDecoder()
         var previousSnapshot: CodexUsageSnapshot?
         var result: [String: CodexCachedDailyUsage] = [:]
 
-        for line in lines {
-            guard let data = line.data(using: .utf8),
-                  let entry = try? decoder.decode(CodexRolloutEntry.self, from: data),
-                  let timestamp = entry.timestamp,
-                  let date = DateParser.parse(timestamp),
-                  let snapshot = entry.tokenSnapshot else { continue }
-
-            let delta = snapshot.delta(since: previousSnapshot)
-            previousSnapshot = snapshot
+        for entry in codexRolloutSnapshots(fromRolloutLines: lines) {
+            let delta = entry.snapshot.delta(since: previousSnapshot)
+            previousSnapshot = entry.snapshot
 
             let usage = delta.normalizedUsage
             guard usage.totalTokens > 0 else { continue }
 
-            let dayKey = codexDayKey(for: date)
+            let dayKey = codexDayKey(for: entry.date)
             result[dayKey, default: .zero].accumulate(usage)
         }
 
@@ -243,6 +270,15 @@ struct CodexReader: TokenReader {
         from startDate: Date,
         to endDate: Date
     ) async -> RawTokenUsage {
+        guard codexIsWholeDayAlignedRange(from: startDate, to: endDate) else {
+            return usage(
+                fromRolloutLines: readJSONLLines(at: url),
+                model: model,
+                from: startDate,
+                to: endDate
+            )
+        }
+
         let rolloutDailyUsage: [String: CodexCachedDailyUsage]
         if let cached = await CodexRolloutUsageCache.shared.dailyUsage(for: url) {
             rolloutDailyUsage = cached
@@ -253,6 +289,7 @@ struct CodexReader: TokenReader {
 
         return usage(fromDailyUsage: rolloutDailyUsage, model: model, from: startDate, to: endDate)
     }
+
 }
 
 private actor CodexRolloutUsageCache {
@@ -412,6 +449,36 @@ private func codexCacheTimeZoneIdentifier() -> String {
     TimeZone.autoupdatingCurrent.identifier
 }
 
+private func codexRolloutSnapshots(fromRolloutLines lines: [String]) -> [CodexTimedSnapshot] {
+    let decoder = JSONDecoder()
+
+    return lines.enumerated().compactMap { index, line in
+        guard let data = line.data(using: .utf8),
+              let entry = try? decoder.decode(CodexRolloutEntry.self, from: data),
+              let timestamp = entry.timestamp,
+              let date = DateParser.parse(timestamp),
+              let snapshot = entry.tokenSnapshot else { return nil }
+
+        return CodexTimedSnapshot(
+            date: date,
+            snapshot: snapshot,
+            fileOrder: index
+        )
+    }.sorted { lhs, rhs in
+        if lhs.date == rhs.date {
+            return lhs.fileOrder < rhs.fileOrder
+        }
+        return lhs.date < rhs.date
+    }
+}
+
+private func codexIsWholeDayAlignedRange(from startDate: Date, to endDate: Date) -> Bool {
+    let cal = Calendar.current
+    return startDate == cal.startOfDay(for: startDate)
+        && endDate == cal.startOfDay(for: endDate)
+        && startDate < endDate
+}
+
 private struct CodexModelEntry: Decodable {
     let type: String?
     let payload: Payload?
@@ -500,4 +567,10 @@ private struct CodexUsageSnapshot {
             reasoningTokens: reasoningOutputTokens
         )
     }
+}
+
+private struct CodexTimedSnapshot {
+    let date: Date
+    let snapshot: CodexUsageSnapshot
+    let fileOrder: Int
 }

@@ -160,16 +160,10 @@ func jsonlFileOverlapsRange(
     endDate: Date,
     timestampKeys: [String]
 ) async -> Bool {
-    let bounds = await cachedJSONLDateBounds(at: url, timestampKeys: timestampKeys)
-
-    // If we fail to infer file bounds, keep the file in the candidate set so we
-    // do not accidentally undercount usage because of a format edge case.
-    guard !bounds.isEmpty else { return true }
-
-    if let first = bounds.first, first >= endDate {
-        return false
-    }
-
+    // JSONL logs are not guaranteed to be globally time-ordered. Keep file-level
+    // overlap checks conservative so out-of-order historical lines cannot be
+    // dropped before the reader gets a chance to inspect the full file.
+    _ = await cachedJSONLDateBounds(at: url, timestampKeys: timestampKeys)
     return true
 }
 

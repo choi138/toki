@@ -209,6 +209,50 @@ final class TokiTests: XCTestCase {
         XCTAssertEqual(usage.cost, 0.0002115, accuracy: 0.000001)
     }
 
+    func test_codexReader_respects_partialDayRange() {
+        let lines = [
+            tokenCountLine(ts: "2026-04-10T08:00:00Z",
+                           input: 120, cachedInput: 20, output: 30, reasoning: 5, total: 150),
+            tokenCountLine(ts: "2026-04-10T15:00:00Z",
+                           input: 170, cachedInput: 30, output: 40, reasoning: 10, total: 220)
+        ]
+
+        let usage = CodexReader.usage(
+            fromRolloutLines: lines,
+            model: "gpt-5.4-mini",
+            from: isoDate("2026-04-10T12:00:00Z"),
+            to: isoDate("2026-04-10T23:00:00Z")
+        )
+
+        XCTAssertEqual(usage.inputTokens, 40)
+        XCTAssertEqual(usage.cacheReadTokens, 10)
+        XCTAssertEqual(usage.outputTokens, 5)
+        XCTAssertEqual(usage.reasoningTokens, 5)
+        XCTAssertEqual(usage.totalTokens, 60)
+    }
+
+    func test_codexReader_respectsPartialDayRangeWithOutOfOrderSnapshots() {
+        let lines = [
+            tokenCountLine(ts: "2026-04-10T15:00:00Z",
+                           input: 170, cachedInput: 30, output: 40, reasoning: 10, total: 220),
+            tokenCountLine(ts: "2026-04-10T10:00:00Z",
+                           input: 120, cachedInput: 20, output: 30, reasoning: 5, total: 150)
+        ]
+
+        let usage = CodexReader.usage(
+            fromRolloutLines: lines,
+            model: "gpt-5.4-mini",
+            from: isoDate("2026-04-10T12:00:00Z"),
+            to: isoDate("2026-04-10T23:00:00Z")
+        )
+
+        XCTAssertEqual(usage.inputTokens, 40)
+        XCTAssertEqual(usage.cacheReadTokens, 10)
+        XCTAssertEqual(usage.outputTokens, 5)
+        XCTAssertEqual(usage.reasoningTokens, 5)
+        XCTAssertEqual(usage.totalTokens, 60)
+    }
+
     private func tokenCountLine(
         ts: String,
         input: Int, cachedInput: Int, output: Int, reasoning: Int, total: Int
