@@ -16,18 +16,27 @@ struct OpenCodeReader: TokenReader {
         }
 
         var db: OpaquePointer?
-        guard sqlite3_open(dbPath, &db) == SQLITE_OK else {
+        defer { sqlite3_close(db) }
+        guard sqlite3_open_v2(dbPath, &db, SQLITE_OPEN_READONLY, nil) == SQLITE_OK else {
             return RawTokenUsage()
         }
-        defer { sqlite3_close(db) }
         sqlite3_busy_timeout(db, 2000)
 
-        let todayEpoch = startDate.timeIntervalSince1970 * 1000
+        let startEpoch = startDate.timeIntervalSince1970 * 1000
         let endEpoch   = endDate.timeIntervalSince1970 * 1000
         let query = """
-            SELECT data FROM message
+            SELECT
+                COALESCE(CAST(json_extract(data, '$.tokens.input') AS INTEGER), 0),
+                COALESCE(CAST(json_extract(data, '$.tokens.output') AS INTEGER), 0),
+                COALESCE(CAST(json_extract(data, '$.tokens.cache.read') AS INTEGER), 0),
+                COALESCE(CAST(json_extract(data, '$.tokens.cache.write') AS INTEGER), 0),
+                COALESCE(CAST(json_extract(data, '$.tokens.reasoning') AS INTEGER), 0),
+                COALESCE(json_extract(data, '$.modelID'), '')
+            FROM message
             WHERE json_extract(data, '$.role') = 'assistant'
             AND json_extract(data, '$.tokens') IS NOT NULL
+            AND time_created >= ?
+            AND time_created < ?
         """
 
         var stmt: OpaquePointer?
@@ -36,23 +45,20 @@ struct OpenCodeReader: TokenReader {
         }
         defer { sqlite3_finalize(stmt) }
 
+        guard sqlite3_bind_int64(stmt, 1, Int64(startEpoch)) == SQLITE_OK,
+              sqlite3_bind_int64(stmt, 2, Int64(endEpoch)) == SQLITE_OK else {
+            return RawTokenUsage()
+        }
+
         var result = RawTokenUsage()
-        let decoder = JSONDecoder()
 
         while sqlite3_step(stmt) == SQLITE_ROW {
-            guard let cStr = sqlite3_column_text(stmt, 0) else { continue }
-            let jsonStr = String(cString: cStr)
-            guard let data = jsonStr.data(using: .utf8),
-                  let msg = try? decoder.decode(OpenCodeMessage.self, from: data) else { continue }
-
-            let createdAt = msg.time?.created ?? 0
-            guard createdAt >= todayEpoch && createdAt < endEpoch else { continue }
-
-            let input     = msg.tokens?.input ?? 0
-            let output    = msg.tokens?.output ?? 0
-            let cacheRead = msg.tokens?.cache?.read ?? 0
-            let cacheWrite = msg.tokens?.cache?.write ?? 0
-            let reasoning = msg.tokens?.reasoning ?? 0
+            let input = Int(sqlite3_column_int64(stmt, 0))
+            let output = Int(sqlite3_column_int64(stmt, 1))
+            let cacheRead = Int(sqlite3_column_int64(stmt, 2))
+            let cacheWrite = Int(sqlite3_column_int64(stmt, 3))
+            let reasoning = Int(sqlite3_column_int64(stmt, 4))
+            let modelID = sqlite3_column_text(stmt, 5).map { String(cString: $0) } ?? ""
 
             result.inputTokens     += input
             result.outputTokens    += output
@@ -61,7 +67,7 @@ struct OpenCodeReader: TokenReader {
             result.reasoningTokens += reasoning
 
             let msgCost: Double
-            if let price = modelPrice(for: msg.modelID ?? "") {
+            if let price = modelPrice(for: modelID) {
                 msgCost = price.cost(
                     input: input,
                     output: output,
@@ -73,7 +79,7 @@ struct OpenCodeReader: TokenReader {
                 msgCost = 0
             }
 
-            if let modelID = msg.modelID, !modelID.isEmpty {
+            if !modelID.isEmpty {
                 let msgTokens = input + output + cacheRead + cacheWrite + reasoning
                 result.perModel[modelID, default: PerModelUsage()].totalTokens += msgTokens
                 result.perModel[modelID, default: PerModelUsage()].cost += msgCost
@@ -82,29 +88,5 @@ struct OpenCodeReader: TokenReader {
         }
 
         return result
-    }
-}
-
-// MARK: - Private Types
-
-private struct OpenCodeMessage: Decodable {
-    let tokens: Tokens?
-    let time: MessageTime?
-    let modelID: String?
-
-    struct Tokens: Decodable {
-        let input: Int?
-        let output: Int?
-        let reasoning: Int?
-        let cache: Cache?
-
-        struct Cache: Decodable {
-            let read: Int?
-            let write: Int?
-        }
-    }
-
-    struct MessageTime: Decodable {
-        let created: Double?
     }
 }

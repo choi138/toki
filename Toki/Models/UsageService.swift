@@ -1,5 +1,13 @@
 import Foundation
 
+private let defaultUsageReaders: [any TokenReader] = [
+    ClaudeCodeReader(),
+    CodexReader(),
+    GeminiReader(),
+    OpenCodeReader(),
+    OpenClawReader()
+]
+
 @MainActor
 final class UsageService: ObservableObject {
     @Published var usageData: UsageData = .empty
@@ -12,15 +20,11 @@ final class UsageService: ObservableObject {
     @Published var endDate: Date
     @Published var isRangeMode: Bool = false
 
-    private let readers: [any TokenReader] = [
-        ClaudeCodeReader(),
-        CodexReader(),
-        GeminiReader(),
-        OpenCodeReader(),
-        OpenClawReader()
-    ]
+    private let readers: [any TokenReader]
+    private var needsRefreshAfterCurrentLoad = false
 
-    init() {
+    init(readers: [any TokenReader] = defaultUsageReaders) {
+        self.readers = readers
         let cal = Calendar.current
         let today = cal.startOfDay(for: Date())
         startDate = today
@@ -30,6 +34,10 @@ final class UsageService: ObservableObject {
     var isSingleDay: Bool {
         let cal = Calendar.current
         return cal.dateComponents([.day], from: startDate, to: endDate).day == 1
+    }
+
+    var shouldCompareAgainstYesterday: Bool {
+        isSingleDay && Calendar.current.isDateInToday(startDate)
     }
 
     func selectDay(_ date: Date) {
@@ -45,17 +53,42 @@ final class UsageService: ObservableObject {
     }
 
     func refresh() async {
-        guard !isLoading else { return }
+        guard !isLoading else {
+            needsRefreshAfterCurrentLoad = true
+            return
+        }
+
         isLoading = true
-        defer { isLoading = false }
+        defer {
+            isLoading = false
 
-        let combined = await fetchRange(from: startDate, to: endDate)
+            if needsRefreshAfterCurrentLoad {
+                needsRefreshAfterCurrentLoad = false
+                Task { await refresh() }
+            }
+        }
 
-        // fetch previous period sequentially to avoid concurrent SQLite conflicts
-        var prev: RawTokenUsage?
-        if isSingleDay {
-            let prevStart = Calendar.current.date(byAdding: .day, value: -1, to: startDate)!
-            prev = await fetchRange(from: prevStart, to: startDate)
+        let requestedStart = startDate
+        let requestedEnd = endDate
+        let cal = Calendar.current
+        let compareAgainstYesterday =
+            cal.dateComponents([.day], from: requestedStart, to: requestedEnd).day == 1
+            && cal.isDateInToday(requestedStart)
+
+        let combined = await fetchRange(from: requestedStart, to: requestedEnd)
+
+        // Keep the previous-day comparison only for today's single-day view.
+        // Running this for arbitrary past dates doubles the slow path without
+        // affecting what the UI can show.
+        var previousTotalTokens: Int?
+        if compareAgainstYesterday {
+            let prevStart = cal.date(byAdding: .day, value: -1, to: requestedStart)!
+            previousTotalTokens = await fetchRange(from: prevStart, to: requestedStart).totalTokens
+        }
+
+        guard requestedStart == startDate, requestedEnd == endDate else {
+            needsRefreshAfterCurrentLoad = true
+            return
         }
 
         let sortedModels = combined.perModel
@@ -71,7 +104,7 @@ final class UsageService: ObservableObject {
             .sorted { $0.totalTokens > $1.totalTokens }
 
         usageData = UsageData(
-            date: startDate,
+            date: requestedStart,
             inputTokens: combined.inputTokens,
             outputTokens: combined.outputTokens,
             cacheReadTokens: combined.cacheReadTokens,
@@ -81,7 +114,7 @@ final class UsageService: ObservableObject {
             perModel: sortedModels
         )
 
-        yesterdayTotalTokens = (prev?.totalTokens).flatMap { $0 > 0 ? $0 : nil }
+        yesterdayTotalTokens = previousTotalTokens
         lastFetchedAt = Date()
     }
 

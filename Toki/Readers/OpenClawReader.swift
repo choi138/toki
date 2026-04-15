@@ -16,7 +16,9 @@ struct OpenClawReader: TokenReader {
         let files = findFiles(in: agentsURL, withExtension: "jsonl", modifiedAfter: startDate)
         let decoder = JSONDecoder()
 
-        return files.reduce(into: RawTokenUsage()) { acc, file in
+        var result = RawTokenUsage()
+
+        for file in files {
             readJSONLLines(at: file).forEach { line in
                 guard let data = line.data(using: .utf8),
                       let msg = try? decoder.decode(RawMessage.self, from: data),
@@ -28,13 +30,15 @@ struct OpenClawReader: TokenReader {
                 }
 
                 guard let usage = msg.usage else { return }
-                acc.inputTokens += usage.inputTokens ?? usage.promptTokens ?? 0
-                acc.outputTokens += usage.outputTokens ?? usage.completionTokens ?? 0
-                acc.cacheReadTokens += usage.cacheReadInputTokens ?? 0
-                acc.cacheWriteTokens += usage.cacheCreationInputTokens ?? 0
+                result.inputTokens += usage.inputTokens ?? usage.promptTokens ?? 0
+                result.outputTokens += usage.outputTokens ?? usage.completionTokens ?? 0
+                result.cacheReadTokens += usage.cacheReadInputTokens ?? 0
+                result.cacheWriteTokens += usage.cacheCreationInputTokens ?? 0
 
             }
         }
+
+        return result
     }
 }
 

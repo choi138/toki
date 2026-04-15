@@ -18,16 +18,21 @@ struct CodexReader: TokenReader {
         let sessions = overlappingSessions(from: startDate, to: endDate)
         guard !sessions.isEmpty else { return RawTokenUsage() }
 
-        return sessions.reduce(into: RawTokenUsage()) { result, session in
+        var result = RawTokenUsage()
+        await CodexRolloutUsageCache.shared.beginBatch()
+        for session in sessions {
             let url = URL(fileURLWithPath: session.rolloutPath)
-            guard FileManager.default.fileExists(atPath: url.path) else { return }
-            result += Self.usage(
-                fromRolloutLines: readJSONLLines(at: url),
+            guard FileManager.default.fileExists(atPath: url.path) else { continue }
+            result += await Self.cachedUsage(
+                fromRolloutAt: url,
                 model: session.model,
                 from: startDate,
                 to: endDate
             )
         }
+        await CodexRolloutUsageCache.shared.endBatch()
+
+        return result
     }
 
     static func usage(
@@ -36,26 +41,19 @@ struct CodexReader: TokenReader {
         from startDate: Date,
         to endDate: Date
     ) -> RawTokenUsage {
-        let decoder = JSONDecoder()
         let normalizedModel = model?.isEmpty == false ? model : nil
 
         var previousSnapshot: CodexUsageSnapshot?
         var result = RawTokenUsage()
 
-        lines.forEach { line in
-            guard let data = line.data(using: .utf8),
-                  let entry = try? decoder.decode(CodexRolloutEntry.self, from: data),
-                  let timestamp = entry.timestamp,
-                  let date = DateParser.parse(timestamp),
-                  let snapshot = entry.tokenSnapshot else { return }
+        for entry in codexRolloutSnapshots(fromRolloutLines: lines) {
+            let delta = entry.snapshot.delta(since: previousSnapshot)
+            previousSnapshot = entry.snapshot
 
-            let delta = snapshot.delta(since: previousSnapshot)
-            previousSnapshot = snapshot
-
-            guard date >= startDate && date < endDate else { return }
+            guard entry.date >= startDate && entry.date < endDate else { continue }
 
             let usage = delta.normalizedUsage
-            guard usage.totalTokens > 0 else { return }
+            guard usage.totalTokens > 0 else { continue }
 
             result.inputTokens += usage.inputTokens
             result.outputTokens += usage.outputTokens
@@ -80,6 +78,72 @@ struct CodexReader: TokenReader {
                 result.perModel[model, default: PerModelUsage()].cost += entryCost
                 result.perModel[model, default: PerModelUsage()].sources.insert("Codex")
             }
+        }
+
+        return result
+    }
+
+    private static func usage(
+        fromDailyUsage dailyUsage: [String: CodexCachedDailyUsage],
+        model: String?,
+        from startDate: Date,
+        to endDate: Date
+    ) -> RawTokenUsage {
+        guard !dailyUsage.isEmpty else { return RawTokenUsage() }
+
+        let normalizedModel = model?.isEmpty == false ? model : nil
+        let cal = Calendar.current
+        var currentDay = cal.startOfDay(for: startDate)
+        var result = RawTokenUsage()
+
+        while currentDay < endDate {
+            let dayKey = codexDayKey(for: currentDay)
+            if let usage = dailyUsage[dayKey] {
+                result.inputTokens += usage.inputTokens
+                result.outputTokens += usage.outputTokens
+                result.cacheReadTokens += usage.cacheReadTokens
+                result.reasoningTokens += usage.reasoningTokens
+
+                let entryCost: Double
+                if let model = normalizedModel, let price = modelPrice(for: model) {
+                    entryCost = price.cost(
+                        input: usage.inputTokens,
+                        output: usage.outputTokens + usage.reasoningTokens,
+                        cacheRead: usage.cacheReadTokens,
+                        cacheWrite: 0
+                    )
+                    result.cost += entryCost
+                } else {
+                    entryCost = 0
+                }
+
+                if let model = normalizedModel {
+                    result.perModel[model, default: PerModelUsage()].totalTokens += usage.totalTokens
+                    result.perModel[model, default: PerModelUsage()].cost += entryCost
+                    result.perModel[model, default: PerModelUsage()].sources.insert("Codex")
+                }
+            }
+
+            guard let nextDay = cal.date(byAdding: .day, value: 1, to: currentDay) else { break }
+            currentDay = nextDay
+        }
+
+        return result
+    }
+
+    private static func dailyUsage(fromRolloutLines lines: [String]) -> [String: CodexCachedDailyUsage] {
+        var previousSnapshot: CodexUsageSnapshot?
+        var result: [String: CodexCachedDailyUsage] = [:]
+
+        for entry in codexRolloutSnapshots(fromRolloutLines: lines) {
+            let delta = entry.snapshot.delta(since: previousSnapshot)
+            previousSnapshot = entry.snapshot
+
+            let usage = delta.normalizedUsage
+            guard usage.totalTokens > 0 else { continue }
+
+            let dayKey = codexDayKey(for: entry.date)
+            result[dayKey, default: .zero].accumulate(usage)
         }
 
         return result
@@ -140,7 +204,7 @@ struct CodexReader: TokenReader {
     /// range. Used as a fallback when state_5.sqlite is stale (e.g. cross-midnight
     /// sessions not yet reflected in updated_at).
     private func overlappingSessionsFromJSONL(from startDate: Date, to endDate: Date) -> [CodexSession] {
-        let cal = Calendar.current
+        let cal = Calendar.autoupdatingCurrent
         let startDay = cal.startOfDay(for: startDate)
         let endDay = cal.startOfDay(for: endDate)
         let numberOfDays = cal.dateComponents([.day], from: startDay, to: endDay).day ?? 0
@@ -199,6 +263,220 @@ struct CodexReader: TokenReader {
             return model
         }.first
     }
+
+    private static func cachedUsage(
+        fromRolloutAt url: URL,
+        model: String?,
+        from startDate: Date,
+        to endDate: Date
+    ) async -> RawTokenUsage {
+        guard codexIsWholeDayAlignedRange(from: startDate, to: endDate) else {
+            return usage(
+                fromRolloutLines: readJSONLLines(at: url),
+                model: model,
+                from: startDate,
+                to: endDate
+            )
+        }
+
+        let rolloutDailyUsage: [String: CodexCachedDailyUsage]
+        if let cached = await CodexRolloutUsageCache.shared.dailyUsage(for: url) {
+            rolloutDailyUsage = cached
+        } else {
+            rolloutDailyUsage = dailyUsage(fromRolloutLines: readJSONLLines(at: url))
+            await CodexRolloutUsageCache.shared.store(dailyUsage: rolloutDailyUsage, for: url)
+        }
+
+        return usage(fromDailyUsage: rolloutDailyUsage, model: model, from: startDate, to: endDate)
+    }
+
+}
+
+private actor CodexRolloutUsageCache {
+    static let shared = CodexRolloutUsageCache()
+
+    private var isLoaded = false
+    private var entries: [String: CodexRolloutUsageCacheEntry] = [:]
+    private var batchDepth = 0
+    private var hasPendingChanges = false
+
+    func beginBatch() async {
+        await loadIfNeeded()
+        batchDepth += 1
+    }
+
+    func endBatch() async {
+        await loadIfNeeded()
+        batchDepth = max(0, batchDepth - 1)
+        persistIfNeeded()
+    }
+
+    func dailyUsage(for url: URL) async -> [String: CodexCachedDailyUsage]? {
+        await loadIfNeeded()
+
+        guard let fileSignature = codexFileSignature(for: url),
+              let cached = entries[url.path],
+              cached.fileSize == fileSignature.fileSize,
+              cached.modifiedAt == fileSignature.modifiedAt,
+              cached.timeZoneIdentifier == codexCacheTimeZoneIdentifier() else {
+            return nil
+        }
+
+        return cached.dailyUsage
+    }
+
+    func store(dailyUsage: [String: CodexCachedDailyUsage], for url: URL) async {
+        await loadIfNeeded()
+
+        guard let fileSignature = codexFileSignature(for: url) else { return }
+
+        entries[url.path] = CodexRolloutUsageCacheEntry(
+            fileSize: fileSignature.fileSize,
+            modifiedAt: fileSignature.modifiedAt,
+            timeZoneIdentifier: codexCacheTimeZoneIdentifier(),
+            dailyUsage: dailyUsage
+        )
+
+        hasPendingChanges = true
+        persistIfNeeded()
+    }
+
+    private func loadIfNeeded() async {
+        guard !isLoaded else { return }
+        isLoaded = true
+
+        guard let data = try? Data(contentsOf: codexRolloutUsageCacheURL()),
+              let decoded = try? JSONDecoder().decode(CodexRolloutUsageCacheFile.self, from: data) else {
+            entries = [:]
+            return
+        }
+
+        entries = decoded.entries
+    }
+
+    private func persistIfNeeded() {
+        guard hasPendingChanges, batchDepth == 0 else { return }
+
+        let cacheURL = codexRolloutUsageCacheURL()
+        let directory = cacheURL.deletingLastPathComponent()
+        try? FileManager.default.createDirectory(
+            at: directory,
+            withIntermediateDirectories: true,
+            attributes: nil
+        )
+
+        let payload = CodexRolloutUsageCacheFile(entries: entries)
+        guard let data = try? JSONEncoder().encode(payload) else { return }
+        try? data.write(to: cacheURL, options: [.atomic])
+        hasPendingChanges = false
+    }
+}
+
+private struct CodexRolloutUsageCacheFile: Codable {
+    let entries: [String: CodexRolloutUsageCacheEntry]
+}
+
+private struct CodexRolloutUsageCacheEntry: Codable {
+    let fileSize: Int
+    let modifiedAt: TimeInterval
+    let timeZoneIdentifier: String
+    let dailyUsage: [String: CodexCachedDailyUsage]
+}
+
+private struct CodexCachedDailyUsage: Codable {
+    var inputTokens: Int = 0
+    var outputTokens: Int = 0
+    var cacheReadTokens: Int = 0
+    var reasoningTokens: Int = 0
+
+    static let zero = CodexCachedDailyUsage()
+
+    var totalTokens: Int {
+        inputTokens + outputTokens + cacheReadTokens + reasoningTokens
+    }
+
+    mutating func accumulate(_ usage: RawTokenUsage) {
+        inputTokens += usage.inputTokens
+        outputTokens += usage.outputTokens
+        cacheReadTokens += usage.cacheReadTokens
+        reasoningTokens += usage.reasoningTokens
+    }
+}
+
+private struct CodexFileSignature {
+    let fileSize: Int
+    let modifiedAt: TimeInterval
+}
+
+private func codexFileSignature(for url: URL) -> CodexFileSignature? {
+    guard let values = try? url.resourceValues(forKeys: [.contentModificationDateKey, .fileSizeKey]),
+          let modifiedAt = values.contentModificationDate,
+          let fileSize = values.fileSize else {
+        return nil
+    }
+
+    return CodexFileSignature(
+        fileSize: fileSize,
+        modifiedAt: modifiedAt.timeIntervalSince1970
+    )
+}
+
+private func codexRolloutUsageCacheURL() -> URL {
+    homeDir()
+        .appendingPathComponent("Library")
+        .appendingPathComponent("Application Support")
+        .appendingPathComponent("Toki")
+        .appendingPathComponent("codex-rollout-cache.json")
+}
+
+func codexDayKey(for date: Date, timeZone: TimeZone) -> String {
+    var cal = Calendar(identifier: .gregorian)
+    cal.timeZone = timeZone
+    let comps = cal.dateComponents([.year, .month, .day], from: date)
+    return String(
+        format: "%04d-%02d-%02d",
+        comps.year ?? 0,
+        comps.month ?? 0,
+        comps.day ?? 0
+    )
+}
+
+private func codexDayKey(for date: Date) -> String {
+    codexDayKey(for: date, timeZone: TimeZone.autoupdatingCurrent)
+}
+
+private func codexCacheTimeZoneIdentifier() -> String {
+    TimeZone.autoupdatingCurrent.identifier
+}
+
+private func codexRolloutSnapshots(fromRolloutLines lines: [String]) -> [CodexTimedSnapshot] {
+    let decoder = JSONDecoder()
+
+    return lines.enumerated().compactMap { index, line in
+        guard let data = line.data(using: .utf8),
+              let entry = try? decoder.decode(CodexRolloutEntry.self, from: data),
+              let timestamp = entry.timestamp,
+              let date = DateParser.parse(timestamp),
+              let snapshot = entry.tokenSnapshot else { return nil }
+
+        return CodexTimedSnapshot(
+            date: date,
+            snapshot: snapshot,
+            fileOrder: index
+        )
+    }.sorted { lhs, rhs in
+        if lhs.date == rhs.date {
+            return lhs.fileOrder < rhs.fileOrder
+        }
+        return lhs.date < rhs.date
+    }
+}
+
+private func codexIsWholeDayAlignedRange(from startDate: Date, to endDate: Date) -> Bool {
+    let cal = Calendar.current
+    return startDate == cal.startOfDay(for: startDate)
+        && endDate == cal.startOfDay(for: endDate)
+        && startDate < endDate
 }
 
 private struct CodexModelEntry: Decodable {
@@ -289,4 +567,10 @@ private struct CodexUsageSnapshot {
             reasoningTokens: reasoningOutputTokens
         )
     }
+}
+
+private struct CodexTimedSnapshot {
+    let date: Date
+    let snapshot: CodexUsageSnapshot
+    let fileOrder: Int
 }

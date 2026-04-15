@@ -40,3 +40,4 @@ file_length:
 excluded:
   - DerivedData
   - .build
+  - build

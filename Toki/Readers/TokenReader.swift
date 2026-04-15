@@ -89,6 +89,15 @@ func readJSONLLines(at url: URL) -> [String] {
         .filter { !$0.isEmpty }
 }
 
+func jsonLineStringValue(_ line: String, forKey key: String) -> String? {
+    let prefix = "\"\(key)\":\""
+    guard let start = line.range(of: prefix)?.upperBound,
+          let end = line[start...].firstIndex(of: "\"") else {
+        return nil
+    }
+    return String(line[start..<end])
+}
+
 enum DateParser {
     private static let formatters: [ISO8601DateFormatter] = {
         let withFrac = ISO8601DateFormatter()
