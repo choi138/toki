@@ -67,6 +67,24 @@ final class CodexReaderBehaviorTests: XCTestCase {
         XCTAssertEqual(merged.first?.model, "gpt-5.4")
     }
 
+    func test_codexReader_preservesCachedDailyUsageWhenTimestampBackfillIsEmpty() {
+        let preservedUsage = [
+            "2026-04-10": CodexCachedDailyUsage(
+                inputTokens: 10,
+                outputTokens: 20,
+                cacheReadTokens: 5,
+                reasoningTokens: 3,
+                activeSeconds: 60),
+        ]
+
+        let merged = CodexReader.dailyUsageForTimestampBackfill(
+            rebuiltDailyUsage: [:],
+            existingDailyUsage: preservedUsage)
+
+        XCTAssertEqual(merged["2026-04-10"]?.totalTokens, 38)
+        XCTAssertEqual(merged["2026-04-10"]?.activeSeconds ?? 0, 60, accuracy: 0.001)
+    }
+
     private func tokenCountLine(
         ts: String,
         input: Int,

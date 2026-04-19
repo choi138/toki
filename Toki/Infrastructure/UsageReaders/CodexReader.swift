@@ -45,6 +45,15 @@ struct CodexReader: TokenReader {
 }
 
 extension CodexReader {
+    static func dailyUsageForTimestampBackfill(
+        rebuiltDailyUsage: [String: CodexCachedDailyUsage],
+        existingDailyUsage: [String: CodexCachedDailyUsage]?) -> [String: CodexCachedDailyUsage] {
+        if rebuiltDailyUsage.isEmpty, let existingDailyUsage {
+            return existingDailyUsage
+        }
+        return rebuiltDailyUsage
+    }
+
     static func usage(
         fromRolloutLines lines: [String],
         model: String?,
@@ -258,13 +267,20 @@ private extension CodexReader {
         }
 
         if codexIsWholeDayAlignedRange(from: startDate, to: endDate) {
+            let existingDailyUsage = await CodexRolloutUsageCache.shared.dailyUsage(for: url)
             let lines = readJSONLLines(at: url)
-            let dailyUsage = dailyUsage(fromRolloutLines: lines)
+            let rebuiltDailyUsage = dailyUsage(fromRolloutLines: lines)
             let dailyActivityTimestamps = dailyActivityTimestamps(fromRolloutLines: lines)
-            await CodexRolloutUsageCache.shared.store(
-                dailyUsage: dailyUsage,
-                dailyActivityTimestamps: dailyActivityTimestamps,
-                for: url)
+            let dailyUsageToStore = dailyUsageForTimestampBackfill(
+                rebuiltDailyUsage: rebuiltDailyUsage,
+                existingDailyUsage: existingDailyUsage)
+
+            if !dailyUsageToStore.isEmpty || !dailyActivityTimestamps.isEmpty {
+                await CodexRolloutUsageCache.shared.store(
+                    dailyUsage: dailyUsageToStore,
+                    dailyActivityTimestamps: dailyActivityTimestamps,
+                    for: url)
+            }
 
             return activityEvents(
                 fromCachedTimestamps: dailyActivityTimestamps,
