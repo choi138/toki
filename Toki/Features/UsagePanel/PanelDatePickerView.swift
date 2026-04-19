@@ -5,7 +5,9 @@ struct PanelDatePickerView: View {
     @State private var showStartPicker = false
     @State private var showEndPicker = false
 
-    private var calendar: Calendar { .current }
+    private var calendar: Calendar {
+        .current
+    }
 
     private var isToday: Bool {
         calendar.isDateInToday(service.startDate) && service.isSingleDay
@@ -49,10 +51,11 @@ struct PanelDatePickerView: View {
                     .foregroundColor(
                         service.isRangeMode
                             ? Color(red: 0.55, green: 0.45, blue: 1.0)
-                            : Color.white.opacity(0.3)
-                    )
+                            : Color.white.opacity(0.3))
             }
             .buttonStyle(.plain)
+            .accessibilityLabel(
+                service.isRangeMode ? "Switch to single day" : "Switch to date range")
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 9)
@@ -78,7 +81,7 @@ struct PanelDatePickerView: View {
 
     private var singleDayRow: some View {
         HStack(spacing: 10) {
-            navButton(icon: "chevron.left") {
+            navButton(icon: "chevron.left", accessibilityLabel: "Previous day") {
                 service.selectDay(calendar.date(byAdding: .day, value: -1, to: service.startDate)!)
                 Task { await service.refresh() }
             }
@@ -99,17 +102,18 @@ struct PanelDatePickerView: View {
                             guard newDay != service.startDate else { return }
                             service.selectDay(newDay)
                             Task { await service.refresh() }
-                        }
-                    )
-                )
+                        }))
             }
 
-            navButton(icon: "chevron.right", disabled: isToday) {
-                let nextDay = calendar.date(byAdding: .day, value: 1, to: service.startDate)!
-                guard nextDay <= Date() else { return }
-                service.selectDay(nextDay)
-                Task { await service.refresh() }
-            }
+            navButton(
+                icon: "chevron.right",
+                disabled: isToday,
+                accessibilityLabel: "Next day") {
+                    let nextDay = calendar.date(byAdding: .day, value: 1, to: service.startDate)!
+                    guard nextDay <= Date() else { return }
+                    service.selectDay(nextDay)
+                    Task { await service.refresh() }
+                }
         }
     }
 
@@ -127,9 +131,7 @@ struct PanelDatePickerView: View {
                             service.selectRangeStart(selectedDate)
                             Task { await service.refresh() }
                             showStartPicker = false
-                        }
-                    )
-                )
+                        }))
             }
 
             Text("–")
@@ -139,9 +141,7 @@ struct PanelDatePickerView: View {
             Button { showEndPicker.toggle() } label: {
                 dateChip(
                     Self.shortDateFormatter.string(
-                        from: calendar.date(byAdding: .day, value: -1, to: service.endDate) ?? service.endDate
-                    )
-                )
+                        from: calendar.date(byAdding: .day, value: -1, to: service.endDate) ?? service.endDate))
             }
             .buttonStyle(.plain)
             .popover(isPresented: $showEndPicker, arrowEdge: .bottom) {
@@ -152,9 +152,7 @@ struct PanelDatePickerView: View {
                             service.selectRangeEnd(selectedDate)
                             Task { await service.refresh() }
                             showEndPicker = false
-                        }
-                    )
-                )
+                        }))
             }
         }
     }
@@ -162,8 +160,8 @@ struct PanelDatePickerView: View {
     private func navButton(
         icon: String,
         disabled: Bool = false,
-        action: @escaping () -> Void
-    ) -> some View {
+        accessibilityLabel: String,
+        action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Image(systemName: icon)
                 .font(.system(size: 10, weight: .semibold))
@@ -171,6 +169,7 @@ struct PanelDatePickerView: View {
         }
         .buttonStyle(.plain)
         .disabled(disabled)
+        .accessibilityLabel(accessibilityLabel)
     }
 
     private func dateChip(_ text: String) -> some View {

@@ -12,8 +12,7 @@ struct ModelPrice {
         input: Int,
         output: Int,
         cacheRead: Int,
-        cacheWrite: Int
-    ) -> Double {
+        cacheWrite: Int) -> Double {
         let million = 1_000_000.0
         let inputCost = Double(input) * inputPerMillion
         let outputCost = Double(output) * outputPerMillion
@@ -29,17 +28,15 @@ private func price(
     _ input: Double,
     _ output: Double,
     _ cacheRead: Double,
-    _ cacheWrite: Double = 0
-) -> ModelPrice {
+    _ cacheWrite: Double = 0) -> ModelPrice {
     ModelPrice(
         inputPerMillion: input,
         outputPerMillion: output,
         cacheReadPerMillion: cacheRead,
-        cacheWritePerMillion: cacheWrite
-    )
+        cacheWritePerMillion: cacheWrite)
 }
 
-private let pricingTable: [String: ModelPrice] = [
+private let exactPricingTable: [String: ModelPrice] = [
     // Claude Opus 4 (specific versions)
     "claude-opus-4-5-thinking-high": price(5.0, 25.0, 0.50, 6.25),
     "claude-opus-4-6": price(5.0, 25.0, 0.50, 6.25),
@@ -83,12 +80,24 @@ private let pricingTable: [String: ModelPrice] = [
     "grok": price(3.0, 15.0, 0.30),
 ]
 
-private let sortedPricingKeys: [(key: String, value: ModelPrice)] =
-    pricingTable.sorted { $0.key.count > $1.key.count }
+private let exactOnlyPricingKeys: Set = [
+    "claude-opus-4",
+    "gpt-5",
+    "gemini-3",
+    "grok",
+    "grok-code",
+]
+
+private let prefixPricingTable: [String: ModelPrice] = exactPricingTable.filter { key, _ in
+    !exactOnlyPricingKeys.contains(key)
+}
+
+private let sortedPrefixPricingKeys: [(key: String, value: ModelPrice)] =
+    prefixPricingTable.sorted { $0.key.count > $1.key.count }
 
 func modelPrice(for modelId: String) -> ModelPrice? {
-    if let price = pricingTable[modelId] {
+    if let price = exactPricingTable[modelId] {
         return price
     }
-    return sortedPricingKeys.first { modelId.hasPrefix($0.key) }?.value
+    return sortedPrefixPricingKeys.first { modelId.hasPrefix($0.key) }?.value
 }

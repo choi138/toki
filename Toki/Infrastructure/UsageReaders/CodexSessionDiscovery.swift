@@ -5,13 +5,27 @@ extension CodexReader {
     func overlappingSessions(from startDate: Date, to endDate: Date) -> [CodexSession] {
         let databaseSessions = overlappingSessionsFromDB(from: startDate, to: endDate)
         let jsonlSessions = overlappingSessionsFromJSONL(from: startDate, to: endDate)
+        return mergedSessions(databaseSessions: databaseSessions, jsonlSessions: jsonlSessions)
+    }
 
+    func mergedSessions(
+        databaseSessions: [CodexSession],
+        jsonlSessions: [CodexSession]) -> [CodexSession] {
         var sessionsByPath: [String: CodexSession] = [:]
         for session in databaseSessions {
             sessionsByPath[session.rolloutPath] = session
         }
-        for session in jsonlSessions where sessionsByPath[session.rolloutPath] == nil {
-            sessionsByPath[session.rolloutPath] = session
+        for session in jsonlSessions {
+            if let existing = sessionsByPath[session.rolloutPath] {
+                if normalizedModelID(existing.model) == nil,
+                   let model = normalizedModelID(session.model) {
+                    sessionsByPath[session.rolloutPath] = CodexSession(
+                        rolloutPath: existing.rolloutPath,
+                        model: model)
+                }
+            } else {
+                sessionsByPath[session.rolloutPath] = session
+            }
         }
         return Array(sessionsByPath.values)
     }
@@ -45,7 +59,8 @@ extension CodexReader {
         while sqlite3_step(statement) == SQLITE_ROW {
             guard let rolloutPathPointer = sqlite3_column_text(statement, 0) else { continue }
             let rolloutPath = String(cString: rolloutPathPointer)
-            let model = sqlite3_column_text(statement, 1).map { String(cString: $0) }
+            let rawModel = sqlite3_column_text(statement, 1).map { String(cString: $0) } ?? ""
+            let model = rawModel.isEmpty ? nil : rawModel
             sessions.append(CodexSession(rolloutPath: rolloutPath, model: model))
         }
         return sessions
@@ -75,8 +90,7 @@ extension CodexReader {
                   let contents = try? FileManager.default.contentsOfDirectory(
                       at: directoryURL,
                       includingPropertiesForKeys: [.contentModificationDateKey],
-                      options: [.skipsHiddenFiles]
-                  ) else {
+                      options: [.skipsHiddenFiles]) else {
                 return []
             }
 

@@ -10,40 +10,36 @@ final class CodexReaderTests: XCTestCase {
                 cachedInput: 20,
                 output: 40,
                 reasoning: 10,
-                total: 140
-            ),
+                total: 140),
             tokenCountLine(
                 ts: "2026-04-10T00:01:00Z",
                 input: 140,
                 cachedInput: 30,
                 output: 55,
                 reasoning: 15,
-                total: 195
-            ),
+                total: 195),
             tokenCountLine(
                 ts: "2026-04-10T00:02:00Z",
                 input: 140,
                 cachedInput: 30,
                 output: 55,
                 reasoning: 15,
-                total: 195
-            ),
+                total: 195),
             tokenCountLine(
                 ts: "2026-04-10T00:03:00Z",
                 input: 200,
                 cachedInput: 50,
                 output: 80,
                 reasoning: 20,
-                total: 280
-            ),
+                total: 280),
         ]
 
         let usage = CodexReader.usage(
             fromRolloutLines: lines,
             model: "gpt-5.4",
             from: isoDate("2026-04-10T00:00:00Z"),
-            to: isoDate("2026-04-11T00:00:00Z")
-        )
+            to: isoDate("2026-04-11T00:00:00Z"),
+            streamID: "rollout-a")
 
         XCTAssertEqual(usage.inputTokens, 70)
         XCTAssertEqual(usage.cacheReadTokens, 30)
@@ -62,16 +58,15 @@ final class CodexReaderTests: XCTestCase {
                 cachedInput: 20,
                 output: 30,
                 reasoning: 5,
-                total: 150
-            ),
+                total: 150),
         ]
 
         let usage = CodexReader.usage(
             fromRolloutLines: lines,
             model: "gpt-5.4-mini",
             from: isoDate("2026-04-10T00:00:00Z"),
-            to: isoDate("2026-04-11T00:00:00Z")
-        )
+            to: isoDate("2026-04-11T00:00:00Z"),
+            streamID: "rollout-a")
 
         XCTAssertEqual(usage.inputTokens, 100)
         XCTAssertEqual(usage.cacheReadTokens, 20)
@@ -90,24 +85,22 @@ final class CodexReaderTests: XCTestCase {
                 cachedInput: 20,
                 output: 30,
                 reasoning: 5,
-                total: 150
-            ),
+                total: 150),
             tokenCountLine(
                 ts: "2026-04-10T15:00:00Z",
                 input: 170,
                 cachedInput: 30,
                 output: 40,
                 reasoning: 10,
-                total: 220
-            ),
+                total: 220),
         ]
 
         let usage = CodexReader.usage(
             fromRolloutLines: lines,
             model: "gpt-5.4-mini",
             from: isoDate("2026-04-10T12:00:00Z"),
-            to: isoDate("2026-04-10T23:00:00Z")
-        )
+            to: isoDate("2026-04-10T23:00:00Z"),
+            streamID: "rollout-a")
 
         XCTAssertEqual(usage.inputTokens, 40)
         XCTAssertEqual(usage.cacheReadTokens, 10)
@@ -124,24 +117,22 @@ final class CodexReaderTests: XCTestCase {
                 cachedInput: 30,
                 output: 40,
                 reasoning: 10,
-                total: 220
-            ),
+                total: 220),
             tokenCountLine(
                 ts: "2026-04-10T10:00:00Z",
                 input: 120,
                 cachedInput: 20,
                 output: 30,
                 reasoning: 5,
-                total: 150
-            ),
+                total: 150),
         ]
 
         let usage = CodexReader.usage(
             fromRolloutLines: lines,
             model: "gpt-5.4-mini",
             from: isoDate("2026-04-10T12:00:00Z"),
-            to: isoDate("2026-04-10T23:00:00Z")
-        )
+            to: isoDate("2026-04-10T23:00:00Z"),
+            streamID: "rollout-a")
 
         XCTAssertEqual(usage.inputTokens, 40)
         XCTAssertEqual(usage.cacheReadTokens, 10)
@@ -156,8 +147,7 @@ final class CodexReaderTests: XCTestCase {
         cachedInput: Int,
         output: Int,
         reasoning: Int,
-        total: Int
-    ) -> String {
+        total: Int) -> String {
         let usage = [
             "\"input_tokens\":\(input)",
             "\"cached_input_tokens\":\(cachedInput)",

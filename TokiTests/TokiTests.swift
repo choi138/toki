@@ -11,10 +11,10 @@ final class TokiTests: XCTestCase {
     }
 
     func test_formattedTokens_thousands() {
-        XCTAssertEqual(1_000.formattedTokens(), "1.0K")
-        XCTAssertEqual(1_500.formattedTokens(), "1.5K")
-        XCTAssertEqual(10_000.formattedTokens(), "10.0K")
-        XCTAssertEqual(999_999.formattedTokens(), "1000.0K")
+        XCTAssertEqual(1000.formattedTokens(), "1.0K")
+        XCTAssertEqual(1500.formattedTokens(), "1.5K")
+        XCTAssertEqual(10000.formattedTokens(), "10.0K")
+        XCTAssertEqual(999_999.formattedTokens(), "1.0M")
     }
 
     func test_formattedTokens_millions() {
@@ -46,8 +46,8 @@ final class TokiTests: XCTestCase {
     }
 
     func test_formattedCost_large() {
-        XCTAssertEqual(1_000.0.formattedCost(), "$1.0K")
-        XCTAssertEqual(1_234.5.formattedCost(), "$1.2K")
+        XCTAssertEqual(1000.0.formattedCost(), "$1.0K")
+        XCTAssertEqual(1234.5.formattedCost(), "$1.2K")
     }
 
     // MARK: - cacheEfficiency
@@ -55,15 +55,14 @@ final class TokiTests: XCTestCase {
     func test_cacheEfficiency_zero() {
         let usage = UsageData(
             date: Date(),
-            inputTokens: 1_000,
+            inputTokens: 1000,
             outputTokens: 500,
             cacheReadTokens: 0,
             cacheWriteTokens: 0,
             reasoningTokens: 0,
             cost: 0,
             activeSeconds: 0,
-            perModel: []
-        )
+            perModel: [])
         XCTAssertEqual(usage.cacheEfficiency, 0)
     }
 
@@ -72,13 +71,12 @@ final class TokiTests: XCTestCase {
             date: Date(),
             inputTokens: 0,
             outputTokens: 500,
-            cacheReadTokens: 1_000,
+            cacheReadTokens: 1000,
             cacheWriteTokens: 0,
             reasoningTokens: 0,
             cost: 0,
             activeSeconds: 0,
-            perModel: []
-        )
+            perModel: [])
         XCTAssertEqual(usage.cacheEfficiency, 100, accuracy: 0.001)
     }
 
@@ -92,8 +90,7 @@ final class TokiTests: XCTestCase {
             reasoningTokens: 0,
             cost: 0,
             activeSeconds: 0,
-            perModel: []
-        )
+            perModel: [])
         XCTAssertEqual(usage.cacheEfficiency, 50, accuracy: 0.001)
     }
 
@@ -107,8 +104,7 @@ final class TokiTests: XCTestCase {
             reasoningTokens: 0,
             cost: 0,
             activeSeconds: 0,
-            perModel: []
-        )
+            perModel: [])
         XCTAssertEqual(usage.cacheEfficiency, 0)
     }
 
@@ -117,16 +113,15 @@ final class TokiTests: XCTestCase {
     func test_totalTokens_sumsAllFields() {
         let usage = UsageData(
             date: Date(),
-            inputTokens: 1_000,
-            outputTokens: 2_000,
-            cacheReadTokens: 3_000,
-            cacheWriteTokens: 4_000,
-            reasoningTokens: 5_000,
+            inputTokens: 1000,
+            outputTokens: 2000,
+            cacheReadTokens: 3000,
+            cacheWriteTokens: 4000,
+            reasoningTokens: 5000,
             cost: 0,
             activeSeconds: 0,
-            perModel: []
-        )
-        XCTAssertEqual(usage.totalTokens, 15_000)
+            perModel: [])
+        XCTAssertEqual(usage.totalTokens, 15000)
     }
 
     func test_totalTokens_zero() {
@@ -139,8 +134,7 @@ final class TokiTests: XCTestCase {
             reasoningTokens: 0,
             cost: 0,
             activeSeconds: 0,
-            perModel: []
-        )
+            perModel: [])
         XCTAssertEqual(usage.totalTokens, 0)
     }
 
@@ -160,44 +154,44 @@ final class TokiTests: XCTestCase {
 
     // MARK: - modelPrice
 
-    func test_modelPrice_matches_currentCodexSlugs() {
+    func test_modelPrice_matches_currentCodexSlugs() throws {
         let codex = modelPrice(for: "gpt-5.3-codex")
         XCTAssertNotNil(codex)
-        XCTAssertEqual(codex!.inputPerMillion, 1.75, accuracy: 0.0001)
-        XCTAssertEqual(codex!.outputPerMillion, 14.0, accuracy: 0.0001)
-        XCTAssertEqual(codex!.cacheReadPerMillion, 0.175, accuracy: 0.0001)
+        XCTAssertEqual(try XCTUnwrap(codex?.inputPerMillion), 1.75, accuracy: 0.0001)
+        XCTAssertEqual(try XCTUnwrap(codex?.outputPerMillion), 14.0, accuracy: 0.0001)
+        XCTAssertEqual(try XCTUnwrap(codex?.cacheReadPerMillion), 0.175, accuracy: 0.0001)
 
         let codexPrevious = modelPrice(for: "gpt-5.2-codex")
         XCTAssertNotNil(codexPrevious)
-        XCTAssertEqual(codexPrevious!.inputPerMillion, 1.75, accuracy: 0.0001)
-        XCTAssertEqual(codexPrevious!.outputPerMillion, 14.0, accuracy: 0.0001)
-        XCTAssertEqual(codexPrevious!.cacheReadPerMillion, 0.175, accuracy: 0.0001)
+        XCTAssertEqual(try XCTUnwrap(codexPrevious?.inputPerMillion), 1.75, accuracy: 0.0001)
+        XCTAssertEqual(try XCTUnwrap(codexPrevious?.outputPerMillion), 14.0, accuracy: 0.0001)
+        XCTAssertEqual(try XCTUnwrap(codexPrevious?.cacheReadPerMillion), 0.175, accuracy: 0.0001)
 
         let codexBase = modelPrice(for: "gpt-5-codex")
         XCTAssertNotNil(codexBase)
-        XCTAssertEqual(codexBase!.inputPerMillion, 1.25, accuracy: 0.0001)
-        XCTAssertEqual(codexBase!.outputPerMillion, 10.0, accuracy: 0.0001)
-        XCTAssertEqual(codexBase!.cacheReadPerMillion, 0.125, accuracy: 0.0001)
+        XCTAssertEqual(try XCTUnwrap(codexBase?.inputPerMillion), 1.25, accuracy: 0.0001)
+        XCTAssertEqual(try XCTUnwrap(codexBase?.outputPerMillion), 10.0, accuracy: 0.0001)
+        XCTAssertEqual(try XCTUnwrap(codexBase?.cacheReadPerMillion), 0.125, accuracy: 0.0001)
 
         let codexMini = modelPrice(for: "gpt-5.1-codex-mini")
         XCTAssertNotNil(codexMini)
-        XCTAssertEqual(codexMini!.inputPerMillion, 0.25, accuracy: 0.0001)
-        XCTAssertEqual(codexMini!.outputPerMillion, 2.0, accuracy: 0.0001)
-        XCTAssertEqual(codexMini!.cacheReadPerMillion, 0.025, accuracy: 0.0001)
+        XCTAssertEqual(try XCTUnwrap(codexMini?.inputPerMillion), 0.25, accuracy: 0.0001)
+        XCTAssertEqual(try XCTUnwrap(codexMini?.outputPerMillion), 2.0, accuracy: 0.0001)
+        XCTAssertEqual(try XCTUnwrap(codexMini?.cacheReadPerMillion), 0.025, accuracy: 0.0001)
 
         let legacyMini = modelPrice(for: "codex-mini-latest")
         XCTAssertNotNil(legacyMini)
-        XCTAssertEqual(legacyMini!.inputPerMillion, 1.50, accuracy: 0.0001)
-        XCTAssertEqual(legacyMini!.outputPerMillion, 6.0, accuracy: 0.0001)
-        XCTAssertEqual(legacyMini!.cacheReadPerMillion, 0.375, accuracy: 0.0001)
+        XCTAssertEqual(try XCTUnwrap(legacyMini?.inputPerMillion), 1.50, accuracy: 0.0001)
+        XCTAssertEqual(try XCTUnwrap(legacyMini?.outputPerMillion), 6.0, accuracy: 0.0001)
+        XCTAssertEqual(try XCTUnwrap(legacyMini?.cacheReadPerMillion), 0.375, accuracy: 0.0001)
     }
 
-    func test_modelPrice_prefers_specificCodexMiniOverGenericGpt5() {
+    func test_modelPrice_prefers_specificCodexMiniOverGenericGpt5() throws {
         let specific = modelPrice(for: "gpt-5.1-codex-mini-2025-11-03")
         XCTAssertNotNil(specific)
-        XCTAssertEqual(specific!.inputPerMillion, 0.25, accuracy: 0.0001)
-        XCTAssertEqual(specific!.outputPerMillion, 2.0, accuracy: 0.0001)
-        XCTAssertEqual(specific!.cacheReadPerMillion, 0.025, accuracy: 0.0001)
+        XCTAssertEqual(try XCTUnwrap(specific?.inputPerMillion), 0.25, accuracy: 0.0001)
+        XCTAssertEqual(try XCTUnwrap(specific?.outputPerMillion), 2.0, accuracy: 0.0001)
+        XCTAssertEqual(try XCTUnwrap(specific?.cacheReadPerMillion), 0.025, accuracy: 0.0001)
     }
 
     func test_claudeCodeReader_keepsAllStreamedTimestampsForActiveTime() {
@@ -209,28 +203,24 @@ final class TokiTests: XCTestCase {
                     messageID: "msg-1",
                     model: "claude-sonnet-4-6",
                     input: 10,
-                    output: 2
-                ),
+                    output: 2),
                 claudeAssistantLine(
                     timestamp: "2026-04-10T00:04:00Z",
                     requestId: "req-1",
                     messageID: "msg-1",
                     model: "claude-sonnet-4-6",
                     input: 10,
-                    output: 7
-                ),
+                    output: 7),
             ],
             streamID: "claude-session",
             from: tokiTestISODate("2026-04-10T00:00:00Z"),
-            to: tokiTestISODate("2026-04-11T00:00:00Z")
-        )
+            to: tokiTestISODate("2026-04-11T00:00:00Z"))
 
         XCTAssertEqual(usage.totalTokens, 17)
         XCTAssertEqual(usage.activeSeconds, 270, accuracy: 0.001)
         XCTAssertEqual(usage.perModel["claude-sonnet-4-6"]?.totalTokens, 17)
         XCTAssertEqual(usage.perModel["claude-sonnet-4-6"]?.activeSeconds ?? 0, 270, accuracy: 0.001)
     }
-
 }
 
 private func claudeAssistantLine(
@@ -241,8 +231,7 @@ private func claudeAssistantLine(
     input: Int,
     output: Int,
     cacheRead: Int = 0,
-    cacheWrite: Int = 0
-) -> String {
+    cacheWrite: Int = 0) -> String {
     """
     {"type":"assistant","timestamp":"\(timestamp)","requestId":"\(requestId)",\
     "message":{"id":"\(messageID)","model":"\(model)","usage":{\

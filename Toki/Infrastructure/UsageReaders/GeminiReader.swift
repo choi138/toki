@@ -1,7 +1,7 @@
 import Foundation
 
-// Reads ~/.gemini/tmp/*/chats/**/*.json
-// Parses Gemini API usageMetadata from conversation history files
+/// Reads ~/.gemini/tmp/*/chats/**/*.json
+/// Parses Gemini API usageMetadata from conversation history files
 struct GeminiReader: TokenReader {
     let name = "Gemini CLI"
 
@@ -19,8 +19,8 @@ struct GeminiReader: TokenReader {
         var result = RawTokenUsage()
         var activityEvents: [ActivityTimeEvent<String>] = []
 
-        files.forEach { file in
-            guard let data = try? Data(contentsOf: file) else { return }
+        for file in files {
+            guard let data = try? Data(contentsOf: file) else { continue }
 
             if let session = try? decoder.decode(GeminiSession.self, from: data) {
                 result += usage(
@@ -28,26 +28,25 @@ struct GeminiReader: TokenReader {
                     from: startDate,
                     to: endDate,
                     streamID: file.path,
-                    activityEvents: &activityEvents
-                )
-                return
+                    activityEvents: &activityEvents)
+                continue
             }
 
             guard let fileDate = (
-                try? file.resourceValues(forKeys: [.contentModificationDateKey])
-            )?.contentModificationDate,
-                fileDate >= startDate && fileDate < endDate else { return }
+                try? file.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate,
+                fileDate >= startDate, fileDate < endDate else { continue }
 
-            let messages: [LegacyGeminiMessage]
-            if let array = try? decoder.decode([LegacyGeminiMessage].self, from: data) {
-                messages = array
+            let messages: [LegacyGeminiMessage] = if let array = try? decoder.decode(
+                [LegacyGeminiMessage].self,
+                from: data) {
+                array
             } else {
-                messages = (try? decoder.decode(LegacyGeminiMessage.self, from: data)).map { [$0] } ?? []
+                (try? decoder.decode(LegacyGeminiMessage.self, from: data)).map { [$0] } ?? []
             }
 
             var hasUsageMetadata = false
-            messages.forEach { msg in
-                guard let meta = msg.usageMetadata else { return }
+            for msg in messages {
+                guard let meta = msg.usageMetadata else { continue }
                 hasUsageMetadata = true
                 result.inputTokens += meta.promptTokenCount ?? 0
                 result.outputTokens += meta.candidatesTokenCount ?? 0
@@ -59,9 +58,7 @@ struct GeminiReader: TokenReader {
                     ActivityTimeEvent(
                         streamID: file.path,
                         timestamp: fileDate,
-                        key: nil
-                    )
-                )
+                        key: nil))
             }
         }
 
@@ -75,16 +72,15 @@ struct GeminiReader: TokenReader {
         from startDate: Date,
         to endDate: Date,
         streamID: String,
-        activityEvents: inout [ActivityTimeEvent<String>]
-    ) -> RawTokenUsage {
+        activityEvents: inout [ActivityTimeEvent<String>]) -> RawTokenUsage {
         var result = RawTokenUsage()
 
-        messages.forEach { msg in
+        for msg in messages {
             guard msg.type == "gemini",
                   let timestamp = msg.timestamp,
                   let date = DateParser.parse(timestamp),
-                  date >= startDate && date < endDate,
-                  let tokens = msg.tokens else { return }
+                  date >= startDate, date < endDate,
+                  let tokens = msg.tokens else { continue }
 
             let input = tokens.input ?? 0
             let output = (tokens.output ?? 0) + (tokens.tool ?? 0)
@@ -99,9 +95,7 @@ struct GeminiReader: TokenReader {
                 ActivityTimeEvent(
                     streamID: streamID,
                     timestamp: date,
-                    key: normalizedModelID(msg.model)
-                )
-            )
+                    key: normalizedModelID(msg.model)))
 
             let entryCost: Double
             if let model = normalizedModelID(msg.model), let price = modelPrice(for: model) {
@@ -109,8 +103,7 @@ struct GeminiReader: TokenReader {
                     input: input,
                     output: output + reasoning,
                     cacheRead: cacheRead,
-                    cacheWrite: 0
-                )
+                    cacheWrite: 0)
                 result.cost += entryCost
             } else {
                 entryCost = 0

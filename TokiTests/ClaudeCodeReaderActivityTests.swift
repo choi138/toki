@@ -14,18 +14,15 @@ final class ClaudeCodeReaderActivityTests: XCTestCase {
                             messageID: "msg-1",
                             model: "claude-sonnet-4-6",
                             input: 10,
-                            output: 2
-                        ),
+                            output: 2),
                         claudeCodeReaderActivityLine(
                             timestamp: "2026-04-10T00:01:00Z",
                             requestId: "req-1",
                             messageID: "msg-1",
                             model: "claude-sonnet-4-6",
                             input: 10,
-                            output: 4
-                        ),
-                    ]
-                ),
+                            output: 4),
+                    ]),
                 (
                     streamID: "project-b",
                     lines: [
@@ -35,22 +32,18 @@ final class ClaudeCodeReaderActivityTests: XCTestCase {
                             messageID: "msg-1",
                             model: "claude-sonnet-4-6",
                             input: 10,
-                            output: 7
-                        ),
-                    ]
-                ),
+                            output: 7),
+                    ]),
             ],
             from: claudeCodeReaderActivityISODate("2026-04-10T00:00:00Z"),
-            to: claudeCodeReaderActivityISODate("2026-04-11T00:00:00Z")
-        )
+            to: claudeCodeReaderActivityISODate("2026-04-11T00:00:00Z"))
 
         XCTAssertEqual(usage.totalTokens, 17)
-        XCTAssertEqual(usage.activeSeconds, 150, accuracy: 0.001)
+        XCTAssertEqual(usage.activeSeconds, 90, accuracy: 0.001)
         XCTAssertEqual(
             usage.perModel["claude-sonnet-4-6"]?.activeSeconds ?? 0,
-            150,
-            accuracy: 0.001
-        )
+            90,
+            accuracy: 0.001)
     }
 }
 
@@ -62,8 +55,7 @@ private func claudeCodeReaderActivityLine(
     input: Int,
     output: Int,
     cacheRead: Int = 0,
-    cacheWrite: Int = 0
-) -> String {
+    cacheWrite: Int = 0) -> String {
     """
     {"type":"assistant","timestamp":"\(timestamp)","requestId":"\(requestId)",\
     "message":{"id":"\(messageID)","model":"\(model)","usage":{\

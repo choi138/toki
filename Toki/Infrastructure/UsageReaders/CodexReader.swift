@@ -1,8 +1,8 @@
 import Foundation
 import SQLite3
 
-// Reads ~/.codex/state_5.sqlite to discover active rollouts,
-// then reconstructs per-range usage from rollout JSONL token_count snapshots.
+/// Reads ~/.codex/state_5.sqlite to discover active rollouts,
+/// then reconstructs per-range usage from rollout JSONL token_count snapshots.
 struct CodexReader: TokenReader {
     let name = "Codex"
 
@@ -28,16 +28,13 @@ struct CodexReader: TokenReader {
                 fromRolloutAt: url,
                 model: session.model,
                 from: startDate,
-                to: endDate
-            )
-            activityEvents.append(
-                contentsOf: await Self.activityEvents(
+                to: endDate)
+            await activityEvents.append(
+                contentsOf: Self.activityEvents(
                     fromRolloutAt: url,
                     model: session.model,
                     from: startDate,
-                    to: endDate
-                )
-            )
+                    to: endDate))
         }
         await CodexRolloutUsageCache.shared.endBatch()
 
@@ -52,8 +49,9 @@ extension CodexReader {
         fromRolloutLines lines: [String],
         model: String?,
         from startDate: Date,
-        to endDate: Date
-    ) -> RawTokenUsage {
+        to endDate: Date,
+        streamID: String,
+        includeActivity: Bool = true) -> RawTokenUsage {
         let normalizedModel = normalizedModelID(model)
 
         var previousSnapshot: CodexUsageSnapshot?
@@ -64,7 +62,7 @@ extension CodexReader {
             let delta = entry.snapshot.delta(since: previousSnapshot)
             previousSnapshot = entry.snapshot
 
-            guard entry.date >= startDate && entry.date < endDate else { continue }
+            guard entry.date >= startDate, entry.date < endDate else { continue }
 
             let usage = delta.normalizedUsage
             guard usage.totalTokens > 0 else { continue }
@@ -81,8 +79,7 @@ extension CodexReader {
                     input: usage.inputTokens,
                     output: usage.outputTokens + usage.reasoningTokens,
                     cacheRead: usage.cacheReadTokens,
-                    cacheWrite: 0
-                )
+                    cacheWrite: 0)
                 result.cost += entryCost
             } else {
                 entryCost = 0
@@ -95,16 +92,16 @@ extension CodexReader {
             }
         }
 
-        result.mergeActivityEvents(
-            activityTimestamps.map { timestamp in
-                ActivityTimeEvent(
-                    streamID: "codex-rollout",
-                    timestamp: timestamp,
-                    key: normalizedModel
-                )
-            },
-            source: "Codex"
-        )
+        if includeActivity {
+            result.mergeActivityEvents(
+                activityTimestamps.map { timestamp in
+                    ActivityTimeEvent(
+                        streamID: streamID,
+                        timestamp: timestamp,
+                        key: normalizedModel)
+                },
+                source: "Codex")
+        }
 
         return result
     }
@@ -113,8 +110,7 @@ extension CodexReader {
         fromDailyUsage dailyUsage: [String: CodexCachedDailyUsage],
         model: String?,
         from startDate: Date,
-        to endDate: Date
-    ) -> RawTokenUsage {
+        to endDate: Date) -> RawTokenUsage {
         guard !dailyUsage.isEmpty else { return RawTokenUsage() }
 
         let normalizedModel = normalizedModelID(model)
@@ -137,8 +133,7 @@ extension CodexReader {
                         input: usage.inputTokens,
                         output: usage.outputTokens + usage.reasoningTokens,
                         cacheRead: usage.cacheReadTokens,
-                        cacheWrite: 0
-                    )
+                        cacheWrite: 0)
                     result.cost += entryCost
                 } else {
                     entryCost = 0
@@ -176,7 +171,7 @@ extension CodexReader {
             result[dayKey, default: .zero].accumulate(usage)
         }
 
-        dailyActiveSeconds(from: activityTimestamps).forEach { dayKey, seconds in
+        for (dayKey, seconds) in dailyActiveSeconds(from: activityTimestamps) {
             result[dayKey, default: .zero].activeSeconds += seconds
         }
 
@@ -204,15 +199,15 @@ private extension CodexReader {
         fromRolloutAt url: URL,
         model: String?,
         from startDate: Date,
-        to endDate: Date
-    ) async -> RawTokenUsage {
+        to endDate: Date) async -> RawTokenUsage {
         guard codexIsWholeDayAlignedRange(from: startDate, to: endDate) else {
             return usage(
                 fromRolloutLines: readJSONLLines(at: url),
                 model: model,
                 from: startDate,
-                to: endDate
-            )
+                to: endDate,
+                streamID: url.path,
+                includeActivity: false)
         }
 
         let rolloutDailyUsage: [String: CodexCachedDailyUsage]
@@ -224,8 +219,7 @@ private extension CodexReader {
             await CodexRolloutUsageCache.shared.store(
                 dailyUsage: rolloutDailyUsage,
                 dailyActivityTimestamps: dailyActivityTimestamps(fromRolloutLines: lines),
-                for: url
-            )
+                for: url)
         }
 
         return usage(fromDailyUsage: rolloutDailyUsage, model: model, from: startDate, to: endDate)
@@ -235,8 +229,7 @@ private extension CodexReader {
         fromRolloutAt url: URL,
         model: String?,
         from startDate: Date,
-        to endDate: Date
-    ) async -> [ActivityTimeEvent<String>] {
+        to endDate: Date) async -> [ActivityTimeEvent<String>] {
         let normalizedModel = normalizedModelID(model)
 
         if codexIsWholeDayAlignedRange(from: startDate, to: endDate),
@@ -253,10 +246,8 @@ private extension CodexReader {
                             ActivityTimeEvent(
                                 streamID: url.path,
                                 timestamp: Date(timeIntervalSince1970: timestamp),
-                                key: normalizedModel
-                            )
-                        }
-                    )
+                                key: normalizedModel)
+                        })
                 }
 
                 guard let nextDay = calendar.date(byAdding: .day, value: 1, to: currentDay) else { break }
@@ -273,16 +264,14 @@ private extension CodexReader {
             await CodexRolloutUsageCache.shared.store(
                 dailyUsage: dailyUsage,
                 dailyActivityTimestamps: dailyActivityTimestamps,
-                for: url
-            )
+                for: url)
 
             return activityEvents(
                 fromCachedTimestamps: dailyActivityTimestamps,
                 streamID: url.path,
                 model: normalizedModel,
                 from: startDate,
-                to: endDate
-            )
+                to: endDate)
         }
 
         var previousSnapshot: CodexUsageSnapshot?
@@ -290,14 +279,13 @@ private extension CodexReader {
             let delta = entry.snapshot.delta(since: previousSnapshot)
             previousSnapshot = entry.snapshot
 
-            guard entry.date >= startDate && entry.date < endDate else { return nil }
+            guard entry.date >= startDate, entry.date < endDate else { return nil }
             guard delta.normalizedUsage.totalTokens > 0 else { return nil }
 
             return ActivityTimeEvent(
                 streamID: url.path,
                 timestamp: entry.date,
-                key: normalizedModel
-            )
+                key: normalizedModel)
         }
     }
 
@@ -306,8 +294,7 @@ private extension CodexReader {
         streamID: String,
         model: String?,
         from startDate: Date,
-        to endDate: Date
-    ) -> [ActivityTimeEvent<String>] {
+        to endDate: Date) -> [ActivityTimeEvent<String>] {
         let calendar = Calendar.current
         var currentDay = calendar.startOfDay(for: startDate)
         var result: [ActivityTimeEvent<String>] = []
@@ -320,10 +307,8 @@ private extension CodexReader {
                         ActivityTimeEvent(
                             streamID: streamID,
                             timestamp: Date(timeIntervalSince1970: timestamp),
-                            key: model
-                        )
-                    }
-                )
+                            key: model)
+                    })
             }
 
             guard let nextDay = calendar.date(byAdding: .day, value: 1, to: currentDay) else { break }

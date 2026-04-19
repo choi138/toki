@@ -2,7 +2,7 @@ import Foundation
 
 extension Double {
     func formattedCost() -> String {
-        if self >= 1_000 { return String(format: "$%.1fK", self / 1_000) }
+        if self >= 1000 { return String(format: "$%.1fK", self / 1000) }
         if self >= 100 { return String(format: "$%.0f", self) }
         if self >= 10 { return String(format: "$%.1f", self) }
         return String(format: "$%.2f", self)
@@ -12,19 +12,40 @@ extension Double {
 extension Int {
     func formattedTokens() -> String {
         let value = Double(self)
-        if value >= 1_000_000_000 { return Self.format(value / 1_000_000_000) + "B" }
-        if value >= 1_000_000 { return Self.format(value / 1_000_000) + "M" }
-        if value >= 1_000 { return Self.format(value / 1_000) + "K" }
-        return "\(self)"
+        let suffixes: [(divisor: Double, suffix: String)] = [
+            (1_000_000_000, "B"),
+            (1_000_000, "M"),
+            (1000, "K"),
+        ]
+
+        guard let startIndex = suffixes.firstIndex(where: { value >= $0.divisor }) else {
+            return "\(self)"
+        }
+
+        var index = startIndex
+        while true {
+            let candidate = suffixes[index]
+            let representation = Self.representation(for: value / candidate.divisor)
+            if representation.rounded < 1000 || index == 0 {
+                return representation.formatted + candidate.suffix
+            }
+            index -= 1
+        }
     }
 
-    private static func format(_ value: Double) -> String {
+    private static func representation(for value: Double) -> (rounded: Double, formatted: String) {
         let places = value >= 10 ? 1 : 2
-        var formatted = String(format: "%.\(places)f", value)
+        let scale = pow(10.0, Double(places))
+        let rounded = (value * scale).rounded() / scale
+        var formatted = String(format: "%.\(places)f", rounded)
         while formatted.hasSuffix("0"), !formatted.hasSuffix(".0") {
             formatted.removeLast()
         }
-        return formatted
+        return (rounded: rounded, formatted: formatted)
+    }
+
+    private static func format(_ value: Double) -> String {
+        representation(for: value).formatted
     }
 }
 

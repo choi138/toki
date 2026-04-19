@@ -1,6 +1,6 @@
 import Foundation
 
-// Reads ~/.openclaw/agents/**/*.jsonl
+/// Reads ~/.openclaw/agents/**/*.jsonl
 struct OpenClawReader: TokenReader {
     let name = "OpenClaw"
 
@@ -20,19 +20,19 @@ struct OpenClawReader: TokenReader {
         var activityEvents: [ActivityTimeEvent<String>] = []
 
         for file in files {
-            readJSONLLines(at: file).forEach { line in
+            for line in readJSONLLines(at: file) {
                 guard let data = line.data(using: .utf8),
                       let msg = try? decoder.decode(RawMessage.self, from: data),
-                      msg.role == "assistant" else { return }
+                      msg.role == "assistant" else { continue }
 
                 var eventDate: Date?
                 if let tsStr = msg.timestamp ?? msg.createdAt {
                     guard let date = DateParser.parse(tsStr),
-                          date >= startDate && date < endDate else { return }
+                          date >= startDate, date < endDate else { continue }
                     eventDate = date
                 }
 
-                guard let usage = msg.usage else { return }
+                guard let usage = msg.usage else { continue }
                 result.inputTokens += usage.inputTokens ?? usage.promptTokens ?? 0
                 result.outputTokens += usage.outputTokens ?? usage.completionTokens ?? 0
                 result.cacheReadTokens += usage.cacheReadInputTokens ?? 0
@@ -42,9 +42,7 @@ struct OpenClawReader: TokenReader {
                         ActivityTimeEvent(
                             streamID: file.path,
                             timestamp: eventDate,
-                            key: nil
-                        )
-                    )
+                            key: nil))
                 }
             }
         }

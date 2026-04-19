@@ -40,8 +40,7 @@ struct PanelHeroView: View {
     private var comparisonContent: PanelHeroComparisonContent? {
         PanelHeroComparisonContent.make(
             currentTotal: usage.totalTokens,
-            yesterdayTotal: yesterdayTotal
-        )
+            yesterdayTotal: yesterdayTotal)
     }
 }
 
@@ -55,38 +54,32 @@ struct PanelTokenBreakdownView: View {
                 label: "AI Work Time",
                 value: usage.activeSeconds.formattedWorkDuration(),
                 accent: Color(red: 0.95, green: 0.55, blue: 0.35),
-                isLoading: isLoading
-            )
+                isLoading: isLoading)
             StatRowView(
                 label: "Input",
                 value: usage.inputTokens.formattedTokens(),
                 accent: Color(red: 0.4, green: 0.8, blue: 1.0),
-                isLoading: isLoading
-            )
+                isLoading: isLoading)
             StatRowView(
                 label: "Output",
                 value: usage.outputTokens.formattedTokens(),
                 accent: Color(red: 0.6, green: 1.0, blue: 0.7),
-                isLoading: isLoading
-            )
+                isLoading: isLoading)
             StatRowView(
                 label: "Cache Read",
                 value: usage.cacheReadTokens.formattedTokens(),
                 accent: Color(red: 1.0, green: 0.8, blue: 0.4),
-                isLoading: isLoading
-            )
+                isLoading: isLoading)
             StatRowView(
                 label: "Cache Hit",
                 value: String(format: "%.1f%%", usage.cacheEfficiency),
                 accent: Color(red: 1.0, green: 0.65, blue: 0.2),
-                isLoading: isLoading
-            )
+                isLoading: isLoading)
             StatRowView(
                 label: "Estimated Cost",
                 value: usage.cost.formattedCost(),
                 accent: Color(red: 0.4, green: 0.9, blue: 0.6),
-                isLoading: isLoading
-            )
+                isLoading: isLoading)
         }
         .padding(.vertical, 6)
     }

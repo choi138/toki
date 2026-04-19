@@ -28,7 +28,7 @@ struct UsageData {
         inputTokens + outputTokens + cacheReadTokens + cacheWriteTokens + reasoningTokens
     }
 
-    // Fraction of input-side tokens served from cache (0–100)
+    /// Fraction of input-side tokens served from cache (0–100)
     var cacheEfficiency: Double {
         let denom = Double(inputTokens + cacheReadTokens)
         guard denom > 0 else { return 0 }
@@ -41,17 +41,15 @@ struct UsageData {
 extension UsageData {
     static let mock = UsageData(
         date: Calendar.current.date(
-            from: DateComponents(year: 2026, month: 4, day: 8)
-        )!,
+            from: DateComponents(year: 2026, month: 4, day: 8))!,
         inputTokens: 11_000_000,
         outputTokens: 401_900,
         cacheReadTokens: 112_600_000,
         cacheWriteTokens: 0,
         reasoningTokens: 176_400,
         cost: 64.33,
-        activeSeconds: 12_840,
-        perModel: []
-    )
+        activeSeconds: 12840,
+        perModel: [])
 
     static var empty: UsageData {
         UsageData(
@@ -63,7 +61,6 @@ extension UsageData {
             reasoningTokens: 0,
             cost: 0,
             activeSeconds: 0,
-            perModel: []
-        )
+            perModel: [])
     }
 }

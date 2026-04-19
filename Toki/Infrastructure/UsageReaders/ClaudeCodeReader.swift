@@ -1,7 +1,7 @@
 import Foundation
 
-// Reads ~/.claude/projects/**/*.jsonl
-// Deduplicates by requestId, keeps max token counts per message
+/// Reads ~/.claude/projects/**/*.jsonl
+/// Deduplicates by requestId, keeps max token counts per message
 struct ClaudeCodeReader: TokenReader {
     let name = "Claude Code"
 
@@ -16,9 +16,8 @@ struct ClaudeCodeReader: TokenReader {
         var sessions: [(streamID: String, records: [ClaudeCachedUsageRecord])] = []
 
         for file in files {
-            sessions.append(
-                (streamID: file.path, records: await Self.cachedUsageRecords(at: file))
-            )
+            await sessions.append(
+                (streamID: file.path, records: Self.cachedUsageRecords(at: file)))
         }
 
         await ClaudeUsageCache.shared.endBatch()
@@ -26,36 +25,31 @@ struct ClaudeCodeReader: TokenReader {
             fromSessions: sessions,
             from: startDate,
             to: endDate,
-            source: name
-        )
+            source: name)
     }
 
     static func usage(
         fromJSONLLines lines: [String],
         streamID: String,
         from startDate: Date,
-        to endDate: Date
-    ) -> RawTokenUsage {
+        to endDate: Date) -> RawTokenUsage {
         usage(
             fromJSONLSessions: [(streamID: streamID, lines: lines)],
             from: startDate,
-            to: endDate
-        )
+            to: endDate)
     }
 
     static func usage(
         fromJSONLSessions sessions: [(streamID: String, lines: [String])],
         from startDate: Date,
-        to endDate: Date
-    ) -> RawTokenUsage {
+        to endDate: Date) -> RawTokenUsage {
         usage(
             fromSessions: sessions.map { session in
                 (streamID: session.streamID, records: parseUsageRecords(from: session.lines))
             },
             from: startDate,
             to: endDate,
-            source: "Claude Code"
-        )
+            source: "Claude Code")
     }
 
     private static func cachedUsageRecords(at url: URL) async -> [ClaudeCachedUsageRecord] {
@@ -74,11 +68,10 @@ struct ClaudeCodeReader: TokenReader {
         from startDate: Date,
         to endDate: Date,
         dedup: inout [String: Entry],
-        activityEvents: inout [ActivityTimeEvent<String>]
-    ) {
-        records.forEach { record in
+        activityByKey: inout [String: ActivitySeries]) {
+        for record in records {
             let date = Date(timeIntervalSince1970: record.timestamp)
-            guard date >= startDate && date < endDate else { return }
+            guard date >= startDate, date < endDate else { continue }
 
             let key = record.requestId
                 ?? record.messageID
@@ -89,8 +82,7 @@ struct ClaudeCodeReader: TokenReader {
                 input: record.input,
                 output: record.output,
                 cacheRead: record.cacheRead,
-                cacheWrite: record.cacheWrite
-            )
+                cacheWrite: record.cacheWrite)
 
             if let existing = dedup[key] {
                 dedup[key] = existing.mergedMax(with: entry)
@@ -99,14 +91,16 @@ struct ClaudeCodeReader: TokenReader {
             }
 
             let activityStreamID = record.requestId ?? record.messageID ?? streamID
-
-            activityEvents.append(
-                ActivityTimeEvent(
-                    streamID: activityStreamID,
-                    timestamp: date,
-                    key: normalizedModelID(record.model)
-                )
-            )
+            let modelKey = normalizedModelID(record.model)
+            if var existing = activityByKey[key] {
+                existing.record(timestamp: date, sourceStreamID: streamID, modelKey: modelKey)
+                activityByKey[key] = existing
+            } else {
+                activityByKey[key] = ActivitySeries(
+                    activityStreamID: activityStreamID,
+                    modelKey: modelKey,
+                    timestampsBySource: [streamID: [date]])
+            }
         }
     }
 
@@ -114,37 +108,33 @@ struct ClaudeCodeReader: TokenReader {
         fromSessions sessions: [(streamID: String, records: [ClaudeCachedUsageRecord])],
         from startDate: Date,
         to endDate: Date,
-        source: String
-    ) -> RawTokenUsage {
+        source: String) -> RawTokenUsage {
         var dedup: [String: Entry] = [:]
-        var activityEvents: [ActivityTimeEvent<String>] = []
+        var activityByKey: [String: ActivitySeries] = [:]
 
-        sessions.forEach { session in
+        for session in sessions {
             accumulate(
                 records: session.records,
                 streamID: session.streamID,
                 from: startDate,
                 to: endDate,
                 dedup: &dedup,
-                activityEvents: &activityEvents
-            )
+                activityByKey: &activityByKey)
         }
 
         return usage(
             fromDedupedEntries: dedup,
-            activityEvents: activityEvents,
-            source: source
-        )
+            activityEvents: activityByKey.values.flatMap(\.events),
+            source: source)
     }
 
     private static func usage(
         fromDedupedEntries dedup: [String: Entry],
         activityEvents: [ActivityTimeEvent<String>],
-        source: String
-    ) -> RawTokenUsage {
+        source: String) -> RawTokenUsage {
         var result = RawTokenUsage()
 
-        dedup.values.forEach { entry in
+        for entry in dedup.values {
             result.inputTokens += entry.input
             result.outputTokens += entry.output
             result.cacheReadTokens += entry.cacheRead
@@ -156,8 +146,7 @@ struct ClaudeCodeReader: TokenReader {
                     input: entry.input,
                     output: entry.output,
                     cacheRead: entry.cacheRead,
-                    cacheWrite: entry.cacheWrite
-                )
+                    cacheWrite: entry.cacheWrite)
                 result.cost += entryCost
             } else {
                 entryCost = 0
@@ -200,8 +189,7 @@ struct ClaudeCodeReader: TokenReader {
                 input: usage.inputTokens ?? 0,
                 output: usage.outputTokens ?? 0,
                 cacheRead: usage.cacheReadInputTokens ?? 0,
-                cacheWrite: usage.cacheCreationInputTokens ?? 0
-            )
+                cacheWrite: usage.cacheCreationInputTokens ?? 0)
         }
     }
 }
@@ -218,8 +206,52 @@ private struct Entry {
             input: max(input, other.input),
             output: max(output, other.output),
             cacheRead: max(cacheRead, other.cacheRead),
-            cacheWrite: max(cacheWrite, other.cacheWrite)
-        )
+            cacheWrite: max(cacheWrite, other.cacheWrite))
+    }
+}
+
+private struct ActivitySeries {
+    let activityStreamID: String
+    var modelKey: String?
+    var timestampsBySource: [String: [Date]]
+
+    mutating func record(timestamp: Date, sourceStreamID: String, modelKey: String?) {
+        timestampsBySource[sourceStreamID, default: []].append(timestamp)
+        self.modelKey = self.modelKey ?? modelKey
+    }
+
+    var events: [ActivityTimeEvent<String>] {
+        bestTimestamps.map { timestamp in
+            ActivityTimeEvent(
+                streamID: activityStreamID,
+                timestamp: timestamp,
+                key: modelKey)
+        }
+    }
+
+    private var bestTimestamps: [Date] {
+        timestampsBySource.values
+            .map { timestamps in
+                Array(Set(timestamps)).sorted()
+            }
+            .max { lhs, rhs in
+                if lhs.count != rhs.count {
+                    return lhs.count < rhs.count
+                }
+
+                let lhsDuration = duration(of: lhs)
+                let rhsDuration = duration(of: rhs)
+                if lhsDuration != rhsDuration {
+                    return lhsDuration < rhsDuration
+                }
+
+                return (lhs.first ?? .distantFuture) > (rhs.first ?? .distantFuture)
+            } ?? []
+    }
+
+    private func duration(of timestamps: [Date]) -> TimeInterval {
+        guard let first = timestamps.first, let last = timestamps.last else { return 0 }
+        return last.timeIntervalSince(first)
     }
 }
 
@@ -290,8 +322,7 @@ private actor ClaudeUsageCache {
         entries[url.path] = ClaudeUsageCacheEntry(
             fileSize: fileSignature.fileSize,
             modifiedAt: fileSignature.modifiedAt,
-            records: records
-        )
+            records: records)
 
         hasPendingChanges = true
         persistIfNeeded()
@@ -318,8 +349,7 @@ private actor ClaudeUsageCache {
         try? FileManager.default.createDirectory(
             at: directory,
             withIntermediateDirectories: true,
-            attributes: nil
-        )
+            attributes: nil)
 
         let payload = ClaudeUsageCacheFile(entries: entries)
         guard let data = try? JSONEncoder().encode(payload) else { return }
@@ -364,8 +394,7 @@ private func claudeFileSignature(for url: URL) -> ClaudeFileSignature? {
 
     return ClaudeFileSignature(
         fileSize: fileSize,
-        modifiedAt: modifiedAt.timeIntervalSince1970
-    )
+        modifiedAt: modifiedAt.timeIntervalSince1970)
 }
 
 private func claudeUsageCacheURL() -> URL {

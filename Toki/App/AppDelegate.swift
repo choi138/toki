@@ -11,7 +11,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var animationTimer: Timer?
     private var activityCheckTimer: Timer?
 
-    private var isAnimating: Bool { animationTimer != nil }
+    private var isAnimating: Bool {
+        animationTimer != nil
+    }
 
     private enum Timing {
         static let frameInterval: TimeInterval = 0.09 // ~11fps
@@ -56,12 +58,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         currentFrame = 0
         let timer = Timer(
             timeInterval: Timing.frameInterval,
-            repeats: true
-        ) { [weak self] _ in
-            guard let self, let button = statusItem.button else { return }
-            button.image = runFrames[currentFrame % runFrames.count]
-            currentFrame &+= 1
-        }
+            repeats: true) { [weak self] _ in
+                guard let self, let button = statusItem.button else { return }
+                button.image = runFrames[currentFrame % runFrames.count]
+                currentFrame &+= 1
+            }
         RunLoop.main.add(timer, forMode: .common)
         animationTimer = timer
     }
@@ -79,10 +80,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         checkActivityInBackground()
         let checkTimer = Timer(
             timeInterval: Timing.activityCheck,
-            repeats: true
-        ) { [weak self] _ in
-            self?.checkActivityInBackground()
-        }
+            repeats: true) { [weak self] _ in
+                self?.checkActivityInBackground()
+            }
         checkTimer.tolerance = 1.0
         RunLoop.main.add(checkTimer, forMode: .common)
         activityCheckTimer = checkTimer

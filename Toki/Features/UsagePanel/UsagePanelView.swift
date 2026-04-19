@@ -14,8 +14,7 @@ struct UsagePanelView: View {
             PanelHeaderView(
                 isLoading: service.isLoading,
                 lastFetchedAt: service.lastFetchedAt,
-                onRefresh: { Task { await service.refresh() } }
-            )
+                onRefresh: { Task { await service.refresh() } })
             panelDivider
             PanelDatePickerView(service: service)
             panelDivider
@@ -28,8 +27,7 @@ struct UsagePanelView: View {
                         isLoading: service.isLoading,
                         yesterdayTotal: service.shouldCompareAgainstYesterday
                             ? service.yesterdayTotalTokens
-                            : nil
-                    )
+                            : nil)
                     panelDivider
                     PanelTokenBreakdownView(usage: service.usageData, isLoading: service.isLoading)
                 } else {

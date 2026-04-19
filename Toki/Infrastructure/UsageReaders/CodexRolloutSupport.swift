@@ -55,8 +55,7 @@ actor CodexRolloutUsageCache {
     func store(
         dailyUsage: [String: CodexCachedDailyUsage],
         dailyActivityTimestamps: [String: [TimeInterval]],
-        for url: URL
-    ) async {
+        for url: URL) async {
         await loadIfNeeded()
 
         guard let fileSignature = codexFileSignature(for: url) else { return }
@@ -66,8 +65,7 @@ actor CodexRolloutUsageCache {
             modifiedAt: fileSignature.modifiedAt,
             timeZoneIdentifier: codexCacheTimeZoneIdentifier(),
             dailyUsage: dailyUsage,
-            dailyActivityTimestamps: dailyActivityTimestamps
-        )
+            dailyActivityTimestamps: dailyActivityTimestamps)
 
         hasPendingChanges = true
         persistIfNeeded()
@@ -94,8 +92,7 @@ actor CodexRolloutUsageCache {
         try? FileManager.default.createDirectory(
             at: directory,
             withIntermediateDirectories: true,
-            attributes: nil
-        )
+            attributes: nil)
 
         let payload = CodexRolloutUsageCacheFile(entries: entries)
         guard let data = try? JSONEncoder().encode(payload) else { return }
@@ -120,8 +117,7 @@ struct CodexRolloutUsageCacheEntry: Codable {
         modifiedAt: TimeInterval,
         timeZoneIdentifier: String,
         dailyUsage: [String: CodexCachedDailyUsage],
-        dailyActivityTimestamps: [String: [TimeInterval]] = [:]
-    ) {
+        dailyActivityTimestamps: [String: [TimeInterval]] = [:]) {
         self.fileSize = fileSize
         self.modifiedAt = modifiedAt
         self.timeZoneIdentifier = timeZoneIdentifier
@@ -145,8 +141,7 @@ struct CodexRolloutUsageCacheEntry: Codable {
         dailyUsage = try container.decode([String: CodexCachedDailyUsage].self, forKey: .dailyUsage)
         dailyActivityTimestamps = try container.decodeIfPresent(
             [String: [TimeInterval]].self,
-            forKey: .dailyActivityTimestamps
-        ) ?? [:]
+            forKey: .dailyActivityTimestamps) ?? [:]
     }
 }
 
@@ -185,8 +180,7 @@ func codexFileSignature(for url: URL) -> CodexFileSignature? {
 
     return CodexFileSignature(
         fileSize: fileSize,
-        modifiedAt: modifiedAt.timeIntervalSince1970
-    )
+        modifiedAt: modifiedAt.timeIntervalSince1970)
 }
 
 func codexRolloutUsageCacheURL() -> URL {
@@ -205,8 +199,7 @@ func codexDayKey(for date: Date, timeZone: TimeZone) -> String {
         format: "%04d-%02d-%02d",
         components.year ?? 0,
         components.month ?? 0,
-        components.day ?? 0
-    )
+        components.day ?? 0)
 }
 
 func codexDayKey(for date: Date) -> String {
@@ -221,8 +214,7 @@ func dailyActiveSeconds(from timestamps: [Date]) -> [String: TimeInterval] {
     let groupedEvents = timestamps.reduce(into: [String: [ActivityTimeEvent<String>]]()) { result, timestamp in
         let dayKey = codexDayKey(for: timestamp)
         result[dayKey, default: []].append(
-            ActivityTimeEvent(streamID: dayKey, timestamp: timestamp, key: nil)
-        )
+            ActivityTimeEvent(streamID: dayKey, timestamp: timestamp, key: nil))
     }
 
     return groupedEvents.reduce(into: [String: TimeInterval]()) { result, item in
@@ -253,8 +245,7 @@ func codexRolloutSnapshots(fromRolloutLines lines: [String]) -> [CodexTimedSnaps
         return CodexTimedSnapshot(
             date: date,
             snapshot: snapshot,
-            fileOrder: index
-        )
+            fileOrder: index)
     }.sorted { lhs, rhs in
         if lhs.date == rhs.date {
             return lhs.fileOrder < rhs.fileOrder
@@ -300,8 +291,7 @@ struct CodexRolloutEntry: Decodable {
             inputTokens: totalUsage.inputTokens ?? 0,
             cachedInputTokens: totalUsage.cachedInputTokens ?? 0,
             outputTokens: totalUsage.outputTokens ?? 0,
-            reasoningOutputTokens: totalUsage.reasoningOutputTokens ?? 0
-        )
+            reasoningOutputTokens: totalUsage.reasoningOutputTokens ?? 0)
     }
 
     struct Payload: Decodable {
@@ -345,8 +335,7 @@ struct CodexUsageSnapshot {
             inputTokens: max(0, inputTokens - previous.inputTokens),
             cachedInputTokens: max(0, cachedInputTokens - previous.cachedInputTokens),
             outputTokens: max(0, outputTokens - previous.outputTokens),
-            reasoningOutputTokens: max(0, reasoningOutputTokens - previous.reasoningOutputTokens)
-        )
+            reasoningOutputTokens: max(0, reasoningOutputTokens - previous.reasoningOutputTokens))
     }
 
     var normalizedUsage: RawTokenUsage {
@@ -357,8 +346,7 @@ struct CodexUsageSnapshot {
             inputTokens: uncachedInput,
             outputTokens: nonReasoningOutput,
             cacheReadTokens: cachedInputTokens,
-            reasoningTokens: reasoningOutputTokens
-        )
+            reasoningTokens: reasoningOutputTokens)
     }
 }
 

@@ -26,6 +26,13 @@ struct StatRowView: View {
     let accent: Color
     var isLoading = false
 
+    private var skeletonWidth: CGFloat {
+        let seed = label.unicodeScalars.reduce(0) { partialResult, scalar in
+            partialResult + Int(scalar.value)
+        }
+        return CGFloat(36 + (seed % 21))
+    }
+
     var body: some View {
         HStack(alignment: .center) {
             Circle()
@@ -36,7 +43,7 @@ struct StatRowView: View {
                 .foregroundColor(Color.white.opacity(isLoading ? 0.2 : 0.45))
             Spacer()
             if isLoading {
-                SkeletonBar(width: CGFloat.random(in: 36...56), height: 11)
+                SkeletonBar(width: skeletonWidth, height: 11)
             } else {
                 Text(value)
                     .font(.system(size: 12, weight: .semibold, design: .rounded))

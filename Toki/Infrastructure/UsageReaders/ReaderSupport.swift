@@ -13,8 +13,7 @@ func findFiles(in directory: URL, withExtension ext: String, modifiedAfter: Date
           let enumerator = FileManager.default.enumerator(
               at: directory,
               includingPropertiesForKeys: keys,
-              options: [.skipsHiddenFiles]
-          ) else {
+              options: [.skipsHiddenFiles]) else {
         return []
     }
 
@@ -51,7 +50,7 @@ func normalizedModelID(_ value: String?) -> String? {
 extension RawTokenUsage {
     mutating func mergeActiveEstimate(_ estimate: ActivityTimeEstimate<String>, source: String) {
         activeSeconds += estimate.totalSeconds
-        estimate.secondsByKey.forEach { modelID, seconds in
+        for (modelID, seconds) in estimate.secondsByKey {
             perModel[modelID, default: PerModelUsage()].activeSeconds += seconds
             perModel[modelID, default: PerModelUsage()].sources.insert(source)
         }
@@ -67,13 +66,13 @@ extension RawTokenUsage {
         guard !activityEvents.isEmpty else { return }
 
         activeSeconds = 0
-        perModel.keys.forEach { modelID in
+        for modelID in perModel.keys {
             perModel[modelID]?.activeSeconds = 0
         }
 
         let estimate = ActivityTimeEstimator.estimate(events: activityEvents)
         activeSeconds = estimate.totalSeconds
-        estimate.secondsByKey.forEach { modelID, seconds in
+        for (modelID, seconds) in estimate.secondsByKey {
             perModel[modelID, default: PerModelUsage()].activeSeconds = seconds
             if let source {
                 perModel[modelID, default: PerModelUsage()].sources.insert(source)

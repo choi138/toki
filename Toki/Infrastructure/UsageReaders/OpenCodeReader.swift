@@ -1,8 +1,8 @@
 import Foundation
 import SQLite3
 
-// Reads ~/.local/share/opencode/opencode.db (SQLite)
-// Queries assistant messages with token data
+/// Reads ~/.local/share/opencode/opencode.db (SQLite)
+/// Queries assistant messages with token data
 struct OpenCodeReader: TokenReader {
     let name = "OpenCode"
 
@@ -40,8 +40,7 @@ struct OpenCodeReader: TokenReader {
     private func preparedUsageStatement(
         in database: OpaquePointer,
         from startDate: Date,
-        to endDate: Date
-    ) -> OpaquePointer? {
+        to endDate: Date) -> OpaquePointer? {
         let startEpoch = startDate.timeIntervalSince1970 * 1000
         let endEpoch = endDate.timeIntervalSince1970 * 1000
         let query = """
@@ -99,9 +98,7 @@ struct OpenCodeReader: TokenReader {
                 ActivityTimeEvent(
                     streamID: sessionID.isEmpty ? "opencode" : sessionID,
                     timestamp: Date(timeIntervalSince1970: TimeInterval(timestamp) / 1000),
-                    key: normalizedModelID(modelID)
-                )
-            )
+                    key: normalizedModelID(modelID)))
 
             let messageCost: Double
             if let price = modelPrice(for: modelID) {
@@ -109,8 +106,7 @@ struct OpenCodeReader: TokenReader {
                     input: input,
                     output: output,
                     cacheRead: cacheRead,
-                    cacheWrite: cacheWrite
-                )
+                    cacheWrite: cacheWrite)
                 result.cost += messageCost
             } else {
                 messageCost = 0

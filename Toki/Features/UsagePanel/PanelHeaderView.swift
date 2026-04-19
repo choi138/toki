@@ -37,15 +37,20 @@ struct PanelHeaderView: View {
                         ProgressView()
                             .scaleEffect(0.5)
                             .frame(width: 14, height: 14)
+                            .accessibilityHidden(true)
                     } else {
                         Image(systemName: "arrow.clockwise")
                             .font(.system(size: 11, weight: .medium))
                             .foregroundColor(Color.white.opacity(0.4))
+                            .accessibilityHidden(true)
                     }
                 }
             }
             .buttonStyle(.plain)
             .padding(.leading, 6)
+            .disabled(isLoading)
+            .accessibilityLabel(isLoading ? Text("Refreshing") : Text("Refresh"))
+            .accessibilityValue(isLoading ? Text("In progress") : Text("Idle"))
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 11)

@@ -14,15 +14,12 @@ final class UsageServiceActiveTimeTests: XCTestCase {
                     ActivityTimeEvent(
                         streamID: "codex",
                         timestamp: usageServiceActiveTimeISODate("2026-04-10T00:00:00Z"),
-                        key: "gpt-5.4"
-                    ),
+                        key: "gpt-5.4"),
                     ActivityTimeEvent(
                         streamID: "codex",
                         timestamp: usageServiceActiveTimeISODate("2026-04-10T00:02:00Z"),
-                        key: "gpt-5.4"
-                    ),
-                ]
-            )
+                        key: "gpt-5.4"),
+                ])
         }
         let secondReader = MockReader(name: "Second", recorder: secondRecorder) { _, _ in
             mockActivityUsage(
@@ -33,15 +30,12 @@ final class UsageServiceActiveTimeTests: XCTestCase {
                     ActivityTimeEvent(
                         streamID: "claude",
                         timestamp: usageServiceActiveTimeISODate("2026-04-10T00:01:00Z"),
-                        key: "gpt-5.4"
-                    ),
+                        key: "gpt-5.4"),
                     ActivityTimeEvent(
                         streamID: "claude",
                         timestamp: usageServiceActiveTimeISODate("2026-04-10T00:03:00Z"),
-                        key: "gpt-5.4"
-                    ),
-                ]
-            )
+                        key: "gpt-5.4"),
+                ])
         }
 
         let service = await MainActor.run {

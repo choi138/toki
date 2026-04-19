@@ -31,18 +31,15 @@ final class ActivityTimeEstimatorTests: XCTestCase {
             ActivityTimeEvent<String>(
                 streamID: "main",
                 timestamp: isoDate("2026-04-10T00:00:00Z"),
-                key: "gpt-5.4"
-            ),
+                key: "gpt-5.4"),
             ActivityTimeEvent<String>(
                 streamID: "main",
                 timestamp: isoDate("2026-04-10T00:02:00Z"),
-                key: "claude-sonnet-4-6"
-            ),
+                key: "claude-sonnet-4-6"),
             ActivityTimeEvent<String>(
                 streamID: "main",
                 timestamp: isoDate("2026-04-10T00:06:00Z"),
-                key: "claude-sonnet-4-6"
-            ),
+                key: "claude-sonnet-4-6"),
         ]
 
         let estimate = ActivityTimeEstimator.estimate(events: events)

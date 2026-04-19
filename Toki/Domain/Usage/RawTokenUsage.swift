@@ -33,7 +33,7 @@ func += (lhs: inout RawTokenUsage, rhs: RawTokenUsage) {
     lhs.activeSeconds += rhs.activeSeconds
     lhs.activityEvents.append(contentsOf: rhs.activityEvents)
 
-    rhs.perModel.forEach { id, usage in
+    for (id, usage) in rhs.perModel {
         lhs.perModel[id, default: PerModelUsage()].totalTokens += usage.totalTokens
         lhs.perModel[id, default: PerModelUsage()].cost += usage.cost
         lhs.perModel[id, default: PerModelUsage()].activeSeconds += usage.activeSeconds

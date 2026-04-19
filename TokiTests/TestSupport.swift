@@ -12,8 +12,7 @@ func mockActivityUsage(
     totalTokens: Int,
     modelID: String,
     source: String,
-    events: [ActivityTimeEvent<String>]
-) -> RawTokenUsage {
+    events: [ActivityTimeEvent<String>]) -> RawTokenUsage {
     var usage = RawTokenUsage()
     usage.inputTokens = totalTokens
     usage.perModel[modelID, default: PerModelUsage()].totalTokens = totalTokens

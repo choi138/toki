@@ -28,13 +28,11 @@ enum ActivityTimeEstimator {
     static func estimate<Key: Hashable>(
         events: [ActivityTimeEvent<Key>],
         maximumGap: TimeInterval = defaultMaximumGap,
-        minimumSlice: TimeInterval = defaultMinimumSlice
-    ) -> ActivityTimeEstimate<Key> {
+        minimumSlice: TimeInterval = defaultMinimumSlice) -> ActivityTimeEstimate<Key> {
         let intervals = estimatedIntervals(
             from: events,
             maximumGap: maximumGap,
-            minimumSlice: minimumSlice
-        )
+            minimumSlice: minimumSlice)
         guard !intervals.isEmpty else { return .zero }
 
         let totalSeconds = mergedDuration(intervals.map { DateInterval(start: $0.start, end: $0.end) })
@@ -43,11 +41,10 @@ enum ActivityTimeEstimator {
                 guard let key = interval.key else { return nil }
                 return (key, DateInterval(start: interval.start, end: interval.end))
             },
-            by: \.0
-        ).reduce(into: [Key: TimeInterval]()) { result, item in
-            let (key, intervalsForKey) = item
-            result[key] = mergedDuration(intervalsForKey.map(\.1))
-        }
+            by: \.0).reduce(into: [Key: TimeInterval]()) { result, item in
+                let (key, intervalsForKey) = item
+                result[key] = mergedDuration(intervalsForKey.map(\.1))
+            }
 
         return ActivityTimeEstimate(totalSeconds: totalSeconds, secondsByKey: secondsByKey)
     }
@@ -56,8 +53,7 @@ enum ActivityTimeEstimator {
         currentTimestamp: Date,
         nextTimestamp: Date?,
         maximumGap: TimeInterval,
-        minimumSlice: TimeInterval
-    ) -> TimeInterval {
+        minimumSlice: TimeInterval) -> TimeInterval {
         guard let nextTimestamp else { return minimumSlice }
 
         let gap = nextTimestamp.timeIntervalSince(currentTimestamp)
@@ -68,8 +64,7 @@ enum ActivityTimeEstimator {
     private static func estimatedIntervals<Key: Hashable>(
         from events: [ActivityTimeEvent<Key>],
         maximumGap: TimeInterval,
-        minimumSlice: TimeInterval
-    ) -> [ActivityInterval<Key>] {
+        minimumSlice: TimeInterval) -> [ActivityInterval<Key>] {
         let groupedEvents = Dictionary(grouping: events, by: \.streamID)
 
         return groupedEvents.values.flatMap { streamEvents in
@@ -83,15 +78,13 @@ enum ActivityTimeEstimator {
                     currentTimestamp: current.timestamp,
                     nextTimestamp: next?.timestamp,
                     maximumGap: maximumGap,
-                    minimumSlice: minimumSlice
-                )
+                    minimumSlice: minimumSlice)
 
                 guard slice > 0 else { return nil }
                 return ActivityInterval(
                     start: current.timestamp,
                     end: current.timestamp.addingTimeInterval(slice),
-                    key: current.key
-                )
+                    key: current.key)
             }
         }
     }

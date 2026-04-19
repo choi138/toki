@@ -120,8 +120,7 @@ final class UsageService: ObservableObject {
                     totalTokens: $0.value.totalTokens,
                     cost: $0.value.cost,
                     activeSeconds: $0.value.activeSeconds,
-                    sources: $0.value.sources.sorted()
-                )
+                    sources: $0.value.sources.sorted())
             }
             .sorted {
                 if $0.activeSeconds == $1.activeSeconds {
@@ -139,8 +138,7 @@ final class UsageService: ObservableObject {
             reasoningTokens: combined.reasoningTokens,
             cost: combined.cost,
             activeSeconds: combined.activeSeconds,
-            perModel: sortedModels
-        )
+            perModel: sortedModels)
 
         yesterdayTotalTokens = previousTotalTokens
         lastFetchedAt = Date()
@@ -149,9 +147,9 @@ final class UsageService: ObservableObject {
     private func fetchRange(from start: Date, to end: Date) async -> RawTokenUsage {
         var combined = RawTokenUsage()
         await withTaskGroup(of: RawTokenUsage.self) { group in
-            readers.forEach { reader in
+            for reader in readers {
                 group.addTask {
-                    (try? await reader.readUsage(from: start, to: end)) ?? RawTokenUsage()
+                    await (try? reader.readUsage(from: start, to: end)) ?? RawTokenUsage()
                 }
             }
             for await partial in group {

@@ -39,5 +39,7 @@ private struct TabButton: View {
         }
         .buttonStyle(.plain)
         .frame(maxWidth: .infinity)
+        .accessibilityLabel(Text(title))
+        .accessibilityAddTraits(isActive ? .isSelected : [])
     }
 }
