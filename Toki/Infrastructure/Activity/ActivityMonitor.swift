@@ -83,7 +83,9 @@ enum ActivityMonitor {
 
             for case let url as URL in enumerator {
                 guard url.pathExtension == "jsonl",
-                      let mod = (try? url.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate,
+                      let mod = (
+                          try? url.resourceValues(forKeys: [.contentModificationDateKey])
+                      )?.contentModificationDate,
                       mod >= threshold else { continue }
                 return true
             }

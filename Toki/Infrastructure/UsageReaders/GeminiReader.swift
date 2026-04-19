@@ -16,17 +16,27 @@ struct GeminiReader: TokenReader {
 
         let files = findFiles(in: chatsBaseURL, withExtension: "json", modifiedAfter: startDate)
         let decoder = JSONDecoder()
+        var result = RawTokenUsage()
+        var activityEvents: [ActivityTimeEvent<String>] = []
 
-        return files.reduce(into: RawTokenUsage()) { acc, file in
+        files.forEach { file in
             guard let data = try? Data(contentsOf: file) else { return }
 
             if let session = try? decoder.decode(GeminiSession.self, from: data) {
-                acc += usage(from: session.messages, from: startDate, to: endDate)
+                result += usage(
+                    from: session.messages,
+                    from: startDate,
+                    to: endDate,
+                    streamID: file.path,
+                    activityEvents: &activityEvents
+                )
                 return
             }
 
-            guard let fileDate = (try? file.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate,
-                  fileDate >= startDate && fileDate < endDate else { return }
+            guard let fileDate = (
+                try? file.resourceValues(forKeys: [.contentModificationDateKey])
+            )?.contentModificationDate,
+                fileDate >= startDate && fileDate < endDate else { return }
 
             let messages: [LegacyGeminiMessage]
             if let array = try? decoder.decode([LegacyGeminiMessage].self, from: data) {
@@ -35,17 +45,41 @@ struct GeminiReader: TokenReader {
                 messages = (try? decoder.decode(LegacyGeminiMessage.self, from: data)).map { [$0] } ?? []
             }
 
+            var hasUsageMetadata = false
             messages.forEach { msg in
                 guard let meta = msg.usageMetadata else { return }
-                acc.inputTokens += meta.promptTokenCount ?? 0
-                acc.outputTokens += meta.candidatesTokenCount ?? 0
-                acc.cacheReadTokens += meta.cachedContentTokenCount ?? 0
+                hasUsageMetadata = true
+                result.inputTokens += meta.promptTokenCount ?? 0
+                result.outputTokens += meta.candidatesTokenCount ?? 0
+                result.cacheReadTokens += meta.cachedContentTokenCount ?? 0
+            }
+
+            if hasUsageMetadata {
+                activityEvents.append(
+                    ActivityTimeEvent(
+                        streamID: file.path,
+                        timestamp: fileDate,
+                        key: nil
+                    )
+                )
             }
         }
+
+        result.mergeActivityEvents(activityEvents, source: name)
+
+        return result
     }
 
-    private func usage(from messages: [GeminiSession.Message], from startDate: Date, to endDate: Date) -> RawTokenUsage {
-        messages.reduce(into: RawTokenUsage()) { acc, msg in
+    private func usage(
+        from messages: [GeminiSession.Message],
+        from startDate: Date,
+        to endDate: Date,
+        streamID: String,
+        activityEvents: inout [ActivityTimeEvent<String>]
+    ) -> RawTokenUsage {
+        var result = RawTokenUsage()
+
+        messages.forEach { msg in
             guard msg.type == "gemini",
                   let timestamp = msg.timestamp,
                   let date = DateParser.parse(timestamp),
@@ -57,31 +91,40 @@ struct GeminiReader: TokenReader {
             let cacheRead = tokens.cached ?? 0
             let reasoning = tokens.thoughts ?? 0
 
-            acc.inputTokens += input
-            acc.outputTokens += output
-            acc.cacheReadTokens += cacheRead
-            acc.reasoningTokens += reasoning
+            result.inputTokens += input
+            result.outputTokens += output
+            result.cacheReadTokens += cacheRead
+            result.reasoningTokens += reasoning
+            activityEvents.append(
+                ActivityTimeEvent(
+                    streamID: streamID,
+                    timestamp: date,
+                    key: normalizedModelID(msg.model)
+                )
+            )
 
             let entryCost: Double
-            if let model = msg.model, let price = modelPrice(for: model) {
+            if let model = normalizedModelID(msg.model), let price = modelPrice(for: model) {
                 entryCost = price.cost(
                     input: input,
                     output: output + reasoning,
                     cacheRead: cacheRead,
                     cacheWrite: 0
                 )
-                acc.cost += entryCost
+                result.cost += entryCost
             } else {
                 entryCost = 0
             }
 
-            if let model = msg.model, !model.isEmpty {
+            if let model = normalizedModelID(msg.model) {
                 let totalTokens = input + output + cacheRead + reasoning
-                acc.perModel[model, default: PerModelUsage()].totalTokens += totalTokens
-                acc.perModel[model, default: PerModelUsage()].cost += entryCost
-                acc.perModel[model, default: PerModelUsage()].sources.insert(name)
+                result.perModel[model, default: PerModelUsage()].totalTokens += totalTokens
+                result.perModel[model, default: PerModelUsage()].cost += entryCost
+                result.perModel[model, default: PerModelUsage()].sources.insert(name)
             }
         }
+
+        return result
     }
 }
 

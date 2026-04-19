@@ -21,7 +21,13 @@ jobs:
           xcode-version: latest-stable
 
       - name: Install XcodeGen
-        run: brew install xcodegen
+        run: brew install xcodegen swiftlint swiftformat
+
+      - name: SwiftFormat
+        run: swiftformat . --lint
+
+      - name: SwiftLint
+        run: swiftlint lint --strict --quiet
 
       - name: Generate Xcode project
         run: xcodegen generate

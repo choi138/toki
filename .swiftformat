@@ -1,82 +1,70 @@
-# SwiftFormat configuration
-# Swift version
---swiftversion 5.9
+--min-version 0.60.0
+--swift-version 5.9
+--exclude .build
+--exclude build
+--exclude DerivedData
 
-# Indentation
 --indent 4
---tabwidth 4
---smarttabs enabled
---indentcase false
+--tab-width 4
+--smart-tabs enabled
+--indent-case false
 
-# Line breaks
 --linebreaks lf
---maxwidth 120
---wraparguments before-first
---wrapparameters before-first
---wrapcollections before-first
---closingparen same-line
---wrapreturntype preserve
+--max-width 120
+--wrap-arguments before-first
+--wrap-parameters before-first
+--wrap-collections before-first
+--closing-paren same-line
+--wrap-return-type preserve
 
-# Spacing
---operatorfunc spaced
+--operator-func spaced
 --nospaceoperators ...,..<
 --ranges spaced
 
-# Braces
 --allman false
 --elseposition same-line
 --guardelse same-line
 
-# Semicolons
 --semicolons never
-
-# Comments
 --stripunusedargs closure-only
 
-# Self
 --self remove
---selfrequired
-
-# Redundant
+--self-required
 --redundanttype inferred
---redundantreturn always
+--import-grouping testable-last
 
-# Imports
---importgrouping testable-bottom
-
-# Rules — enable
---enable blankLineAfterImports
---enable blankLinesBetweenImports
---enable consecutiveBlankLines
---enable consecutiveSpaces
---enable duplicateImports
---enable emptyBraces
---enable leadingDelimiters
---enable redundantBreak
---enable redundantNilInit
---enable redundantObjc
---enable redundantParens
---enable redundantPattern
---enable redundantRawValues
---enable redundantReturn
---enable redundantSelf
---enable redundantType
---enable redundantVoidReturnType
---enable semicolons
---enable spaceAroundBraces
---enable spaceAroundBrackets
---enable spaceAroundComments
---enable spaceAroundGenerics
---enable spaceAroundOperators
---enable spaceAroundParens
---enable spaceInsideBraces
---enable spaceInsideBrackets
---enable spaceInsideComments
---enable spaceInsideGenerics
---enable spaceInsideParens
---enable todos
---enable trailingClosures
---enable trailingCommas
---enable trailingSpace
---enable unusedArguments
---enable void
+--rules blankLineAfterImports
+--rules blankLinesBetweenImports
+--rules consecutiveBlankLines
+--rules consecutiveSpaces
+--rules duplicateImports
+--rules emptyBraces
+--rules indent
+--rules leadingDelimiters
+--rules redundantBreak
+--rules redundantNilInit
+--rules redundantObjc
+--rules redundantParens
+--rules redundantPattern
+--rules redundantRawValues
+--rules redundantReturn
+--rules redundantSelf
+--rules redundantType
+--rules redundantVoidReturnType
+--rules semicolons
+--rules spaceAroundBraces
+--rules spaceAroundBrackets
+--rules spaceAroundComments
+--rules spaceAroundGenerics
+--rules spaceAroundOperators
+--rules spaceAroundParens
+--rules spaceInsideBraces
+--rules spaceInsideBrackets
+--rules spaceInsideComments
+--rules spaceInsideGenerics
+--rules spaceInsideParens
+--rules trailingClosures
+--rules trailingCommas
+--rules trailingSpace
+--rules unusedArguments
+--rules void

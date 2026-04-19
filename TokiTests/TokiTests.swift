@@ -2,7 +2,6 @@ import XCTest
 @testable import Toki
 
 final class TokiTests: XCTestCase {
-
     // MARK: - formattedTokens
 
     func test_formattedTokens_belowThousand() {
@@ -56,9 +55,14 @@ final class TokiTests: XCTestCase {
     func test_cacheEfficiency_zero() {
         let usage = UsageData(
             date: Date(),
-            inputTokens: 1_000, outputTokens: 500,
-            cacheReadTokens: 0, cacheWriteTokens: 0,
-            reasoningTokens: 0, cost: 0, perModel: []
+            inputTokens: 1_000,
+            outputTokens: 500,
+            cacheReadTokens: 0,
+            cacheWriteTokens: 0,
+            reasoningTokens: 0,
+            cost: 0,
+            activeSeconds: 0,
+            perModel: []
         )
         XCTAssertEqual(usage.cacheEfficiency, 0)
     }
@@ -66,9 +70,14 @@ final class TokiTests: XCTestCase {
     func test_cacheEfficiency_full() {
         let usage = UsageData(
             date: Date(),
-            inputTokens: 0, outputTokens: 500,
-            cacheReadTokens: 1_000, cacheWriteTokens: 0,
-            reasoningTokens: 0, cost: 0, perModel: []
+            inputTokens: 0,
+            outputTokens: 500,
+            cacheReadTokens: 1_000,
+            cacheWriteTokens: 0,
+            reasoningTokens: 0,
+            cost: 0,
+            activeSeconds: 0,
+            perModel: []
         )
         XCTAssertEqual(usage.cacheEfficiency, 100, accuracy: 0.001)
     }
@@ -76,9 +85,14 @@ final class TokiTests: XCTestCase {
     func test_cacheEfficiency_half() {
         let usage = UsageData(
             date: Date(),
-            inputTokens: 500, outputTokens: 200,
-            cacheReadTokens: 500, cacheWriteTokens: 0,
-            reasoningTokens: 0, cost: 0, perModel: []
+            inputTokens: 500,
+            outputTokens: 200,
+            cacheReadTokens: 500,
+            cacheWriteTokens: 0,
+            reasoningTokens: 0,
+            cost: 0,
+            activeSeconds: 0,
+            perModel: []
         )
         XCTAssertEqual(usage.cacheEfficiency, 50, accuracy: 0.001)
     }
@@ -86,9 +100,14 @@ final class TokiTests: XCTestCase {
     func test_cacheEfficiency_allZero() {
         let usage = UsageData(
             date: Date(),
-            inputTokens: 0, outputTokens: 0,
-            cacheReadTokens: 0, cacheWriteTokens: 0,
-            reasoningTokens: 0, cost: 0, perModel: []
+            inputTokens: 0,
+            outputTokens: 0,
+            cacheReadTokens: 0,
+            cacheWriteTokens: 0,
+            reasoningTokens: 0,
+            cost: 0,
+            activeSeconds: 0,
+            perModel: []
         )
         XCTAssertEqual(usage.cacheEfficiency, 0)
     }
@@ -98,9 +117,14 @@ final class TokiTests: XCTestCase {
     func test_totalTokens_sumsAllFields() {
         let usage = UsageData(
             date: Date(),
-            inputTokens: 1_000, outputTokens: 2_000,
-            cacheReadTokens: 3_000, cacheWriteTokens: 4_000,
-            reasoningTokens: 5_000, cost: 0, perModel: []
+            inputTokens: 1_000,
+            outputTokens: 2_000,
+            cacheReadTokens: 3_000,
+            cacheWriteTokens: 4_000,
+            reasoningTokens: 5_000,
+            cost: 0,
+            activeSeconds: 0,
+            perModel: []
         )
         XCTAssertEqual(usage.totalTokens, 15_000)
     }
@@ -108,11 +132,30 @@ final class TokiTests: XCTestCase {
     func test_totalTokens_zero() {
         let usage = UsageData(
             date: Date(),
-            inputTokens: 0, outputTokens: 0,
-            cacheReadTokens: 0, cacheWriteTokens: 0,
-            reasoningTokens: 0, cost: 0, perModel: []
+            inputTokens: 0,
+            outputTokens: 0,
+            cacheReadTokens: 0,
+            cacheWriteTokens: 0,
+            reasoningTokens: 0,
+            cost: 0,
+            activeSeconds: 0,
+            perModel: []
         )
         XCTAssertEqual(usage.totalTokens, 0)
+    }
+
+    // MARK: - formattedWorkDuration
+
+    func test_formattedWorkDuration_seconds() {
+        XCTAssertEqual(TimeInterval(30).formattedWorkDuration(), "30s")
+    }
+
+    func test_formattedWorkDuration_minutes() {
+        XCTAssertEqual(TimeInterval(15 * 60).formattedWorkDuration(), "15m")
+    }
+
+    func test_formattedWorkDuration_hours() {
+        XCTAssertEqual(TimeInterval((2 * 60 + 5) * 60).formattedWorkDuration(), "2h 5m")
     }
 
     // MARK: - modelPrice
@@ -157,125 +200,61 @@ final class TokiTests: XCTestCase {
         XCTAssertEqual(specific!.cacheReadPerMillion, 0.025, accuracy: 0.0001)
     }
 
-    // MARK: - CodexReader
-
-    func test_codexReader_usesBaselineBeforeRangeAndDeduplicatesSnapshots() {
-        let lines = [
-            tokenCountLine(ts: "2026-04-09T14:59:00Z",
-                           input: 100, cachedInput: 20, output: 40, reasoning: 10, total: 140),
-            tokenCountLine(ts: "2026-04-10T00:01:00Z",
-                           input: 140, cachedInput: 30, output: 55, reasoning: 15, total: 195),
-            tokenCountLine(ts: "2026-04-10T00:02:00Z",
-                           input: 140, cachedInput: 30, output: 55, reasoning: 15, total: 195),
-            tokenCountLine(ts: "2026-04-10T00:03:00Z",
-                           input: 200, cachedInput: 50, output: 80, reasoning: 20, total: 280)
-        ]
-
-        let usage = CodexReader.usage(
-            fromRolloutLines: lines,
-            model: "gpt-5.4",
-            from: isoDate("2026-04-10T00:00:00Z"),
-            to: isoDate("2026-04-11T00:00:00Z")
+    func test_claudeCodeReader_keepsAllStreamedTimestampsForActiveTime() {
+        let usage = ClaudeCodeReader.usage(
+            fromJSONLLines: [
+                claudeAssistantLine(
+                    timestamp: "2026-04-10T00:00:00Z",
+                    requestId: "req-1",
+                    messageID: "msg-1",
+                    model: "claude-sonnet-4-6",
+                    input: 10,
+                    output: 2
+                ),
+                claudeAssistantLine(
+                    timestamp: "2026-04-10T00:04:00Z",
+                    requestId: "req-1",
+                    messageID: "msg-1",
+                    model: "claude-sonnet-4-6",
+                    input: 10,
+                    output: 7
+                ),
+            ],
+            streamID: "claude-session",
+            from: tokiTestISODate("2026-04-10T00:00:00Z"),
+            to: tokiTestISODate("2026-04-11T00:00:00Z")
         )
 
-        XCTAssertEqual(usage.inputTokens, 70)
-        XCTAssertEqual(usage.cacheReadTokens, 30)
-        XCTAssertEqual(usage.outputTokens, 30)
-        XCTAssertEqual(usage.reasoningTokens, 10)
-        XCTAssertEqual(usage.totalTokens, 140)
-        XCTAssertEqual(usage.perModel["gpt-5.4"]?.totalTokens, 140)
-        XCTAssertEqual(usage.cost, 0.0007825, accuracy: 0.000001)
+        XCTAssertEqual(usage.totalTokens, 17)
+        XCTAssertEqual(usage.activeSeconds, 270, accuracy: 0.001)
+        XCTAssertEqual(usage.perModel["claude-sonnet-4-6"]?.totalTokens, 17)
+        XCTAssertEqual(usage.perModel["claude-sonnet-4-6"]?.activeSeconds ?? 0, 270, accuracy: 0.001)
     }
 
-    func test_codexReader_countsInitialSnapshotWhenSessionStartsInsideRange() {
-        let lines = [
-            tokenCountLine(ts: "2026-04-10T09:00:00Z",
-                           input: 120, cachedInput: 20, output: 30, reasoning: 5, total: 150)
-        ]
+}
 
-        let usage = CodexReader.usage(
-            fromRolloutLines: lines,
-            model: "gpt-5.4-mini",
-            from: isoDate("2026-04-10T00:00:00Z"),
-            to: isoDate("2026-04-11T00:00:00Z")
-        )
+private func claudeAssistantLine(
+    timestamp: String,
+    requestId: String,
+    messageID: String,
+    model: String,
+    input: Int,
+    output: Int,
+    cacheRead: Int = 0,
+    cacheWrite: Int = 0
+) -> String {
+    """
+    {"type":"assistant","timestamp":"\(timestamp)","requestId":"\(requestId)",\
+    "message":{"id":"\(messageID)","model":"\(model)","usage":{\
+    "input_tokens":\(input),"output_tokens":\(output),"cache_read_input_tokens":\(cacheRead),\
+    "cache_creation_input_tokens":\(cacheWrite)}}}
+    """
+}
 
-        XCTAssertEqual(usage.inputTokens, 100)
-        XCTAssertEqual(usage.cacheReadTokens, 20)
-        XCTAssertEqual(usage.outputTokens, 25)
-        XCTAssertEqual(usage.reasoningTokens, 5)
-        XCTAssertEqual(usage.totalTokens, 150)
-        XCTAssertEqual(usage.perModel["gpt-5.4-mini"]?.totalTokens, 150)
-        XCTAssertEqual(usage.cost, 0.0002115, accuracy: 0.000001)
+private func tokiTestISODate(_ value: String) -> Date {
+    guard let date = DateParser.parse(value) else {
+        XCTFail("Failed to parse ISO date: \(value)")
+        return Date.distantPast
     }
-
-    func test_codexReader_respects_partialDayRange() {
-        let lines = [
-            tokenCountLine(ts: "2026-04-10T08:00:00Z",
-                           input: 120, cachedInput: 20, output: 30, reasoning: 5, total: 150),
-            tokenCountLine(ts: "2026-04-10T15:00:00Z",
-                           input: 170, cachedInput: 30, output: 40, reasoning: 10, total: 220)
-        ]
-
-        let usage = CodexReader.usage(
-            fromRolloutLines: lines,
-            model: "gpt-5.4-mini",
-            from: isoDate("2026-04-10T12:00:00Z"),
-            to: isoDate("2026-04-10T23:00:00Z")
-        )
-
-        XCTAssertEqual(usage.inputTokens, 40)
-        XCTAssertEqual(usage.cacheReadTokens, 10)
-        XCTAssertEqual(usage.outputTokens, 5)
-        XCTAssertEqual(usage.reasoningTokens, 5)
-        XCTAssertEqual(usage.totalTokens, 60)
-    }
-
-    func test_codexReader_respectsPartialDayRangeWithOutOfOrderSnapshots() {
-        let lines = [
-            tokenCountLine(ts: "2026-04-10T15:00:00Z",
-                           input: 170, cachedInput: 30, output: 40, reasoning: 10, total: 220),
-            tokenCountLine(ts: "2026-04-10T10:00:00Z",
-                           input: 120, cachedInput: 20, output: 30, reasoning: 5, total: 150)
-        ]
-
-        let usage = CodexReader.usage(
-            fromRolloutLines: lines,
-            model: "gpt-5.4-mini",
-            from: isoDate("2026-04-10T12:00:00Z"),
-            to: isoDate("2026-04-10T23:00:00Z")
-        )
-
-        XCTAssertEqual(usage.inputTokens, 40)
-        XCTAssertEqual(usage.cacheReadTokens, 10)
-        XCTAssertEqual(usage.outputTokens, 5)
-        XCTAssertEqual(usage.reasoningTokens, 5)
-        XCTAssertEqual(usage.totalTokens, 60)
-    }
-
-    private func tokenCountLine(
-        ts: String,
-        input: Int, cachedInput: Int, output: Int, reasoning: Int, total: Int
-    ) -> String {
-        let usage = [
-            "\"input_tokens\":\(input)",
-            "\"cached_input_tokens\":\(cachedInput)",
-            "\"output_tokens\":\(output)",
-            "\"reasoning_output_tokens\":\(reasoning)",
-            "\"total_tokens\":\(total)"
-        ].joined(separator: ",")
-        return """
-        {"timestamp":"\(ts)","type":"event_msg",\
-        "payload":{"type":"token_count","info":{"total_token_usage":{\(usage)}}}}
-        """
-    }
-
-    private func isoDate(_ value: String) -> Date {
-        guard let date = DateParser.parse(value) else {
-            XCTFail("Failed to parse ISO date: \(value)")
-            return Date.distantPast
-        }
-        return date
-    }
-
+    return date
 }

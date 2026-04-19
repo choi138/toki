@@ -12,66 +12,50 @@ struct ClaudeCodeReader: TokenReader {
         }
 
         let files = findFiles(in: projectsURL, withExtension: "jsonl", modifiedAfter: startDate)
-        // requestId → entry (dedup, keep max)
-        var dedup: [String: Entry] = [:]
         await ClaudeUsageCache.shared.beginBatch()
+        var sessions: [(streamID: String, records: [ClaudeCachedUsageRecord])] = []
 
         for file in files {
-            let records = await Self.cachedUsageRecords(at: file)
-            records.forEach { record in
-                let date = Date(timeIntervalSince1970: record.timestamp)
-                guard date >= startDate && date < endDate else { return }
-
-                let key = record.requestId
-                    ?? record.messageID
-                    ?? "\(file.path)#\(record.lineIndex)"
-
-                let entry = Entry(
-                    model: record.model,
-                    input: record.input,
-                    output: record.output,
-                    cacheRead: record.cacheRead,
-                    cacheWrite: record.cacheWrite
-                )
-
-                if let existing = dedup[key] {
-                    dedup[key] = existing.mergedMax(with: entry)
-                } else {
-                    dedup[key] = entry
-                }
-            }
+            sessions.append(
+                (streamID: file.path, records: await Self.cachedUsageRecords(at: file))
+            )
         }
 
         await ClaudeUsageCache.shared.endBatch()
+        return Self.usage(
+            fromSessions: sessions,
+            from: startDate,
+            to: endDate,
+            source: name
+        )
+    }
 
-        return dedup.values.reduce(into: RawTokenUsage()) { acc, entry in
-            acc.inputTokens += entry.input
-            acc.outputTokens += entry.output
-            acc.cacheReadTokens += entry.cacheRead
-            acc.cacheWriteTokens += entry.cacheWrite
+    static func usage(
+        fromJSONLLines lines: [String],
+        streamID: String,
+        from startDate: Date,
+        to endDate: Date
+    ) -> RawTokenUsage {
+        usage(
+            fromJSONLSessions: [(streamID: streamID, lines: lines)],
+            from: startDate,
+            to: endDate
+        )
+    }
 
-            let entryCost: Double
-            if let price = modelPrice(for: entry.model ?? "") {
-                entryCost = price.cost(
-                    input: entry.input,
-                    output: entry.output,
-                    cacheRead: entry.cacheRead,
-                    cacheWrite: entry.cacheWrite
-                )
-                acc.cost += entryCost
-            } else {
-                entryCost = 0
-            }
-
-            let modelKey = entry.model ?? ""
-            let isValidModel = !modelKey.isEmpty && modelKey != "<synthetic>"
-            if isValidModel {
-                let entryTokens = entry.input + entry.output + entry.cacheRead + entry.cacheWrite
-                acc.perModel[modelKey, default: PerModelUsage()].totalTokens += entryTokens
-                acc.perModel[modelKey, default: PerModelUsage()].cost += entryCost
-                acc.perModel[modelKey, default: PerModelUsage()].sources.insert(name)
-            }
-        }
+    static func usage(
+        fromJSONLSessions sessions: [(streamID: String, lines: [String])],
+        from startDate: Date,
+        to endDate: Date
+    ) -> RawTokenUsage {
+        usage(
+            fromSessions: sessions.map { session in
+                (streamID: session.streamID, records: parseUsageRecords(from: session.lines))
+            },
+            from: startDate,
+            to: endDate,
+            source: "Claude Code"
+        )
     }
 
     private static func cachedUsageRecords(at url: URL) async -> [ClaudeCachedUsageRecord] {
@@ -84,9 +68,121 @@ struct ClaudeCodeReader: TokenReader {
         return parsed
     }
 
+    private static func accumulate(
+        records: [ClaudeCachedUsageRecord],
+        streamID: String,
+        from startDate: Date,
+        to endDate: Date,
+        dedup: inout [String: Entry],
+        activityEvents: inout [ActivityTimeEvent<String>]
+    ) {
+        records.forEach { record in
+            let date = Date(timeIntervalSince1970: record.timestamp)
+            guard date >= startDate && date < endDate else { return }
+
+            let key = record.requestId
+                ?? record.messageID
+                ?? "\(streamID)#\(record.lineIndex)"
+
+            let entry = Entry(
+                model: record.model,
+                input: record.input,
+                output: record.output,
+                cacheRead: record.cacheRead,
+                cacheWrite: record.cacheWrite
+            )
+
+            if let existing = dedup[key] {
+                dedup[key] = existing.mergedMax(with: entry)
+            } else {
+                dedup[key] = entry
+            }
+
+            let activityStreamID = record.requestId ?? record.messageID ?? streamID
+
+            activityEvents.append(
+                ActivityTimeEvent(
+                    streamID: activityStreamID,
+                    timestamp: date,
+                    key: normalizedModelID(record.model)
+                )
+            )
+        }
+    }
+
+    private static func usage(
+        fromSessions sessions: [(streamID: String, records: [ClaudeCachedUsageRecord])],
+        from startDate: Date,
+        to endDate: Date,
+        source: String
+    ) -> RawTokenUsage {
+        var dedup: [String: Entry] = [:]
+        var activityEvents: [ActivityTimeEvent<String>] = []
+
+        sessions.forEach { session in
+            accumulate(
+                records: session.records,
+                streamID: session.streamID,
+                from: startDate,
+                to: endDate,
+                dedup: &dedup,
+                activityEvents: &activityEvents
+            )
+        }
+
+        return usage(
+            fromDedupedEntries: dedup,
+            activityEvents: activityEvents,
+            source: source
+        )
+    }
+
+    private static func usage(
+        fromDedupedEntries dedup: [String: Entry],
+        activityEvents: [ActivityTimeEvent<String>],
+        source: String
+    ) -> RawTokenUsage {
+        var result = RawTokenUsage()
+
+        dedup.values.forEach { entry in
+            result.inputTokens += entry.input
+            result.outputTokens += entry.output
+            result.cacheReadTokens += entry.cacheRead
+            result.cacheWriteTokens += entry.cacheWrite
+
+            let entryCost: Double
+            if let price = modelPrice(for: entry.model ?? "") {
+                entryCost = price.cost(
+                    input: entry.input,
+                    output: entry.output,
+                    cacheRead: entry.cacheRead,
+                    cacheWrite: entry.cacheWrite
+                )
+                result.cost += entryCost
+            } else {
+                entryCost = 0
+            }
+
+            if let modelKey = normalizedModelID(entry.model) {
+                let entryTokens = entry.input + entry.output + entry.cacheRead + entry.cacheWrite
+                result.perModel[modelKey, default: PerModelUsage()].totalTokens += entryTokens
+                result.perModel[modelKey, default: PerModelUsage()].cost += entryCost
+                result.perModel[modelKey, default: PerModelUsage()].sources.insert(source)
+            }
+        }
+
+        result.mergeActivityEvents(activityEvents, source: source)
+
+        return result
+    }
+
     private static func parseUsageRecords(at url: URL) -> [ClaudeCachedUsageRecord] {
+        parseUsageRecords(from: readJSONLLines(at: url))
+    }
+
+    private static func parseUsageRecords(from lines: [String]) -> [ClaudeCachedUsageRecord] {
         let decoder = JSONDecoder()
-        return readJSONLLines(at: url).enumerated().compactMap { item -> ClaudeCachedUsageRecord? in
+        return lines.enumerated().compactMap { item -> ClaudeCachedUsageRecord? in
             let (index, line) = item
             guard let data = line.data(using: .utf8),
                   let msg = try? decoder.decode(RawMessage.self, from: data),

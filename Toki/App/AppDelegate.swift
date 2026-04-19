@@ -58,9 +58,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             timeInterval: Timing.frameInterval,
             repeats: true
         ) { [weak self] _ in
-            guard let self, let button = self.statusItem.button else { return }
-            button.image = self.runFrames[self.currentFrame % self.runFrames.count]
-            self.currentFrame &+= 1
+            guard let self, let button = statusItem.button else { return }
+            button.image = runFrames[currentFrame % runFrames.count]
+            currentFrame &+= 1
         }
         RunLoop.main.add(timer, forMode: .common)
         animationTimer = timer
@@ -100,17 +100,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func applyAnimationState(isActive: Bool) {
         let shouldStart = isActive && !isAnimating
-        let shouldStop  = !isActive && isAnimating
+        let shouldStop = !isActive && isAnimating
 
         if shouldStart { startAnimation() }
-        if shouldStop { stopAnimation()  }
+        if shouldStop { stopAnimation() }
     }
 
     // MARK: - Popover
 
     private func setupPopover() {
         popover = NSPopover()
-        popover.contentSize = NSSize(width: 280, height: 360)
+        popover.contentSize = NSSize(width: 280, height: 392)
         popover.behavior = .transient
         popover.contentViewController = NSHostingController(rootView: UsagePanelView())
     }

@@ -63,6 +63,7 @@ No configuration needed — Toki reads from each agent's default data directory.
 ```bash
 git clone https://github.com/choegeun-won/Toki.git
 cd Toki
+brew install xcodegen swiftlint swiftformat
 xcodegen generate
 open Toki.xcodeproj
 ```

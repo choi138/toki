@@ -5,20 +5,20 @@ private let defaultUsageReaders: [any TokenReader] = [
     CodexReader(),
     GeminiReader(),
     OpenCodeReader(),
-    OpenClawReader()
+    OpenClawReader(),
 ]
 
 @MainActor
 final class UsageService: ObservableObject {
     @Published var usageData: UsageData = .empty
-    @Published var isLoading: Bool = false
+    @Published var isLoading = false
     @Published var lastFetchedAt: Date?
     @Published var yesterdayTotalTokens: Int?
 
     // Date range
     @Published var startDate: Date
     @Published var endDate: Date
-    @Published var isRangeMode: Bool = false
+    @Published var isRangeMode = false
 
     private let readers: [any TokenReader]
     private var needsRefreshAfterCurrentLoad = false
@@ -46,10 +46,31 @@ final class UsageService: ObservableObject {
         endDate = cal.date(byAdding: .day, value: 1, to: startDate)!
     }
 
+    func selectRangeStart(_ date: Date) {
+        let cal = Calendar.current
+        startDate = cal.startOfDay(for: date)
+        if startDate >= endDate {
+            endDate = cal.date(byAdding: .day, value: 1, to: startDate)!
+        }
+    }
+
+    func selectRangeEnd(_ date: Date) {
+        let cal = Calendar.current
+        let selectedEnd = cal.startOfDay(for: date)
+        endDate = cal.date(byAdding: .day, value: 1, to: selectedEnd)!
+        if startDate >= endDate {
+            startDate = selectedEnd
+        }
+    }
+
     func selectRange(from: Date, to: Date) {
         let cal = Calendar.current
-        startDate = cal.startOfDay(for: from)
-        endDate = cal.date(byAdding: .day, value: 1, to: cal.startOfDay(for: to))!
+        let normalizedFrom = cal.startOfDay(for: from)
+        let normalizedTo = cal.startOfDay(for: to)
+        let lowerBound = min(normalizedFrom, normalizedTo)
+        let upperBound = max(normalizedFrom, normalizedTo)
+        startDate = lowerBound
+        endDate = cal.date(byAdding: .day, value: 1, to: upperBound)!
     }
 
     func refresh() async {
@@ -73,7 +94,7 @@ final class UsageService: ObservableObject {
         let cal = Calendar.current
         let compareAgainstYesterday =
             cal.dateComponents([.day], from: requestedStart, to: requestedEnd).day == 1
-            && cal.isDateInToday(requestedStart)
+                && cal.isDateInToday(requestedStart)
 
         let combined = await fetchRange(from: requestedStart, to: requestedEnd)
 
@@ -92,16 +113,22 @@ final class UsageService: ObservableObject {
         }
 
         let sortedModels = combined.perModel
-            .filter { $0.value.totalTokens > 0 }
+            .filter { $0.value.totalTokens > 0 || $0.value.activeSeconds > 0 }
             .map {
                 ModelStat(
                     id: $0.key,
                     totalTokens: $0.value.totalTokens,
                     cost: $0.value.cost,
+                    activeSeconds: $0.value.activeSeconds,
                     sources: $0.value.sources.sorted()
                 )
             }
-            .sorted { $0.totalTokens > $1.totalTokens }
+            .sorted {
+                if $0.activeSeconds == $1.activeSeconds {
+                    return $0.totalTokens > $1.totalTokens
+                }
+                return $0.activeSeconds > $1.activeSeconds
+            }
 
         usageData = UsageData(
             date: requestedStart,
@@ -111,6 +138,7 @@ final class UsageService: ObservableObject {
             cacheWriteTokens: combined.cacheWriteTokens,
             reasoningTokens: combined.reasoningTokens,
             cost: combined.cost,
+            activeSeconds: combined.activeSeconds,
             perModel: sortedModels
         )
 
@@ -130,6 +158,7 @@ final class UsageService: ObservableObject {
                 combined += partial
             }
         }
+        combined.recomputeMergedActiveEstimate()
         return combined
     }
 }
