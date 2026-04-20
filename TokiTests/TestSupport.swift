@@ -1,9 +1,25 @@
 import XCTest
 @testable import Toki
 
-func mockUsage(totalTokens: Int) -> RawTokenUsage {
+func mockUsage(totalTokens: Int, activeSeconds: TimeInterval = 0) -> RawTokenUsage {
     var usage = RawTokenUsage()
     usage.inputTokens = totalTokens
+    usage.activeSeconds = activeSeconds
+    return usage
+}
+
+func mockActivityUsage(
+    totalTokens: Int,
+    modelID: String,
+    source: String,
+    events: [ActivityTimeEvent<String>]) -> RawTokenUsage {
+    var usage = RawTokenUsage()
+    usage.inputTokens = totalTokens
+    var model = usage.perModel[modelID] ?? PerModelUsage()
+    model.totalTokens = totalTokens
+    model.sources.insert(source)
+    usage.perModel[modelID] = model
+    usage.mergeActivityEvents(events, source: source)
     return usage
 }
 

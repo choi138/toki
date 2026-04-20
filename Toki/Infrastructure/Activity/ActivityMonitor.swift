@@ -1,9 +1,8 @@
 import Foundation
 import SQLite3
 
-// Detects whether any AI coding tool is currently active.
+/// Detects whether any AI coding tool is currently active.
 enum ActivityMonitor {
-
     private static let activeWindowSeconds: TimeInterval = 30
 
     static func isAnyToolActive() -> Bool {
@@ -24,14 +23,12 @@ enum ActivityMonitor {
               let enumerator = FileManager.default.enumerator(
                   at: projectsURL,
                   includingPropertiesForKeys: [.contentModificationDateKey],
-                  options: [.skipsHiddenFiles]
-              ) else { return false }
+                  options: [.skipsHiddenFiles]) else { return false }
 
         for case let url as URL in enumerator {
             guard url.pathExtension == "jsonl",
                   let mod = (try? url.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate,
-                  mod >= threshold
-            else { continue }
+                  mod >= threshold else { continue }
 
             if hasRecentToolUse(in: url, since: threshold) { return true }
         }
@@ -48,8 +45,7 @@ enum ActivityMonitor {
         if queryCount(
             db: dbPath,
             sql: "SELECT COUNT(*) FROM threads WHERE updated_at >= ?",
-            param: epoch
-        ) > 0 {
+            param: epoch) > 0 {
             return true
         }
 
@@ -78,12 +74,12 @@ enum ActivityMonitor {
                   let enumerator = FileManager.default.enumerator(
                       at: dirURL,
                       includingPropertiesForKeys: [.contentModificationDateKey],
-                      options: [.skipsHiddenFiles]
-                  ) else { continue }
+                      options: [.skipsHiddenFiles]) else { continue }
 
             for case let url as URL in enumerator {
                 guard url.pathExtension == "jsonl",
-                      let mod = (try? url.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate,
+                      let mod = (try? url.resourceValues(forKeys: [.contentModificationDateKey]))?
+                      .contentModificationDate,
                       mod >= threshold else { continue }
                 return true
             }
@@ -102,8 +98,7 @@ enum ActivityMonitor {
         return queryCount(
             db: dbPath,
             sql: "SELECT COUNT(*) FROM message WHERE time_created >= ?",
-            param: epochMs
-        ) > 0
+            param: epochMs) > 0
     }
 
     // MARK: - JSONL tool use detection
@@ -118,7 +113,7 @@ enum ActivityMonitor {
         let decoder = JSONDecoder()
 
         // Start at 256 KB; double until recent records are complete or we reach the file start.
-        var readSize = UInt64(min(262144, fileSize))
+        var readSize = UInt64(min(262_144, fileSize))
         while true {
             let readOffset = fileSize - readSize
             let startsAtRecordBoundary = isJSONLRecordBoundary(handle: handle, offset: readOffset)
@@ -161,8 +156,7 @@ enum ActivityMonitor {
                       let entry = try? decoder.decode(JSONLEntry.self, from: lineData),
                       let tsStr = entry.timestamp,
                       let date = DateParser.parse(tsStr),
-                      date >= threshold
-                else { return false }
+                      date >= threshold else { return false }
                 return entry.hasToolActivity
             }) {
                 return true

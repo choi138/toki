@@ -7,8 +7,7 @@ struct PanelHeroComparisonContent {
 
     static func make(
         currentTotal: Int,
-        yesterdayTotal: Int?
-    ) -> PanelHeroComparisonContent? {
+        yesterdayTotal: Int?) -> PanelHeroComparisonContent? {
         guard let yesterdayTotal else { return nil }
 
         if yesterdayTotal == 0 {
@@ -16,15 +15,13 @@ struct PanelHeroComparisonContent {
                 return PanelHeroComparisonContent(
                     symbolName: "minus",
                     text: "0% from yesterday",
-                    color: Color.white.opacity(0.35)
-                )
+                    color: Color.white.opacity(0.35))
             }
 
             return PanelHeroComparisonContent(
                 symbolName: "arrow.up",
                 text: "No usage yesterday",
-                color: Color(red: 1.0, green: 0.45, blue: 0.4)
-            )
+                color: Color(red: 1.0, green: 0.45, blue: 0.4))
         }
 
         let delta = currentTotal - yesterdayTotal
@@ -32,8 +29,7 @@ struct PanelHeroComparisonContent {
             return PanelHeroComparisonContent(
                 symbolName: "minus",
                 text: "0% from yesterday",
-                color: Color.white.opacity(0.35)
-            )
+                color: Color.white.opacity(0.35))
         }
 
         let pct = Int(abs(Double(delta) / Double(yesterdayTotal) * 100))
@@ -44,7 +40,6 @@ struct PanelHeroComparisonContent {
             text: "\(pct)% from yesterday",
             color: isUp
                 ? Color(red: 1.0, green: 0.45, blue: 0.4)
-                : Color(red: 0.4, green: 0.9, blue: 0.6)
-        )
+                : Color(red: 0.4, green: 0.9, blue: 0.6))
     }
 }

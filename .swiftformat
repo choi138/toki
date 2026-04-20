@@ -1,56 +1,45 @@
-# SwiftFormat configuration
-# Swift version
---swiftversion 5.9
+--min-version 0.60.0
+--swift-version 5.9
+--exclude .build
+--exclude build
+--exclude DerivedData
 
-# Indentation
 --indent 4
---tabwidth 4
---smarttabs enabled
---indentcase false
+--tab-width 4
+--smart-tabs enabled
+--indent-case false
 
-# Line breaks
 --linebreaks lf
---maxwidth 120
---wraparguments before-first
---wrapparameters before-first
---wrapcollections before-first
---closingparen same-line
---wrapreturntype preserve
+--max-width 120
+--wrap-arguments before-first
+--wrap-parameters before-first
+--wrap-collections before-first
+--closing-paren same-line
+--wrap-return-type preserve
 
-# Spacing
---operatorfunc spaced
+--operator-func spaced
 --nospaceoperators ...,..<
 --ranges spaced
 
-# Braces
 --allman false
 --elseposition same-line
 --guardelse same-line
 
-# Semicolons
 --semicolons never
-
-# Comments
 --stripunusedargs closure-only
 
-# Self
 --self remove
---selfrequired
-
-# Redundant
 --redundanttype inferred
---redundantreturn always
+--import-grouping testable-last
+--disable wrapMultilineStatementBraces
 
-# Imports
---importgrouping testable-bottom
-
-# Rules — enable
 --enable blankLineAfterImports
 --enable blankLinesBetweenImports
 --enable consecutiveBlankLines
 --enable consecutiveSpaces
 --enable duplicateImports
 --enable emptyBraces
+--enable indent
 --enable leadingDelimiters
 --enable redundantBreak
 --enable redundantNilInit
@@ -74,7 +63,6 @@
 --enable spaceInsideComments
 --enable spaceInsideGenerics
 --enable spaceInsideParens
---enable todos
 --enable trailingClosures
 --enable trailingCommas
 --enable trailingSpace

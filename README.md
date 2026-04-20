@@ -54,7 +54,12 @@ No configuration needed — Toki reads from each agent's default data directory.
 - macOS 13.0 or later
 - Xcode 15 or later
 - [XcodeGen](https://github.com/yonaskolb/XcodeGen) (`brew install xcodegen`)
+- [SwiftLint](https://github.com/realm/SwiftLint) (`brew install swiftlint`)
+- [SwiftFormat](https://github.com/nicklockwood/SwiftFormat) (`brew install swiftformat`)
 - Apple Developer account (for code signing)
+
+CI runs `swiftlint lint --strict` and `swiftformat . --lint`, so local installs
+of the same tooling are recommended before opening a PR.
 
 ---
 
@@ -63,6 +68,7 @@ No configuration needed — Toki reads from each agent's default data directory.
 ```bash
 git clone https://github.com/choegeun-won/Toki.git
 cd Toki
+brew install xcodegen swiftlint swiftformat
 xcodegen generate
 open Toki.xcodeproj
 ```

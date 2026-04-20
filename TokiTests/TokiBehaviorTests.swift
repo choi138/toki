@@ -2,11 +2,10 @@ import XCTest
 @testable import Toki
 
 final class TokiBehaviorTests: XCTestCase {
-
-    func test_usageService_skipsYesterdayFetchForPastSingleDay() async {
+    func test_usageService_skipsYesterdayFetchForPastSingleDay() async throws {
         let recorder = MockReaderRecorder()
         let today = Calendar.current.startOfDay(for: Date())
-        let pastDay = Calendar.current.date(byAdding: .day, value: -7, to: today)!
+        let pastDay = try XCTUnwrap(Calendar.current.date(byAdding: .day, value: -7, to: today))
         let reader = MockReader(name: "Mock", recorder: recorder) { startDate, _ in
             mockUsage(totalTokens: startDate == pastDay ? 42 : 7)
         }
@@ -22,18 +21,18 @@ final class TokiBehaviorTests: XCTestCase {
         XCTAssertNil(yesterdayTotal)
     }
 
-    func test_usageService_preservesZeroYesterdayTotalForTodayComparison() async {
+    func test_usageService_preservesZeroYesterdayTotalForTodayComparison() async throws {
         let recorder = MockReaderRecorder()
         let today = Calendar.current.startOfDay(for: Date())
-        let yesterday = Calendar.current.date(byAdding: .day, value: -1, to: today)!
+        let yesterday = try XCTUnwrap(Calendar.current.date(byAdding: .day, value: -1, to: today))
         let reader = MockReader(name: "Mock", recorder: recorder) { startDate, _ in
             switch startDate {
             case today:
-                return mockUsage(totalTokens: 120)
+                mockUsage(totalTokens: 120)
             case yesterday:
-                return mockUsage(totalTokens: 0)
+                mockUsage(totalTokens: 0)
             default:
-                return mockUsage(totalTokens: 5)
+                mockUsage(totalTokens: 5)
             }
         }
 
@@ -50,11 +49,11 @@ final class TokiBehaviorTests: XCTestCase {
         XCTAssertTrue(shouldCompare)
     }
 
-    func test_usageService_retriesRefreshAfterRangeChangesDuringLoad() async {
+    func test_usageService_retriesRefreshAfterRangeChangesDuringLoad() async throws {
         let gate = BlockingReaderGate()
         let today = Calendar.current.startOfDay(for: Date())
-        let firstDay = Calendar.current.date(byAdding: .day, value: -2, to: today)!
-        let secondDay = Calendar.current.date(byAdding: .day, value: -1, to: today)!
+        let firstDay = try XCTUnwrap(Calendar.current.date(byAdding: .day, value: -2, to: today))
+        let secondDay = try XCTUnwrap(Calendar.current.date(byAdding: .day, value: -1, to: today))
         let reader = BlockingMockReader(name: "Mock", gate: gate) { startDate, _ in
             mockUsage(totalTokens: startDate == firstDay ? 100 : 200)
         }
@@ -81,6 +80,70 @@ final class TokiBehaviorTests: XCTestCase {
 
         XCTAssertEqual(totalTokens, 200)
         XCTAssertEqual(date, secondDay)
+    }
+
+    func test_usageService_sortsModelsByActiveTime() async {
+        let recorder = MockReaderRecorder()
+        let reader = MockReader(name: "Mock", recorder: recorder) { _, _ in
+            var usage = RawTokenUsage()
+            usage.inputTokens = 300
+            usage.activeSeconds = 540
+            usage.perModel["gpt-5.4"] = PerModelUsage(
+                totalTokens: 120,
+                cost: 1.2,
+                activeSeconds: 180,
+                sources: ["Mock"])
+            usage.perModel["claude-sonnet-4-6"] = PerModelUsage(
+                totalTokens: 90,
+                cost: 0.8,
+                activeSeconds: 360,
+                sources: ["Mock"])
+            return usage
+        }
+
+        let service = await MainActor.run { UsageService(readers: [reader]) }
+        await service.refresh()
+
+        let models = await MainActor.run { service.usageData.perModel }
+        let activeSeconds = await MainActor.run { service.usageData.activeSeconds }
+
+        XCTAssertEqual(models.map(\.id), ["claude-sonnet-4-6", "gpt-5.4"])
+        XCTAssertEqual(models.first?.activeSeconds ?? 0, 360, accuracy: 0.001)
+        XCTAssertEqual(models.last?.activeSeconds ?? 0, 180, accuracy: 0.001)
+        XCTAssertEqual(activeSeconds, 540, accuracy: 0.001)
+    }
+
+    func test_usageService_selectRangeEnd_movesStartWhenEndWouldPrecedeIt() async {
+        let service = await MainActor.run { UsageService(readers: []) }
+
+        await MainActor.run {
+            service.selectRange(
+                from: behaviorTestISODate("2026-04-10T12:00:00Z"),
+                to: behaviorTestISODate("2026-04-12T12:00:00Z"))
+            service.selectRangeEnd(behaviorTestISODate("2026-04-08T12:00:00Z"))
+        }
+
+        let startDate = await MainActor.run { service.startDate }
+        let endDate = await MainActor.run { service.endDate }
+
+        XCTAssertEqual(startDate, behaviorLocalStartOfDay("2026-04-08T12:00:00Z"))
+        XCTAssertEqual(endDate, behaviorLocalExclusiveEnd("2026-04-08T12:00:00Z"))
+    }
+
+    func test_usageService_selectRange_normalizesReversedDates() async {
+        let service = await MainActor.run { UsageService(readers: []) }
+
+        await MainActor.run {
+            service.selectRange(
+                from: behaviorTestISODate("2026-04-12T18:00:00Z"),
+                to: behaviorTestISODate("2026-04-10T09:00:00Z"))
+        }
+
+        let startDate = await MainActor.run { service.startDate }
+        let endDate = await MainActor.run { service.endDate }
+
+        XCTAssertEqual(startDate, behaviorLocalStartOfDay("2026-04-10T09:00:00Z"))
+        XCTAssertEqual(endDate, behaviorLocalExclusiveEnd("2026-04-12T18:00:00Z"))
     }
 
     func test_blockingReaderGate_resumesAllFirstRequestWaiters() async {
@@ -130,10 +193,10 @@ final class TokiBehaviorTests: XCTestCase {
         XCTAssertEqual(jsonLineStringValue(line, forKey: "timestamp"), "2026-04-10T12:34:56Z")
     }
 
-    func test_codexDayKey_changesAcrossTimeZones() {
+    func test_codexDayKey_changesAcrossTimeZones() throws {
         let date = behaviorTestISODate("2026-04-01T23:30:00Z")
-        let utc = TimeZone(secondsFromGMT: 0)!
-        let seoul = TimeZone(identifier: "Asia/Seoul")!
+        let utc = try XCTUnwrap(TimeZone(secondsFromGMT: 0))
+        let seoul = try XCTUnwrap(TimeZone(identifier: "Asia/Seoul"))
 
         XCTAssertEqual(codexDayKey(for: date, timeZone: utc), "2026-04-01")
         XCTAssertEqual(codexDayKey(for: date, timeZone: seoul), "2026-04-02")
@@ -146,4 +209,12 @@ private func behaviorTestISODate(_ value: String) -> Date {
         return Date.distantPast
     }
     return date
+}
+
+private func behaviorLocalStartOfDay(_ value: String) -> Date {
+    Calendar.current.startOfDay(for: behaviorTestISODate(value))
+}
+
+private func behaviorLocalExclusiveEnd(_ value: String) -> Date {
+    Calendar.current.date(byAdding: .day, value: 1, to: behaviorLocalStartOfDay(value)) ?? Date.distantPast
 }

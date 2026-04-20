@@ -6,6 +6,7 @@ struct ModelStat {
     let id: String
     let totalTokens: Int
     let cost: Double
+    let activeSeconds: TimeInterval
     let sources: [String]
 }
 
@@ -19,6 +20,7 @@ struct UsageData {
     let cacheWriteTokens: Int
     let reasoningTokens: Int
     let cost: Double
+    let activeSeconds: TimeInterval
 
     let perModel: [ModelStat]
 
@@ -26,7 +28,7 @@ struct UsageData {
         inputTokens + outputTokens + cacheReadTokens + cacheWriteTokens + reasoningTokens
     }
 
-    // Fraction of input-side tokens served from cache (0–100)
+    /// Fraction of input-side tokens served from cache (0–100)
     var cacheEfficiency: Double {
         let denom = Double(inputTokens + cacheReadTokens)
         guard denom > 0 else { return 0 }
@@ -39,16 +41,15 @@ struct UsageData {
 extension UsageData {
     static let mock = UsageData(
         date: Calendar.current.date(
-            from: DateComponents(year: 2026, month: 4, day: 8)
-        )!,
+            from: DateComponents(year: 2026, month: 4, day: 8))!,
         inputTokens: 11_000_000,
         outputTokens: 401_900,
         cacheReadTokens: 112_600_000,
         cacheWriteTokens: 0,
         reasoningTokens: 176_400,
         cost: 64.33,
-        perModel: []
-    )
+        activeSeconds: 12840,
+        perModel: [])
 
     static var empty: UsageData {
         UsageData(
@@ -59,37 +60,7 @@ extension UsageData {
             cacheWriteTokens: 0,
             reasoningTokens: 0,
             cost: 0,
-            perModel: []
-        )
-    }
-}
-
-// MARK: - Formatting
-
-extension Double {
-    func formattedCost() -> String {
-        if self >= 1_000 { return String(format: "$%.1fK", self / 1_000) }
-        if self >= 100 { return String(format: "$%.0f", self) }
-        if self >= 10 { return String(format: "$%.1f", self) }
-        return String(format: "$%.2f", self)
-    }
-}
-
-extension Int {
-    func formattedTokens() -> String {
-        let value = Double(self)
-        if value >= 1_000_000_000 { return Self.format(value / 1_000_000_000) + "B" }
-        if value >= 1_000_000 { return Self.format(value / 1_000_000)     + "M" }
-        if value >= 1_000 { return Self.format(value / 1_000)         + "K" }
-        return "\(self)"
-    }
-
-    // ≥10 → 1 decimal, <10 → 2 decimals
-    // Strip trailing zeros but keep at least one decimal digit (e.g. "3.0" not "3")
-    private static func format(_ value: Double) -> String {
-        let places = value >= 10 ? 1 : 2
-        var s = String(format: "%.\(places)f", value)
-        while s.hasSuffix("0"), !s.hasSuffix(".0") { s.removeLast() }
-        return s
+            activeSeconds: 0,
+            perModel: [])
     }
 }
