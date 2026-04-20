@@ -63,6 +63,22 @@ final class ActivityTimeEstimatorTests: XCTestCase {
         XCTAssertEqual(estimate.secondsByKey["gpt-5.4"] ?? 0, 210, accuracy: 0.001)
     }
 
+    func test_activityTimeEstimator_clampsMinimumSliceToRangeEnd() {
+        let events = [
+            ActivityTimeEvent<String>(
+                streamID: "main",
+                timestamp: isoDate("2026-04-10T23:59:50Z"),
+                key: "gpt-5.4"),
+        ]
+
+        let estimate = ActivityTimeEstimator.estimate(
+            events: events,
+            clippingEndDate: isoDate("2026-04-11T00:00:00Z"))
+
+        XCTAssertEqual(estimate.totalSeconds, 10, accuracy: 0.001)
+        XCTAssertEqual(estimate.secondsByKey["gpt-5.4"] ?? 0, 10, accuracy: 0.001)
+    }
+
     private func isoDate(_ value: String) -> Date {
         guard let date = DateParser.parse(value) else {
             XCTFail("Failed to parse ISO date: \(value)")

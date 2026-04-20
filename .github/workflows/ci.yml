@@ -20,7 +20,7 @@ jobs:
         with:
           xcode-version: latest-stable
 
-      - name: Install XcodeGen
+      - name: Install tooling (XcodeGen, SwiftLint, SwiftFormat)
         run: brew install xcodegen swiftlint swiftformat
 
       - name: SwiftFormat

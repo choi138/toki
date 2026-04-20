@@ -51,6 +51,5 @@ excluded:
 included:
   - Toki
   - TokiTests
-  - scripts
 
 reporter: xcode

@@ -21,7 +21,7 @@ struct OpenCodeReader: TokenReader {
         }
         defer { sqlite3_finalize(statement) }
 
-        return accumulateUsageRows(from: statement)
+        return accumulateUsageRows(from: statement, clippingEndDate: endDate)
     }
 
     private func openDatabase() -> OpaquePointer? {
@@ -74,7 +74,9 @@ struct OpenCodeReader: TokenReader {
         return statement
     }
 
-    private func accumulateUsageRows(from statement: OpaquePointer) -> RawTokenUsage {
+    private func accumulateUsageRows(
+        from statement: OpaquePointer,
+        clippingEndDate: Date) -> RawTokenUsage {
         var result = RawTokenUsage()
         var activityEvents: [ActivityTimeEvent<String>] = []
 
@@ -100,11 +102,13 @@ struct OpenCodeReader: TokenReader {
                     timestamp: Date(timeIntervalSince1970: TimeInterval(timestamp) / 1000),
                     key: normalizedModelID(modelID)))
 
+            let normalizedModel = normalizedModelID(modelID)
             let messageCost: Double
-            if let price = modelPrice(for: modelID) {
+            if let priceLookupKey = normalizedModel ?? (!modelID.isEmpty ? modelID : nil),
+               let price = modelPrice(for: priceLookupKey) {
                 messageCost = price.cost(
                     input: input,
-                    output: output,
+                    output: output + reasoning,
                     cacheRead: cacheRead,
                     cacheWrite: cacheWrite)
                 result.cost += messageCost
@@ -112,7 +116,7 @@ struct OpenCodeReader: TokenReader {
                 messageCost = 0
             }
 
-            if let normalizedModelID = normalizedModelID(modelID) {
+            if let normalizedModelID = normalizedModel {
                 let messageTokens = input + output + cacheRead + cacheWrite + reasoning
                 result.perModel[normalizedModelID, default: PerModelUsage()].totalTokens += messageTokens
                 result.perModel[normalizedModelID, default: PerModelUsage()].cost += messageCost
@@ -120,7 +124,7 @@ struct OpenCodeReader: TokenReader {
             }
         }
 
-        result.mergeActivityEvents(activityEvents, source: name)
+        result.mergeActivityEvents(activityEvents, source: name, clippingEndDate: clippingEndDate)
 
         return result
     }

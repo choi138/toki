@@ -38,13 +38,16 @@ struct CodexReader: TokenReader {
         }
         await CodexRolloutUsageCache.shared.endBatch()
 
-        result.mergeActivityEvents(activityEvents, source: name)
+        result.mergeActivityEvents(activityEvents, source: name, clippingEndDate: endDate)
 
         return result
     }
 }
 
 extension CodexReader {
+    /// Preserve prior totals when timestamp backfill fails. This helper only sees
+    /// data rebuilt from a full-file read, so rebuiltDailyUsage is either
+    /// complete for the rollout or empty due to a transient read/decode failure.
     static func dailyUsageForTimestampBackfill(
         rebuiltDailyUsage: [String: CodexCachedDailyUsage],
         existingDailyUsage: [String: CodexCachedDailyUsage]?) -> [String: CodexCachedDailyUsage] {
@@ -109,7 +112,8 @@ extension CodexReader {
                         timestamp: timestamp,
                         key: normalizedModel)
                 },
-                source: "Codex")
+                source: "Codex",
+                clippingEndDate: endDate)
         }
 
         return result
@@ -134,6 +138,9 @@ extension CodexReader {
                 result.outputTokens += usage.outputTokens
                 result.cacheReadTokens += usage.cacheReadTokens
                 result.reasoningTokens += usage.reasoningTokens
+                // Fallback aggregate retained only when activity events are absent.
+                // mergeActivityEvents/recomputeMergedActiveEstimate will reset and
+                // recompute activeSeconds when range-bounded events exist.
                 result.activeSeconds += usage.activeSeconds
 
                 let entryCost: Double
@@ -151,6 +158,9 @@ extension CodexReader {
                 if let normalizedModel {
                     result.perModel[normalizedModel, default: PerModelUsage()].totalTokens += usage.totalTokens
                     result.perModel[normalizedModel, default: PerModelUsage()].cost += entryCost
+                    // Fallback aggregate retained only when activity events are absent.
+                    // mergeActivityEvents/recomputeMergedActiveEstimate will reset and
+                    // recompute per-model activeSeconds when events exist.
                     result.perModel[normalizedModel, default: PerModelUsage()].activeSeconds += usage.activeSeconds
                     result.perModel[normalizedModel, default: PerModelUsage()].sources.insert("Codex")
                 }

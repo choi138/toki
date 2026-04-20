@@ -28,11 +28,13 @@ enum ActivityTimeEstimator {
     static func estimate<Key: Hashable>(
         events: [ActivityTimeEvent<Key>],
         maximumGap: TimeInterval = defaultMaximumGap,
-        minimumSlice: TimeInterval = defaultMinimumSlice) -> ActivityTimeEstimate<Key> {
+        minimumSlice: TimeInterval = defaultMinimumSlice,
+        clippingEndDate: Date? = nil) -> ActivityTimeEstimate<Key> {
         let intervals = estimatedIntervals(
             from: events,
             maximumGap: maximumGap,
-            minimumSlice: minimumSlice)
+            minimumSlice: minimumSlice,
+            clippingEndDate: clippingEndDate)
         guard !intervals.isEmpty else { return .zero }
 
         let totalSeconds = mergedDuration(intervals.map { DateInterval(start: $0.start, end: $0.end) })
@@ -53,7 +55,12 @@ enum ActivityTimeEstimator {
         currentTimestamp: Date,
         nextTimestamp: Date?,
         maximumGap: TimeInterval,
-        minimumSlice: TimeInterval) -> TimeInterval {
+        minimumSlice: TimeInterval,
+        clippingEndDate: Date?) -> TimeInterval {
+        if let clippingEndDate, currentTimestamp >= clippingEndDate {
+            return 0
+        }
+
         guard let nextTimestamp else { return minimumSlice }
 
         let gap = nextTimestamp.timeIntervalSince(currentTimestamp)
@@ -64,7 +71,8 @@ enum ActivityTimeEstimator {
     private static func estimatedIntervals<Key: Hashable>(
         from events: [ActivityTimeEvent<Key>],
         maximumGap: TimeInterval,
-        minimumSlice: TimeInterval) -> [ActivityInterval<Key>] {
+        minimumSlice: TimeInterval,
+        clippingEndDate: Date?) -> [ActivityInterval<Key>] {
         let groupedEvents = Dictionary(grouping: events, by: \.streamID)
 
         return groupedEvents.values.flatMap { streamEvents in
@@ -78,12 +86,15 @@ enum ActivityTimeEstimator {
                     currentTimestamp: current.timestamp,
                     nextTimestamp: next?.timestamp,
                     maximumGap: maximumGap,
-                    minimumSlice: minimumSlice)
+                    minimumSlice: minimumSlice,
+                    clippingEndDate: clippingEndDate)
 
-                guard slice > 0 else { return nil }
+                let unclampedEnd = current.timestamp.addingTimeInterval(slice)
+                let intervalEnd = clippingEndDate.map { min(unclampedEnd, $0) } ?? unclampedEnd
+                guard slice > 0, intervalEnd > current.timestamp else { return nil }
                 return ActivityInterval(
                     start: current.timestamp,
-                    end: current.timestamp.addingTimeInterval(slice),
+                    end: intervalEnd,
                     key: current.key)
             }
         }

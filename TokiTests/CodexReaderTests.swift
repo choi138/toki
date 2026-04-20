@@ -47,7 +47,12 @@ final class CodexReaderTests: XCTestCase {
         XCTAssertEqual(usage.reasoningTokens, 10)
         XCTAssertEqual(usage.totalTokens, 140)
         XCTAssertEqual(usage.perModel["gpt-5.4"]?.totalTokens, 140)
-        XCTAssertEqual(usage.cost, 0.0007825, accuracy: 0.000001)
+        let expectedCost = modelPrice(for: "gpt-5.4")?.cost(
+            input: usage.inputTokens,
+            output: usage.outputTokens + usage.reasoningTokens,
+            cacheRead: usage.cacheReadTokens,
+            cacheWrite: 0)
+        XCTAssertEqual(usage.cost, expectedCost ?? 0, accuracy: 0.000001)
     }
 
     func test_codexReader_countsInitialSnapshotWhenSessionStartsInsideRange() {
@@ -74,7 +79,12 @@ final class CodexReaderTests: XCTestCase {
         XCTAssertEqual(usage.reasoningTokens, 5)
         XCTAssertEqual(usage.totalTokens, 150)
         XCTAssertEqual(usage.perModel["gpt-5.4-mini"]?.totalTokens, 150)
-        XCTAssertEqual(usage.cost, 0.0002115, accuracy: 0.000001)
+        let expectedCost = modelPrice(for: "gpt-5.4-mini")?.cost(
+            input: usage.inputTokens,
+            output: usage.outputTokens + usage.reasoningTokens,
+            cacheRead: usage.cacheReadTokens,
+            cacheWrite: 0)
+        XCTAssertEqual(usage.cost, expectedCost ?? 0, accuracy: 0.000001)
     }
 
     func test_codexReader_respects_partialDayRange() {

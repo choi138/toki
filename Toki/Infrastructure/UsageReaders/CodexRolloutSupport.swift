@@ -219,7 +219,12 @@ func dailyActiveSeconds(from timestamps: [Date]) -> [String: TimeInterval] {
 
     return groupedEvents.reduce(into: [String: TimeInterval]()) { result, item in
         let (dayKey, events) = item
-        result[dayKey] = ActivityTimeEstimator.estimate(events: events).totalSeconds
+        let dayEnd = events
+            .first
+            .map { Calendar.current.startOfDay(for: $0.timestamp).addingTimeInterval(86400) }
+        result[dayKey] = ActivityTimeEstimator.estimate(
+            events: events,
+            clippingEndDate: dayEnd).totalSeconds
     }
 }
 

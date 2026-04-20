@@ -62,7 +62,7 @@ struct GeminiReader: TokenReader {
             }
         }
 
-        result.mergeActivityEvents(activityEvents, source: name)
+        result.mergeActivityEvents(activityEvents, source: name, clippingEndDate: endDate)
 
         return result
     }
@@ -86,6 +86,7 @@ struct GeminiReader: TokenReader {
             let output = (tokens.output ?? 0) + (tokens.tool ?? 0)
             let cacheRead = tokens.cached ?? 0
             let reasoning = tokens.thoughts ?? 0
+            let model = normalizedModelID(msg.model)
 
             result.inputTokens += input
             result.outputTokens += output
@@ -95,10 +96,10 @@ struct GeminiReader: TokenReader {
                 ActivityTimeEvent(
                     streamID: streamID,
                     timestamp: date,
-                    key: normalizedModelID(msg.model)))
+                    key: model))
 
             let entryCost: Double
-            if let model = normalizedModelID(msg.model), let price = modelPrice(for: model) {
+            if let model, let price = modelPrice(for: model) {
                 entryCost = price.cost(
                     input: input,
                     output: output + reasoning,
@@ -109,11 +110,13 @@ struct GeminiReader: TokenReader {
                 entryCost = 0
             }
 
-            if let model = normalizedModelID(msg.model) {
+            if let model {
                 let totalTokens = input + output + cacheRead + reasoning
-                result.perModel[model, default: PerModelUsage()].totalTokens += totalTokens
-                result.perModel[model, default: PerModelUsage()].cost += entryCost
-                result.perModel[model, default: PerModelUsage()].sources.insert(name)
+                var entry = result.perModel[model, default: PerModelUsage()]
+                entry.totalTokens += totalTokens
+                entry.cost += entryCost
+                entry.sources.insert(name)
+                result.perModel[model] = entry
             }
         }
 

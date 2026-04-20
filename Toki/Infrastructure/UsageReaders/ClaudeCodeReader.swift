@@ -125,13 +125,15 @@ struct ClaudeCodeReader: TokenReader {
         return usage(
             fromDedupedEntries: dedup,
             activityEvents: activityByKey.values.flatMap(\.events),
-            source: source)
+            source: source,
+            clippingEndDate: endDate)
     }
 
     private static func usage(
         fromDedupedEntries dedup: [String: Entry],
         activityEvents: [ActivityTimeEvent<String>],
-        source: String) -> RawTokenUsage {
+        source: String,
+        clippingEndDate: Date) -> RawTokenUsage {
         var result = RawTokenUsage()
 
         for entry in dedup.values {
@@ -140,8 +142,10 @@ struct ClaudeCodeReader: TokenReader {
             result.cacheReadTokens += entry.cacheRead
             result.cacheWriteTokens += entry.cacheWrite
 
+            let modelKey = normalizedModelID(entry.model)
             let entryCost: Double
-            if let price = modelPrice(for: entry.model ?? "") {
+            if let priceLookupKey = modelKey ?? entry.model,
+               let price = modelPrice(for: priceLookupKey) {
                 entryCost = price.cost(
                     input: entry.input,
                     output: entry.output,
@@ -152,7 +156,7 @@ struct ClaudeCodeReader: TokenReader {
                 entryCost = 0
             }
 
-            if let modelKey = normalizedModelID(entry.model) {
+            if let modelKey {
                 let entryTokens = entry.input + entry.output + entry.cacheRead + entry.cacheWrite
                 result.perModel[modelKey, default: PerModelUsage()].totalTokens += entryTokens
                 result.perModel[modelKey, default: PerModelUsage()].cost += entryCost
@@ -160,7 +164,10 @@ struct ClaudeCodeReader: TokenReader {
             }
         }
 
-        result.mergeActivityEvents(activityEvents, source: source)
+        result.mergeActivityEvents(
+            activityEvents,
+            source: source,
+            clippingEndDate: clippingEndDate)
 
         return result
     }

@@ -108,16 +108,9 @@ extension CodexReader {
     }
 
     private func extractModel(from url: URL) -> String? {
-        guard let handle = try? FileHandle(forReadingFrom: url) else { return nil }
-        defer { try? handle.close() }
-
-        let data = handle.readData(ofLength: 65536)
-        let trimmedData = data.lastIndex(of: UInt8(ascii: "\n"))
-            .map { Data(data[...$0]) } ?? data
-        let text = String(data: trimmedData, encoding: .utf8) ?? ""
         let decoder = JSONDecoder()
 
-        return text.components(separatedBy: .newlines).compactMap { line -> String? in
+        return readJSONLLines(at: url).compactMap { line -> String? in
             guard let lineData = line.data(using: .utf8),
                   let entry = try? decoder.decode(CodexModelEntry.self, from: lineData),
                   entry.type == "turn_context",

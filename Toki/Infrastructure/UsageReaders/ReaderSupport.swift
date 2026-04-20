@@ -56,24 +56,31 @@ extension RawTokenUsage {
         }
     }
 
-    mutating func mergeActivityEvents(_ events: [ActivityTimeEvent<String>], source: String) {
+    mutating func mergeActivityEvents(
+        _ events: [ActivityTimeEvent<String>],
+        source: String,
+        clippingEndDate: Date? = nil) {
         guard !events.isEmpty else { return }
         activityEvents.append(contentsOf: events)
-        recomputeMergedActiveEstimate(source: source)
+        recomputeMergedActiveEstimate(source: source, clippingEndDate: clippingEndDate)
     }
 
-    mutating func recomputeMergedActiveEstimate(source: String? = nil) {
+    mutating func recomputeMergedActiveEstimate(
+        source: String? = nil,
+        clippingEndDate: Date? = nil) {
         guard !activityEvents.isEmpty else { return }
 
-        activeSeconds = 0
+        activeSeconds = fallbackActiveSeconds
         for modelID in perModel.keys {
-            perModel[modelID]?.activeSeconds = 0
+            perModel[modelID]?.activeSeconds = fallbackActiveSecondsByModel[modelID, default: 0]
         }
 
-        let estimate = ActivityTimeEstimator.estimate(events: activityEvents)
-        activeSeconds = estimate.totalSeconds
+        let estimate = ActivityTimeEstimator.estimate(
+            events: activityEvents,
+            clippingEndDate: clippingEndDate)
+        activeSeconds += estimate.totalSeconds
         for (modelID, seconds) in estimate.secondsByKey {
-            perModel[modelID, default: PerModelUsage()].activeSeconds = seconds
+            perModel[modelID, default: PerModelUsage()].activeSeconds += seconds
             if let source {
                 perModel[modelID, default: PerModelUsage()].sources.insert(source)
             }

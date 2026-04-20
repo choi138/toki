@@ -156,7 +156,7 @@ final class UsageService: ObservableObject {
                 combined += partial
             }
         }
-        combined.recomputeMergedActiveEstimate()
+        combined.recomputeMergedActiveEstimate(clippingEndDate: end)
         return combined
     }
 }

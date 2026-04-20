@@ -54,6 +54,8 @@ private struct ModelStatRowView: View {
     let stat: ModelStat
 
     var body: some View {
+        let hasValidCost = stat.cost.isFinite && stat.cost > 0
+
         HStack(alignment: .center, spacing: 6) {
             Circle()
                 .fill(accentColor.opacity(0.5))
@@ -73,9 +75,12 @@ private struct ModelStatRowView: View {
                 .font(.system(size: 11, weight: .semibold, design: .rounded))
                 .foregroundColor(Color.white.opacity(0.7))
                 .frame(width: 44, alignment: .trailing)
-            Text(stat.cost > 0 ? stat.cost.formattedCost() : "—")
+            Text(hasValidCost ? stat.cost.formattedCost() : "—")
                 .font(.system(size: 11, weight: .semibold, design: .rounded))
-                .foregroundColor(stat.cost > 0 ? Color(red: 0.4, green: 0.9, blue: 0.6) : Color.white.opacity(0.25))
+                .foregroundColor(
+                    hasValidCost
+                        ? Color(red: 0.4, green: 0.9, blue: 0.6)
+                        : Color.white.opacity(0.25))
                 .frame(width: 56, alignment: .trailing)
                 .lineLimit(1)
         }

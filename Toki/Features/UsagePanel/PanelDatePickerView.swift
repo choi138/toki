@@ -15,12 +15,14 @@ struct PanelDatePickerView: View {
 
     private static let fullDateFormatter: DateFormatter = {
         let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.dateFormat = "MMM d, yyyy"
         return formatter
     }()
 
     private static let shortDateFormatter: DateFormatter = {
         let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.dateFormat = "MMM d"
         return formatter
     }()

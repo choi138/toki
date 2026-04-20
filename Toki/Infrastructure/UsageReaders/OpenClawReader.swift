@@ -47,7 +47,7 @@ struct OpenClawReader: TokenReader {
             }
         }
 
-        result.mergeActivityEvents(activityEvents, source: name)
+        result.mergeActivityEvents(activityEvents, source: name, clippingEndDate: endDate)
 
         return result
     }
