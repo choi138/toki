@@ -1,6 +1,14 @@
 import XCTest
 @testable import Toki
 
+func tokiTestISODate(_ value: String) -> Date {
+    guard let date = DateParser.parse(value) else {
+        XCTFail("Failed to parse ISO date: \(value)")
+        return Date.distantPast
+    }
+    return date
+}
+
 func mockUsage(totalTokens: Int, activeSeconds: TimeInterval = 0) -> RawTokenUsage {
     var usage = RawTokenUsage()
     usage.inputTokens = totalTokens

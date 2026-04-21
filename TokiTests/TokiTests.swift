@@ -2,8 +2,6 @@ import XCTest
 @testable import Toki
 
 final class TokiTests: XCTestCase {
-    // MARK: - formattedTokens
-
     func test_formattedTokens_belowThousand() {
         XCTAssertEqual(0.formattedTokens(), "0")
         XCTAssertEqual(1.formattedTokens(), "1")
@@ -30,8 +28,6 @@ final class TokiTests: XCTestCase {
         XCTAssertEqual(10_000_000_000.formattedTokens(), "10.0B")
     }
 
-    // MARK: - formattedCost
-
     func test_formattedCost_small() {
         XCTAssertEqual(0.0.formattedCost(), "$0.00")
         XCTAssertEqual(1.5.formattedCost(), "$1.50")
@@ -49,8 +45,6 @@ final class TokiTests: XCTestCase {
         XCTAssertEqual(1000.0.formattedCost(), "$1.0K")
         XCTAssertEqual(1234.5.formattedCost(), "$1.2K")
     }
-
-    // MARK: - cacheEfficiency
 
     func test_cacheEfficiency_zero() {
         let usage = UsageData(
@@ -108,8 +102,6 @@ final class TokiTests: XCTestCase {
         XCTAssertEqual(usage.cacheEfficiency, 0)
     }
 
-    // MARK: - totalTokens
-
     func test_totalTokens_sumsAllFields() {
         let usage = UsageData(
             date: Date(),
@@ -138,8 +130,6 @@ final class TokiTests: XCTestCase {
         XCTAssertEqual(usage.totalTokens, 0)
     }
 
-    // MARK: - formattedWorkDuration
-
     func test_formattedWorkDuration_seconds() {
         XCTAssertEqual(TimeInterval(30).formattedWorkDuration(), "30s")
     }
@@ -151,8 +141,6 @@ final class TokiTests: XCTestCase {
     func test_formattedWorkDuration_hours() {
         XCTAssertEqual(TimeInterval((2 * 60 + 5) * 60).formattedWorkDuration(), "2h 5m")
     }
-
-    // MARK: - modelPrice
 
     func test_modelPrice_matches_currentCodexSlugs() throws {
         let codex = modelPrice(for: "gpt-5.3-codex")
@@ -194,6 +182,20 @@ final class TokiTests: XCTestCase {
         XCTAssertEqual(try XCTUnwrap(specific?.cacheReadPerMillion), 0.025, accuracy: 0.0001)
     }
 
+    func test_modelPrice_matchesCursorAliases() throws {
+        let gpt52 = modelPrice(for: "gpt-5.2")
+        XCTAssertNotNil(gpt52)
+        XCTAssertEqual(try XCTUnwrap(gpt52?.inputPerMillion), 1.75, accuracy: 0.0001)
+        XCTAssertEqual(try XCTUnwrap(gpt52?.outputPerMillion), 14.0, accuracy: 0.0001)
+        XCTAssertEqual(try XCTUnwrap(gpt52?.cacheReadPerMillion), 0.175, accuracy: 0.0001)
+
+        let claudeThinking = modelPrice(for: "claude-4.5-sonnet-thinking")
+        XCTAssertNotNil(claudeThinking)
+        XCTAssertEqual(try XCTUnwrap(claudeThinking?.inputPerMillion), 3.0, accuracy: 0.0001)
+        XCTAssertEqual(try XCTUnwrap(claudeThinking?.outputPerMillion), 15.0, accuracy: 0.0001)
+        XCTAssertEqual(try XCTUnwrap(claudeThinking?.cacheReadPerMillion), 0.30, accuracy: 0.0001)
+    }
+
     func test_claudeCodeReader_keepsAllStreamedTimestampsForActiveTime() {
         let usage = ClaudeCodeReader.usage(
             fromJSONLLines: [
@@ -213,8 +215,8 @@ final class TokiTests: XCTestCase {
                     output: 7),
             ],
             streamID: "claude-session",
-            from: tokiTestISODate("2026-04-10T00:00:00Z"),
-            to: tokiTestISODate("2026-04-11T00:00:00Z"))
+            from: tokiTestsISODate("2026-04-10T00:00:00Z"),
+            to: tokiTestsISODate("2026-04-11T00:00:00Z"))
 
         XCTAssertEqual(usage.totalTokens, 17)
         XCTAssertEqual(usage.activeSeconds, 270, accuracy: 0.001)
@@ -240,7 +242,7 @@ private func claudeAssistantLine(
     """
 }
 
-private func tokiTestISODate(_ value: String) -> Date {
+private func tokiTestsISODate(_ value: String) -> Date {
     guard let date = DateParser.parse(value) else {
         XCTFail("Failed to parse ISO date: \(value)")
         return Date.distantPast

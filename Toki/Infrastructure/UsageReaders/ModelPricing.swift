@@ -57,6 +57,7 @@ private let exactPricingTable: [String: ModelPrice] = [
     "gpt-5.4": price(2.50, 15.0, 0.25),
     "gpt-5.4-mini": price(0.75, 4.50, 0.075),
     "gpt-5.3-codex": price(1.75, 14.0, 0.175),
+    "gpt-5.2": price(1.75, 14.0, 0.175),
     "gpt-5.2-codex": price(1.75, 14.0, 0.175),
     "gpt-5.1-codex-mini": price(0.25, 2.0, 0.025),
     "gpt-5.1-codex-max": price(1.25, 10.0, 0.125),
@@ -65,6 +66,9 @@ private let exactPricingTable: [String: ModelPrice] = [
     "codex-mini-latest": price(1.50, 6.0, 0.375),
     "gpt-5.2-pro": price(21.0, 168.0, 0.0),
     "gpt-5": price(1.25, 10.0, 0.125),
+    // Cursor aliases
+    "claude-4.5-sonnet-thinking": price(3.0, 15.0, 0.30, 3.75),
+    "claude-4.5-sonnet": price(3.0, 15.0, 0.30, 3.75),
 
     // Google Gemini
     "gemini-3-pro-high": price(2.0, 12.0, 0.20),

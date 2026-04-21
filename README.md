@@ -41,6 +41,7 @@ Toki automatically detects usage data from the following agents:
 |---|---|
 | **Claude Code** | `~/.claude/projects/**/*.jsonl` |
 | **Codex** | `~/.codex/state_5.sqlite` |
+| **Cursor** | `~/Library/Application Support/Cursor/User/globalStorage/state.vscdb` |
 | **OpenCode** | `~/.local/share/opencode/opencode.db` |
 | **Gemini CLI** | `~/.gemini/tmp/*/chats/**/*.json` |
 | **OpenClaw** | `~/.openclaw/agents/**/*.jsonl` |
