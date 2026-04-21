@@ -113,6 +113,98 @@ final class TokiBehaviorTests: XCTestCase {
         XCTAssertEqual(activeSeconds, 540, accuracy: 0.001)
     }
 
+    func test_usageService_keepsContextOnlyMetricsOutOfTotalTokens() async {
+        let recorder = MockReaderRecorder()
+        let reader = MockReader(name: "Mock", recorder: recorder) { _, _ in
+            var usage = RawTokenUsage()
+            usage.inputTokens = 100
+            usage.supplemental = [
+                SupplementalUsage(
+                    id: "cursor-context-a",
+                    label: "Cursor Context",
+                    value: 3_000,
+                    unit: .tokens,
+                    source: "Cursor",
+                    model: "gpt-5.4-xhigh",
+                    includedInTotals: false,
+                    quality: .contextOnly
+                ),
+                SupplementalUsage(
+                    id: "cursor-context-b",
+                    label: "Cursor Context",
+                    value: 2_000,
+                    unit: .tokens,
+                    source: "Cursor",
+                    model: "gpt-5.4-medium",
+                    includedInTotals: false,
+                    quality: .contextOnly
+                ),
+                SupplementalUsage(
+                    id: "cursor-session-a",
+                    label: "Cursor Sessions",
+                    value: 1,
+                    unit: .count,
+                    source: "Cursor",
+                    model: nil,
+                    includedInTotals: false,
+                    quality: .contextOnly
+                ),
+                SupplementalUsage(
+                    id: "cursor-session-b",
+                    label: "Cursor Sessions",
+                    value: 1,
+                    unit: .count,
+                    source: "Cursor",
+                    model: nil,
+                    includedInTotals: false,
+                    quality: .contextOnly
+                ),
+            ]
+            return usage
+        }
+
+        let service = await MainActor.run { UsageService(readers: [reader]) }
+        await service.refresh()
+
+        let usageData = await MainActor.run { service.usageData }
+
+        XCTAssertEqual(usageData.totalTokens, 100)
+        XCTAssertEqual(
+            usageData.supplementalStats.first(where: { $0.label == "Cursor Context" })?.value,
+            5_000)
+        XCTAssertEqual(
+            usageData.supplementalStats.first(where: { $0.label == "Cursor Sessions" })?.value,
+            2)
+        XCTAssertEqual(usageData.contextOnlyModels.count, 2)
+        XCTAssertEqual(usageData.contextOnlyModels.first?.model, "gpt-5.4-xhigh")
+        XCTAssertTrue(usageData.hasExcludedSupplementalStats)
+    }
+
+    func test_usageService_keepsCostOnlyModelsInByModelBreakdown() async {
+        let recorder = MockReaderRecorder()
+        let reader = MockReader(name: "Mock", recorder: recorder) { _, _ in
+            var usage = RawTokenUsage()
+            usage.cost = 0.38
+            usage.perModel["claude-4.5-sonnet-thinking"] = PerModelUsage(
+                totalTokens: 0,
+                cost: 0.38,
+                activeSeconds: 0,
+                sources: ["Cursor"])
+            return usage
+        }
+
+        let service = await MainActor.run { UsageService(readers: [reader]) }
+        await service.refresh()
+
+        let usageData = await MainActor.run { service.usageData }
+
+        XCTAssertEqual(usageData.cost, 0.38, accuracy: 0.000001)
+        XCTAssertEqual(usageData.perModel.count, 1)
+        XCTAssertEqual(usageData.perModel.first?.id, "claude-4.5-sonnet-thinking")
+        XCTAssertEqual(usageData.perModel.first?.totalTokens, 0)
+        XCTAssertEqual(usageData.perModel.first?.cost ?? 0, 0.38, accuracy: 0.000001)
+    }
+
     func test_usageService_selectRangeEnd_movesStartWhenEndWouldPrecedeIt() async {
         let service = await MainActor.run { UsageService(readers: []) }
 

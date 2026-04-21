@@ -1,5 +1,28 @@
 import Foundation
 
+enum SupplementalUnit: String {
+    case tokens
+    case count
+    case cents
+}
+
+enum UsageQuality: String {
+    case exact
+    case contextOnly
+    case derived
+}
+
+struct SupplementalUsage {
+    let id: String
+    let label: String
+    let value: Int
+    let unit: SupplementalUnit
+    let source: String
+    let model: String?
+    let includedInTotals: Bool
+    let quality: UsageQuality
+}
+
 struct PerModelUsage {
     var totalTokens = 0
     var cost: Double = 0
@@ -19,6 +42,7 @@ struct RawTokenUsage {
     var activityEvents: [ActivityTimeEvent<String>] = []
     var fallbackActiveSeconds: TimeInterval = 0
     var fallbackActiveSecondsByModel: [String: TimeInterval] = [:]
+    var supplemental: [SupplementalUsage] = []
 
     var totalTokens: Int {
         inputTokens + outputTokens + cacheReadTokens + cacheWriteTokens + reasoningTokens
@@ -50,6 +74,8 @@ func += (lhs: inout RawTokenUsage, rhs: RawTokenUsage) {
     for (id, seconds) in rhs.fallbackActiveSecondsByModel {
         lhs.fallbackActiveSecondsByModel[id, default: 0] += seconds
     }
+
+    lhs.supplemental.append(contentsOf: rhs.supplemental)
 
     if rhs.activityEvents.isEmpty {
         for (id, usage) in rhs.perModel where usage.activeSeconds > 0 {

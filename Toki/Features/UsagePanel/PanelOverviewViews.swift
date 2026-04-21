@@ -80,7 +80,40 @@ struct PanelTokenBreakdownView: View {
                 value: usage.cost.formattedCost(),
                 accent: Color(red: 0.4, green: 0.9, blue: 0.6),
                 isLoading: isLoading)
+
+            if !isLoading, !usage.supplementalStats.isEmpty {
+                PanelSectionCaption(title: "Additional Signals")
+
+                ForEach(usage.supplementalStats, id: \.id) { stat in
+                    StatRowView(
+                        label: stat.label,
+                        value: stat.formattedValue,
+                        accent: supplementalAccentColor(for: stat),
+                        isLoading: false)
+                }
+
+                if usage.hasExcludedSupplementalStats {
+                    Text("Excluded from Total Tokens. Cursor currently stores local context-window metrics, not exact request tokens.")
+                        .font(.system(size: 10))
+                        .foregroundColor(Color.white.opacity(0.28))
+                        .fixedSize(horizontal: false, vertical: true)
+                        .padding(.horizontal, 16)
+                        .padding(.top, 6)
+                        .padding(.bottom, 8)
+                }
+            }
         }
         .padding(.vertical, 6)
+    }
+
+    private func supplementalAccentColor(for stat: SupplementalStat) -> Color {
+        switch stat.unit {
+        case .tokens:
+            return Color(red: 0.85, green: 0.68, blue: 1.0)
+        case .count:
+            return Color(red: 0.55, green: 0.75, blue: 1.0)
+        case .cents:
+            return Color(red: 0.45, green: 0.9, blue: 0.7)
+        }
     }
 }

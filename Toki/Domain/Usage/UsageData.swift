@@ -10,6 +10,35 @@ struct ModelStat {
     let sources: [String]
 }
 
+struct SupplementalStat {
+    let id: String
+    let label: String
+    let value: Int
+    let unit: SupplementalUnit
+    let source: String
+    let includedInTotals: Bool
+    let quality: UsageQuality
+
+    var formattedValue: String {
+        switch unit {
+        case .tokens:
+            return value.formattedTokens()
+        case .count:
+            return "\(value)"
+        case .cents:
+            return (Double(value) / 100).formattedCost()
+        }
+    }
+}
+
+struct ContextOnlyModelStat {
+    let id: String
+    let model: String
+    let source: String
+    let contextTokens: Int
+    let quality: UsageQuality
+}
+
 // MARK: - Model
 
 struct UsageData {
@@ -23,6 +52,34 @@ struct UsageData {
     let activeSeconds: TimeInterval
 
     let perModel: [ModelStat]
+    let supplementalStats: [SupplementalStat]
+    let contextOnlyModels: [ContextOnlyModelStat]
+
+    init(
+        date: Date,
+        inputTokens: Int,
+        outputTokens: Int,
+        cacheReadTokens: Int,
+        cacheWriteTokens: Int,
+        reasoningTokens: Int,
+        cost: Double,
+        activeSeconds: TimeInterval,
+        perModel: [ModelStat],
+        supplementalStats: [SupplementalStat] = [],
+        contextOnlyModels: [ContextOnlyModelStat] = []
+    ) {
+        self.date = date
+        self.inputTokens = inputTokens
+        self.outputTokens = outputTokens
+        self.cacheReadTokens = cacheReadTokens
+        self.cacheWriteTokens = cacheWriteTokens
+        self.reasoningTokens = reasoningTokens
+        self.cost = cost
+        self.activeSeconds = activeSeconds
+        self.perModel = perModel
+        self.supplementalStats = supplementalStats
+        self.contextOnlyModels = contextOnlyModels
+    }
 
     var totalTokens: Int {
         inputTokens + outputTokens + cacheReadTokens + cacheWriteTokens + reasoningTokens
@@ -33,6 +90,10 @@ struct UsageData {
         let denom = Double(inputTokens + cacheReadTokens)
         guard denom > 0 else { return 0 }
         return Double(cacheReadTokens) / denom * 100
+    }
+
+    var hasExcludedSupplementalStats: Bool {
+        supplementalStats.contains { !$0.includedInTotals }
     }
 }
 
