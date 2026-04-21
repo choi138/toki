@@ -24,17 +24,20 @@ struct CodexReader: TokenReader {
         for session in sessions {
             let url = URL(fileURLWithPath: session.rolloutPath)
             guard FileManager.default.fileExists(atPath: url.path) else { continue }
-            result += await Self.cachedUsage(
+            let sessionEvents = await Self.activityEvents(
                 fromRolloutAt: url,
                 model: session.model,
                 from: startDate,
                 to: endDate)
-            await activityEvents.append(
-                contentsOf: Self.activityEvents(
-                    fromRolloutAt: url,
-                    model: session.model,
-                    from: startDate,
-                    to: endDate))
+            let sessionUsage = Self.strippingCachedActiveTime(
+                from: await Self.cachedUsage(
+                fromRolloutAt: url,
+                model: session.model,
+                from: startDate,
+                to: endDate),
+                whenActivityEventsExist: sessionEvents)
+            result += sessionUsage
+            activityEvents.append(contentsOf: sessionEvents)
         }
         await CodexRolloutUsageCache.shared.endBatch()
 
@@ -45,6 +48,19 @@ struct CodexReader: TokenReader {
 }
 
 extension CodexReader {
+    static func strippingCachedActiveTime(
+        from usage: RawTokenUsage,
+        whenActivityEventsExist events: [ActivityTimeEvent<String>]) -> RawTokenUsage {
+        guard !events.isEmpty else { return usage }
+
+        var sanitizedUsage = usage
+        sanitizedUsage.activeSeconds = 0
+        for modelID in sanitizedUsage.perModel.keys {
+            sanitizedUsage.perModel[modelID]?.activeSeconds = 0
+        }
+        return sanitizedUsage
+    }
+
     /// Preserve prior totals when timestamp backfill fails. This helper only sees
     /// data rebuilt from a full-file read, so rebuiltDailyUsage is either
     /// complete for the rollout or empty due to a transient read/decode failure.
