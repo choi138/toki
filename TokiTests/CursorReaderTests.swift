@@ -224,6 +224,14 @@ final class CursorReaderDatabaseTests: XCTestCase {
                         modelName: "gpt-5.2",
                         includeZeroTokenCount: true)),
                 (
+                    "bubbleId:token-old",
+                    cursorTokenBubble(
+                        bubbleId: "token-old",
+                        usageUuid: "usage-old",
+                        createdAt: "2026-04-09T23:59:59Z",
+                        input: 999,
+                        output: 999)),
+                (
                     "bubbleId:token-gpt",
                     cursorTokenBubble(
                         bubbleId: "token-gpt",

@@ -264,6 +264,9 @@ private func cursorQueryBubblePayloads(
     db: OpaquePointer?,
     from startDate: Date,
     to endDate: Date) -> [String] {
+    let startText = cursorSQLiteTimestampString(for: startDate)
+    let endText = cursorSQLiteTimestampString(for: endDate)
+
     let tokenQuery = """
         SELECT CAST(value AS TEXT)
         FROM cursorDiskKV
@@ -274,17 +277,14 @@ private func cursorQueryBubblePayloads(
             COALESCE(CAST(json_extract(CAST(value AS TEXT), '$.tokenCount.inputTokens') AS INTEGER), 0)
             + COALESCE(CAST(json_extract(CAST(value AS TEXT), '$.tokenCount.outputTokens') AS INTEGER), 0)
         ) > 0
+        AND julianday(json_extract(CAST(value AS TEXT), '$.createdAt')) >= julianday(?)
+        AND julianday(json_extract(CAST(value AS TEXT), '$.createdAt')) < julianday(?)
     """
 
     let tokenPayloads = cursorQueryPayloads(
         db: db,
-        query: tokenQuery).filter { payload in
-        guard let bubble = cursorDecodePayloads([payload], as: CursorBubble.self).first,
-              let createdAt = bubble.createdAtDate else {
-            return false
-        }
-        return createdAt >= startDate && createdAt < endDate
-    }
+        query: tokenQuery,
+        binds: [.text(startText), .text(endText)])
 
     let usageIdentifiers = Set(
         cursorDecodePayloads(tokenPayloads, as: CursorBubble.self)
@@ -399,6 +399,16 @@ private func cursorDecodePayloads<T: Decodable>(_ payloads: [String], as type: T
         return try? decoder.decode(T.self, from: data)
     }
 }
+
+private func cursorSQLiteTimestampString(for date: Date) -> String {
+    cursorSQLiteDateFormatter.string(from: date)
+}
+
+private let cursorSQLiteDateFormatter: ISO8601DateFormatter = {
+    let formatter = ISO8601DateFormatter()
+    formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+    return formatter
+}()
 
 struct CursorBubble: Decodable {
     let bubbleId: String?
