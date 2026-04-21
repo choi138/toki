@@ -296,8 +296,11 @@ private func cursorComposerData(
         .joined(separator: ",")
 
     return """
-    {"composerId":"\(composerId)","createdAt":\(createdAtMillis)\(lastUpdatedAtJSON),"modelConfig":{"modelName":"\(modelName)"},
-    "contextTokensUsed":\(contextTokensUsed),"usageData":{\(usageJSON)},
+    {"composerId":"\(composerId)",
+    "createdAt":\(createdAtMillis)\(lastUpdatedAtJSON),
+    "modelConfig":{"modelName":"\(modelName)"},
+    "contextTokensUsed":\(contextTokensUsed),
+    "usageData":{\(usageJSON)},
     "fullConversationHeadersOnly":[\(linkedBubbleIDsJSON)]}
     """
 }
