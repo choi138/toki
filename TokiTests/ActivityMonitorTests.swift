@@ -1,5 +1,5 @@
-import XCTest
 import SQLite3
+import XCTest
 @testable import Toki
 
 private let activityMonitorSQLiteTransient = unsafeBitCast(-1, to: sqlite3_destructor_type.self)

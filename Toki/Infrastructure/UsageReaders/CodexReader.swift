@@ -29,12 +29,12 @@ struct CodexReader: TokenReader {
                 model: session.model,
                 from: startDate,
                 to: endDate)
-            let sessionUsage = Self.strippingCachedActiveTime(
-                from: await Self.cachedUsage(
-                fromRolloutAt: url,
-                model: session.model,
-                from: startDate,
-                to: endDate),
+            let sessionUsage = await Self.strippingCachedActiveTime(
+                from: Self.cachedUsage(
+                    fromRolloutAt: url,
+                    model: session.model,
+                    from: startDate,
+                    to: endDate),
                 whenActivityEventsExist: sessionEvents)
             result += sessionUsage
             activityEvents.append(contentsOf: sessionEvents)
