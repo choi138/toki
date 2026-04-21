@@ -22,11 +22,11 @@ struct SupplementalStat {
     var formattedValue: String {
         switch unit {
         case .tokens:
-            return value.formattedTokens()
+            value.formattedTokens()
         case .count:
-            return "\(value)"
+            "\(value)"
         case .cents:
-            return (Double(value) / 100).formattedCost()
+            (Double(value) / 100).formattedCost()
         }
     }
 }
@@ -66,8 +66,7 @@ struct UsageData {
         activeSeconds: TimeInterval,
         perModel: [ModelStat],
         supplementalStats: [SupplementalStat] = [],
-        contextOnlyModels: [ContextOnlyModelStat] = []
-    ) {
+        contextOnlyModels: [ContextOnlyModelStat] = []) {
         self.date = date
         self.inputTokens = inputTokens
         self.outputTokens = outputTokens
