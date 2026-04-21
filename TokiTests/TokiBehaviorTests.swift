@@ -1,7 +1,7 @@
 import XCTest
 @testable import Toki
 
-final class TokiBehaviorTests: XCTestCase {
+final class UsageServiceBehaviorTests: XCTestCase {
     func test_usageService_skipsYesterdayFetchForPastSingleDay() async throws {
         let recorder = MockReaderRecorder()
         let today = Calendar.current.startOfDay(for: Date())
@@ -122,23 +122,21 @@ final class TokiBehaviorTests: XCTestCase {
                 SupplementalUsage(
                     id: "cursor-context-a",
                     label: "Cursor Context",
-                    value: 3_000,
+                    value: 3000,
                     unit: .tokens,
                     source: "Cursor",
                     model: "gpt-5.4-xhigh",
                     includedInTotals: false,
-                    quality: .contextOnly
-                ),
+                    quality: .contextOnly),
                 SupplementalUsage(
                     id: "cursor-context-b",
                     label: "Cursor Context",
-                    value: 2_000,
+                    value: 2000,
                     unit: .tokens,
                     source: "Cursor",
                     model: "gpt-5.4-medium",
                     includedInTotals: false,
-                    quality: .contextOnly
-                ),
+                    quality: .contextOnly),
                 SupplementalUsage(
                     id: "cursor-session-a",
                     label: "Cursor Sessions",
@@ -147,8 +145,7 @@ final class TokiBehaviorTests: XCTestCase {
                     source: "Cursor",
                     model: nil,
                     includedInTotals: false,
-                    quality: .contextOnly
-                ),
+                    quality: .contextOnly),
                 SupplementalUsage(
                     id: "cursor-session-b",
                     label: "Cursor Sessions",
@@ -157,8 +154,7 @@ final class TokiBehaviorTests: XCTestCase {
                     source: "Cursor",
                     model: nil,
                     includedInTotals: false,
-                    quality: .contextOnly
-                ),
+                    quality: .contextOnly),
             ]
             return usage
         }
@@ -171,7 +167,7 @@ final class TokiBehaviorTests: XCTestCase {
         XCTAssertEqual(usageData.totalTokens, 100)
         XCTAssertEqual(
             usageData.supplementalStats.first(where: { $0.label == "Cursor Context" })?.value,
-            5_000)
+            5000)
         XCTAssertEqual(
             usageData.supplementalStats.first(where: { $0.label == "Cursor Sessions" })?.value,
             2)
@@ -237,7 +233,9 @@ final class TokiBehaviorTests: XCTestCase {
         XCTAssertEqual(startDate, behaviorLocalStartOfDay("2026-04-10T09:00:00Z"))
         XCTAssertEqual(endDate, behaviorLocalExclusiveEnd("2026-04-12T18:00:00Z"))
     }
+}
 
+final class TokiBehaviorTests: XCTestCase {
     func test_blockingReaderGate_resumesAllFirstRequestWaiters() async {
         let gate = BlockingReaderGate()
         let waiter1 = Task {

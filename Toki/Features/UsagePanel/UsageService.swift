@@ -185,7 +185,9 @@ final class UsageService: ObservableObject {
         combined.recomputeMergedActiveEstimate(clippingEndDate: end)
         return combined
     }
+}
 
+private extension UsageService {
     private func buildSupplementalStats(from supplemental: [SupplementalUsage]) -> [SupplementalStat] {
         var grouped: [SupplementalStatAggregateKey: Int] = [:]
 
@@ -203,7 +205,7 @@ final class UsageService: ObservableObject {
 
         return grouped.map { key, value in
             SupplementalStat(
-                id: "\(key.source)|\(key.label)|\(key.unit.rawValue)|\(key.quality.rawValue)",
+                id: "\(key.source)|\(key.label)|\(key.unit.rawValue)|\(key.includedInTotals)|\(key.quality.rawValue)",
                 label: key.label,
                 value: value,
                 unit: key.unit,

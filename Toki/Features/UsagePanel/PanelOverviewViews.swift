@@ -93,7 +93,9 @@ struct PanelTokenBreakdownView: View {
                 }
 
                 if usage.hasExcludedSupplementalStats {
-                    Text("Excluded from Total Tokens. Cursor currently stores local context-window metrics, not exact request tokens.")
+                    Text(
+                        "Excluded from Total Tokens. Cursor currently stores local "
+                            + "context-window metrics, not exact request tokens.")
                         .font(.system(size: 10))
                         .foregroundColor(Color.white.opacity(0.28))
                         .fixedSize(horizontal: false, vertical: true)
@@ -109,11 +111,11 @@ struct PanelTokenBreakdownView: View {
     private func supplementalAccentColor(for stat: SupplementalStat) -> Color {
         switch stat.unit {
         case .tokens:
-            return Color(red: 0.85, green: 0.68, blue: 1.0)
+            Color(red: 0.85, green: 0.68, blue: 1.0)
         case .count:
-            return Color(red: 0.55, green: 0.75, blue: 1.0)
+            Color(red: 0.55, green: 0.75, blue: 1.0)
         case .cents:
-            return Color(red: 0.45, green: 0.9, blue: 0.7)
+            Color(red: 0.45, green: 0.9, blue: 0.7)
         }
     }
 }

@@ -3,8 +3,8 @@ import SQLite3
 
 private let sqliteTransient = unsafeBitCast(-1, to: sqlite3_destructor_type.self)
 
-// Reads Cursor's global usage state from the app's local SQLite store.
-// Aggregates one token-bearing assistant response per usage UUID.
+/// Reads Cursor's global usage state from the app's local SQLite store.
+/// Aggregates one token-bearing assistant response per usage UUID.
 struct CursorReader: TokenReader {
     let name = "Cursor"
     private let dbPathOverride: String?
@@ -16,8 +16,8 @@ struct CursorReader: TokenReader {
     private var dbPath: String {
         dbPathOverride
             ?? homeDir()
-                .appendingPathComponent("Library/Application Support/Cursor/User/globalStorage/state.vscdb")
-                .path
+            .appendingPathComponent("Library/Application Support/Cursor/User/globalStorage/state.vscdb")
+            .path
     }
 
     func readUsage(from startDate: Date, to endDate: Date) async throws -> RawTokenUsage {
@@ -35,17 +35,14 @@ struct CursorReader: TokenReader {
         let bubblePayloads = cursorQueryBubblePayloads(
             db: db,
             from: startDate,
-            to: endDate
-        )
-        let composerPayloads: [String]
-        if Self.shouldIncludeLiveComposerContext(from: startDate, to: endDate) {
-            composerPayloads = cursorQueryLiveComposerPayloads(
+            to: endDate)
+        let composerPayloads: [String] = if Self.shouldIncludeLiveComposerContext(from: startDate, to: endDate) {
+            cursorQueryLiveComposerPayloads(
                 db: db,
                 from: startDate,
-                to: endDate
-            )
+                to: endDate)
         } else {
-            composerPayloads = []
+            []
         }
 
         return Self.usage(
@@ -53,38 +50,35 @@ struct CursorReader: TokenReader {
             composerPayloads: composerPayloads,
             source: name,
             from: startDate,
-            to: endDate
-        )
+            to: endDate)
     }
+}
 
+extension CursorReader {
     static func usage(
         fromBubblePayloads payloads: [String],
         source: String = "Cursor",
         from startDate: Date,
-        to endDate: Date
-    ) -> RawTokenUsage {
+        to endDate: Date) -> RawTokenUsage {
         usage(
             fromBubblePayloads: payloads,
             composerPayloads: [],
             source: source,
             from: startDate,
-            to: endDate
-        )
+            to: endDate)
     }
 
     static func usage(
         fromComposerPayloads payloads: [String],
         source: String = "Cursor",
         from startDate: Date,
-        to endDate: Date
-    ) -> RawTokenUsage {
+        to endDate: Date) -> RawTokenUsage {
         usage(
             fromBubblePayloads: [],
             composerPayloads: payloads,
             source: source,
             from: startDate,
-            to: endDate
-        )
+            to: endDate)
     }
 
     static func usage(
@@ -92,8 +86,7 @@ struct CursorReader: TokenReader {
         composerPayloads: [String],
         source: String = "Cursor",
         from startDate: Date,
-        to endDate: Date
-    ) -> RawTokenUsage {
+        to endDate: Date) -> RawTokenUsage {
         let bubbles = decodePayloads(bubblePayloads, as: CursorBubble.self)
         let composers = decodePayloads(composerPayloads, as: CursorComposerRecord.self)
         return usage(fromBubbles: bubbles, composers: composers, source: source, from: startDate, to: endDate)
@@ -104,20 +97,17 @@ struct CursorReader: TokenReader {
         composers: [CursorComposerRecord],
         source: String = "Cursor",
         from startDate: Date,
-        to endDate: Date
-    ) -> RawTokenUsage {
+        to endDate: Date) -> RawTokenUsage {
         var result = summarizedBubbleUsage(
             from: bubbles,
             source: source,
             from: startDate,
-            to: endDate
-        )
+            to: endDate)
         result += usage(
             fromComposers: composers,
             source: source,
             from: startDate,
-            to: endDate
-        )
+            to: endDate)
         return result
     }
 
@@ -125,8 +115,7 @@ struct CursorReader: TokenReader {
         fromBubbles bubbles: [CursorBubble],
         source: String = "Cursor",
         from startDate: Date,
-        to endDate: Date
-    ) -> RawTokenUsage {
+        to endDate: Date) -> RawTokenUsage {
         summarizedBubbleUsage(from: bubbles, source: source, from: startDate, to: endDate)
     }
 
@@ -134,8 +123,7 @@ struct CursorReader: TokenReader {
         fromComposers composers: [CursorComposerRecord],
         source: String = "Cursor",
         from startDate: Date,
-        to endDate: Date
-    ) -> RawTokenUsage {
+        to endDate: Date) -> RawTokenUsage {
         let startMillis = Int64(startDate.timeIntervalSince1970 * 1000)
         let endMillis = Int64(endDate.timeIntervalSince1970 * 1000)
 
@@ -161,9 +149,7 @@ struct CursorReader: TokenReader {
                     source: source,
                     model: composer.modelID,
                     includedInTotals: false,
-                    quality: .contextOnly
-                )
-            )
+                    quality: .contextOnly))
         }
 
         return result
@@ -173,25 +159,43 @@ struct CursorReader: TokenReader {
         from bubbles: [CursorBubble],
         source: String,
         from startDate: Date,
-        to endDate: Date
-    ) -> RawTokenUsage {
+        to endDate: Date) -> RawTokenUsage {
         var modelByUsageIdentifier: [String: String] = [:]
-        bubbles.forEach { bubble in
+        for bubble in bubbles {
             guard let usageIdentifier = bubble.usageIdentifier,
-                  let modelID = bubble.modelID else { return }
+                  let modelID = bubble.modelID else { continue }
             modelByUsageIdentifier[usageIdentifier] = modelID
         }
 
         var seenUsageIdentifiers = Set<String>()
         var usage = RawTokenUsage()
+        let orderedBubbles = bubbles
+            .compactMap { bubble -> (CursorBubble, Date)? in
+                let input = bubble.tokenCount?.inputTokens ?? 0
+                let output = bubble.tokenCount?.outputTokens ?? 0
+                guard input + output > 0,
+                      let createdAt = bubble.createdAtDate,
+                      createdAt >= startDate,
+                      createdAt < endDate else {
+                    return nil
+                }
+                return (bubble, createdAt)
+            }
+            .sorted { lhs, rhs in
+                if lhs.1 != rhs.1 { return lhs.1 > rhs.1 }
+                let lhsID = lhs.0.usageIdentifier ?? lhs.0.bubbleId ?? ""
+                let rhsID = rhs.0.usageIdentifier ?? rhs.0.bubbleId ?? ""
+                if lhsID != rhsID { return lhsID < rhsID }
+                return (lhs.0.bubbleId ?? "") < (rhs.0.bubbleId ?? "")
+            }
+            .map(\.0)
 
-        for bubble in bubbles {
+        for bubble in orderedBubbles {
             let input = bubble.tokenCount?.inputTokens ?? 0
             let output = bubble.tokenCount?.outputTokens ?? 0
 
             guard input + output > 0,
-                  let createdAtText = bubble.createdAt,
-                  let createdAt = DateParser.parse(createdAtText),
+                  let createdAt = bubble.createdAtDate,
                   createdAt >= startDate,
                   createdAt < endDate,
                   let usageIdentifier = bubble.usageIdentifier,
@@ -211,8 +215,7 @@ struct CursorReader: TokenReader {
                     input: input,
                     output: output,
                     cacheRead: 0,
-                    cacheWrite: 0
-                )
+                    cacheWrite: 0)
                 usage.cost += requestCost
             } else {
                 requestCost = 0
@@ -240,8 +243,7 @@ struct CursorReader: TokenReader {
         from startDate: Date,
         to endDate: Date,
         now: Date = Date(),
-        calendar: Calendar = .current
-    ) -> Bool {
+        calendar: Calendar = .current) -> Bool {
         // Date-ranged totals come from append-only bubble rows. The mutable
         // composer snapshot is only safe to show as a live context overlay.
         let isSingleDay =
@@ -261,11 +263,7 @@ private enum SQLiteBind {
 private func cursorQueryBubblePayloads(
     db: OpaquePointer?,
     from startDate: Date,
-    to endDate: Date
-) -> [String] {
-    let startMillis = Int64(startDate.timeIntervalSince1970 * 1000)
-    let endMillis = Int64(endDate.timeIntervalSince1970 * 1000)
-
+    to endDate: Date) -> [String] {
     let tokenQuery = """
         SELECT CAST(value AS TEXT)
         FROM cursorDiskKV
@@ -276,26 +274,21 @@ private func cursorQueryBubblePayloads(
             COALESCE(CAST(json_extract(CAST(value AS TEXT), '$.tokenCount.inputTokens') AS INTEGER), 0)
             + COALESCE(CAST(json_extract(CAST(value AS TEXT), '$.tokenCount.outputTokens') AS INTEGER), 0)
         ) > 0
-        AND CAST(
-            unixepoch(json_extract(CAST(value AS TEXT), '$.createdAt'), 'subsec') * 1000
-            AS INTEGER
-        ) >= ?
-        AND CAST(
-            unixepoch(json_extract(CAST(value AS TEXT), '$.createdAt'), 'subsec') * 1000
-            AS INTEGER
-        ) < ?
     """
 
     let tokenPayloads = cursorQueryPayloads(
         db: db,
-        query: tokenQuery,
-        binds: [.int64(startMillis), .int64(endMillis)]
-    )
+        query: tokenQuery).filter { payload in
+        guard let bubble = cursorDecodePayloads([payload], as: CursorBubble.self).first,
+              let createdAt = bubble.createdAtDate else {
+            return false
+        }
+        return createdAt >= startDate && createdAt < endDate
+    }
 
     let usageIdentifiers = Set(
         cursorDecodePayloads(tokenPayloads, as: CursorBubble.self)
-            .compactMap(\.usageIdentifier)
-    )
+            .compactMap(\.usageIdentifier))
     let identifierList = Array(usageIdentifiers).sorted()
     guard !identifierList.isEmpty else {
         return tokenPayloads
@@ -329,8 +322,7 @@ private func cursorQueryBubblePayloads(
     let modelPayloads = cursorQueryPayloads(
         db: db,
         query: modelQuery,
-        binds: identifierBinds + identifierBinds + identifierBinds
-    )
+        binds: identifierBinds + identifierBinds + identifierBinds)
 
     return tokenPayloads + modelPayloads
 }
@@ -338,8 +330,7 @@ private func cursorQueryBubblePayloads(
 private func cursorQueryLiveComposerPayloads(
     db: OpaquePointer?,
     from startDate: Date,
-    to endDate: Date
-) -> [String] {
+    to endDate: Date) -> [String] {
     // composerData is a mutable live snapshot, not a historical log.
     // Only surface it for today's active view as context-only metadata.
     let startMillis = Int64(startDate.timeIntervalSince1970 * 1000)
@@ -367,15 +358,13 @@ private func cursorQueryLiveComposerPayloads(
     return cursorQueryPayloads(
         db: db,
         query: composerQuery,
-        binds: [.int64(startMillis), .int64(endMillis)]
-    )
+        binds: [.int64(startMillis), .int64(endMillis)])
 }
 
 private func cursorQueryPayloads(
     db: OpaquePointer?,
     query: String,
-    binds: [SQLiteBind] = []
-) -> [String] {
+    binds: [SQLiteBind] = []) -> [String] {
     var stmt: OpaquePointer?
     guard sqlite3_prepare_v2(db, query, -1, &stmt, nil) == SQLITE_OK else {
         return []
@@ -384,12 +373,11 @@ private func cursorQueryPayloads(
 
     for (index, value) in binds.enumerated() {
         let bindIndex = Int32(index + 1)
-        let status: Int32
-        switch value {
-        case .int64(let intValue):
-            status = sqlite3_bind_int64(stmt, bindIndex, intValue)
-        case .text(let textValue):
-            status = sqlite3_bind_text(stmt, bindIndex, textValue, -1, sqliteTransient)
+        let status: Int32 = switch value {
+        case let .int64(intValue):
+            sqlite3_bind_int64(stmt, bindIndex, intValue)
+        case let .text(textValue):
+            sqlite3_bind_text(stmt, bindIndex, textValue, -1, sqliteTransient)
         }
         guard status == SQLITE_OK else {
             return []
@@ -426,6 +414,10 @@ struct CursorBubble: Decodable {
         usageUuid ?? requestId ?? bubbleId
     }
 
+    var createdAtDate: Date? {
+        createdAt.flatMap(DateParser.parse)
+    }
+
     var modelID: String? {
         normalizedCursorModelID(modelInfo?.modelName ?? modelName ?? model)
     }
@@ -456,8 +448,7 @@ struct CursorComposerRecord: Decodable {
     var modelID: String? {
         normalizedCursorModelID(
             modelConfig?.modelName
-                ?? (usageData?.count == 1 ? usageData?.keys.first : nil)
-        )
+                ?? (usageData?.count == 1 ? usageData?.keys.first : nil))
     }
 
     struct ConversationHeader: Decodable {

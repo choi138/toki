@@ -182,18 +182,18 @@ final class TokiTests: XCTestCase {
         XCTAssertEqual(try XCTUnwrap(specific?.cacheReadPerMillion), 0.025, accuracy: 0.0001)
     }
 
-    func test_modelPrice_matchesCursorAliases() {
+    func test_modelPrice_matchesCursorAliases() throws {
         let gpt52 = modelPrice(for: "gpt-5.2")
         XCTAssertNotNil(gpt52)
-        XCTAssertEqual(gpt52!.inputPerMillion, 1.75, accuracy: 0.0001)
-        XCTAssertEqual(gpt52!.outputPerMillion, 14.0, accuracy: 0.0001)
-        XCTAssertEqual(gpt52!.cacheReadPerMillion, 0.175, accuracy: 0.0001)
+        XCTAssertEqual(try XCTUnwrap(gpt52?.inputPerMillion), 1.75, accuracy: 0.0001)
+        XCTAssertEqual(try XCTUnwrap(gpt52?.outputPerMillion), 14.0, accuracy: 0.0001)
+        XCTAssertEqual(try XCTUnwrap(gpt52?.cacheReadPerMillion), 0.175, accuracy: 0.0001)
 
         let claudeThinking = modelPrice(for: "claude-4.5-sonnet-thinking")
         XCTAssertNotNil(claudeThinking)
-        XCTAssertEqual(claudeThinking!.inputPerMillion, 3.0, accuracy: 0.0001)
-        XCTAssertEqual(claudeThinking!.outputPerMillion, 15.0, accuracy: 0.0001)
-        XCTAssertEqual(claudeThinking!.cacheReadPerMillion, 0.30, accuracy: 0.0001)
+        XCTAssertEqual(try XCTUnwrap(claudeThinking?.inputPerMillion), 3.0, accuracy: 0.0001)
+        XCTAssertEqual(try XCTUnwrap(claudeThinking?.outputPerMillion), 15.0, accuracy: 0.0001)
+        XCTAssertEqual(try XCTUnwrap(claudeThinking?.cacheReadPerMillion), 0.30, accuracy: 0.0001)
     }
 
     func test_claudeCodeReader_keepsAllStreamedTimestampsForActiveTime() {

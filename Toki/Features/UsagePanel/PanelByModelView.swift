@@ -30,9 +30,7 @@ struct PanelByModelView: View {
                     }
 
                     if !usage.contextOnlyModels.isEmpty {
-                        if !usage.perModel.isEmpty {
-                            PanelSectionCaption(title: "Context Only")
-                        }
+                        PanelSectionCaption(title: "Context Only")
 
                         ForEach(usage.contextOnlyModels, id: \.id) { stat in
                             ContextOnlyModelStatRowView(stat: stat)
