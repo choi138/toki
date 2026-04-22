@@ -6,7 +6,8 @@ final class ActivityMonitorTests: XCTestCase {
     func test_activityMonitor_detectsRecentCursorComposerActivity() throws {
         let dbPath = try makeCursorActivityDatabase(
             lastUpdatedAt: Int64(Date().timeIntervalSince1970 * 1000),
-            bubbleCreatedAt: nil)
+            bubbleCreatedAt: nil,
+            bubblePayloadOverride: nil)
 
         XCTAssertTrue(ActivityMonitor.isCursorActive(dbPath: dbPath, since: Date().addingTimeInterval(-30)))
     }
@@ -15,7 +16,8 @@ final class ActivityMonitorTests: XCTestCase {
         let staleDate = Date().addingTimeInterval(-180)
         let dbPath = try makeCursorActivityDatabase(
             lastUpdatedAt: Int64(staleDate.timeIntervalSince1970 * 1000),
-            bubbleCreatedAt: nil)
+            bubbleCreatedAt: nil,
+            bubblePayloadOverride: nil)
 
         XCTAssertFalse(ActivityMonitor.isCursorActive(dbPath: dbPath, since: Date().addingTimeInterval(-30)))
     }

@@ -136,14 +136,9 @@ enum ActivityMonitor {
             db: dbPath,
             sql: """
                 SELECT 1
-                FROM (
-                    SELECT value
-                    FROM cursorDiskKV
-                    WHERE key LIKE 'bubbleId:%'
-                    ORDER BY rowid DESC
-                    LIMIT 50
-                ) AS recentBubbles
-                WHERE json_valid(CAST(value AS TEXT))
+                FROM cursorDiskKV
+                WHERE key LIKE 'bubbleId:%'
+                AND json_valid(CAST(value AS TEXT))
                 AND json_extract(CAST(value AS TEXT), '$.createdAt') IS NOT NULL
                 AND julianday(json_extract(CAST(value AS TEXT), '$.createdAt')) >= julianday(?)
                 LIMIT 1
