@@ -1,7 +1,7 @@
 import Foundation
 import SQLite3
 
-private let sqliteTransient = unsafeBitCast(-1, to: sqlite3_destructor_type.self)
+let sqliteTransient = unsafeBitCast(-1, to: sqlite3_destructor_type.self)
 
 /// Reads Cursor's global usage state from the app's local SQLite store.
 /// Aggregates one token-bearing assistant response per usage UUID.
@@ -255,7 +255,7 @@ extension CursorReader {
     }
 }
 
-private enum SQLiteBind {
+enum SQLiteBind {
     case int64(Int64)
     case text(String)
 }

@@ -2,13 +2,12 @@ import SQLite3
 import XCTest
 @testable import Toki
 
-private let activityMonitorSQLiteTransient = unsafeBitCast(-1, to: sqlite3_destructor_type.self)
-
 final class ActivityMonitorTests: XCTestCase {
     func test_activityMonitor_detectsRecentCursorComposerActivity() throws {
         let dbPath = try makeCursorActivityDatabase(
             lastUpdatedAt: Int64(Date().timeIntervalSince1970 * 1000),
-            bubbleCreatedAt: nil)
+            bubbleCreatedAt: nil,
+            bubblePayloadOverride: nil)
 
         XCTAssertTrue(ActivityMonitor.isCursorActive(dbPath: dbPath, since: Date().addingTimeInterval(-30)))
     }
@@ -17,7 +16,8 @@ final class ActivityMonitorTests: XCTestCase {
         let staleDate = Date().addingTimeInterval(-180)
         let dbPath = try makeCursorActivityDatabase(
             lastUpdatedAt: Int64(staleDate.timeIntervalSince1970 * 1000),
-            bubbleCreatedAt: nil)
+            bubbleCreatedAt: nil,
+            bubblePayloadOverride: nil)
 
         XCTAssertFalse(ActivityMonitor.isCursorActive(dbPath: dbPath, since: Date().addingTimeInterval(-30)))
     }
@@ -27,14 +27,37 @@ final class ActivityMonitorTests: XCTestCase {
         let staleComposerDate = Date().addingTimeInterval(-180)
         let dbPath = try makeCursorActivityDatabase(
             lastUpdatedAt: Int64(staleComposerDate.timeIntervalSince1970 * 1000),
-            bubbleCreatedAt: recentBubbleDate)
+            bubbleCreatedAt: recentBubbleDate,
+            bubblePayloadOverride: nil)
 
         XCTAssertTrue(ActivityMonitor.isCursorActive(dbPath: dbPath, since: Date().addingTimeInterval(-30)))
     }
 
+    func test_activityMonitor_ignoresStaleCursorBubbleActivity() throws {
+        let staleBubbleDate = Date().addingTimeInterval(-180)
+        let staleComposerDate = Date().addingTimeInterval(-180)
+        let dbPath = try makeCursorActivityDatabase(
+            lastUpdatedAt: Int64(staleComposerDate.timeIntervalSince1970 * 1000),
+            bubbleCreatedAt: staleBubbleDate,
+            bubblePayloadOverride: nil)
+
+        XCTAssertFalse(ActivityMonitor.isCursorActive(dbPath: dbPath, since: Date().addingTimeInterval(-30)))
+    }
+
+    func test_activityMonitor_ignoresCursorBubbleWithoutCreatedAt() throws {
+        let staleComposerDate = Date().addingTimeInterval(-180)
+        let dbPath = try makeCursorActivityDatabase(
+            lastUpdatedAt: Int64(staleComposerDate.timeIntervalSince1970 * 1000),
+            bubbleCreatedAt: nil,
+            bubblePayloadOverride: #"{"createdAt":null}"#)
+
+        XCTAssertFalse(ActivityMonitor.isCursorActive(dbPath: dbPath, since: Date().addingTimeInterval(-30)))
+    }
+
     private func makeCursorActivityDatabase(
         lastUpdatedAt: Int64,
-        bubbleCreatedAt: Date?) throws -> String {
+        bubbleCreatedAt: Date?,
+        bubblePayloadOverride: String?) throws -> String {
         let directoryURL = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
         try FileManager.default.createDirectory(
@@ -64,17 +87,20 @@ final class ActivityMonitorTests: XCTestCase {
         defer { sqlite3_finalize(statement) }
 
         XCTAssertEqual(
-            sqlite3_bind_text(statement, 1, "composerData:test", -1, activityMonitorSQLiteTransient),
+            sqlite3_bind_text(statement, 1, "composerData:test", -1, sqliteTransient),
             SQLITE_OK)
         XCTAssertEqual(
-            sqlite3_bind_text(statement, 2, payload, -1, activityMonitorSQLiteTransient),
+            sqlite3_bind_text(statement, 2, payload, -1, sqliteTransient),
             SQLITE_OK)
         XCTAssertEqual(sqlite3_step(statement), SQLITE_DONE)
 
-        if let bubbleCreatedAt {
-            let bubblePayload = """
+        let bubblePayload = bubblePayloadOverride ?? bubbleCreatedAt.map { bubbleCreatedAt in
+            """
             {"createdAt":"\(ActivityMonitorTests.cursorBubbleFormatter.string(from: bubbleCreatedAt))"}
             """
+        }
+
+        if let bubblePayload {
             var bubbleStatement: OpaquePointer?
             XCTAssertEqual(sqlite3_prepare_v2(db, insertSQL, -1, &bubbleStatement, nil), SQLITE_OK)
             defer { sqlite3_finalize(bubbleStatement) }
@@ -84,7 +110,7 @@ final class ActivityMonitorTests: XCTestCase {
                     1,
                     "bubbleId:test",
                     -1,
-                    activityMonitorSQLiteTransient),
+                    sqliteTransient),
                 SQLITE_OK)
             XCTAssertEqual(
                 sqlite3_bind_text(
@@ -92,7 +118,7 @@ final class ActivityMonitorTests: XCTestCase {
                     2,
                     bubblePayload,
                     -1,
-                    activityMonitorSQLiteTransient),
+                    sqliteTransient),
                 SQLITE_OK)
             XCTAssertEqual(sqlite3_step(bubbleStatement), SQLITE_DONE)
         }
