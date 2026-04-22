@@ -128,7 +128,7 @@ enum ActivityMonitor {
                 ) AS INTEGER) >= ?
                 LIMIT 1
             """,
-            int64Param: epochMs)
+            bind: .int64(epochMs))
     }
 
     private static func queryCursorBubbleActivity(dbPath: String, thresholdText: String) -> Bool {
@@ -148,7 +148,7 @@ enum ActivityMonitor {
                 AND julianday(json_extract(CAST(value AS TEXT), '$.createdAt')) >= julianday(?)
                 LIMIT 1
             """,
-            textParam: thresholdText)
+            bind: .text(thresholdText))
     }
 
     // MARK: - OpenCode
@@ -265,7 +265,7 @@ enum ActivityMonitor {
     }
 }
 
-private func queryExists(db path: String, sql: String, int64Param: Int64) -> Bool {
+private func queryExists(db path: String, sql: String, bind: SQLiteBind) -> Bool {
     guard FileManager.default.fileExists(atPath: path) else { return false }
 
     var db: OpaquePointer?
@@ -277,25 +277,13 @@ private func queryExists(db path: String, sql: String, int64Param: Int64) -> Boo
     guard sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK else { return false }
     defer { sqlite3_finalize(statement) }
 
-    guard sqlite3_bind_int64(statement, 1, int64Param) == SQLITE_OK else { return false }
-    return sqlite3_step(statement) == SQLITE_ROW
-}
-
-private func queryExists(db path: String, sql: String, textParam: String) -> Bool {
-    guard FileManager.default.fileExists(atPath: path) else { return false }
-
-    var db: OpaquePointer?
-    defer { sqlite3_close(db) }
-    guard sqlite3_open_v2(path, &db, SQLITE_OPEN_READONLY, nil) == SQLITE_OK else { return false }
-    sqlite3_busy_timeout(db, 1000)
-
-    var statement: OpaquePointer?
-    guard sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK else { return false }
-    defer { sqlite3_finalize(statement) }
-
-    guard sqlite3_bind_text(statement, 1, textParam, -1, sqliteTransient) == SQLITE_OK else {
-        return false
+    let bindStatus: Int32 = switch bind {
+    case let .int64(value):
+        sqlite3_bind_int64(statement, 1, value)
+    case let .text(value):
+        sqlite3_bind_text(statement, 1, value, -1, sqliteTransient)
     }
+    guard bindStatus == SQLITE_OK else { return false }
     return sqlite3_step(statement) == SQLITE_ROW
 }
 

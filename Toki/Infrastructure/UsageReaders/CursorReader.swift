@@ -255,7 +255,7 @@ extension CursorReader {
     }
 }
 
-private enum SQLiteBind {
+enum SQLiteBind {
     case int64(Int64)
     case text(String)
 }
