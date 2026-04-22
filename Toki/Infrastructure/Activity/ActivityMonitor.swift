@@ -2,13 +2,26 @@ import Foundation
 import SQLite3
 
 /// Detects whether any AI coding tool is currently active.
+private let activityMonitorSQLiteTransient = unsafeBitCast(-1, to: sqlite3_destructor_type.self)
+
 enum ActivityMonitor {
     private static let activeWindowSeconds: TimeInterval = 30
+    private static let cursorActiveWindowSeconds: TimeInterval = 90
+    private static let cursorDBPath = homeDir()
+        .appendingPathComponent("Library/Application Support/Cursor/User/globalStorage/state.vscdb")
+        .path
+    private static let cursorBubbleTimestampFormatter: ISO8601DateFormatter = {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter
+    }()
 
     static func isAnyToolActive() -> Bool {
         let threshold = Date().addingTimeInterval(-activeWindowSeconds)
+        let cursorThreshold = Date().addingTimeInterval(-cursorActiveWindowSeconds)
         // Cheap DB queries first; expensive directory scan last
         return isCodexActive(since: threshold)
+            || isCursorActive(since: cursorThreshold)
             || isOpenCodeActive(since: threshold)
             || isClaudeCodeActive(since: threshold)
     }
@@ -86,6 +99,62 @@ enum ActivityMonitor {
         }
 
         return false
+    }
+
+    // MARK: - Cursor
+
+    /// Cursor agent/composer activity updates the mutable composerData snapshot.
+    /// Use its lastUpdatedAt timestamp as the cheapest signal that work is in progress.
+    static func isCursorActive(
+        dbPath: String = cursorDBPath,
+        since threshold: Date) -> Bool {
+        let epochMs = Int64(threshold.timeIntervalSince1970 * 1000)
+        let thresholdText = cursorBubbleTimestampFormatter.string(from: threshold)
+        return queryCursorComposerActivity(dbPath: dbPath, epochMs: epochMs)
+            || queryCursorBubbleActivity(dbPath: dbPath, thresholdText: thresholdText)
+    }
+
+    private static func queryCursorComposerActivity(dbPath: String, epochMs: Int64) -> Bool {
+        queryCount(
+            db: dbPath,
+            sql: """
+                SELECT COUNT(*)
+                FROM cursorDiskKV
+                WHERE key LIKE 'composerData:%'
+                AND json_valid(CAST(value AS TEXT))
+                AND CAST(COALESCE(
+                    json_extract(CAST(value AS TEXT), '$.lastUpdatedAt'),
+                    json_extract(CAST(value AS TEXT), '$.createdAt'),
+                    0
+                ) AS INTEGER) >= ?
+            """,
+            param: epochMs) > 0
+    }
+
+    private static func queryCursorBubbleActivity(dbPath: String, thresholdText: String) -> Bool {
+        guard FileManager.default.fileExists(atPath: dbPath) else { return false }
+
+        var db: OpaquePointer?
+        defer { sqlite3_close(db) }
+        guard sqlite3_open_v2(dbPath, &db, SQLITE_OPEN_READONLY, nil) == SQLITE_OK else { return false }
+        sqlite3_busy_timeout(db, 1000)
+
+        let sql = """
+            SELECT COUNT(*)
+            FROM cursorDiskKV
+            WHERE key LIKE 'bubbleId:%'
+            AND json_valid(CAST(value AS TEXT))
+            AND json_extract(CAST(value AS TEXT), '$.createdAt') IS NOT NULL
+            AND julianday(json_extract(CAST(value AS TEXT), '$.createdAt')) >= julianday(?)
+        """
+        var statement: OpaquePointer?
+        guard sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK else { return false }
+        defer { sqlite3_finalize(statement) }
+        guard sqlite3_bind_text(statement, 1, thresholdText, -1, activityMonitorSQLiteTransient) == SQLITE_OK else {
+            return false
+        }
+        guard sqlite3_step(statement) == SQLITE_ROW else { return false }
+        return Int(sqlite3_column_int64(statement, 0)) > 0
     }
 
     // MARK: - OpenCode

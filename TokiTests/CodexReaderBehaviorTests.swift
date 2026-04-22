@@ -85,6 +85,29 @@ final class CodexReaderBehaviorTests: XCTestCase {
         XCTAssertEqual(merged["2026-04-10"]?.activeSeconds ?? 0, 60, accuracy: 0.001)
     }
 
+    func test_codexReader_stripsCachedActiveTimeWhenRolloutEventsExist() {
+        var usage = RawTokenUsage()
+        usage.activeSeconds = 3600
+        usage.perModel["gpt-5.4"] = PerModelUsage(
+            totalTokens: 120,
+            cost: 1.2,
+            activeSeconds: 3600,
+            sources: ["Codex"])
+
+        let sanitizedUsage = CodexReader.strippingCachedActiveTime(
+            from: usage,
+            whenActivityEventsExist: [
+                ActivityTimeEvent(
+                    streamID: "rollout-a",
+                    timestamp: codexBehaviorISODate("2026-04-10T00:00:00Z"),
+                    key: "gpt-5.4"),
+            ])
+
+        XCTAssertEqual(sanitizedUsage.activeSeconds, 0, accuracy: 0.001)
+        XCTAssertEqual(sanitizedUsage.perModel["gpt-5.4"]?.activeSeconds ?? 0, 0, accuracy: 0.001)
+        XCTAssertEqual(sanitizedUsage.perModel["gpt-5.4"]?.totalTokens, 120)
+    }
+
     private func tokenCountLine(
         ts: String,
         input: Int,
