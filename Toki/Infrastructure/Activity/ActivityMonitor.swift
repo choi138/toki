@@ -1,8 +1,7 @@
 import Foundation
 import SQLite3
 
-/// Detects whether any AI coding tool is currently active.
-private let activityMonitorSQLiteTransient = unsafeBitCast(-1, to: sqlite3_destructor_type.self)
+// Detects whether any AI coding tool is currently active.
 
 enum ActivityMonitor {
     private static let activeWindowSeconds: TimeInterval = 30
@@ -104,7 +103,7 @@ enum ActivityMonitor {
     // MARK: - Cursor
 
     /// Cursor agent/composer activity updates the mutable composerData snapshot.
-    /// Use its lastUpdatedAt timestamp as the cheapest signal that work is in progress.
+    /// Internal visibility keeps the DB path injectable for focused unit tests.
     static func isCursorActive(
         dbPath: String = cursorDBPath,
         since threshold: Date) -> Bool {
@@ -115,10 +114,10 @@ enum ActivityMonitor {
     }
 
     private static func queryCursorComposerActivity(dbPath: String, epochMs: Int64) -> Bool {
-        queryCount(
+        queryExists(
             db: dbPath,
             sql: """
-                SELECT COUNT(*)
+                SELECT 1
                 FROM cursorDiskKV
                 WHERE key LIKE 'composerData:%'
                 AND json_valid(CAST(value AS TEXT))
@@ -127,34 +126,29 @@ enum ActivityMonitor {
                     json_extract(CAST(value AS TEXT), '$.createdAt'),
                     0
                 ) AS INTEGER) >= ?
+                LIMIT 1
             """,
-            param: epochMs) > 0
+            int64Param: epochMs)
     }
 
     private static func queryCursorBubbleActivity(dbPath: String, thresholdText: String) -> Bool {
-        guard FileManager.default.fileExists(atPath: dbPath) else { return false }
-
-        var db: OpaquePointer?
-        defer { sqlite3_close(db) }
-        guard sqlite3_open_v2(dbPath, &db, SQLITE_OPEN_READONLY, nil) == SQLITE_OK else { return false }
-        sqlite3_busy_timeout(db, 1000)
-
-        let sql = """
-            SELECT COUNT(*)
-            FROM cursorDiskKV
-            WHERE key LIKE 'bubbleId:%'
-            AND json_valid(CAST(value AS TEXT))
-            AND json_extract(CAST(value AS TEXT), '$.createdAt') IS NOT NULL
-            AND julianday(json_extract(CAST(value AS TEXT), '$.createdAt')) >= julianday(?)
-        """
-        var statement: OpaquePointer?
-        guard sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK else { return false }
-        defer { sqlite3_finalize(statement) }
-        guard sqlite3_bind_text(statement, 1, thresholdText, -1, activityMonitorSQLiteTransient) == SQLITE_OK else {
-            return false
-        }
-        guard sqlite3_step(statement) == SQLITE_ROW else { return false }
-        return Int(sqlite3_column_int64(statement, 0)) > 0
+        queryExists(
+            db: dbPath,
+            sql: """
+                SELECT 1
+                FROM (
+                    SELECT value
+                    FROM cursorDiskKV
+                    WHERE key LIKE 'bubbleId:%'
+                    ORDER BY rowid DESC
+                    LIMIT 50
+                ) AS recentBubbles
+                WHERE json_valid(CAST(value AS TEXT))
+                AND json_extract(CAST(value AS TEXT), '$.createdAt') IS NOT NULL
+                AND julianday(json_extract(CAST(value AS TEXT), '$.createdAt')) >= julianday(?)
+                LIMIT 1
+            """,
+            textParam: thresholdText)
     }
 
     // MARK: - OpenCode
@@ -269,6 +263,40 @@ enum ActivityMonitor {
         guard sqlite3_step(stmt) == SQLITE_ROW else { return 0 }
         return Int(sqlite3_column_int64(stmt, 0))
     }
+}
+
+private func queryExists(db path: String, sql: String, int64Param: Int64) -> Bool {
+    guard FileManager.default.fileExists(atPath: path) else { return false }
+
+    var db: OpaquePointer?
+    defer { sqlite3_close(db) }
+    guard sqlite3_open_v2(path, &db, SQLITE_OPEN_READONLY, nil) == SQLITE_OK else { return false }
+    sqlite3_busy_timeout(db, 1000)
+
+    var statement: OpaquePointer?
+    guard sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK else { return false }
+    defer { sqlite3_finalize(statement) }
+
+    guard sqlite3_bind_int64(statement, 1, int64Param) == SQLITE_OK else { return false }
+    return sqlite3_step(statement) == SQLITE_ROW
+}
+
+private func queryExists(db path: String, sql: String, textParam: String) -> Bool {
+    guard FileManager.default.fileExists(atPath: path) else { return false }
+
+    var db: OpaquePointer?
+    defer { sqlite3_close(db) }
+    guard sqlite3_open_v2(path, &db, SQLITE_OPEN_READONLY, nil) == SQLITE_OK else { return false }
+    sqlite3_busy_timeout(db, 1000)
+
+    var statement: OpaquePointer?
+    guard sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK else { return false }
+    defer { sqlite3_finalize(statement) }
+
+    guard sqlite3_bind_text(statement, 1, textParam, -1, sqliteTransient) == SQLITE_OK else {
+        return false
+    }
+    return sqlite3_step(statement) == SQLITE_ROW
 }
 
 // MARK: - Claude Code JSONL entry

@@ -24,17 +24,18 @@ struct CodexReader: TokenReader {
         for session in sessions {
             let url = URL(fileURLWithPath: session.rolloutPath)
             guard FileManager.default.fileExists(atPath: url.path) else { continue }
+            let cachedUsageForSession = await Self.cachedUsage(
+                fromRolloutAt: url,
+                model: session.model,
+                from: startDate,
+                to: endDate)
             let sessionEvents = await Self.activityEvents(
                 fromRolloutAt: url,
                 model: session.model,
                 from: startDate,
                 to: endDate)
-            let sessionUsage = await Self.strippingCachedActiveTime(
-                from: Self.cachedUsage(
-                    fromRolloutAt: url,
-                    model: session.model,
-                    from: startDate,
-                    to: endDate),
+            let sessionUsage = Self.strippingCachedActiveTime(
+                from: cachedUsageForSession,
                 whenActivityEventsExist: sessionEvents)
             result += sessionUsage
             activityEvents.append(contentsOf: sessionEvents)
@@ -48,6 +49,9 @@ struct CodexReader: TokenReader {
 }
 
 extension CodexReader {
+    /// Cached daily usage may already contain an estimated activeSeconds total.
+    /// Zero it when rollout events exist so mergeActivityEvents() recomputes from
+    /// event timestamps without double-counting the cached estimate.
     static func strippingCachedActiveTime(
         from usage: RawTokenUsage,
         whenActivityEventsExist events: [ActivityTimeEvent<String>]) -> RawTokenUsage {
@@ -55,8 +59,10 @@ extension CodexReader {
 
         var sanitizedUsage = usage
         sanitizedUsage.activeSeconds = 0
-        for modelID in sanitizedUsage.perModel.keys {
-            sanitizedUsage.perModel[modelID]?.activeSeconds = 0
+        sanitizedUsage.perModel = sanitizedUsage.perModel.mapValues { usage in
+            var sanitizedPerModelUsage = usage
+            sanitizedPerModelUsage.activeSeconds = 0
+            return sanitizedPerModelUsage
         }
         return sanitizedUsage
     }
