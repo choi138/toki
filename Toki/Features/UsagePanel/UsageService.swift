@@ -36,6 +36,8 @@ final class UsageService: ObservableObject {
 
     private let readers: [any TokenReader]
     private var needsRefreshAfterCurrentLoad = false
+    private var followsCurrentDaySelection = true
+    private var calendarDayObserver: NSObjectProtocol?
 
     init(readers: [any TokenReader] = defaultUsageReaders) {
         self.readers = readers
@@ -43,6 +45,22 @@ final class UsageService: ObservableObject {
         let today = cal.startOfDay(for: Date())
         startDate = today
         endDate = cal.date(byAdding: .day, value: 1, to: today)!
+
+        calendarDayObserver = NotificationCenter.default.addObserver(
+            forName: .NSCalendarDayChanged,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.handleCalendarDayChange()
+            }
+        }
+    }
+
+    deinit {
+        if let calendarDayObserver {
+            NotificationCenter.default.removeObserver(calendarDayObserver)
+        }
     }
 
     var isSingleDay: Bool {
@@ -58,6 +76,7 @@ final class UsageService: ObservableObject {
         let cal = Calendar.current
         startDate = cal.startOfDay(for: date)
         endDate = cal.date(byAdding: .day, value: 1, to: startDate)!
+        followsCurrentDaySelection = cal.isDateInToday(startDate)
     }
 
     func selectRangeStart(_ date: Date) {
@@ -66,6 +85,7 @@ final class UsageService: ObservableObject {
         if startDate >= endDate {
             endDate = cal.date(byAdding: .day, value: 1, to: startDate)!
         }
+        followsCurrentDaySelection = false
     }
 
     func selectRangeEnd(_ date: Date) {
@@ -75,6 +95,7 @@ final class UsageService: ObservableObject {
         if startDate >= endDate {
             startDate = selectedEnd
         }
+        followsCurrentDaySelection = false
     }
 
     func selectRange(from: Date, to: Date) {
@@ -85,9 +106,32 @@ final class UsageService: ObservableObject {
         let upperBound = max(normalizedFrom, normalizedTo)
         startDate = lowerBound
         endDate = cal.date(byAdding: .day, value: 1, to: upperBound)!
+        followsCurrentDaySelection = false
+    }
+
+    @discardableResult
+    func syncSelectionWithTodayIfNeeded(now: Date = Date()) -> Bool {
+        guard followsCurrentDaySelection else { return false }
+
+        let cal = Calendar.autoupdatingCurrent
+        let today = cal.startOfDay(for: now)
+        guard startDate != today || !isSingleDay || isRangeMode else { return false }
+
+        isRangeMode = false
+        startDate = today
+        endDate = cal.date(byAdding: .day, value: 1, to: today)!
+        followsCurrentDaySelection = true
+        return true
+    }
+
+    func handleCalendarDayChange(now: Date = Date()) {
+        guard syncSelectionWithTodayIfNeeded(now: now) else { return }
+        Task { await refresh() }
     }
 
     func refresh() async {
+        _ = syncSelectionWithTodayIfNeeded()
+
         guard !isLoading else {
             needsRefreshAfterCurrentLoad = true
             return

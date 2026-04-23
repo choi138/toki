@@ -235,6 +235,53 @@ final class UsageServiceBehaviorTests: XCTestCase {
     }
 }
 
+final class UsageServiceDateSyncBehaviorTests: XCTestCase {
+    func test_usageService_syncSelectionWithTodayIfNeeded_advancesPinnedTodaySelection() async throws {
+        let calendar = Calendar.current
+        let service = await MainActor.run { UsageService(readers: []) }
+        let initialToday = await MainActor.run { service.startDate }
+        let nextDay = try XCTUnwrap(calendar.date(byAdding: .day, value: 1, to: initialToday))
+        let nextDayNoon = try XCTUnwrap(calendar.date(byAdding: .hour, value: 12, to: nextDay))
+        let followingDay = try XCTUnwrap(calendar.date(byAdding: .day, value: 1, to: nextDay))
+
+        let changed = await MainActor.run {
+            service.syncSelectionWithTodayIfNeeded(now: nextDayNoon)
+        }
+
+        let startDate = await MainActor.run { service.startDate }
+        let endDate = await MainActor.run { service.endDate }
+
+        XCTAssertTrue(changed)
+        XCTAssertEqual(startDate, nextDay)
+        XCTAssertEqual(endDate, followingDay)
+    }
+
+    func test_usageService_syncSelectionWithTodayIfNeeded_preservesManualPastSelection() async throws {
+        let calendar = Calendar.current
+        let service = await MainActor.run { UsageService(readers: []) }
+        let initialToday = await MainActor.run { service.startDate }
+        let yesterday = try XCTUnwrap(calendar.date(byAdding: .day, value: -1, to: initialToday))
+        let nextDay = try XCTUnwrap(calendar.date(byAdding: .day, value: 1, to: initialToday))
+        let nextDayNoon = try XCTUnwrap(calendar.date(byAdding: .hour, value: 12, to: nextDay))
+        let expectedEnd = try XCTUnwrap(calendar.date(byAdding: .day, value: 1, to: yesterday))
+
+        await MainActor.run {
+            service.selectDay(yesterday)
+        }
+
+        let changed = await MainActor.run {
+            service.syncSelectionWithTodayIfNeeded(now: nextDayNoon)
+        }
+
+        let startDate = await MainActor.run { service.startDate }
+        let endDate = await MainActor.run { service.endDate }
+
+        XCTAssertFalse(changed)
+        XCTAssertEqual(startDate, yesterday)
+        XCTAssertEqual(endDate, expectedEnd)
+    }
+}
+
 final class TokiBehaviorTests: XCTestCase {
     func test_blockingReaderGate_resumesAllFirstRequestWaiters() async {
         let gate = BlockingReaderGate()
