@@ -32,29 +32,38 @@ final class UsageService: ObservableObject {
 
     @Published var startDate: Date
     @Published var endDate: Date
-    @Published var isRangeMode = false
+    @Published var isRangeMode = false {
+        didSet {
+            if isRangeMode {
+                followsCurrentDaySelection = false
+            }
+        }
+    }
 
     private let readers: [any TokenReader]
     private var needsRefreshAfterCurrentLoad = false
     private var followsCurrentDaySelection = true
     private var calendarDayObserver: NSObjectProtocol?
 
+    private var calendar: Calendar {
+        .autoupdatingCurrent
+    }
+
     init(readers: [any TokenReader] = defaultUsageReaders) {
         self.readers = readers
-        let cal = Calendar.current
-        let today = cal.startOfDay(for: Date())
+        let calendar = Calendar.autoupdatingCurrent
+        let today = calendar.startOfDay(for: Date())
         startDate = today
-        endDate = cal.date(byAdding: .day, value: 1, to: today)!
+        endDate = calendar.date(byAdding: .day, value: 1, to: today)!
 
         calendarDayObserver = NotificationCenter.default.addObserver(
             forName: .NSCalendarDayChanged,
             object: nil,
-            queue: .main
-        ) { [weak self] _ in
-            Task { @MainActor [weak self] in
-                self?.handleCalendarDayChange()
+            queue: .main) { [weak self] _ in
+                Task { @MainActor [weak self] in
+                    self?.handleCalendarDayChange()
+                }
             }
-        }
     }
 
     deinit {
@@ -64,34 +73,30 @@ final class UsageService: ObservableObject {
     }
 
     var isSingleDay: Bool {
-        let cal = Calendar.current
-        return cal.dateComponents([.day], from: startDate, to: endDate).day == 1
+        calendar.dateComponents([.day], from: startDate, to: endDate).day == 1
     }
 
     var shouldCompareAgainstYesterday: Bool {
-        isSingleDay && Calendar.current.isDateInToday(startDate)
+        isSingleDay && calendar.isDateInToday(startDate)
     }
 
     func selectDay(_ date: Date) {
-        let cal = Calendar.current
-        startDate = cal.startOfDay(for: date)
-        endDate = cal.date(byAdding: .day, value: 1, to: startDate)!
-        followsCurrentDaySelection = cal.isDateInToday(startDate)
+        startDate = calendar.startOfDay(for: date)
+        endDate = calendar.date(byAdding: .day, value: 1, to: startDate)!
+        followsCurrentDaySelection = calendar.isDateInToday(startDate)
     }
 
     func selectRangeStart(_ date: Date) {
-        let cal = Calendar.current
-        startDate = cal.startOfDay(for: date)
+        startDate = calendar.startOfDay(for: date)
         if startDate >= endDate {
-            endDate = cal.date(byAdding: .day, value: 1, to: startDate)!
+            endDate = calendar.date(byAdding: .day, value: 1, to: startDate)!
         }
         followsCurrentDaySelection = false
     }
 
     func selectRangeEnd(_ date: Date) {
-        let cal = Calendar.current
-        let selectedEnd = cal.startOfDay(for: date)
-        endDate = cal.date(byAdding: .day, value: 1, to: selectedEnd)!
+        let selectedEnd = calendar.startOfDay(for: date)
+        endDate = calendar.date(byAdding: .day, value: 1, to: selectedEnd)!
         if startDate >= endDate {
             startDate = selectedEnd
         }
@@ -99,13 +104,12 @@ final class UsageService: ObservableObject {
     }
 
     func selectRange(from: Date, to: Date) {
-        let cal = Calendar.current
-        let normalizedFrom = cal.startOfDay(for: from)
-        let normalizedTo = cal.startOfDay(for: to)
+        let normalizedFrom = calendar.startOfDay(for: from)
+        let normalizedTo = calendar.startOfDay(for: to)
         let lowerBound = min(normalizedFrom, normalizedTo)
         let upperBound = max(normalizedFrom, normalizedTo)
         startDate = lowerBound
-        endDate = cal.date(byAdding: .day, value: 1, to: upperBound)!
+        endDate = calendar.date(byAdding: .day, value: 1, to: upperBound)!
         followsCurrentDaySelection = false
     }
 
@@ -113,24 +117,22 @@ final class UsageService: ObservableObject {
     func syncSelectionWithTodayIfNeeded(now: Date = Date()) -> Bool {
         guard followsCurrentDaySelection else { return false }
 
-        let cal = Calendar.autoupdatingCurrent
-        let today = cal.startOfDay(for: now)
-        guard startDate != today || !isSingleDay || isRangeMode else { return false }
+        let today = calendar.startOfDay(for: now)
+        guard startDate != today || !isSingleDay else { return false }
 
-        isRangeMode = false
         startDate = today
-        endDate = cal.date(byAdding: .day, value: 1, to: today)!
+        endDate = calendar.date(byAdding: .day, value: 1, to: today)!
         followsCurrentDaySelection = true
         return true
     }
 
-    func handleCalendarDayChange(now: Date = Date()) {
+    private func handleCalendarDayChange(now: Date = Date()) {
         guard syncSelectionWithTodayIfNeeded(now: now) else { return }
         Task { await refresh() }
     }
 
     func refresh() async {
-        _ = syncSelectionWithTodayIfNeeded()
+        syncSelectionWithTodayIfNeeded()
 
         guard !isLoading else {
             needsRefreshAfterCurrentLoad = true
@@ -149,16 +151,15 @@ final class UsageService: ObservableObject {
 
         let requestedStart = startDate
         let requestedEnd = endDate
-        let cal = Calendar.current
         let compareAgainstYesterday =
-            cal.dateComponents([.day], from: requestedStart, to: requestedEnd).day == 1
-                && cal.isDateInToday(requestedStart)
+            calendar.dateComponents([.day], from: requestedStart, to: requestedEnd).day == 1
+                && calendar.isDateInToday(requestedStart)
 
         let combined = await fetchRange(from: requestedStart, to: requestedEnd)
 
         var previousTotalTokens: Int?
         if compareAgainstYesterday {
-            let prevStart = cal.date(byAdding: .day, value: -1, to: requestedStart)!
+            let prevStart = calendar.date(byAdding: .day, value: -1, to: requestedStart)!
             previousTotalTokens = await fetchRange(from: prevStart, to: requestedStart).totalTokens
         }
 
