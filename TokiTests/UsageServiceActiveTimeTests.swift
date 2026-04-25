@@ -121,6 +121,13 @@ final class UsageServiceActiveTimeTests: XCTestCase {
         XCTAssertEqual(lhs.workTime.wallClockSeconds, 180, accuracy: 0.001)
         XCTAssertEqual(lhs.workTime.activeStreamCount, 3)
         XCTAssertEqual(lhs.workTime.maxConcurrentStreams, 2)
+
+        lhs.recomputeMergedActiveEstimate()
+
+        XCTAssertEqual(lhs.workTime.agentSeconds, 210, accuracy: 0.001)
+        XCTAssertEqual(lhs.workTime.wallClockSeconds, 180, accuracy: 0.001)
+        XCTAssertEqual(lhs.workTime.activeStreamCount, 3)
+        XCTAssertEqual(lhs.workTime.maxConcurrentStreams, 2)
     }
 }
 

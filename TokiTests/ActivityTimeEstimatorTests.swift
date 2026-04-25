@@ -23,7 +23,7 @@ final class ActivityTimeEstimatorTests: XCTestCase {
             ActivityTimeEvent<String>(streamID: "main", timestamp: isoDate("2026-04-10T00:12:00Z"), key: "gpt-5.4"),
         ]
 
-        let estimate = ActivityTimeEstimator.estimate(events: events)
+        let estimate = ActivityTimeEstimator.estimate(events: events, minimumSlice: 30)
 
         XCTAssertEqual(estimate.totalSeconds, 60, accuracy: 0.001)
         XCTAssertEqual(estimate.wallClockSeconds, 60, accuracy: 0.001)
@@ -100,7 +100,7 @@ final class ActivityTimeEstimatorTests: XCTestCase {
                 key: "gpt-5.4"),
         ]
 
-        let estimate = ActivityTimeEstimator.estimate(events: events)
+        let estimate = ActivityTimeEstimator.estimate(events: events, minimumSlice: 30)
 
         XCTAssertEqual(estimate.totalSeconds, 60, accuracy: 0.001)
         XCTAssertEqual(estimate.wallClockSeconds, 60, accuracy: 0.001)

@@ -47,6 +47,10 @@ struct WorkTimeMetrics {
             maxConcurrentStreams: streamCount)
     }
 
+    /// Merges metrics when their time windows cannot be aligned. This sums
+    /// duration and stream counts, but keeps peak concurrency to observed peaks.
+    /// If the inputs really overlap, wallClockSeconds is overestimated and
+    /// parallelMultiplier moves closer to 1.
     func mergedConservatively(with other: WorkTimeMetrics) -> WorkTimeMetrics {
         if !hasActivity { return other }
         if !other.hasActivity { return self }

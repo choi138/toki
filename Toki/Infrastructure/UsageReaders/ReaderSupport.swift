@@ -69,7 +69,9 @@ extension RawTokenUsage {
         source: String? = nil,
         clippingEndDate: Date? = nil) {
         guard !activityEvents.isEmpty else {
-            workTime = .fallback(activeSeconds: activeSeconds)
+            if !workTime.hasActivity {
+                workTime = .fallback(activeSeconds: activeSeconds)
+            }
             return
         }
 

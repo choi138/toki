@@ -197,7 +197,7 @@ struct PanelWorkTimeView: View {
 
     private var formattedParallelMultiplier: String {
         let multiplier = usage.workTime.parallelMultiplier
-        guard multiplier.isFinite, multiplier > 0 else { return "0.00x" }
+        guard multiplier.isFinite, multiplier > 0 else { return "N/A" }
         return String(format: "%.2fx", multiplier)
     }
 }
