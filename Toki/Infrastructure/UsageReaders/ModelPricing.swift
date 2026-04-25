@@ -54,7 +54,7 @@ private let exactPricingTable: [String: ModelPrice] = [
     "claude-haiku-4": price(1.0, 5.0, 0.10, 1.25),
 
     // OpenAI
-    "gpt-5.5-pro": price(30.0, 180.0, 30.0),
+    "gpt-5.5-pro": price(30.0, 180.0, 0.0),
     "gpt-5.5": price(5.0, 30.0, 0.50),
     "gpt-5.4": price(2.50, 15.0, 0.25),
     "gpt-5.4-mini": price(0.75, 4.50, 0.075),
