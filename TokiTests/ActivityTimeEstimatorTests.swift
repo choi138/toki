@@ -49,7 +49,7 @@ final class ActivityTimeEstimatorTests: XCTestCase {
         XCTAssertEqual(estimate.secondsByKey["claude-sonnet-4-6"] ?? 0, 270, accuracy: 0.001)
     }
 
-    func test_activityTimeEstimator_mergesOverlappingStreams() {
+    func test_activityTimeEstimator_sumsOverlappingStreamsAsAgentWorkTime() {
         let events = [
             ActivityTimeEvent<String>(streamID: "thread-a", timestamp: isoDate("2026-04-10T00:00:00Z"), key: "gpt-5.4"),
             ActivityTimeEvent<String>(streamID: "thread-a", timestamp: isoDate("2026-04-10T00:02:00Z"), key: "gpt-5.4"),
@@ -59,8 +59,8 @@ final class ActivityTimeEstimatorTests: XCTestCase {
 
         let estimate = ActivityTimeEstimator.estimate(events: events)
 
-        XCTAssertEqual(estimate.totalSeconds, 210, accuracy: 0.001)
-        XCTAssertEqual(estimate.secondsByKey["gpt-5.4"] ?? 0, 210, accuracy: 0.001)
+        XCTAssertEqual(estimate.totalSeconds, 300, accuracy: 0.001)
+        XCTAssertEqual(estimate.secondsByKey["gpt-5.4"] ?? 0, 300, accuracy: 0.001)
     }
 
     func test_activityTimeEstimator_clampsMinimumSliceToRangeEnd() {

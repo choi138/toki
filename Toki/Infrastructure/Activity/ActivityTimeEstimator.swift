@@ -16,6 +16,7 @@ struct ActivityTimeEstimate<Key: Hashable> {
 }
 
 private struct ActivityInterval<Key: Hashable> {
+    let streamID: String
     let start: Date
     let end: Date
     let key: Key?
@@ -37,15 +38,15 @@ enum ActivityTimeEstimator {
             clippingEndDate: clippingEndDate)
         guard !intervals.isEmpty else { return .zero }
 
-        let totalSeconds = mergedDuration(intervals.map { DateInterval(start: $0.start, end: $0.end) })
+        let totalSeconds = summedDurationByStream(intervals)
         let secondsByKey = Dictionary(
-            grouping: intervals.compactMap { interval -> (Key, DateInterval)? in
+            grouping: intervals.compactMap { interval -> (Key, ActivityInterval<Key>)? in
                 guard let key = interval.key else { return nil }
-                return (key, DateInterval(start: interval.start, end: interval.end))
+                return (key, interval)
             },
             by: \.0).reduce(into: [Key: TimeInterval]()) { result, item in
                 let (key, intervalsForKey) = item
-                result[key] = mergedDuration(intervalsForKey.map(\.1))
+                result[key] = summedDurationByStream(intervalsForKey.map(\.1))
             }
 
         return ActivityTimeEstimate(totalSeconds: totalSeconds, secondsByKey: secondsByKey)
@@ -93,10 +94,17 @@ enum ActivityTimeEstimator {
                 let intervalEnd = clippingEndDate.map { min(unclampedEnd, $0) } ?? unclampedEnd
                 guard slice > 0, intervalEnd > current.timestamp else { return nil }
                 return ActivityInterval(
+                    streamID: current.streamID,
                     start: current.timestamp,
                     end: intervalEnd,
                     key: current.key)
             }
+        }
+    }
+
+    private static func summedDurationByStream(_ intervals: [ActivityInterval<some Hashable>]) -> TimeInterval {
+        Dictionary(grouping: intervals, by: \.streamID).values.reduce(0) { partial, streamIntervals in
+            partial + mergedDuration(streamIntervals.map { DateInterval(start: $0.start, end: $0.end) })
         }
     }
 
