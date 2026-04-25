@@ -87,6 +87,7 @@ struct RawTokenUsage {
     var activityEvents: [ActivityTimeEvent<String>] = []
     var fallbackActiveSeconds: TimeInterval = 0
     var fallbackActiveSecondsByModel: [String: TimeInterval] = [:]
+    var fallbackWorkTime = WorkTimeMetrics.zero
     var supplemental: [SupplementalUsage] = []
 
     var totalTokens: Int {
@@ -97,11 +98,20 @@ struct RawTokenUsage {
         if workTime.hasActivity { return workTime }
         return .fallback(activeSeconds: activeSeconds)
     }
+
+    var resolvedFallbackWorkTime: WorkTimeMetrics {
+        if fallbackWorkTime.hasActivity { return fallbackWorkTime }
+        if fallbackActiveSeconds > 0 { return .fallback(activeSeconds: fallbackActiveSeconds) }
+        if activityEvents.isEmpty { return resolvedWorkTime }
+        return .zero
+    }
 }
 
 func += (lhs: inout RawTokenUsage, rhs: RawTokenUsage) {
     let lhsWorkTime = lhs.resolvedWorkTime
     let rhsWorkTime = rhs.resolvedWorkTime
+    let lhsFallbackWorkTime = lhs.resolvedFallbackWorkTime
+    let rhsFallbackWorkTime = rhs.resolvedFallbackWorkTime
 
     lhs.inputTokens += rhs.inputTokens
     lhs.outputTokens += rhs.outputTokens
@@ -136,5 +146,6 @@ func += (lhs: inout RawTokenUsage, rhs: RawTokenUsage) {
         }
     }
 
+    lhs.fallbackWorkTime = lhsFallbackWorkTime.mergedConservatively(with: rhsFallbackWorkTime)
     lhs.workTime = lhsWorkTime.mergedConservatively(with: rhsWorkTime)
 }

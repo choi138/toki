@@ -69,9 +69,9 @@ extension RawTokenUsage {
         source: String? = nil,
         clippingEndDate: Date? = nil) {
         guard !activityEvents.isEmpty else {
-            if !workTime.hasActivity {
-                workTime = .fallback(activeSeconds: activeSeconds)
-            }
+            let fallbackOnlyWorkTime = resolvedFallbackWorkTime
+            fallbackWorkTime = fallbackOnlyWorkTime
+            workTime = fallbackOnlyWorkTime
             return
         }
 
@@ -84,7 +84,7 @@ extension RawTokenUsage {
             events: activityEvents,
             clippingEndDate: clippingEndDate)
         activeSeconds += estimate.totalSeconds
-        let fallbackWorkTime = WorkTimeMetrics.fallback(activeSeconds: fallbackActiveSeconds)
+        let fallbackWorkTime = resolvedFallbackWorkTime
         let estimatedWorkTime = WorkTimeMetrics(
             agentSeconds: estimate.totalSeconds,
             wallClockSeconds: estimate.wallClockSeconds,

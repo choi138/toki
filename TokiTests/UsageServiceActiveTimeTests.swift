@@ -83,14 +83,25 @@ final class UsageServiceActiveTimeTests: XCTestCase {
                 sources: ["Aggregate"])
             return usage
         }
+        let secondAggregateReader = MockReader(name: "SecondAggregate", recorder: MockReaderRecorder()) { _, _ in
+            var usage = RawTokenUsage()
+            usage.inputTokens = 20
+            usage.activeSeconds = 30
+            usage.perModel["gemini-2.5-pro"] = PerModelUsage(
+                totalTokens: 20,
+                cost: 0.2,
+                activeSeconds: 30,
+                sources: ["SecondAggregate"])
+            return usage
+        }
 
-        let service = UsageService(readers: [eventReader, aggregateReader])
+        let service = UsageService(readers: [eventReader, aggregateReader, secondAggregateReader])
         await service.refresh()
 
-        XCTAssertEqual(service.usageData.activeSeconds, 210, accuracy: 0.001)
-        XCTAssertEqual(service.usageData.workTime.agentSeconds, 210, accuracy: 0.001)
-        XCTAssertEqual(service.usageData.workTime.wallClockSeconds, 210, accuracy: 0.001)
-        XCTAssertEqual(service.usageData.workTime.activeStreamCount, 2)
+        XCTAssertEqual(service.usageData.activeSeconds, 240, accuracy: 0.001)
+        XCTAssertEqual(service.usageData.workTime.agentSeconds, 240, accuracy: 0.001)
+        XCTAssertEqual(service.usageData.workTime.wallClockSeconds, 240, accuracy: 0.001)
+        XCTAssertEqual(service.usageData.workTime.activeStreamCount, 3)
         XCTAssertEqual(service.usageData.workTime.maxConcurrentStreams, 1)
         XCTAssertEqual(
             service.usageData.perModel.first(where: { $0.id == "gpt-5.4" })?.activeSeconds ?? 0,
@@ -99,6 +110,10 @@ final class UsageServiceActiveTimeTests: XCTestCase {
         XCTAssertEqual(
             service.usageData.perModel.first(where: { $0.id == "claude-sonnet-4-6" })?.activeSeconds ?? 0,
             60,
+            accuracy: 0.001)
+        XCTAssertEqual(
+            service.usageData.perModel.first(where: { $0.id == "gemini-2.5-pro" })?.activeSeconds ?? 0,
+            30,
             accuracy: 0.001)
     }
 
