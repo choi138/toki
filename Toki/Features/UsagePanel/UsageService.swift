@@ -207,6 +207,7 @@ final class UsageService: ObservableObject {
             reasoningTokens: combined.reasoningTokens,
             cost: combined.cost,
             activeSeconds: combined.activeSeconds,
+            workTime: combined.resolvedWorkTime,
             perModel: sortedModels,
             supplementalStats: supplementalStats,
             contextOnlyModels: contextOnlyModels)

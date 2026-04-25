@@ -30,6 +30,50 @@ struct PerModelUsage {
     var sources: Set<String> = []
 }
 
+struct WorkTimeMetrics {
+    var agentSeconds: TimeInterval = 0
+    var wallClockSeconds: TimeInterval = 0
+    var activeStreamCount = 0
+    var maxConcurrentStreams = 0
+
+    static let zero = WorkTimeMetrics()
+
+    static func fallback(activeSeconds: TimeInterval) -> WorkTimeMetrics {
+        let streamCount = activeSeconds > 0 ? 1 : 0
+        return WorkTimeMetrics(
+            agentSeconds: activeSeconds,
+            wallClockSeconds: activeSeconds,
+            activeStreamCount: streamCount,
+            maxConcurrentStreams: streamCount)
+    }
+
+    /// Merges metrics when their time windows cannot be aligned. This sums
+    /// duration and stream counts, but keeps peak concurrency to observed peaks.
+    /// If the inputs really overlap, wallClockSeconds is overestimated and
+    /// parallelMultiplier moves closer to 1.
+    func mergedConservatively(with other: WorkTimeMetrics) -> WorkTimeMetrics {
+        if !hasActivity { return other }
+        if !other.hasActivity { return self }
+        return WorkTimeMetrics(
+            agentSeconds: agentSeconds + other.agentSeconds,
+            wallClockSeconds: wallClockSeconds + other.wallClockSeconds,
+            activeStreamCount: activeStreamCount + other.activeStreamCount,
+            maxConcurrentStreams: max(maxConcurrentStreams, other.maxConcurrentStreams))
+    }
+
+    var parallelMultiplier: Double {
+        guard wallClockSeconds > 0 else { return 0 }
+        return agentSeconds / wallClockSeconds
+    }
+
+    var hasActivity: Bool {
+        agentSeconds > 0
+            || wallClockSeconds > 0
+            || activeStreamCount > 0
+            || maxConcurrentStreams > 0
+    }
+}
+
 struct RawTokenUsage {
     var inputTokens = 0
     var outputTokens = 0
@@ -38,18 +82,37 @@ struct RawTokenUsage {
     var reasoningTokens = 0
     var cost: Double = 0
     var activeSeconds: TimeInterval = 0
+    var workTime = WorkTimeMetrics.zero
     var perModel: [String: PerModelUsage] = [:]
     var activityEvents: [ActivityTimeEvent<String>] = []
     var fallbackActiveSeconds: TimeInterval = 0
     var fallbackActiveSecondsByModel: [String: TimeInterval] = [:]
+    var fallbackWorkTime = WorkTimeMetrics.zero
     var supplemental: [SupplementalUsage] = []
 
     var totalTokens: Int {
         inputTokens + outputTokens + cacheReadTokens + cacheWriteTokens + reasoningTokens
     }
+
+    var resolvedWorkTime: WorkTimeMetrics {
+        if workTime.hasActivity { return workTime }
+        return .fallback(activeSeconds: activeSeconds)
+    }
+
+    var resolvedFallbackWorkTime: WorkTimeMetrics {
+        if fallbackWorkTime.hasActivity { return fallbackWorkTime }
+        if fallbackActiveSeconds > 0 { return .fallback(activeSeconds: fallbackActiveSeconds) }
+        if activityEvents.isEmpty { return resolvedWorkTime }
+        return .zero
+    }
 }
 
 func += (lhs: inout RawTokenUsage, rhs: RawTokenUsage) {
+    let lhsWorkTime = lhs.resolvedWorkTime
+    let rhsWorkTime = rhs.resolvedWorkTime
+    let lhsFallbackWorkTime = lhs.resolvedFallbackWorkTime
+    let rhsFallbackWorkTime = rhs.resolvedFallbackWorkTime
+
     lhs.inputTokens += rhs.inputTokens
     lhs.outputTokens += rhs.outputTokens
     lhs.cacheReadTokens += rhs.cacheReadTokens
@@ -82,4 +145,7 @@ func += (lhs: inout RawTokenUsage, rhs: RawTokenUsage) {
             lhs.fallbackActiveSecondsByModel[id, default: 0] += usage.activeSeconds
         }
     }
+
+    lhs.fallbackWorkTime = lhsFallbackWorkTime.mergedConservatively(with: rhsFallbackWorkTime)
+    lhs.workTime = lhsWorkTime.mergedConservatively(with: rhsWorkTime)
 }

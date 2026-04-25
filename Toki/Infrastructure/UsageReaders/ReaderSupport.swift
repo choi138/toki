@@ -68,7 +68,12 @@ extension RawTokenUsage {
     mutating func recomputeMergedActiveEstimate(
         source: String? = nil,
         clippingEndDate: Date? = nil) {
-        guard !activityEvents.isEmpty else { return }
+        guard !activityEvents.isEmpty else {
+            let fallbackOnlyWorkTime = resolvedFallbackWorkTime
+            fallbackWorkTime = fallbackOnlyWorkTime
+            workTime = fallbackOnlyWorkTime
+            return
+        }
 
         activeSeconds = fallbackActiveSeconds
         for modelID in perModel.keys {
@@ -79,6 +84,15 @@ extension RawTokenUsage {
             events: activityEvents,
             clippingEndDate: clippingEndDate)
         activeSeconds += estimate.totalSeconds
+        let fallbackWorkTime = resolvedFallbackWorkTime
+        let estimatedWorkTime = WorkTimeMetrics(
+            agentSeconds: estimate.totalSeconds,
+            wallClockSeconds: estimate.wallClockSeconds,
+            activeStreamCount: estimate.activeStreamCount,
+            maxConcurrentStreams: estimate.maxConcurrentStreams)
+        // Fallback rows have no timestamps, so they are added as separate active
+        // time while peak concurrency only reflects observed stream overlap.
+        workTime = fallbackWorkTime.mergedConservatively(with: estimatedWorkTime)
         for (modelID, seconds) in estimate.secondsByKey {
             perModel[modelID, default: PerModelUsage()].activeSeconds += seconds
             if let source {

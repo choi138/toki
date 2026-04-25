@@ -14,6 +14,12 @@ struct PanelTabBarView: View {
             TabButton(title: "By Model", isActive: activeTab == .byModel) {
                 activeTab = .byModel
             }
+            Rectangle()
+                .fill(Color.white.opacity(0.07))
+                .frame(width: 0.5)
+            TabButton(title: "Work Time", isActive: activeTab == .workTime) {
+                activeTab = .workTime
+            }
         }
         .frame(height: 32)
     }

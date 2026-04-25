@@ -50,6 +50,7 @@ struct UsageData {
     let reasoningTokens: Int
     let cost: Double
     let activeSeconds: TimeInterval
+    let workTime: WorkTimeMetrics
 
     let perModel: [ModelStat]
     let supplementalStats: [SupplementalStat]
@@ -64,6 +65,7 @@ struct UsageData {
         reasoningTokens: Int,
         cost: Double,
         activeSeconds: TimeInterval,
+        workTime: WorkTimeMetrics? = nil,
         perModel: [ModelStat],
         supplementalStats: [SupplementalStat] = [],
         contextOnlyModels: [ContextOnlyModelStat] = []) {
@@ -75,6 +77,7 @@ struct UsageData {
         self.reasoningTokens = reasoningTokens
         self.cost = cost
         self.activeSeconds = activeSeconds
+        self.workTime = workTime ?? .fallback(activeSeconds: activeSeconds)
         self.perModel = perModel
         self.supplementalStats = supplementalStats
         self.contextOnlyModels = contextOnlyModels

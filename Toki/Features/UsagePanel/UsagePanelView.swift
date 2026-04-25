@@ -3,6 +3,7 @@ import SwiftUI
 enum PanelTab {
     case overview
     case byModel
+    case workTime
 }
 
 struct UsagePanelView: View {
@@ -21,7 +22,8 @@ struct UsagePanelView: View {
             PanelTabBarView(activeTab: $activeTab)
             panelDivider
             Group {
-                if activeTab == .overview {
+                switch activeTab {
+                case .overview:
                     PanelHeroView(
                         usage: service.usageData,
                         isLoading: service.isLoading,
@@ -30,8 +32,10 @@ struct UsagePanelView: View {
                             : nil)
                     panelDivider
                     PanelTokenBreakdownView(usage: service.usageData, isLoading: service.isLoading)
-                } else {
+                case .byModel:
                     PanelByModelView(usage: service.usageData, isLoading: service.isLoading)
+                case .workTime:
+                    PanelWorkTimeView(usage: service.usageData, isLoading: service.isLoading)
                 }
             }
             panelDivider
