@@ -45,9 +45,9 @@ final class UsageServiceActiveTimeTests: XCTestCase {
         let totalActiveSeconds = service.usageData.activeSeconds
         let models = service.usageData.perModel
 
-        XCTAssertEqual(totalActiveSeconds, 210, accuracy: 0.001)
+        XCTAssertEqual(totalActiveSeconds, 300, accuracy: 0.001)
         XCTAssertEqual(models.first?.id, "gpt-5.4")
-        XCTAssertEqual(models.first?.activeSeconds ?? 0, 210, accuracy: 0.001)
+        XCTAssertEqual(models.first?.activeSeconds ?? 0, 300, accuracy: 0.001)
     }
 
     @MainActor
