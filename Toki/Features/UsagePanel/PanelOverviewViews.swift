@@ -128,6 +128,7 @@ struct PanelWorkTimeView: View {
         VStack(spacing: 0) {
             if isLoading {
                 VStack(spacing: 0) {
+                    PanelSectionCaption(title: "Summary")
                     StatRowView(
                         label: "Agent Work",
                         value: "",
@@ -138,6 +139,8 @@ struct PanelWorkTimeView: View {
                         value: "",
                         accent: Color(red: 0.45, green: 0.8, blue: 1.0),
                         isLoading: true)
+
+                    PanelSectionCaption(title: "Concurrency")
                     StatRowView(
                         label: "Parallel",
                         value: "",
@@ -147,6 +150,11 @@ struct PanelWorkTimeView: View {
                         label: "Max Streams",
                         value: "",
                         accent: Color(red: 1.0, green: 0.8, blue: 0.35),
+                        isLoading: true)
+                    StatRowView(
+                        label: "Active Streams",
+                        value: "",
+                        accent: Color(red: 0.55, green: 0.9, blue: 0.65),
                         isLoading: true)
                 }
                 .padding(.vertical, 6)

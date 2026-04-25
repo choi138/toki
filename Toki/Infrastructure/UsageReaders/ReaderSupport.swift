@@ -69,11 +69,7 @@ extension RawTokenUsage {
         source: String? = nil,
         clippingEndDate: Date? = nil) {
         guard !activityEvents.isEmpty else {
-            workTime = WorkTimeMetrics(
-                agentSeconds: activeSeconds,
-                wallClockSeconds: activeSeconds,
-                activeStreamCount: activeSeconds > 0 ? 1 : 0,
-                maxConcurrentStreams: activeSeconds > 0 ? 1 : 0)
+            workTime = .fallback(activeSeconds: activeSeconds)
             return
         }
 
@@ -86,12 +82,15 @@ extension RawTokenUsage {
             events: activityEvents,
             clippingEndDate: clippingEndDate)
         activeSeconds += estimate.totalSeconds
-        let fallbackStreamCount = fallbackActiveSeconds > 0 ? 1 : 0
-        workTime = WorkTimeMetrics(
-            agentSeconds: activeSeconds,
-            wallClockSeconds: fallbackActiveSeconds + estimate.wallClockSeconds,
-            activeStreamCount: estimate.activeStreamCount + fallbackStreamCount,
-            maxConcurrentStreams: max(estimate.maxConcurrentStreams, fallbackStreamCount))
+        let fallbackWorkTime = WorkTimeMetrics.fallback(activeSeconds: fallbackActiveSeconds)
+        let estimatedWorkTime = WorkTimeMetrics(
+            agentSeconds: estimate.totalSeconds,
+            wallClockSeconds: estimate.wallClockSeconds,
+            activeStreamCount: estimate.activeStreamCount,
+            maxConcurrentStreams: estimate.maxConcurrentStreams)
+        // Fallback rows have no timestamps, so they are added as separate active
+        // time while peak concurrency only reflects observed stream overlap.
+        workTime = fallbackWorkTime.mergedConservatively(with: estimatedWorkTime)
         for (modelID, seconds) in estimate.secondsByKey {
             perModel[modelID, default: PerModelUsage()].activeSeconds += seconds
             if let source {

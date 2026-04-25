@@ -88,6 +88,26 @@ final class ActivityTimeEstimatorTests: XCTestCase {
         XCTAssertEqual(estimate.secondsByKey["gpt-5.4"] ?? 0, 10, accuracy: 0.001)
     }
 
+    func test_activityTimeEstimator_treatsTouchingStreamIntervalsAsNonOverlapping() {
+        let events = [
+            ActivityTimeEvent<String>(
+                streamID: "thread-a",
+                timestamp: isoDate("2026-04-10T00:00:00Z"),
+                key: "gpt-5.4"),
+            ActivityTimeEvent<String>(
+                streamID: "thread-b",
+                timestamp: isoDate("2026-04-10T00:00:30Z"),
+                key: "gpt-5.4"),
+        ]
+
+        let estimate = ActivityTimeEstimator.estimate(events: events)
+
+        XCTAssertEqual(estimate.totalSeconds, 60, accuracy: 0.001)
+        XCTAssertEqual(estimate.wallClockSeconds, 60, accuracy: 0.001)
+        XCTAssertEqual(estimate.activeStreamCount, 2)
+        XCTAssertEqual(estimate.maxConcurrentStreams, 1)
+    }
+
     private func isoDate(_ value: String) -> Date {
         guard let date = DateParser.parse(value) else {
             XCTFail("Failed to parse ISO date: \(value)")

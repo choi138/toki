@@ -101,6 +101,27 @@ final class UsageServiceActiveTimeTests: XCTestCase {
             60,
             accuracy: 0.001)
     }
+
+    func test_rawTokenUsageAdditionMergesWorkTimeFallbacks() {
+        var lhs = RawTokenUsage()
+        lhs.activeSeconds = 120
+
+        var rhs = RawTokenUsage()
+        rhs.activeSeconds = 90
+        rhs.workTime = WorkTimeMetrics(
+            agentSeconds: 90,
+            wallClockSeconds: 60,
+            activeStreamCount: 2,
+            maxConcurrentStreams: 2)
+
+        lhs += rhs
+
+        XCTAssertEqual(lhs.activeSeconds, 210, accuracy: 0.001)
+        XCTAssertEqual(lhs.workTime.agentSeconds, 210, accuracy: 0.001)
+        XCTAssertEqual(lhs.workTime.wallClockSeconds, 180, accuracy: 0.001)
+        XCTAssertEqual(lhs.workTime.activeStreamCount, 3)
+        XCTAssertEqual(lhs.workTime.maxConcurrentStreams, 2)
+    }
 }
 
 private func usageServiceActiveTimeISODate(_ value: String) -> Date {

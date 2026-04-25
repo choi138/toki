@@ -77,11 +77,7 @@ struct UsageData {
         self.reasoningTokens = reasoningTokens
         self.cost = cost
         self.activeSeconds = activeSeconds
-        self.workTime = workTime ?? WorkTimeMetrics(
-            agentSeconds: activeSeconds,
-            wallClockSeconds: activeSeconds,
-            activeStreamCount: activeSeconds > 0 ? 1 : 0,
-            maxConcurrentStreams: activeSeconds > 0 ? 1 : 0)
+        self.workTime = workTime ?? .fallback(activeSeconds: activeSeconds)
         self.perModel = perModel
         self.supplementalStats = supplementalStats
         self.contextOnlyModels = contextOnlyModels
