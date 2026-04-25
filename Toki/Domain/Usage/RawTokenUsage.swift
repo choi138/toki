@@ -30,6 +30,27 @@ struct PerModelUsage {
     var sources: Set<String> = []
 }
 
+struct WorkTimeMetrics {
+    var agentSeconds: TimeInterval = 0
+    var wallClockSeconds: TimeInterval = 0
+    var activeStreamCount = 0
+    var maxConcurrentStreams = 0
+
+    static let zero = WorkTimeMetrics()
+
+    var parallelMultiplier: Double {
+        guard wallClockSeconds > 0 else { return 0 }
+        return agentSeconds / wallClockSeconds
+    }
+
+    var hasActivity: Bool {
+        agentSeconds > 0
+            || wallClockSeconds > 0
+            || activeStreamCount > 0
+            || maxConcurrentStreams > 0
+    }
+}
+
 struct RawTokenUsage {
     var inputTokens = 0
     var outputTokens = 0
@@ -38,6 +59,7 @@ struct RawTokenUsage {
     var reasoningTokens = 0
     var cost: Double = 0
     var activeSeconds: TimeInterval = 0
+    var workTime = WorkTimeMetrics.zero
     var perModel: [String: PerModelUsage] = [:]
     var activityEvents: [ActivityTimeEvent<String>] = []
     var fallbackActiveSeconds: TimeInterval = 0
@@ -46,6 +68,15 @@ struct RawTokenUsage {
 
     var totalTokens: Int {
         inputTokens + outputTokens + cacheReadTokens + cacheWriteTokens + reasoningTokens
+    }
+
+    var resolvedWorkTime: WorkTimeMetrics {
+        if workTime.hasActivity { return workTime }
+        return WorkTimeMetrics(
+            agentSeconds: activeSeconds,
+            wallClockSeconds: activeSeconds,
+            activeStreamCount: activeSeconds > 0 ? 1 : 0,
+            maxConcurrentStreams: activeSeconds > 0 ? 1 : 0)
     }
 }
 

@@ -51,8 +51,8 @@ struct PanelTokenBreakdownView: View {
     var body: some View {
         VStack(spacing: 0) {
             StatRowView(
-                label: "AI Work Time",
-                value: usage.activeSeconds.formattedWorkDuration(),
+                label: "Active Time",
+                value: usage.workTime.wallClockSeconds.formattedWorkDuration(),
                 accent: Color(red: 0.95, green: 0.55, blue: 0.35),
                 isLoading: isLoading)
             StatRowView(
@@ -117,5 +117,79 @@ struct PanelTokenBreakdownView: View {
         case .cents:
             Color(red: 0.45, green: 0.9, blue: 0.7)
         }
+    }
+}
+
+struct PanelWorkTimeView: View {
+    let usage: UsageData
+    let isLoading: Bool
+
+    var body: some View {
+        VStack(spacing: 0) {
+            if isLoading {
+                VStack(spacing: 0) {
+                    StatRowView(
+                        label: "Agent Work",
+                        value: "",
+                        accent: Color(red: 0.95, green: 0.55, blue: 0.35),
+                        isLoading: true)
+                    StatRowView(
+                        label: "Active Time",
+                        value: "",
+                        accent: Color(red: 0.45, green: 0.8, blue: 1.0),
+                        isLoading: true)
+                    StatRowView(
+                        label: "Parallel",
+                        value: "",
+                        accent: Color(red: 0.75, green: 0.65, blue: 1.0),
+                        isLoading: true)
+                    StatRowView(
+                        label: "Max Streams",
+                        value: "",
+                        accent: Color(red: 1.0, green: 0.8, blue: 0.35),
+                        isLoading: true)
+                }
+                .padding(.vertical, 6)
+            } else if !usage.workTime.hasActivity {
+                Text("No work time")
+                    .font(.system(size: 12))
+                    .foregroundColor(Color.white.opacity(0.3))
+                    .frame(maxWidth: .infinity, alignment: .center)
+                    .padding(.vertical, 24)
+            } else {
+                VStack(spacing: 0) {
+                    PanelSectionCaption(title: "Summary")
+                    StatRowView(
+                        label: "Agent Work",
+                        value: usage.workTime.agentSeconds.formattedWorkDuration(),
+                        accent: Color(red: 0.95, green: 0.55, blue: 0.35))
+                    StatRowView(
+                        label: "Active Time",
+                        value: usage.workTime.wallClockSeconds.formattedWorkDuration(),
+                        accent: Color(red: 0.45, green: 0.8, blue: 1.0))
+
+                    PanelSectionCaption(title: "Concurrency")
+                    StatRowView(
+                        label: "Parallel",
+                        value: formattedParallelMultiplier,
+                        accent: Color(red: 0.75, green: 0.65, blue: 1.0))
+                    StatRowView(
+                        label: "Max Streams",
+                        value: "\(usage.workTime.maxConcurrentStreams)",
+                        accent: Color(red: 1.0, green: 0.8, blue: 0.35))
+                    StatRowView(
+                        label: "Active Streams",
+                        value: "\(usage.workTime.activeStreamCount)",
+                        accent: Color(red: 0.55, green: 0.9, blue: 0.65))
+                }
+                .padding(.vertical, 6)
+            }
+        }
+    }
+
+    private var formattedParallelMultiplier: String {
+        let multiplier = usage.workTime.parallelMultiplier
+        guard multiplier.isFinite, multiplier > 0 else { return "0.00x" }
+        return String(format: "%.2fx", multiplier)
     }
 }

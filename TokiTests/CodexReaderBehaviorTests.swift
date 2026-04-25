@@ -52,6 +52,9 @@ final class CodexReaderBehaviorTests: XCTestCase {
         combined.recomputeMergedActiveEstimate()
 
         XCTAssertEqual(combined.activeSeconds, 300, accuracy: 0.001)
+        XCTAssertEqual(combined.workTime.wallClockSeconds, 300, accuracy: 0.001)
+        XCTAssertEqual(combined.workTime.activeStreamCount, 2)
+        XCTAssertEqual(combined.workTime.maxConcurrentStreams, 1)
     }
 
     func test_codexReader_mergesMissingDatabaseModelFromJsonlSession() {

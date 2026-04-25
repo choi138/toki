@@ -46,6 +46,10 @@ final class UsageServiceActiveTimeTests: XCTestCase {
         let models = service.usageData.perModel
 
         XCTAssertEqual(totalActiveSeconds, 300, accuracy: 0.001)
+        XCTAssertEqual(service.usageData.workTime.agentSeconds, 300, accuracy: 0.001)
+        XCTAssertEqual(service.usageData.workTime.wallClockSeconds, 210, accuracy: 0.001)
+        XCTAssertEqual(service.usageData.workTime.activeStreamCount, 2)
+        XCTAssertEqual(service.usageData.workTime.maxConcurrentStreams, 2)
         XCTAssertEqual(models.first?.id, "gpt-5.4")
         XCTAssertEqual(models.first?.activeSeconds ?? 0, 300, accuracy: 0.001)
     }
@@ -84,6 +88,10 @@ final class UsageServiceActiveTimeTests: XCTestCase {
         await service.refresh()
 
         XCTAssertEqual(service.usageData.activeSeconds, 210, accuracy: 0.001)
+        XCTAssertEqual(service.usageData.workTime.agentSeconds, 210, accuracy: 0.001)
+        XCTAssertEqual(service.usageData.workTime.wallClockSeconds, 210, accuracy: 0.001)
+        XCTAssertEqual(service.usageData.workTime.activeStreamCount, 2)
+        XCTAssertEqual(service.usageData.workTime.maxConcurrentStreams, 1)
         XCTAssertEqual(
             service.usageData.perModel.first(where: { $0.id == "gpt-5.4" })?.activeSeconds ?? 0,
             150,

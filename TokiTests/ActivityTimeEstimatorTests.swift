@@ -11,6 +11,9 @@ final class ActivityTimeEstimatorTests: XCTestCase {
         let estimate = ActivityTimeEstimator.estimate(events: events)
 
         XCTAssertEqual(estimate.totalSeconds, 210, accuracy: 0.001)
+        XCTAssertEqual(estimate.wallClockSeconds, 210, accuracy: 0.001)
+        XCTAssertEqual(estimate.activeStreamCount, 1)
+        XCTAssertEqual(estimate.maxConcurrentStreams, 1)
         XCTAssertEqual(estimate.secondsByKey["gpt-5.4"] ?? 0, 210, accuracy: 0.001)
     }
 
@@ -23,6 +26,7 @@ final class ActivityTimeEstimatorTests: XCTestCase {
         let estimate = ActivityTimeEstimator.estimate(events: events)
 
         XCTAssertEqual(estimate.totalSeconds, 60, accuracy: 0.001)
+        XCTAssertEqual(estimate.wallClockSeconds, 60, accuracy: 0.001)
         XCTAssertEqual(estimate.secondsByKey["gpt-5.4"] ?? 0, 60, accuracy: 0.001)
     }
 
@@ -45,6 +49,7 @@ final class ActivityTimeEstimatorTests: XCTestCase {
         let estimate = ActivityTimeEstimator.estimate(events: events)
 
         XCTAssertEqual(estimate.totalSeconds, 390, accuracy: 0.001)
+        XCTAssertEqual(estimate.wallClockSeconds, 390, accuracy: 0.001)
         XCTAssertEqual(estimate.secondsByKey["gpt-5.4"] ?? 0, 120, accuracy: 0.001)
         XCTAssertEqual(estimate.secondsByKey["claude-sonnet-4-6"] ?? 0, 270, accuracy: 0.001)
     }
@@ -60,6 +65,9 @@ final class ActivityTimeEstimatorTests: XCTestCase {
         let estimate = ActivityTimeEstimator.estimate(events: events)
 
         XCTAssertEqual(estimate.totalSeconds, 300, accuracy: 0.001)
+        XCTAssertEqual(estimate.wallClockSeconds, 210, accuracy: 0.001)
+        XCTAssertEqual(estimate.activeStreamCount, 2)
+        XCTAssertEqual(estimate.maxConcurrentStreams, 2)
         XCTAssertEqual(estimate.secondsByKey["gpt-5.4"] ?? 0, 300, accuracy: 0.001)
     }
 
@@ -76,6 +84,7 @@ final class ActivityTimeEstimatorTests: XCTestCase {
             clippingEndDate: isoDate("2026-04-11T00:00:00Z"))
 
         XCTAssertEqual(estimate.totalSeconds, 10, accuracy: 0.001)
+        XCTAssertEqual(estimate.wallClockSeconds, 10, accuracy: 0.001)
         XCTAssertEqual(estimate.secondsByKey["gpt-5.4"] ?? 0, 10, accuracy: 0.001)
     }
 

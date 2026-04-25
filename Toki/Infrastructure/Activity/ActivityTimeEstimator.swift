@@ -8,10 +8,18 @@ struct ActivityTimeEvent<Key: Hashable> {
 
 struct ActivityTimeEstimate<Key: Hashable> {
     let totalSeconds: TimeInterval
+    let wallClockSeconds: TimeInterval
+    let activeStreamCount: Int
+    let maxConcurrentStreams: Int
     let secondsByKey: [Key: TimeInterval]
 
     static var zero: Self {
-        ActivityTimeEstimate(totalSeconds: 0, secondsByKey: [:])
+        ActivityTimeEstimate(
+            totalSeconds: 0,
+            wallClockSeconds: 0,
+            activeStreamCount: 0,
+            maxConcurrentStreams: 0,
+            secondsByKey: [:])
     }
 }
 
@@ -39,6 +47,10 @@ enum ActivityTimeEstimator {
         guard !intervals.isEmpty else { return .zero }
 
         let totalSeconds = summedDurationByStream(intervals)
+        let mergedStreamIntervals = mergedDateIntervalsByStream(intervals)
+        let wallClockSeconds = mergedDuration(mergedStreamIntervals)
+        let activeStreamCount = Set(intervals.map(\.streamID)).count
+        let maxConcurrentStreams = maximumConcurrentStreams(mergedStreamIntervals)
         let secondsByKey = Dictionary(
             grouping: intervals.compactMap { interval -> (Key, ActivityInterval<Key>)? in
                 guard let key = interval.key else { return nil }
@@ -49,7 +61,12 @@ enum ActivityTimeEstimator {
                 result[key] = summedDurationByStream(intervalsForKey.map(\.1))
             }
 
-        return ActivityTimeEstimate(totalSeconds: totalSeconds, secondsByKey: secondsByKey)
+        return ActivityTimeEstimate(
+            totalSeconds: totalSeconds,
+            wallClockSeconds: wallClockSeconds,
+            activeStreamCount: activeStreamCount,
+            maxConcurrentStreams: maxConcurrentStreams,
+            secondsByKey: secondsByKey)
     }
 
     private static func estimatedSlice(
@@ -108,24 +125,56 @@ enum ActivityTimeEstimator {
         }
     }
 
+    private static func mergedDateIntervalsByStream(
+        _ intervals: [ActivityInterval<some Hashable>]) -> [DateInterval] {
+        Dictionary(grouping: intervals, by: \.streamID).values.flatMap { streamIntervals in
+            mergedIntervals(streamIntervals.map { DateInterval(start: $0.start, end: $0.end) })
+        }
+    }
+
     private static func mergedDuration(_ intervals: [DateInterval]) -> TimeInterval {
+        mergedIntervals(intervals).reduce(0) { $0 + $1.duration }
+    }
+
+    private static func mergedIntervals(_ intervals: [DateInterval]) -> [DateInterval] {
         let orderedIntervals = intervals
             .filter { $0.duration > 0 }
             .sorted { $0.start < $1.start }
 
-        guard var current = orderedIntervals.first else { return 0 }
-        var total: TimeInterval = 0
+        guard var current = orderedIntervals.first else { return [] }
+        var result: [DateInterval] = []
 
         for interval in orderedIntervals.dropFirst() {
             if interval.start <= current.end {
                 current = DateInterval(start: current.start, end: max(current.end, interval.end))
             } else {
-                total += current.duration
+                result.append(current)
                 current = interval
             }
         }
 
-        total += current.duration
-        return total
+        result.append(current)
+        return result
+    }
+
+    private static func maximumConcurrentStreams(_ intervals: [DateInterval]) -> Int {
+        let points = intervals.flatMap { interval in
+            [
+                (date: interval.start, delta: 1),
+                (date: interval.end, delta: -1),
+            ]
+        }
+        .sorted { lhs, rhs in
+            if lhs.date == rhs.date { return lhs.delta < rhs.delta }
+            return lhs.date < rhs.date
+        }
+
+        var current = 0
+        var maximum = 0
+        for point in points {
+            current += point.delta
+            maximum = max(maximum, current)
+        }
+        return maximum
     }
 }
