@@ -173,15 +173,23 @@ extension CodexReader {
         while true {
             guard !Task.isCancelled else { return nil }
 
-            let chunk = handle.readData(ofLength: 64 * 1024)
-            if chunk.isEmpty { break }
+            let chunk: Data
+            do {
+                guard let data = try handle.read(upToCount: 64 * 1024),
+                      !data.isEmpty else {
+                    break
+                }
+                chunk = data
+            } catch {
+                break
+            }
 
             pending.append(chunk)
-            while let newlineRange = pending.firstRange(of: Data([0x0A])) {
+            while let newlineIndex = pending.firstIndex(of: 0x0A) {
                 guard !Task.isCancelled else { return nil }
 
-                let lineData = pending.subdata(in: pending.startIndex..<newlineRange.lowerBound)
-                pending.removeSubrange(pending.startIndex..<newlineRange.upperBound)
+                let lineData = pending.subdata(in: pending.startIndex..<newlineIndex)
+                pending.removeSubrange(pending.startIndex...newlineIndex)
 
                 if let result = transformLineData(lineData, using: transform) {
                     return result

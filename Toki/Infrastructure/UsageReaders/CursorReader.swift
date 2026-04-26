@@ -272,6 +272,7 @@ private func cursorQueryBubblePayloads(
 
     let startText = cursorSQLiteTimestampString(for: startDate)
     let endText = cursorSQLiteTimestampString(for: endDate)
+    let bubbleKeyBinds = cursorKeyRangeBinds(forPrefix: "bubbleId:")
 
     let tokenQuery = """
         SELECT CAST(value AS TEXT)
@@ -290,7 +291,7 @@ private func cursorQueryBubblePayloads(
     let tokenPayloads = cursorQueryPayloads(
         db: db,
         query: tokenQuery,
-        binds: [.text(startText), .text(endText)])
+        binds: bubbleKeyBinds + [.text(startText), .text(endText)])
     guard !Task.isCancelled else { return [] }
 
     let usageIdentifiers = Set(
@@ -329,7 +330,7 @@ private func cursorQueryBubblePayloads(
     let modelPayloads = cursorQueryPayloads(
         db: db,
         query: modelQuery,
-        binds: identifierBinds + identifierBinds + identifierBinds)
+        binds: bubbleKeyBinds + identifierBinds + identifierBinds + identifierBinds)
     guard !Task.isCancelled else { return [] }
 
     return tokenPayloads + modelPayloads
@@ -345,6 +346,7 @@ private func cursorQueryLiveComposerPayloads(
     // Only surface it for today's active view as context-only metadata.
     let startMillis = Int64(startDate.timeIntervalSince1970 * 1000)
     let endMillis = Int64(endDate.timeIntervalSince1970 * 1000)
+    let composerKeyBinds = cursorKeyRangeBinds(forPrefix: "composerData:")
 
     let composerQuery = """
         SELECT CAST(value AS TEXT)
@@ -368,11 +370,15 @@ private func cursorQueryLiveComposerPayloads(
     return cursorQueryPayloads(
         db: db,
         query: composerQuery,
-        binds: [.int64(startMillis), .int64(endMillis)])
+        binds: composerKeyBinds + [.int64(startMillis), .int64(endMillis)])
 }
 
-private func cursorKeyRangeSQL(forPrefix prefix: String) -> String {
-    "key >= '\(prefix)' AND key < '\(cursorPrefixUpperBound(for: prefix))'"
+private func cursorKeyRangeSQL(forPrefix _: String) -> String {
+    "key >= ? AND key < ?"
+}
+
+private func cursorKeyRangeBinds(forPrefix prefix: String) -> [SQLiteBind] {
+    [.text(prefix), .text(cursorPrefixUpperBound(for: prefix))]
 }
 
 private func cursorPrefixUpperBound(for prefix: String) -> String {
