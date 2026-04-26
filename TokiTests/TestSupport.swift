@@ -94,6 +94,10 @@ actor BlockingReaderGate {
         }
     }
 
+    func requestCountSnapshot() -> Int {
+        requestCount
+    }
+
     func release() {
         guard !isReleased else { return }
         isReleased = true

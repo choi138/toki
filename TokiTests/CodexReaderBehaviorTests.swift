@@ -70,6 +70,18 @@ final class CodexReaderBehaviorTests: XCTestCase {
         XCTAssertEqual(merged.first?.model, "gpt-5.4")
     }
 
+    func test_codexReader_prefersDatabaseModelWhenDuplicateRowsIncludeNil() {
+        let merged = CodexReader().mergedSessions(
+            databaseSessions: [
+                CodexSession(rolloutPath: "/tmp/rollout-a.jsonl", model: "gpt-5.4"),
+                CodexSession(rolloutPath: "/tmp/rollout-a.jsonl", model: nil),
+            ],
+            jsonlSessions: [])
+
+        XCTAssertEqual(merged.count, 1)
+        XCTAssertEqual(merged.first?.model, "gpt-5.4")
+    }
+
     func test_codexReader_preservesCachedDailyUsageWhenTimestampBackfillIsEmpty() {
         let preservedUsage = [
             "2026-04-10": CodexCachedDailyUsage(

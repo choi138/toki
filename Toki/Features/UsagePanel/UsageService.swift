@@ -14,6 +14,11 @@ private struct ContextOnlyModelAggregateKey: Hashable {
     let quality: UsageQuality
 }
 
+private struct UsageRequestRange: Equatable {
+    let start: Date
+    let end: Date
+}
+
 private let defaultUsageReaders: [any TokenReader] = [
     ClaudeCodeReader(),
     CodexReader(),
@@ -44,6 +49,8 @@ final class UsageService: ObservableObject {
     private var needsRefreshAfterCurrentLoad = false
     private var followsCurrentDaySelection = true
     private var calendarDayObserver: NSObjectProtocol?
+    private var yesterdayComparisonTask: Task<Void, Never>?
+    private var activeRefreshRange: UsageRequestRange?
 
     private var calendar: Calendar {
         .autoupdatingCurrent
@@ -67,6 +74,7 @@ final class UsageService: ObservableObject {
     }
 
     deinit {
+        yesterdayComparisonTask?.cancel()
         if let calendarDayObserver {
             NotificationCenter.default.removeObserver(calendarDayObserver)
         }
@@ -81,12 +89,14 @@ final class UsageService: ObservableObject {
     }
 
     func selectDay(_ date: Date) {
+        resetYesterdayComparison()
         startDate = calendar.startOfDay(for: date)
         endDate = calendar.date(byAdding: .day, value: 1, to: startDate)!
         followsCurrentDaySelection = calendar.isDateInToday(startDate)
     }
 
     func selectRangeStart(_ date: Date) {
+        resetYesterdayComparison()
         startDate = calendar.startOfDay(for: date)
         if startDate >= endDate {
             endDate = calendar.date(byAdding: .day, value: 1, to: startDate)!
@@ -95,6 +105,7 @@ final class UsageService: ObservableObject {
     }
 
     func selectRangeEnd(_ date: Date) {
+        resetYesterdayComparison()
         let selectedEnd = calendar.startOfDay(for: date)
         endDate = calendar.date(byAdding: .day, value: 1, to: selectedEnd)!
         if startDate >= endDate {
@@ -104,6 +115,7 @@ final class UsageService: ObservableObject {
     }
 
     func selectRange(from: Date, to: Date) {
+        resetYesterdayComparison()
         let normalizedFrom = calendar.startOfDay(for: from)
         let normalizedTo = calendar.startOfDay(for: to)
         let lowerBound = min(normalizedFrom, normalizedTo)
@@ -120,27 +132,31 @@ final class UsageService: ObservableObject {
         let today = calendar.startOfDay(for: now)
         guard startDate != today || !isSingleDay else { return false }
 
+        resetYesterdayComparison()
         startDate = today
         endDate = calendar.date(byAdding: .day, value: 1, to: today)!
         followsCurrentDaySelection = true
         return true
     }
 
-    private func handleCalendarDayChange(now: Date = Date()) {
-        guard syncSelectionWithTodayIfNeeded(now: now) else { return }
-        Task { await refresh() }
-    }
-
     func refresh() async {
         syncSelectionWithTodayIfNeeded()
+        let requestedRange = UsageRequestRange(start: startDate, end: endDate)
 
-        guard !isLoading else {
+        if isLoading {
+            guard activeRefreshRange != requestedRange else {
+                needsRefreshAfterCurrentLoad = false
+                return
+            }
             needsRefreshAfterCurrentLoad = true
             return
         }
 
+        cancelYesterdayComparison()
+        activeRefreshRange = requestedRange
         isLoading = true
         defer {
+            activeRefreshRange = nil
             isLoading = false
 
             if needsRefreshAfterCurrentLoad {
@@ -149,19 +165,13 @@ final class UsageService: ObservableObject {
             }
         }
 
-        let requestedStart = startDate
-        let requestedEnd = endDate
-        let compareAgainstYesterday =
-            calendar.dateComponents([.day], from: requestedStart, to: requestedEnd).day == 1
-                && calendar.isDateInToday(requestedStart)
+        let requestedStart = requestedRange.start
+        let requestedEnd = requestedRange.end
+        let compareAgainstYesterday = shouldCompareAgainstYesterday(
+            start: requestedStart,
+            end: requestedEnd)
 
         let combined = await fetchRange(from: requestedStart, to: requestedEnd)
-
-        var previousTotalTokens: Int?
-        if compareAgainstYesterday {
-            let prevStart = calendar.date(byAdding: .day, value: -1, to: requestedStart)!
-            previousTotalTokens = await fetchRange(from: prevStart, to: requestedStart).totalTokens
-        }
 
         guard requestedStart == startDate, requestedEnd == endDate else {
             needsRefreshAfterCurrentLoad = true
@@ -212,28 +222,87 @@ final class UsageService: ObservableObject {
             supplementalStats: supplementalStats,
             contextOnlyModels: contextOnlyModels)
 
-        yesterdayTotalTokens = previousTotalTokens
         lastFetchedAt = Date()
-    }
 
-    private func fetchRange(from start: Date, to end: Date) async -> RawTokenUsage {
-        var combined = RawTokenUsage()
-        await withTaskGroup(of: RawTokenUsage.self) { group in
-            for reader in readers {
-                group.addTask {
-                    await (try? reader.readUsage(from: start, to: end)) ?? RawTokenUsage()
-                }
-            }
-            for await partial in group {
-                combined += partial
-            }
+        if compareAgainstYesterday {
+            startYesterdayComparison(for: requestedStart, end: requestedEnd)
         }
-        combined.recomputeMergedActiveEstimate(clippingEndDate: end)
-        return combined
     }
 }
 
 private extension UsageService {
+    private func handleCalendarDayChange(now: Date = Date()) {
+        guard syncSelectionWithTodayIfNeeded(now: now) else { return }
+        Task { await refresh() }
+    }
+
+    private func fetchRange(from start: Date, to end: Date) async -> RawTokenUsage {
+        guard !Task.isCancelled else { return RawTokenUsage() }
+
+        var combined = RawTokenUsage()
+        await withTaskGroup(of: RawTokenUsage.self) { group in
+            for reader in readers {
+                guard !Task.isCancelled else {
+                    group.cancelAll()
+                    break
+                }
+
+                group.addTask {
+                    guard !Task.isCancelled else { return RawTokenUsage() }
+                    let usage = await (try? reader.readUsage(from: start, to: end)) ?? RawTokenUsage()
+                    return Task.isCancelled ? RawTokenUsage() : usage
+                }
+            }
+            for await partial in group {
+                guard !Task.isCancelled else {
+                    group.cancelAll()
+                    return
+                }
+                combined += partial
+            }
+        }
+
+        guard !Task.isCancelled else { return RawTokenUsage() }
+        combined.recomputeMergedActiveEstimate(clippingEndDate: end)
+        return combined
+    }
+
+    private func cancelYesterdayComparison() {
+        yesterdayComparisonTask?.cancel()
+        yesterdayComparisonTask = nil
+    }
+
+    private func resetYesterdayComparison() {
+        cancelYesterdayComparison()
+        if yesterdayTotalTokens != nil {
+            yesterdayTotalTokens = nil
+        }
+    }
+
+    private func shouldCompareAgainstYesterday(start: Date, end: Date) -> Bool {
+        calendar.dateComponents([.day], from: start, to: end).day == 1
+            && calendar.isDateInToday(start)
+    }
+
+    private func startYesterdayComparison(for requestedStart: Date, end requestedEnd: Date) {
+        yesterdayComparisonTask = Task { [weak self] in
+            guard let self else { return }
+            let prevStart = calendar.date(byAdding: .day, value: -1, to: requestedStart)!
+            guard !Task.isCancelled else { return }
+            let previousTotalTokens = await fetchRange(from: prevStart, to: requestedStart).totalTokens
+
+            guard !Task.isCancelled else { return }
+            guard requestedStart == startDate,
+                  requestedEnd == endDate,
+                  shouldCompareAgainstYesterday(start: requestedStart, end: requestedEnd) else {
+                return
+            }
+
+            yesterdayTotalTokens = previousTotalTokens
+            yesterdayComparisonTask = nil
+        }
+    }
+
     private func buildSupplementalStats(from supplemental: [SupplementalUsage]) -> [SupplementalStat] {
         var grouped: [SupplementalStatAggregateKey: Int] = [:]
 
