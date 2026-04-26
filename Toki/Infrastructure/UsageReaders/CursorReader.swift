@@ -21,7 +21,8 @@ struct CursorReader: TokenReader {
     }
 
     func readUsage(from startDate: Date, to endDate: Date) async throws -> RawTokenUsage {
-        guard FileManager.default.fileExists(atPath: dbPath) else {
+        guard !Task.isCancelled,
+              FileManager.default.fileExists(atPath: dbPath) else {
             return RawTokenUsage()
         }
 
@@ -36,6 +37,8 @@ struct CursorReader: TokenReader {
             db: db,
             from: startDate,
             to: endDate)
+        guard !Task.isCancelled else { return RawTokenUsage() }
+
         let composerPayloads: [String] = if Self.shouldIncludeLiveComposerContext(from: startDate, to: endDate) {
             cursorQueryLiveComposerPayloads(
                 db: db,
@@ -44,6 +47,7 @@ struct CursorReader: TokenReader {
         } else {
             []
         }
+        guard !Task.isCancelled else { return RawTokenUsage() }
 
         return Self.usage(
             fromBubblePayloads: bubblePayloads,
@@ -264,6 +268,8 @@ private func cursorQueryBubblePayloads(
     db: OpaquePointer?,
     from startDate: Date,
     to endDate: Date) -> [String] {
+    guard !Task.isCancelled else { return [] }
+
     let startText = cursorSQLiteTimestampString(for: startDate)
     let endText = cursorSQLiteTimestampString(for: endDate)
 
@@ -285,6 +291,7 @@ private func cursorQueryBubblePayloads(
         db: db,
         query: tokenQuery,
         binds: [.text(startText), .text(endText)])
+    guard !Task.isCancelled else { return [] }
 
     let usageIdentifiers = Set(
         cursorDecodePayloads(tokenPayloads, as: CursorBubble.self)
@@ -323,6 +330,7 @@ private func cursorQueryBubblePayloads(
         db: db,
         query: modelQuery,
         binds: identifierBinds + identifierBinds + identifierBinds)
+    guard !Task.isCancelled else { return [] }
 
     return tokenPayloads + modelPayloads
 }
@@ -331,6 +339,8 @@ private func cursorQueryLiveComposerPayloads(
     db: OpaquePointer?,
     from startDate: Date,
     to endDate: Date) -> [String] {
+    guard !Task.isCancelled else { return [] }
+
     // composerData is a mutable live snapshot, not a historical log.
     // Only surface it for today's active view as context-only metadata.
     let startMillis = Int64(startDate.timeIntervalSince1970 * 1000)
@@ -376,6 +386,8 @@ private func cursorQueryPayloads(
     db: OpaquePointer?,
     query: String,
     binds: [SQLiteBind] = []) -> [String] {
+    guard !Task.isCancelled else { return [] }
+
     var stmt: OpaquePointer?
     guard sqlite3_prepare_v2(db, query, -1, &stmt, nil) == SQLITE_OK else {
         return []
@@ -397,6 +409,8 @@ private func cursorQueryPayloads(
 
     var payloads: [String] = []
     while sqlite3_step(stmt) == SQLITE_ROW {
+        guard !Task.isCancelled else { return payloads }
+
         guard let text = sqlite3_column_text(stmt, 0) else { continue }
         payloads.append(String(cString: text))
     }

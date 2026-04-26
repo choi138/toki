@@ -3,8 +3,12 @@ import SQLite3
 
 extension CodexReader {
     func overlappingSessions(from startDate: Date, to endDate: Date) -> [CodexSession] {
+        guard !Task.isCancelled else { return [] }
+
         let databaseSessions = deduplicatedSessionsPreferringModel(
             overlappingSessionsFromDB(from: startDate, to: endDate))
+        guard !Task.isCancelled else { return [] }
+
         let jsonlSessions = overlappingSessionsFromJSONL(
             from: startDate,
             to: endDate,
@@ -84,6 +88,8 @@ extension CodexReader {
 
         var sessions: [CodexSession] = []
         while sqlite3_step(statement) == SQLITE_ROW {
+            guard !Task.isCancelled else { return sessions }
+
             guard let rolloutPathPointer = sqlite3_column_text(statement, 0) else { continue }
             let rolloutPath = String(cString: rolloutPathPointer)
             let rawModel = sqlite3_column_text(statement, 1).map { String(cString: $0) } ?? ""
@@ -115,30 +121,34 @@ extension CodexReader {
                     .appendingPathComponent(String(format: "%02d", components.day ?? 0))
             }
 
-        return directoryURLs.flatMap { directoryURL -> [CodexSession] in
+        var sessions: [CodexSession] = []
+        for directoryURL in directoryURLs {
+            guard !Task.isCancelled else { break }
             guard FileManager.default.fileExists(atPath: directoryURL.path),
                   let contents = try? FileManager.default.contentsOfDirectory(
                       at: directoryURL,
                       includingPropertiesForKeys: [.contentModificationDateKey],
                       options: [.skipsHiddenFiles]) else {
-                return []
+                continue
             }
 
-            return contents.compactMap { fileURL -> CodexSession? in
+            for fileURL in contents {
+                guard !Task.isCancelled else { break }
                 guard fileURL.pathExtension == "jsonl",
                       let modifiedDate = (try? fileURL.resourceValues(forKeys: [.contentModificationDateKey]))?
                       .contentModificationDate,
                       modifiedDate >= startDate else {
-                    return nil
+                    continue
                 }
 
                 guard !pathsWithDatabaseModel.contains(fileURL.path) else {
-                    return nil
+                    continue
                 }
 
-                return CodexSession(rolloutPath: fileURL.path, model: extractModel(from: fileURL))
+                sessions.append(CodexSession(rolloutPath: fileURL.path, model: extractModel(from: fileURL)))
             }
         }
+        return sessions
     }
 
     private func extractModel(from url: URL) -> String? {
@@ -161,11 +171,15 @@ extension CodexReader {
 
         var pending = Data()
         while true {
+            guard !Task.isCancelled else { return nil }
+
             let chunk = handle.readData(ofLength: 64 * 1024)
             if chunk.isEmpty { break }
 
             pending.append(chunk)
             while let newlineRange = pending.firstRange(of: Data([0x0A])) {
+                guard !Task.isCancelled else { return nil }
+
                 let lineData = pending.subdata(in: pending.startIndex..<newlineRange.lowerBound)
                 pending.removeSubrange(pending.startIndex..<newlineRange.upperBound)
 

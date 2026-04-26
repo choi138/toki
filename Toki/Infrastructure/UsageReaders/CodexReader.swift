@@ -11,17 +11,20 @@ struct CodexReader: TokenReader {
     }
 
     func readUsage(from startDate: Date, to endDate: Date) async throws -> RawTokenUsage {
-        guard FileManager.default.fileExists(atPath: dbPath) else {
+        guard !Task.isCancelled,
+              FileManager.default.fileExists(atPath: dbPath) else {
             return RawTokenUsage()
         }
 
         let sessions = overlappingSessions(from: startDate, to: endDate)
-        guard !sessions.isEmpty else { return RawTokenUsage() }
+        guard !Task.isCancelled, !sessions.isEmpty else { return RawTokenUsage() }
 
         var result = RawTokenUsage()
         var activityEvents: [ActivityTimeEvent<String>] = []
         await CodexRolloutUsageCache.shared.beginBatch()
         for session in sessions {
+            guard !Task.isCancelled else { break }
+
             let url = URL(fileURLWithPath: session.rolloutPath)
             guard FileManager.default.fileExists(atPath: url.path) else { continue }
             let cachedUsageForSession = await Self.cachedUsage(
@@ -29,11 +32,15 @@ struct CodexReader: TokenReader {
                 model: session.model,
                 from: startDate,
                 to: endDate)
+            guard !Task.isCancelled else { break }
+
             let sessionEvents = await Self.activityEvents(
                 fromRolloutAt: url,
                 model: session.model,
                 from: startDate,
                 to: endDate)
+            guard !Task.isCancelled else { break }
+
             let sessionUsage = Self.strippingCachedActiveTime(
                 from: cachedUsageForSession,
                 whenActivityEventsExist: sessionEvents)
@@ -42,6 +49,7 @@ struct CodexReader: TokenReader {
         }
         await CodexRolloutUsageCache.shared.endBatch()
 
+        guard !Task.isCancelled else { return RawTokenUsage() }
         result.mergeActivityEvents(activityEvents, source: name, clippingEndDate: endDate)
 
         return result
@@ -93,6 +101,8 @@ extension CodexReader {
         var activityTimestamps: [Date] = []
 
         for entry in codexRolloutSnapshots(fromRolloutLines: lines) {
+            guard !Task.isCancelled else { return RawTokenUsage() }
+
             let delta = entry.snapshot.delta(since: previousSnapshot)
             previousSnapshot = entry.snapshot
 
@@ -154,6 +164,8 @@ extension CodexReader {
         var result = RawTokenUsage()
 
         while currentDay < endDate {
+            guard !Task.isCancelled else { return RawTokenUsage() }
+
             let dayKey = codexDayKey(for: currentDay)
             if let usage = dailyUsage[dayKey] {
                 result.inputTokens += usage.inputTokens
@@ -201,6 +213,8 @@ extension CodexReader {
         var activityTimestamps: [Date] = []
 
         for entry in codexRolloutSnapshots(fromRolloutLines: lines) {
+            guard !Task.isCancelled else { return [:] }
+
             let delta = entry.snapshot.delta(since: previousSnapshot)
             previousSnapshot = entry.snapshot
 
@@ -224,6 +238,8 @@ extension CodexReader {
         var activityTimestamps: [Date] = []
 
         for entry in codexRolloutSnapshots(fromRolloutLines: lines) {
+            guard !Task.isCancelled else { return [:] }
+
             let delta = entry.snapshot.delta(since: previousSnapshot)
             previousSnapshot = entry.snapshot
 
@@ -241,6 +257,8 @@ private extension CodexReader {
         model: String?,
         from startDate: Date,
         to endDate: Date) async -> RawTokenUsage {
+        guard !Task.isCancelled else { return RawTokenUsage() }
+
         guard codexIsWholeDayAlignedRange(from: startDate, to: endDate) else {
             return usage(
                 fromRolloutLines: readJSONLLines(at: url),
@@ -256,7 +274,11 @@ private extension CodexReader {
             rolloutDailyUsage = cached
         } else {
             let lines = readJSONLLines(at: url)
+            guard !Task.isCancelled else { return RawTokenUsage() }
+
             rolloutDailyUsage = dailyUsage(fromRolloutLines: lines)
+            guard !Task.isCancelled else { return RawTokenUsage() }
+
             await CodexRolloutUsageCache.shared.store(
                 dailyUsage: rolloutDailyUsage,
                 dailyActivityTimestamps: dailyActivityTimestamps(fromRolloutLines: lines),
@@ -271,6 +293,8 @@ private extension CodexReader {
         model: String?,
         from startDate: Date,
         to endDate: Date) async -> [ActivityTimeEvent<String>] {
+        guard !Task.isCancelled else { return [] }
+
         let normalizedModel = normalizedModelID(model)
 
         if codexIsWholeDayAlignedRange(from: startDate, to: endDate),
@@ -280,6 +304,8 @@ private extension CodexReader {
             var result: [ActivityTimeEvent<String>] = []
 
             while currentDay < endDate {
+                guard !Task.isCancelled else { return [] }
+
                 let dayKey = codexDayKey(for: currentDay)
                 if let timestamps = cached[dayKey] {
                     result.append(
@@ -301,8 +327,12 @@ private extension CodexReader {
         if codexIsWholeDayAlignedRange(from: startDate, to: endDate) {
             let existingDailyUsage = await CodexRolloutUsageCache.shared.dailyUsage(for: url)
             let lines = readJSONLLines(at: url)
+            guard !Task.isCancelled else { return [] }
+
             let rebuiltDailyUsage = dailyUsage(fromRolloutLines: lines)
             let dailyActivityTimestamps = dailyActivityTimestamps(fromRolloutLines: lines)
+            guard !Task.isCancelled else { return [] }
+
             let dailyUsageToStore = dailyUsageForTimestampBackfill(
                 rebuiltDailyUsage: rebuiltDailyUsage,
                 existingDailyUsage: existingDailyUsage)
@@ -324,6 +354,8 @@ private extension CodexReader {
 
         var previousSnapshot: CodexUsageSnapshot?
         return codexRolloutSnapshots(fromRolloutLines: readJSONLLines(at: url)).compactMap { entry in
+            guard !Task.isCancelled else { return nil }
+
             let delta = entry.snapshot.delta(since: previousSnapshot)
             previousSnapshot = entry.snapshot
 
@@ -348,6 +380,8 @@ private extension CodexReader {
         var result: [ActivityTimeEvent<String>] = []
 
         while currentDay < endDate {
+            guard !Task.isCancelled else { return [] }
+
             let dayKey = codexDayKey(for: currentDay)
             if let timestamps = cached[dayKey] {
                 result.append(

@@ -237,17 +237,32 @@ private extension UsageService {
     }
 
     private func fetchRange(from start: Date, to end: Date) async -> RawTokenUsage {
+        guard !Task.isCancelled else { return RawTokenUsage() }
+
         var combined = RawTokenUsage()
         await withTaskGroup(of: RawTokenUsage.self) { group in
             for reader in readers {
+                guard !Task.isCancelled else {
+                    group.cancelAll()
+                    break
+                }
+
                 group.addTask {
-                    await (try? reader.readUsage(from: start, to: end)) ?? RawTokenUsage()
+                    guard !Task.isCancelled else { return RawTokenUsage() }
+                    let usage = await (try? reader.readUsage(from: start, to: end)) ?? RawTokenUsage()
+                    return Task.isCancelled ? RawTokenUsage() : usage
                 }
             }
             for await partial in group {
+                guard !Task.isCancelled else {
+                    group.cancelAll()
+                    return
+                }
                 combined += partial
             }
         }
+
+        guard !Task.isCancelled else { return RawTokenUsage() }
         combined.recomputeMergedActiveEstimate(clippingEndDate: end)
         return combined
     }
@@ -269,6 +284,7 @@ private extension UsageService {
         yesterdayComparisonTask = Task { [weak self] in
             guard let self else { return }
             let prevStart = calendar.date(byAdding: .day, value: -1, to: requestedStart)!
+            guard !Task.isCancelled else { return }
             let previousTotalTokens = await fetchRange(from: prevStart, to: requestedStart).totalTokens
 
             guard !Task.isCancelled else { return }
