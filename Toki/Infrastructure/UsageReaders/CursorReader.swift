@@ -270,7 +270,7 @@ private func cursorQueryBubblePayloads(
     let tokenQuery = """
         SELECT CAST(value AS TEXT)
         FROM cursorDiskKV
-        WHERE key LIKE 'bubbleId:%'
+        WHERE \(cursorKeyRangeSQL(forPrefix: "bubbleId:"))
         AND json_valid(CAST(value AS TEXT))
         AND json_extract(CAST(value AS TEXT), '$.tokenCount') IS NOT NULL
         AND (
@@ -298,7 +298,7 @@ private func cursorQueryBubblePayloads(
     let modelQuery = """
         SELECT CAST(value AS TEXT)
         FROM cursorDiskKV
-        WHERE key LIKE 'bubbleId:%'
+        WHERE \(cursorKeyRangeSQL(forPrefix: "bubbleId:"))
         AND json_valid(CAST(value AS TEXT))
         AND (
             json_extract(CAST(value AS TEXT), '$.tokenCount') IS NULL
@@ -339,7 +339,7 @@ private func cursorQueryLiveComposerPayloads(
     let composerQuery = """
         SELECT CAST(value AS TEXT)
         FROM cursorDiskKV
-        WHERE key LIKE 'composerData:%'
+        WHERE \(cursorKeyRangeSQL(forPrefix: "composerData:"))
         AND json_valid(CAST(value AS TEXT))
         AND CAST(COALESCE(
             json_extract(CAST(value AS TEXT), '$.lastUpdatedAt'),
@@ -359,6 +359,17 @@ private func cursorQueryLiveComposerPayloads(
         db: db,
         query: composerQuery,
         binds: [.int64(startMillis), .int64(endMillis)])
+}
+
+private func cursorKeyRangeSQL(forPrefix prefix: String) -> String {
+    "key >= '\(prefix)' AND key < '\(cursorPrefixUpperBound(for: prefix))'"
+}
+
+private func cursorPrefixUpperBound(for prefix: String) -> String {
+    guard let lastScalar = prefix.unicodeScalars.last else { return prefix }
+    let nextScalarValue = lastScalar.value + 1
+    guard let nextScalar = UnicodeScalar(nextScalarValue) else { return prefix }
+    return String(prefix.dropLast()) + String(nextScalar)
 }
 
 private func cursorQueryPayloads(

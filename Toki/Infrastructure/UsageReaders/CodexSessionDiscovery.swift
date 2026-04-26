@@ -3,8 +3,12 @@ import SQLite3
 
 extension CodexReader {
     func overlappingSessions(from startDate: Date, to endDate: Date) -> [CodexSession] {
-        let databaseSessions = overlappingSessionsFromDB(from: startDate, to: endDate)
-        let jsonlSessions = overlappingSessionsFromJSONL(from: startDate, to: endDate)
+        let databaseSessions = deduplicatedSessionsPreferringModel(
+            overlappingSessionsFromDB(from: startDate, to: endDate))
+        let jsonlSessions = overlappingSessionsFromJSONL(
+            from: startDate,
+            to: endDate,
+            pathsWithDatabaseModel: pathsWithValidModel(in: databaseSessions))
         return mergedSessions(databaseSessions: databaseSessions, jsonlSessions: jsonlSessions)
     }
 
@@ -13,21 +17,44 @@ extension CodexReader {
         jsonlSessions: [CodexSession]) -> [CodexSession] {
         var sessionsByPath: [String: CodexSession] = [:]
         for session in databaseSessions {
-            sessionsByPath[session.rolloutPath] = session
+            mergeSessionPreferringModel(session, into: &sessionsByPath)
         }
         for session in jsonlSessions {
-            if let existing = sessionsByPath[session.rolloutPath] {
-                if normalizedModelID(existing.model) == nil,
-                   let model = normalizedModelID(session.model) {
-                    sessionsByPath[session.rolloutPath] = CodexSession(
-                        rolloutPath: existing.rolloutPath,
-                        model: model)
-                }
-            } else {
-                sessionsByPath[session.rolloutPath] = session
-            }
+            mergeSessionPreferringModel(session, into: &sessionsByPath)
         }
         return Array(sessionsByPath.values)
+    }
+
+    private func deduplicatedSessionsPreferringModel(_ sessions: [CodexSession]) -> [CodexSession] {
+        var sessionsByPath: [String: CodexSession] = [:]
+        for session in sessions {
+            mergeSessionPreferringModel(session, into: &sessionsByPath)
+        }
+        return Array(sessionsByPath.values)
+    }
+
+    private func mergeSessionPreferringModel(
+        _ session: CodexSession,
+        into sessionsByPath: inout [String: CodexSession]) {
+        guard let existing = sessionsByPath[session.rolloutPath] else {
+            sessionsByPath[session.rolloutPath] = session
+            return
+        }
+
+        guard normalizedModelID(existing.model) == nil,
+              let model = normalizedModelID(session.model) else {
+            return
+        }
+
+        sessionsByPath[session.rolloutPath] = CodexSession(
+            rolloutPath: existing.rolloutPath,
+            model: model)
+    }
+
+    private func pathsWithValidModel(in sessions: [CodexSession]) -> Set<String> {
+        Set(sessions.compactMap { session in
+            normalizedModelID(session.model) == nil ? nil : session.rolloutPath
+        })
     }
 
     private func overlappingSessionsFromDB(from startDate: Date, to endDate: Date) -> [CodexSession] {
@@ -66,7 +93,10 @@ extension CodexReader {
         return sessions
     }
 
-    private func overlappingSessionsFromJSONL(from startDate: Date, to endDate: Date) -> [CodexSession] {
+    private func overlappingSessionsFromJSONL(
+        from startDate: Date,
+        to endDate: Date,
+        pathsWithDatabaseModel: Set<String>) -> [CodexSession] {
         let calendar = Calendar.autoupdatingCurrent
         let startDay = calendar.startOfDay(for: startDate)
         let endDay = calendar.startOfDay(for: endDate)
@@ -102,6 +132,10 @@ extension CodexReader {
                     return nil
                 }
 
+                guard !pathsWithDatabaseModel.contains(fileURL.path) else {
+                    return nil
+                }
+
                 return CodexSession(rolloutPath: fileURL.path, model: extractModel(from: fileURL))
             }
         }
@@ -109,8 +143,7 @@ extension CodexReader {
 
     private func extractModel(from url: URL) -> String? {
         let decoder = JSONDecoder()
-
-        return readJSONLLines(at: url).compactMap { line -> String? in
+        return firstJSONLLine(at: url) { line in
             guard let lineData = line.data(using: .utf8),
                   let entry = try? decoder.decode(CodexModelEntry.self, from: lineData),
                   entry.type == "turn_context",
@@ -119,6 +152,45 @@ extension CodexReader {
                 return nil
             }
             return model
-        }.first
+        }
+    }
+
+    private func firstJSONLLine<T>(at url: URL, matching transform: (String) -> T?) -> T? {
+        guard let handle = try? FileHandle(forReadingFrom: url) else { return nil }
+        defer { try? handle.close() }
+
+        var pending = Data()
+        while true {
+            let chunk = handle.readData(ofLength: 64 * 1024)
+            if chunk.isEmpty { break }
+
+            pending.append(chunk)
+            while let newlineRange = pending.firstRange(of: Data([0x0A])) {
+                let lineData = pending.subdata(in: pending.startIndex..<newlineRange.lowerBound)
+                pending.removeSubrange(pending.startIndex..<newlineRange.upperBound)
+
+                if let result = transformLineData(lineData, using: transform) {
+                    return result
+                }
+            }
+        }
+
+        return transformLineData(pending, using: transform)
+    }
+
+    private func transformLineData<T>(_ data: Data, using transform: (String) -> T?) -> T? {
+        let trimmedData = data.trimmingCarriageReturn()
+        guard !trimmedData.isEmpty,
+              let line = String(data: trimmedData, encoding: .utf8) else {
+            return nil
+        }
+        return transform(line.trimmingCharacters(in: .whitespaces))
+    }
+}
+
+private extension Data {
+    func trimmingCarriageReturn() -> Data {
+        guard last == 0x0D else { return self }
+        return Data(dropLast())
     }
 }
