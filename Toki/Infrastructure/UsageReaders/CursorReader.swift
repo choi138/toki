@@ -376,10 +376,23 @@ private func cursorKeyRangeSQL(forPrefix prefix: String) -> String {
 }
 
 private func cursorPrefixUpperBound(for prefix: String) -> String {
-    guard let lastScalar = prefix.unicodeScalars.last else { return prefix }
-    let nextScalarValue = lastScalar.value + 1
-    guard let nextScalar = UnicodeScalar(nextScalarValue) else { return prefix }
-    return String(prefix.dropLast()) + String(nextScalar)
+    let scalars = Array(prefix.unicodeScalars)
+    for index in scalars.indices.reversed() {
+        var nextScalarValue = scalars[index].value + 1
+        if (0xD800...0xDFFF).contains(nextScalarValue) {
+            nextScalarValue = 0xE000
+        }
+        guard nextScalarValue <= 0x10FFFF,
+              let nextScalar = UnicodeScalar(nextScalarValue) else {
+            continue
+        }
+
+        var upperBoundScalars = String.UnicodeScalarView()
+        upperBoundScalars.append(contentsOf: scalars[..<index])
+        upperBoundScalars.append(nextScalar)
+        return String(upperBoundScalars)
+    }
+    return prefix + "\u{10FFFF}"
 }
 
 private func cursorQueryPayloads(

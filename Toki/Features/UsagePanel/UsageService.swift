@@ -89,14 +89,14 @@ final class UsageService: ObservableObject {
     }
 
     func selectDay(_ date: Date) {
-        cancelYesterdayComparison()
+        resetYesterdayComparison()
         startDate = calendar.startOfDay(for: date)
         endDate = calendar.date(byAdding: .day, value: 1, to: startDate)!
         followsCurrentDaySelection = calendar.isDateInToday(startDate)
     }
 
     func selectRangeStart(_ date: Date) {
-        cancelYesterdayComparison()
+        resetYesterdayComparison()
         startDate = calendar.startOfDay(for: date)
         if startDate >= endDate {
             endDate = calendar.date(byAdding: .day, value: 1, to: startDate)!
@@ -105,7 +105,7 @@ final class UsageService: ObservableObject {
     }
 
     func selectRangeEnd(_ date: Date) {
-        cancelYesterdayComparison()
+        resetYesterdayComparison()
         let selectedEnd = calendar.startOfDay(for: date)
         endDate = calendar.date(byAdding: .day, value: 1, to: selectedEnd)!
         if startDate >= endDate {
@@ -115,7 +115,7 @@ final class UsageService: ObservableObject {
     }
 
     func selectRange(from: Date, to: Date) {
-        cancelYesterdayComparison()
+        resetYesterdayComparison()
         let normalizedFrom = calendar.startOfDay(for: from)
         let normalizedTo = calendar.startOfDay(for: to)
         let lowerBound = min(normalizedFrom, normalizedTo)
@@ -132,7 +132,7 @@ final class UsageService: ObservableObject {
         let today = calendar.startOfDay(for: now)
         guard startDate != today || !isSingleDay else { return false }
 
-        cancelYesterdayComparison()
+        resetYesterdayComparison()
         startDate = today
         endDate = calendar.date(byAdding: .day, value: 1, to: today)!
         followsCurrentDaySelection = true
@@ -270,6 +270,10 @@ private extension UsageService {
     private func cancelYesterdayComparison() {
         yesterdayComparisonTask?.cancel()
         yesterdayComparisonTask = nil
+    }
+
+    private func resetYesterdayComparison() {
+        cancelYesterdayComparison()
         if yesterdayTotalTokens != nil {
             yesterdayTotalTokens = nil
         }

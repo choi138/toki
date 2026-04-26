@@ -241,6 +241,38 @@ final class UsageServiceRefreshReentryTests: XCTestCase {
         XCTAssertTrue(shouldCompare)
     }
 
+    func test_usageService_preservesYesterdayTotalDuringSameRangeRefresh() async throws {
+        let tracker = YesterdayRequestTracker()
+        let today = Calendar.current.startOfDay(for: Date())
+        let yesterday = try XCTUnwrap(Calendar.current.date(byAdding: .day, value: -1, to: today))
+        let reader = DelayedSecondYesterdayReader(
+            today: today,
+            yesterday: yesterday,
+            tracker: tracker)
+
+        let service = await MainActor.run { UsageService(readers: [reader]) }
+        await service.refresh()
+
+        var yesterdayTotal = await MainActor.run { service.yesterdayTotalTokens }
+        for _ in 0..<20 where yesterdayTotal != 1 {
+            try? await Task.sleep(for: .milliseconds(10))
+            yesterdayTotal = await MainActor.run { service.yesterdayTotalTokens }
+        }
+
+        let refreshTask = Task { await service.refresh() }
+        var yesterdayRequestCount = await tracker.snapshot()
+        for _ in 0..<20 where yesterdayRequestCount < 2 {
+            try? await Task.sleep(for: .milliseconds(10))
+            yesterdayRequestCount = await tracker.snapshot()
+        }
+
+        let preservedTotal = await MainActor.run { service.yesterdayTotalTokens }
+        XCTAssertEqual(yesterdayRequestCount, 2)
+        XCTAssertEqual(preservedTotal, 1)
+
+        await refreshTask.value
+    }
+
     func test_usageService_ignoresCanceledYesterdayComparisonAfterSelectionChanges() async throws {
         let gate = BlockingReaderGate()
         let today = Calendar.current.startOfDay(for: Date())
@@ -484,5 +516,40 @@ private struct ConditionalBlockingMockReader: TokenReader {
             await gate.enter()
         }
         return handler(startDate, endDate)
+    }
+}
+
+private actor YesterdayRequestTracker {
+    private var requestCount = 0
+
+    func record() -> Int {
+        requestCount += 1
+        return requestCount
+    }
+
+    func snapshot() -> Int {
+        requestCount
+    }
+}
+
+private struct DelayedSecondYesterdayReader: TokenReader {
+    let name = "Mock"
+    let today: Date
+    let yesterday: Date
+    let tracker: YesterdayRequestTracker
+
+    func readUsage(from startDate: Date, to endDate: Date) async throws -> RawTokenUsage {
+        switch startDate {
+        case today:
+            return mockUsage(totalTokens: 120)
+        case yesterday:
+            let requestCount = await tracker.record()
+            if requestCount == 2 {
+                try? await Task.sleep(for: .milliseconds(100))
+            }
+            return mockUsage(totalTokens: requestCount)
+        default:
+            return mockUsage(totalTokens: 5)
+        }
     }
 }
