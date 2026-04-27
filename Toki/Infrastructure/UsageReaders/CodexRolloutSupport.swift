@@ -346,7 +346,7 @@ struct DynamicCodingKey: CodingKey {
     }
 
     init?(intValue: Int) {
-        return nil
+        nil
     }
 }
 

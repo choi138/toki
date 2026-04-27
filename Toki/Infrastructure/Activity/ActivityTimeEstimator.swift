@@ -72,8 +72,8 @@ enum ActivityTimeEstimator {
         let secondsByAgentKind = Dictionary(
             grouping: intervals,
             by: \.agentKind).mapValues { intervalsForKind in
-                summedDurationByStream(intervalsForKind)
-            }
+            summedDurationByStream(intervalsForKind)
+        }
         let mergedStreamIntervals = mergedDateIntervalsByStream(intervals)
         let wallClockSeconds = mergedDuration(mergedStreamIntervals)
         let activeStreamCount = Set(intervals.map(\.streamID)).count
