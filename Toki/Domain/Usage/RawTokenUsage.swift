@@ -50,7 +50,7 @@ struct WorkTimeMetrics {
         self.activeStreamCount = activeStreamCount
         self.maxConcurrentStreams = maxConcurrentStreams
         self.subagentSeconds = max(0, subagentSeconds)
-        self.mainAgentSeconds = max(0, mainAgentSeconds ?? agentSeconds - self.subagentSeconds)
+        self.mainAgentSeconds = max(0, mainAgentSeconds ?? (agentSeconds - self.subagentSeconds))
     }
 
     static let zero = WorkTimeMetrics()

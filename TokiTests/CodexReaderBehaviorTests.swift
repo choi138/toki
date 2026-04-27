@@ -112,6 +112,17 @@ final class CodexReaderBehaviorTests: XCTestCase {
         XCTAssertEqual(merged.first?.agentKind, .subagent)
     }
 
+    func test_codexReader_keepsJsonlLookupWhenDatabaseModelMayNeedAgentKind() {
+        let skippedPaths = CodexReader().pathsWithCompleteDatabaseAttribution(
+            in: [
+                CodexSession(rolloutPath: "/tmp/main-with-model.jsonl", model: "gpt-5.4"),
+                CodexSession(rolloutPath: "/tmp/subagent-with-model.jsonl", model: "gpt-5.4", agentKind: .subagent),
+                CodexSession(rolloutPath: "/tmp/subagent-without-model.jsonl", model: nil, agentKind: .subagent),
+            ])
+
+        XCTAssertEqual(skippedPaths, ["/tmp/subagent-with-model.jsonl"])
+    }
+
     func test_codexAgentKindDetectsSubagentSource() {
         XCTAssertEqual(codexAgentKind(fromSource: "cli"), .main)
         XCTAssertEqual(codexAgentKind(fromSource: #"{"subagent":"review"}"#), .subagent)

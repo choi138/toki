@@ -12,7 +12,7 @@ extension CodexReader {
         let jsonlSessions = overlappingSessionsFromJSONL(
             from: startDate,
             to: endDate,
-            pathsWithDatabaseModel: pathsWithValidModel(in: databaseSessions))
+            pathsWithCompleteDatabaseAttribution: pathsWithCompleteDatabaseAttribution(in: databaseSessions))
         return mergedSessions(databaseSessions: databaseSessions, jsonlSessions: jsonlSessions)
     }
 
@@ -62,9 +62,9 @@ extension CodexReader {
             agentKind: existing.agentKind == .subagent ? .subagent : session.agentKind)
     }
 
-    private func pathsWithValidModel(in sessions: [CodexSession]) -> Set<String> {
+    func pathsWithCompleteDatabaseAttribution(in sessions: [CodexSession]) -> Set<String> {
         Set(sessions.compactMap { session in
-            normalizedModelID(session.model) == nil ? nil : session.rolloutPath
+            normalizedModelID(session.model) != nil && session.agentKind == .subagent ? session.rolloutPath : nil
         })
     }
 
@@ -114,7 +114,7 @@ extension CodexReader {
     private func overlappingSessionsFromJSONL(
         from startDate: Date,
         to endDate: Date,
-        pathsWithDatabaseModel: Set<String>) -> [CodexSession] {
+        pathsWithCompleteDatabaseAttribution: Set<String>) -> [CodexSession] {
         let calendar = Calendar.autoupdatingCurrent
         let startDay = calendar.startOfDay(for: startDate)
         let endDay = calendar.startOfDay(for: endDate)
@@ -153,7 +153,7 @@ extension CodexReader {
                     continue
                 }
 
-                guard !pathsWithDatabaseModel.contains(fileURL.path) else {
+                guard !pathsWithCompleteDatabaseAttribution.contains(fileURL.path) else {
                     continue
                 }
 
