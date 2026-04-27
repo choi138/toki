@@ -51,7 +51,7 @@ struct PanelTokenBreakdownView: View {
     var body: some View {
         VStack(spacing: 0) {
             StatRowView(
-                label: "Active Time",
+                label: "AI Work Time",
                 value: usage.workTime.wallClockSeconds.formattedWorkDuration(),
                 accent: Color(red: 0.95, green: 0.55, blue: 0.35),
                 isLoading: isLoading)
@@ -129,32 +129,11 @@ struct PanelWorkTimeView: View {
             if isLoading {
                 VStack(spacing: 0) {
                     PanelSectionCaption(title: "Summary")
-                    StatRowView(
-                        label: "Agent Work",
+                    WorkTimeTotalHeaderView(
                         value: "",
-                        accent: Color(red: 0.95, green: 0.55, blue: 0.35),
                         isLoading: true)
-                    StatRowView(
-                        label: "Active Time",
-                        value: "",
-                        accent: Color(red: 0.45, green: 0.8, blue: 1.0),
-                        isLoading: true)
-
-                    PanelSectionCaption(title: "Concurrency")
-                    StatRowView(
-                        label: "Parallel",
-                        value: "",
-                        accent: Color(red: 0.75, green: 0.65, blue: 1.0),
-                        isLoading: true)
-                    StatRowView(
-                        label: "Max Streams",
-                        value: "",
-                        accent: Color(red: 1.0, green: 0.8, blue: 0.35),
-                        isLoading: true)
-                    StatRowView(
-                        label: "Active Streams",
-                        value: "",
-                        accent: Color(red: 0.55, green: 0.9, blue: 0.65),
+                    WorkTimeRelationshipTableView(
+                        rows: loadingRelationshipRows,
                         isLoading: true)
                 }
                 .padding(.vertical, 6)
@@ -167,37 +146,193 @@ struct PanelWorkTimeView: View {
             } else {
                 VStack(spacing: 0) {
                     PanelSectionCaption(title: "Summary")
-                    StatRowView(
-                        label: "Agent Work",
-                        value: usage.workTime.agentSeconds.formattedWorkDuration(),
-                        accent: Color(red: 0.95, green: 0.55, blue: 0.35))
-                    StatRowView(
-                        label: "Active Time",
-                        value: usage.workTime.wallClockSeconds.formattedWorkDuration(),
-                        accent: Color(red: 0.45, green: 0.8, blue: 1.0))
-
-                    PanelSectionCaption(title: "Concurrency")
-                    StatRowView(
-                        label: "Parallel",
-                        value: formattedParallelMultiplier,
-                        accent: Color(red: 0.75, green: 0.65, blue: 1.0))
-                    StatRowView(
-                        label: "Max Streams",
-                        value: "\(usage.workTime.maxConcurrentStreams)",
-                        accent: Color(red: 1.0, green: 0.8, blue: 0.35))
-                    StatRowView(
-                        label: "Active Streams",
-                        value: "\(usage.workTime.activeStreamCount)",
-                        accent: Color(red: 0.55, green: 0.9, blue: 0.65))
+                    WorkTimeTotalHeaderView(
+                        value: usage.workTime.wallClockSeconds.formattedWorkDuration())
+                    WorkTimeRelationshipTableView(rows: relationshipRows)
                 }
                 .padding(.vertical, 6)
             }
         }
     }
 
+    private var relationshipRows: [WorkTimeRelationshipRow] {
+        [
+            WorkTimeRelationshipRow(
+                metric: "Main Agent",
+                relationship: "Direct work",
+                value: usage.workTime.mainAgentSeconds.formattedWorkDuration(),
+                accent: Color(red: 0.55, green: 0.9, blue: 0.65)),
+            WorkTimeRelationshipRow(
+                metric: "Subagents",
+                relationship: "Delegated work",
+                value: usage.workTime.subagentSeconds.formattedWorkDuration(),
+                accent: Color(red: 0.85, green: 0.68, blue: 1.0)),
+            WorkTimeRelationshipRow(
+                metric: "Total Work",
+                relationship: "Main + Subagents",
+                value: usage.workTime.agentSeconds.formattedWorkDuration(),
+                accent: Color(red: 0.95, green: 0.55, blue: 0.35)),
+            WorkTimeRelationshipRow(
+                metric: "AI Work Time",
+                relationship: "Overlap once",
+                value: usage.workTime.wallClockSeconds.formattedWorkDuration(),
+                accent: Color(red: 0.45, green: 0.8, blue: 1.0)),
+            WorkTimeRelationshipRow(
+                metric: "Parallel",
+                relationship: "Total Work / AI Work",
+                value: formattedParallelMultiplier,
+                accent: Color(red: 0.75, green: 0.65, blue: 1.0)),
+            WorkTimeRelationshipRow(
+                metric: "Streams",
+                relationship: "Active / Max",
+                value: "\(usage.workTime.activeStreamCount) / \(usage.workTime.maxConcurrentStreams)",
+                accent: Color(red: 1.0, green: 0.8, blue: 0.35)),
+        ]
+    }
+
+    private var loadingRelationshipRows: [WorkTimeRelationshipRow] {
+        [
+            WorkTimeRelationshipRow(
+                metric: "Main Agent",
+                relationship: "Direct work",
+                value: "",
+                accent: Color(red: 0.55, green: 0.9, blue: 0.65)),
+            WorkTimeRelationshipRow(
+                metric: "Subagents",
+                relationship: "Delegated work",
+                value: "",
+                accent: Color(red: 0.85, green: 0.68, blue: 1.0)),
+            WorkTimeRelationshipRow(
+                metric: "Total Work",
+                relationship: "Main + Subagents",
+                value: "",
+                accent: Color(red: 0.95, green: 0.55, blue: 0.35)),
+            WorkTimeRelationshipRow(
+                metric: "AI Work Time",
+                relationship: "Overlap once",
+                value: "",
+                accent: Color(red: 0.45, green: 0.8, blue: 1.0)),
+            WorkTimeRelationshipRow(
+                metric: "Parallel",
+                relationship: "Total Work / AI Work",
+                value: "",
+                accent: Color(red: 0.75, green: 0.65, blue: 1.0)),
+            WorkTimeRelationshipRow(
+                metric: "Streams",
+                relationship: "Active / Max",
+                value: "",
+                accent: Color(red: 1.0, green: 0.8, blue: 0.35)),
+        ]
+    }
+
     private var formattedParallelMultiplier: String {
         let multiplier = usage.workTime.parallelMultiplier
         guard multiplier.isFinite, multiplier > 0 else { return "N/A" }
         return String(format: "%.2fx", multiplier)
+    }
+}
+
+private struct WorkTimeTotalHeaderView: View {
+    let value: String
+    var isLoading = false
+
+    var body: some View {
+        HStack(alignment: .center, spacing: 10) {
+            RoundedRectangle(cornerRadius: 2)
+                .fill(Color(red: 0.95, green: 0.55, blue: 0.35).opacity(isLoading ? 0.18 : 0.8))
+                .frame(width: 3, height: 32)
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text("AI WORK TIME")
+                    .font(.system(size: 9, weight: .bold))
+                    .foregroundColor(Color.white.opacity(isLoading ? 0.22 : 0.38))
+                    .tracking(1.2)
+
+                if isLoading {
+                    SkeletonBar(width: 72, height: 22, cornerRadius: 5)
+                } else {
+                    Text(value)
+                        .font(.system(size: 24, weight: .bold, design: .rounded))
+                        .foregroundColor(.white.opacity(0.92))
+                }
+            }
+
+            Spacer()
+        }
+        .padding(.horizontal, 16)
+        .padding(.top, 6)
+        .padding(.bottom, 8)
+    }
+}
+
+private struct WorkTimeRelationshipRow {
+    let metric: String
+    let relationship: String
+    let value: String
+    let accent: Color
+}
+
+private struct WorkTimeRelationshipTableView: View {
+    let rows: [WorkTimeRelationshipRow]
+    var isLoading = false
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 0) {
+                tableHeader("Metric", width: 82, alignment: .leading)
+                tableHeader("Relationship", width: 112, alignment: .leading)
+                tableHeader("Value", width: nil, alignment: .trailing)
+            }
+            .padding(.horizontal, 16)
+            .padding(.top, 6)
+            .padding(.bottom, 5)
+
+            ForEach(Array(rows.enumerated()), id: \.offset) { _, row in
+                HStack(spacing: 0) {
+                    HStack(spacing: 6) {
+                        Circle()
+                            .fill(row.accent.opacity(isLoading ? 0.15 : 0.52))
+                            .frame(width: 5, height: 5)
+                        Text(row.metric)
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundColor(Color.white.opacity(isLoading ? 0.2 : 0.52))
+                            .lineLimit(1)
+                    }
+                    .frame(width: 82, alignment: .leading)
+
+                    Text(row.relationship)
+                        .font(.system(size: 11))
+                        .foregroundColor(Color.white.opacity(isLoading ? 0.16 : 0.35))
+                        .lineLimit(1)
+                        .frame(width: 112, alignment: .leading)
+
+                    Spacer(minLength: 8)
+
+                    if isLoading {
+                        SkeletonBar(width: skeletonWidth(for: row.metric), height: 10)
+                    } else {
+                        Text(row.value)
+                            .font(.system(size: 11, weight: .semibold, design: .rounded))
+                            .foregroundColor(Color.white.opacity(0.84))
+                            .lineLimit(1)
+                    }
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 6)
+            }
+        }
+    }
+
+    private func tableHeader(_ title: String, width: CGFloat?, alignment: Alignment) -> some View {
+        Text(title.uppercased())
+            .font(.system(size: 8, weight: .semibold))
+            .foregroundColor(Color.white.opacity(0.22))
+            .tracking(0.8)
+            .frame(width: width, alignment: alignment)
+    }
+
+    private func skeletonWidth(for value: String) -> CGFloat {
+        let seed = value.unicodeScalars.reduce(0) { $0 + Int($1.value) }
+        return CGFloat(34 + (seed % 24))
     }
 }

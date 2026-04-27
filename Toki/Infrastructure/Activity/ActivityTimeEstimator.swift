@@ -1,13 +1,32 @@
 import Foundation
 
+enum WorkTimeAgentKind: Hashable {
+    case main
+    case subagent
+}
+
 struct ActivityTimeEvent<Key: Hashable> {
     let streamID: String
     let timestamp: Date
     let key: Key?
+    let agentKind: WorkTimeAgentKind
+
+    init(
+        streamID: String,
+        timestamp: Date,
+        key: Key?,
+        agentKind: WorkTimeAgentKind = .main) {
+        self.streamID = streamID
+        self.timestamp = timestamp
+        self.key = key
+        self.agentKind = agentKind
+    }
 }
 
 struct ActivityTimeEstimate<Key: Hashable> {
     let totalSeconds: TimeInterval
+    let mainAgentSeconds: TimeInterval
+    let subagentSeconds: TimeInterval
     let wallClockSeconds: TimeInterval
     let activeStreamCount: Int
     let maxConcurrentStreams: Int
@@ -16,6 +35,8 @@ struct ActivityTimeEstimate<Key: Hashable> {
     static var zero: Self {
         ActivityTimeEstimate(
             totalSeconds: 0,
+            mainAgentSeconds: 0,
+            subagentSeconds: 0,
             wallClockSeconds: 0,
             activeStreamCount: 0,
             maxConcurrentStreams: 0,
@@ -28,6 +49,7 @@ private struct ActivityInterval<Key: Hashable> {
     let start: Date
     let end: Date
     let key: Key?
+    let agentKind: WorkTimeAgentKind
 }
 
 enum ActivityTimeEstimator {
@@ -47,6 +69,11 @@ enum ActivityTimeEstimator {
         guard !intervals.isEmpty else { return .zero }
 
         let totalSeconds = summedDurationByStream(intervals)
+        let secondsByAgentKind = Dictionary(
+            grouping: intervals,
+            by: \.agentKind).mapValues { intervalsForKind in
+            summedDurationByStream(intervalsForKind)
+        }
         let mergedStreamIntervals = mergedDateIntervalsByStream(intervals)
         let wallClockSeconds = mergedDuration(mergedStreamIntervals)
         let activeStreamCount = Set(intervals.map(\.streamID)).count
@@ -63,6 +90,8 @@ enum ActivityTimeEstimator {
 
         return ActivityTimeEstimate(
             totalSeconds: totalSeconds,
+            mainAgentSeconds: secondsByAgentKind[.main, default: 0],
+            subagentSeconds: secondsByAgentKind[.subagent, default: 0],
             wallClockSeconds: wallClockSeconds,
             activeStreamCount: activeStreamCount,
             maxConcurrentStreams: maxConcurrentStreams,
@@ -114,7 +143,8 @@ enum ActivityTimeEstimator {
                     streamID: current.streamID,
                     start: current.timestamp,
                     end: intervalEnd,
-                    key: current.key)
+                    key: current.key,
+                    agentKind: current.agentKind)
             }
         }
     }

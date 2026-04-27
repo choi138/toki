@@ -12,7 +12,7 @@ extension CodexReader {
         let jsonlSessions = overlappingSessionsFromJSONL(
             from: startDate,
             to: endDate,
-            pathsWithDatabaseModel: pathsWithValidModel(in: databaseSessions))
+            pathsWithCompleteDatabaseAttribution: pathsWithCompleteDatabaseAttribution(in: databaseSessions))
         return mergedSessions(databaseSessions: databaseSessions, jsonlSessions: jsonlSessions)
     }
 
@@ -47,17 +47,24 @@ extension CodexReader {
 
         guard normalizedModelID(existing.model) == nil,
               let model = normalizedModelID(session.model) else {
+            if existing.agentKind == .main, session.agentKind == .subagent {
+                sessionsByPath[session.rolloutPath] = CodexSession(
+                    rolloutPath: existing.rolloutPath,
+                    model: existing.model,
+                    agentKind: .subagent)
+            }
             return
         }
 
         sessionsByPath[session.rolloutPath] = CodexSession(
             rolloutPath: existing.rolloutPath,
-            model: model)
+            model: model,
+            agentKind: existing.agentKind == .subagent ? .subagent : session.agentKind)
     }
 
-    private func pathsWithValidModel(in sessions: [CodexSession]) -> Set<String> {
+    func pathsWithCompleteDatabaseAttribution(in sessions: [CodexSession]) -> Set<String> {
         Set(sessions.compactMap { session in
-            normalizedModelID(session.model) == nil ? nil : session.rolloutPath
+            normalizedModelID(session.model) != nil && session.agentKind == .subagent ? session.rolloutPath : nil
         })
     }
 
@@ -72,7 +79,7 @@ extension CodexReader {
         let startEpoch = startDate.timeIntervalSince1970
         let endEpoch = endDate.timeIntervalSince1970
         let query = """
-            SELECT DISTINCT rollout_path, COALESCE(model, '')
+            SELECT DISTINCT rollout_path, COALESCE(model, ''), source
             FROM threads
             WHERE updated_at >= ? AND created_at < ?
         """
@@ -93,8 +100,13 @@ extension CodexReader {
             guard let rolloutPathPointer = sqlite3_column_text(statement, 0) else { continue }
             let rolloutPath = String(cString: rolloutPathPointer)
             let rawModel = sqlite3_column_text(statement, 1).map { String(cString: $0) } ?? ""
+            let rawSource = sqlite3_column_text(statement, 2).map { String(cString: $0) } ?? ""
             let model = rawModel.isEmpty ? nil : rawModel
-            sessions.append(CodexSession(rolloutPath: rolloutPath, model: model))
+            sessions.append(
+                CodexSession(
+                    rolloutPath: rolloutPath,
+                    model: model,
+                    agentKind: codexAgentKind(fromSource: rawSource)))
         }
         return sessions
     }
@@ -102,7 +114,7 @@ extension CodexReader {
     private func overlappingSessionsFromJSONL(
         from startDate: Date,
         to endDate: Date,
-        pathsWithDatabaseModel: Set<String>) -> [CodexSession] {
+        pathsWithCompleteDatabaseAttribution: Set<String>) -> [CodexSession] {
         let calendar = Calendar.autoupdatingCurrent
         let startDay = calendar.startOfDay(for: startDate)
         let endDay = calendar.startOfDay(for: endDate)
@@ -141,11 +153,15 @@ extension CodexReader {
                     continue
                 }
 
-                guard !pathsWithDatabaseModel.contains(fileURL.path) else {
+                guard !pathsWithCompleteDatabaseAttribution.contains(fileURL.path) else {
                     continue
                 }
 
-                sessions.append(CodexSession(rolloutPath: fileURL.path, model: extractModel(from: fileURL)))
+                sessions.append(
+                    CodexSession(
+                        rolloutPath: fileURL.path,
+                        model: extractModel(from: fileURL),
+                        agentKind: extractAgentKind(from: fileURL)))
             }
         }
         return sessions
@@ -163,6 +179,19 @@ extension CodexReader {
             }
             return model
         }
+    }
+
+    private func extractAgentKind(from url: URL) -> WorkTimeAgentKind {
+        let decoder = JSONDecoder()
+        return firstJSONLLine(at: url) { line in
+            guard let lineData = line.data(using: .utf8),
+                  let entry = try? decoder.decode(CodexSessionMetaEntry.self, from: lineData),
+                  entry.type == "session_meta",
+                  let source = entry.payload?.source else {
+                return nil
+            }
+            return source.isSubagent ? .subagent : .main
+        } ?? .main
     }
 
     private func firstJSONLLine<T>(at url: URL, matching transform: (String) -> T?) -> T? {

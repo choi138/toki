@@ -71,6 +71,36 @@ final class ActivityTimeEstimatorTests: XCTestCase {
         XCTAssertEqual(estimate.secondsByKey["gpt-5.4"] ?? 0, 300, accuracy: 0.001)
     }
 
+    func test_activityTimeEstimator_splitsMainAndSubagentWorkTime() {
+        let events = [
+            ActivityTimeEvent<String>(
+                streamID: "main",
+                timestamp: isoDate("2026-04-10T00:00:00Z"),
+                key: "gpt-5.4"),
+            ActivityTimeEvent<String>(
+                streamID: "main",
+                timestamp: isoDate("2026-04-10T00:02:00Z"),
+                key: "gpt-5.4"),
+            ActivityTimeEvent<String>(
+                streamID: "subagent",
+                timestamp: isoDate("2026-04-10T00:01:00Z"),
+                key: "gpt-5.4",
+                agentKind: .subagent),
+            ActivityTimeEvent<String>(
+                streamID: "subagent",
+                timestamp: isoDate("2026-04-10T00:03:00Z"),
+                key: "gpt-5.4",
+                agentKind: .subagent),
+        ]
+
+        let estimate = ActivityTimeEstimator.estimate(events: events)
+
+        XCTAssertEqual(estimate.totalSeconds, 300, accuracy: 0.001)
+        XCTAssertEqual(estimate.mainAgentSeconds, 150, accuracy: 0.001)
+        XCTAssertEqual(estimate.subagentSeconds, 150, accuracy: 0.001)
+        XCTAssertEqual(estimate.wallClockSeconds, 210, accuracy: 0.001)
+    }
+
     func test_activityTimeEstimator_clampsMinimumSliceToRangeEnd() {
         let events = [
             ActivityTimeEvent<String>(

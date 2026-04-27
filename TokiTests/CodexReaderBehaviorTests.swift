@@ -57,6 +57,35 @@ final class CodexReaderBehaviorTests: XCTestCase {
         XCTAssertEqual(combined.workTime.maxConcurrentStreams, 1)
     }
 
+    func test_codexReader_marksSubagentRolloutWorkTime() {
+        let usage = CodexReader.usage(
+            fromRolloutLines: [
+                tokenCountLine(
+                    ts: "2026-04-10T00:00:00Z",
+                    input: 120,
+                    cachedInput: 20,
+                    output: 30,
+                    reasoning: 5,
+                    total: 150),
+                tokenCountLine(
+                    ts: "2026-04-10T00:02:00Z",
+                    input: 160,
+                    cachedInput: 20,
+                    output: 40,
+                    reasoning: 10,
+                    total: 200),
+            ],
+            model: "gpt-5.4-mini",
+            from: codexBehaviorISODate("2026-04-10T00:00:00Z"),
+            to: codexBehaviorISODate("2026-04-10T23:00:00Z"),
+            streamID: "rollout-a",
+            agentKind: .subagent)
+
+        XCTAssertEqual(usage.workTime.agentSeconds, 150, accuracy: 0.001)
+        XCTAssertEqual(usage.workTime.mainAgentSeconds, 0, accuracy: 0.001)
+        XCTAssertEqual(usage.workTime.subagentSeconds, 150, accuracy: 0.001)
+    }
+
     func test_codexReader_mergesMissingDatabaseModelFromJsonlSession() {
         let merged = CodexReader().mergedSessions(
             databaseSessions: [
@@ -68,6 +97,39 @@ final class CodexReaderBehaviorTests: XCTestCase {
 
         XCTAssertEqual(merged.count, 1)
         XCTAssertEqual(merged.first?.model, "gpt-5.4")
+    }
+
+    func test_codexReader_preservesSubagentKindWhenMergingDuplicateSessions() {
+        let merged = CodexReader().mergedSessions(
+            databaseSessions: [
+                CodexSession(rolloutPath: "/tmp/rollout-a.jsonl", model: "gpt-5.4"),
+            ],
+            jsonlSessions: [
+                CodexSession(rolloutPath: "/tmp/rollout-a.jsonl", model: nil, agentKind: .subagent),
+            ])
+
+        XCTAssertEqual(merged.count, 1)
+        XCTAssertEqual(merged.first?.agentKind, .subagent)
+    }
+
+    func test_codexReader_keepsJsonlLookupWhenDatabaseModelMayNeedAgentKind() {
+        let skippedPaths = CodexReader().pathsWithCompleteDatabaseAttribution(
+            in: [
+                CodexSession(rolloutPath: "/tmp/main-with-model.jsonl", model: "gpt-5.4"),
+                CodexSession(rolloutPath: "/tmp/subagent-with-model.jsonl", model: "gpt-5.4", agentKind: .subagent),
+                CodexSession(rolloutPath: "/tmp/subagent-without-model.jsonl", model: nil, agentKind: .subagent),
+            ])
+
+        XCTAssertEqual(skippedPaths, ["/tmp/subagent-with-model.jsonl"])
+    }
+
+    func test_codexAgentKindDetectsSubagentSource() {
+        XCTAssertEqual(codexAgentKind(fromSource: "cli"), .main)
+        XCTAssertEqual(codexAgentKind(fromSource: #"{"subagent":"review"}"#), .subagent)
+        XCTAssertEqual(
+            codexAgentKind(
+                fromSource: #"{"subagent":{"thread_spawn":{"parent_thread_id":"parent","depth":1}}}"#),
+            .subagent)
     }
 
     func test_codexReader_prefersDatabaseModelWhenDuplicateRowsIncludeNil() {
