@@ -30,6 +30,7 @@ struct CodexReader: TokenReader {
             let cachedUsageForSession = await Self.cachedUsage(
                 fromRolloutAt: url,
                 model: session.model,
+                agentKind: session.agentKind,
                 from: startDate,
                 to: endDate)
             guard !Task.isCancelled else { break }
@@ -37,6 +38,7 @@ struct CodexReader: TokenReader {
             let sessionEvents = await Self.activityEvents(
                 fromRolloutAt: url,
                 model: session.model,
+                agentKind: session.agentKind,
                 from: startDate,
                 to: endDate)
             guard !Task.isCancelled else { break }
@@ -67,6 +69,10 @@ extension CodexReader {
 
         var sanitizedUsage = usage
         sanitizedUsage.activeSeconds = 0
+        sanitizedUsage.workTime = .zero
+        sanitizedUsage.fallbackWorkTime = .zero
+        sanitizedUsage.fallbackActiveSeconds = 0
+        sanitizedUsage.fallbackActiveSecondsByModel = [:]
         sanitizedUsage.perModel = sanitizedUsage.perModel.mapValues { usage in
             var sanitizedPerModelUsage = usage
             sanitizedPerModelUsage.activeSeconds = 0
@@ -93,6 +99,7 @@ extension CodexReader {
         from startDate: Date,
         to endDate: Date,
         streamID: String,
+        agentKind: WorkTimeAgentKind = .main,
         includeActivity: Bool = true) -> RawTokenUsage {
         let normalizedModel = normalizedModelID(model)
 
@@ -142,7 +149,8 @@ extension CodexReader {
                     ActivityTimeEvent(
                         streamID: streamID,
                         timestamp: timestamp,
-                        key: normalizedModel)
+                        key: normalizedModel,
+                        agentKind: agentKind)
                 },
                 source: "Codex",
                 clippingEndDate: endDate)
@@ -154,6 +162,7 @@ extension CodexReader {
     private static func usage(
         fromDailyUsage dailyUsage: [String: CodexCachedDailyUsage],
         model: String?,
+        agentKind: WorkTimeAgentKind,
         from startDate: Date,
         to endDate: Date) -> RawTokenUsage {
         guard !dailyUsage.isEmpty else { return RawTokenUsage() }
@@ -202,6 +211,17 @@ extension CodexReader {
 
             guard let nextDay = calendar.date(byAdding: .day, value: 1, to: currentDay) else { break }
             currentDay = nextDay
+        }
+
+        if result.activeSeconds > 0 {
+            let streamCount = result.activeSeconds > 0 ? 1 : 0
+            result.workTime = WorkTimeMetrics(
+                agentSeconds: result.activeSeconds,
+                wallClockSeconds: result.activeSeconds,
+                activeStreamCount: streamCount,
+                maxConcurrentStreams: streamCount,
+                mainAgentSeconds: agentKind == .main ? result.activeSeconds : 0,
+                subagentSeconds: agentKind == .subagent ? result.activeSeconds : 0)
         }
 
         return result
@@ -255,6 +275,7 @@ private extension CodexReader {
     private static func cachedUsage(
         fromRolloutAt url: URL,
         model: String?,
+        agentKind: WorkTimeAgentKind,
         from startDate: Date,
         to endDate: Date) async -> RawTokenUsage {
         guard !Task.isCancelled else { return RawTokenUsage() }
@@ -285,12 +306,18 @@ private extension CodexReader {
                 for: url)
         }
 
-        return usage(fromDailyUsage: rolloutDailyUsage, model: model, from: startDate, to: endDate)
+        return usage(
+            fromDailyUsage: rolloutDailyUsage,
+            model: model,
+            agentKind: agentKind,
+            from: startDate,
+            to: endDate)
     }
 
     private static func activityEvents(
         fromRolloutAt url: URL,
         model: String?,
+        agentKind: WorkTimeAgentKind,
         from startDate: Date,
         to endDate: Date) async -> [ActivityTimeEvent<String>] {
         guard !Task.isCancelled else { return [] }
@@ -313,7 +340,8 @@ private extension CodexReader {
                             ActivityTimeEvent(
                                 streamID: url.path,
                                 timestamp: Date(timeIntervalSince1970: timestamp),
-                                key: normalizedModel)
+                                key: normalizedModel,
+                                agentKind: agentKind)
                         })
                 }
 
@@ -348,6 +376,7 @@ private extension CodexReader {
                 fromCachedTimestamps: dailyActivityTimestamps,
                 streamID: url.path,
                 model: normalizedModel,
+                agentKind: agentKind,
                 from: startDate,
                 to: endDate)
         }
@@ -365,7 +394,8 @@ private extension CodexReader {
             return ActivityTimeEvent(
                 streamID: url.path,
                 timestamp: entry.date,
-                key: normalizedModel)
+                key: normalizedModel,
+                agentKind: agentKind)
         }
     }
 
@@ -373,6 +403,7 @@ private extension CodexReader {
         fromCachedTimestamps cached: [String: [TimeInterval]],
         streamID: String,
         model: String?,
+        agentKind: WorkTimeAgentKind,
         from startDate: Date,
         to endDate: Date) -> [ActivityTimeEvent<String>] {
         let calendar = Calendar.current
@@ -389,7 +420,8 @@ private extension CodexReader {
                         ActivityTimeEvent(
                             streamID: streamID,
                             timestamp: Date(timeIntervalSince1970: timestamp),
-                            key: model)
+                            key: model,
+                            agentKind: agentKind)
                     })
             }
 

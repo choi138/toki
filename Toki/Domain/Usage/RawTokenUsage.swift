@@ -31,10 +31,27 @@ struct PerModelUsage {
 }
 
 struct WorkTimeMetrics {
-    var agentSeconds: TimeInterval = 0
-    var wallClockSeconds: TimeInterval = 0
-    var activeStreamCount = 0
-    var maxConcurrentStreams = 0
+    var agentSeconds: TimeInterval
+    var mainAgentSeconds: TimeInterval
+    var subagentSeconds: TimeInterval
+    var wallClockSeconds: TimeInterval
+    var activeStreamCount: Int
+    var maxConcurrentStreams: Int
+
+    init(
+        agentSeconds: TimeInterval = 0,
+        wallClockSeconds: TimeInterval = 0,
+        activeStreamCount: Int = 0,
+        maxConcurrentStreams: Int = 0,
+        mainAgentSeconds: TimeInterval? = nil,
+        subagentSeconds: TimeInterval = 0) {
+        self.agentSeconds = agentSeconds
+        self.wallClockSeconds = wallClockSeconds
+        self.activeStreamCount = activeStreamCount
+        self.maxConcurrentStreams = maxConcurrentStreams
+        self.subagentSeconds = max(0, subagentSeconds)
+        self.mainAgentSeconds = max(0, mainAgentSeconds ?? agentSeconds - self.subagentSeconds)
+    }
 
     static let zero = WorkTimeMetrics()
 
@@ -44,7 +61,8 @@ struct WorkTimeMetrics {
             agentSeconds: activeSeconds,
             wallClockSeconds: activeSeconds,
             activeStreamCount: streamCount,
-            maxConcurrentStreams: streamCount)
+            maxConcurrentStreams: streamCount,
+            mainAgentSeconds: activeSeconds)
     }
 
     /// Merges metrics when their time windows cannot be aligned. This sums
@@ -58,7 +76,9 @@ struct WorkTimeMetrics {
             agentSeconds: agentSeconds + other.agentSeconds,
             wallClockSeconds: wallClockSeconds + other.wallClockSeconds,
             activeStreamCount: activeStreamCount + other.activeStreamCount,
-            maxConcurrentStreams: max(maxConcurrentStreams, other.maxConcurrentStreams))
+            maxConcurrentStreams: max(maxConcurrentStreams, other.maxConcurrentStreams),
+            mainAgentSeconds: mainAgentSeconds + other.mainAgentSeconds,
+            subagentSeconds: subagentSeconds + other.subagentSeconds)
     }
 
     var parallelMultiplier: Double {
@@ -68,6 +88,8 @@ struct WorkTimeMetrics {
 
     var hasActivity: Bool {
         agentSeconds > 0
+            || mainAgentSeconds > 0
+            || subagentSeconds > 0
             || wallClockSeconds > 0
             || activeStreamCount > 0
             || maxConcurrentStreams > 0

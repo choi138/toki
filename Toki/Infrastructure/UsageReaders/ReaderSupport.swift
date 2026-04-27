@@ -89,7 +89,9 @@ extension RawTokenUsage {
             agentSeconds: estimate.totalSeconds,
             wallClockSeconds: estimate.wallClockSeconds,
             activeStreamCount: estimate.activeStreamCount,
-            maxConcurrentStreams: estimate.maxConcurrentStreams)
+            maxConcurrentStreams: estimate.maxConcurrentStreams,
+            mainAgentSeconds: estimate.mainAgentSeconds,
+            subagentSeconds: estimate.subagentSeconds)
         // Fallback rows have no timestamps, so they are added as separate active
         // time while peak concurrency only reflects observed stream overlap.
         workTime = fallbackWorkTime.mergedConservatively(with: estimatedWorkTime)

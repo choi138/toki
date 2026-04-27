@@ -278,6 +278,76 @@ struct CodexModelEntry: Decodable {
 struct CodexSession {
     let rolloutPath: String
     let model: String?
+    let agentKind: WorkTimeAgentKind
+
+    init(
+        rolloutPath: String,
+        model: String?,
+        agentKind: WorkTimeAgentKind = .main) {
+        self.rolloutPath = rolloutPath
+        self.model = model
+        self.agentKind = agentKind
+    }
+}
+
+func codexAgentKind(fromSource source: String?) -> WorkTimeAgentKind {
+    guard let source = source?.trimmingCharacters(in: .whitespacesAndNewlines),
+          !source.isEmpty else {
+        return .main
+    }
+
+    if source == "subagent" {
+        return .subagent
+    }
+
+    guard let data = source.data(using: .utf8),
+          let marker = try? JSONDecoder().decode(CodexSourceMarker.self, from: data) else {
+        return .main
+    }
+    return marker.isSubagent ? .subagent : .main
+}
+
+struct CodexSessionMetaEntry: Decodable {
+    let type: String?
+    let payload: Payload?
+
+    struct Payload: Decodable {
+        let source: CodexSourceMarker?
+    }
+}
+
+struct CodexSourceMarker: Decodable {
+    let isSubagent: Bool
+
+    init(from decoder: Decoder) throws {
+        if let container = try? decoder.singleValueContainer(),
+           let value = try? container.decode(String.self) {
+            isSubagent = value == "subagent"
+            return
+        }
+
+        guard let container = try? decoder.container(keyedBy: DynamicCodingKey.self),
+              let subagentKey = DynamicCodingKey(stringValue: "subagent") else {
+            isSubagent = false
+            return
+        }
+
+        isSubagent = container.contains(subagentKey)
+    }
+}
+
+struct DynamicCodingKey: CodingKey {
+    let stringValue: String
+    let intValue: Int?
+
+    init?(stringValue: String) {
+        self.stringValue = stringValue
+        intValue = nil
+    }
+
+    init?(intValue: Int) {
+        return nil
+    }
 }
 
 struct CodexRolloutEntry: Decodable {
