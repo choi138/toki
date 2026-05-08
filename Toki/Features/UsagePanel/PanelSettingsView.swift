@@ -2,6 +2,7 @@ import ServiceManagement
 import SwiftUI
 
 struct PanelSettingsView: View {
+    @Environment(\.dismiss) private var dismiss
     @ObservedObject var settings: UsagePanelSettings
 
     private let readerNames: [String]
@@ -63,6 +64,18 @@ struct PanelSettingsView: View {
                 .font(.system(size: 13, weight: .semibold))
                 .foregroundColor(.white)
             Spacer()
+            Button {
+                dismiss()
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundColor(Color.white.opacity(0.42))
+                    .frame(width: 18, height: 18)
+                    .contentShape(Rectangle())
+                    .accessibilityHidden(true)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(Text("Close settings"))
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 12)
