@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Development conventions documenting the SwiftFormat, SwiftLint, SwiftUI, and test expectations for ongoing refactors.
+- GitHub Actions release workflow for manual and tag-triggered macOS release artifact builds.
+- Release documentation covering workflow usage and required signing/notarization secrets.
+- Sources tab with per-agent totals, reader status diagnostics, and CSV/JSON copy export.
+- Settings panel for refresh interval, reader enablement, zero-row display, and Launch at Login.
+- Pricing lookup diagnostics for exact, prefix, and missing model price matches.
+
 ## [1.0.0] - 2026-04-08
 
 ### Added

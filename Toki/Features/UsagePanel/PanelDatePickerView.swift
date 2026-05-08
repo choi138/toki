@@ -1,7 +1,15 @@
 import SwiftUI
 
 struct PanelDatePickerView: View {
-    @ObservedObject var service: UsageService
+    let startDate: Date
+    let endDate: Date
+    @Binding var isRangeMode: Bool
+    let isSingleDay: Bool
+    let selectDay: (Date) -> Void
+    let selectRangeStart: (Date) -> Void
+    let selectRangeEnd: (Date) -> Void
+    let refresh: () -> Void
+
     @State private var showStartPicker = false
     @State private var showEndPicker = false
 
@@ -10,7 +18,7 @@ struct PanelDatePickerView: View {
     }
 
     private var isToday: Bool {
-        calendar.isDateInToday(service.startDate) && service.isSingleDay
+        calendar.isDateInToday(startDate) && isSingleDay
     }
 
     private static let fullDateFormatter: DateFormatter = {
@@ -29,7 +37,7 @@ struct PanelDatePickerView: View {
 
     var body: some View {
         HStack(spacing: 0) {
-            if service.isRangeMode {
+            if isRangeMode {
                 rangeRow
             } else {
                 singleDayRow
@@ -42,22 +50,23 @@ struct PanelDatePickerView: View {
             }
 
             Button {
-                service.isRangeMode.toggle()
-                if !service.isRangeMode {
-                    service.selectDay(service.startDate)
+                isRangeMode.toggle()
+                if !isRangeMode {
+                    selectDay(startDate)
+                } else {
+                    refresh()
                 }
-                Task { await service.refresh() }
             } label: {
-                Image(systemName: service.isRangeMode ? "calendar.badge.minus" : "calendar")
+                Image(systemName: isRangeMode ? "calendar.badge.minus" : "calendar")
                     .font(.system(size: 12))
                     .foregroundColor(
-                        service.isRangeMode
+                        isRangeMode
                             ? Color(red: 0.55, green: 0.45, blue: 1.0)
                             : Color.white.opacity(0.3))
             }
             .buttonStyle(.plain)
             .accessibilityLabel(
-                service.isRangeMode ? "Switch to single day" : "Switch to date range")
+                isRangeMode ? "Switch to single day" : "Switch to date range")
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 9)
@@ -65,9 +74,8 @@ struct PanelDatePickerView: View {
 
     private var todayButton: some View {
         Button {
-            service.isRangeMode = false
-            service.selectDay(Date())
-            Task { await service.refresh() }
+            isRangeMode = false
+            selectDay(Date())
         } label: {
             Text("Today")
                 .font(.system(size: 10, weight: .medium))
@@ -84,12 +92,11 @@ struct PanelDatePickerView: View {
     private var singleDayRow: some View {
         HStack(spacing: 10) {
             navButton(icon: "chevron.left", accessibilityLabel: "Previous day") {
-                service.selectDay(calendar.date(byAdding: .day, value: -1, to: service.startDate)!)
-                Task { await service.refresh() }
+                selectDay(calendar.date(byAdding: .day, value: -1, to: startDate)!)
             }
 
             Button { showStartPicker.toggle() } label: {
-                Text(Self.fullDateFormatter.string(from: service.startDate))
+                Text(Self.fullDateFormatter.string(from: startDate))
                     .font(.system(size: 12, weight: .medium))
                     .foregroundColor(.white)
             }
@@ -97,13 +104,12 @@ struct PanelDatePickerView: View {
             .popover(isPresented: $showStartPicker, arrowEdge: .bottom) {
                 calendarPicker(
                     date: Binding(
-                        get: { service.startDate },
+                        get: { startDate },
                         set: { selectedDate in
                             let newDay = calendar.startOfDay(for: selectedDate)
                             showStartPicker = false
-                            guard newDay != service.startDate else { return }
-                            service.selectDay(newDay)
-                            Task { await service.refresh() }
+                            guard newDay != startDate else { return }
+                            selectDay(newDay)
                         }))
             }
 
@@ -111,10 +117,9 @@ struct PanelDatePickerView: View {
                 icon: "chevron.right",
                 disabled: isToday,
                 accessibilityLabel: "Next day") {
-                    let nextDay = calendar.date(byAdding: .day, value: 1, to: service.startDate)!
+                    let nextDay = calendar.date(byAdding: .day, value: 1, to: startDate)!
                     guard nextDay <= Date() else { return }
-                    service.selectDay(nextDay)
-                    Task { await service.refresh() }
+                    selectDay(nextDay)
                 }
         }
     }
@@ -122,16 +127,15 @@ struct PanelDatePickerView: View {
     private var rangeRow: some View {
         HStack(spacing: 6) {
             Button { showStartPicker.toggle() } label: {
-                dateChip(Self.shortDateFormatter.string(from: service.startDate))
+                dateChip(Self.shortDateFormatter.string(from: startDate))
             }
             .buttonStyle(.plain)
             .popover(isPresented: $showStartPicker, arrowEdge: .bottom) {
                 calendarPicker(
                     date: Binding(
-                        get: { service.startDate },
+                        get: { startDate },
                         set: { selectedDate in
-                            service.selectRangeStart(selectedDate)
-                            Task { await service.refresh() }
+                            selectRangeStart(selectedDate)
                             showStartPicker = false
                         }))
             }
@@ -143,16 +147,15 @@ struct PanelDatePickerView: View {
             Button { showEndPicker.toggle() } label: {
                 dateChip(
                     Self.shortDateFormatter.string(
-                        from: calendar.date(byAdding: .day, value: -1, to: service.endDate) ?? service.endDate))
+                        from: calendar.date(byAdding: .day, value: -1, to: endDate) ?? endDate))
             }
             .buttonStyle(.plain)
             .popover(isPresented: $showEndPicker, arrowEdge: .bottom) {
                 calendarPicker(
                     date: Binding(
-                        get: { calendar.date(byAdding: .day, value: -1, to: service.endDate) ?? service.endDate },
+                        get: { calendar.date(byAdding: .day, value: -1, to: endDate) ?? endDate },
                         set: { selectedDate in
-                            service.selectRangeEnd(selectedDate)
-                            Task { await service.refresh() }
+                            selectRangeEnd(selectedDate)
                             showEndPicker = false
                         }))
             }

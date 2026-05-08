@@ -17,11 +17,11 @@ struct PanelSectionCaption: View {
     }
 }
 
-struct ModelStatRowView: View {
+struct ModelStatRowView: View, Equatable {
     let stat: ModelStat
 
     var body: some View {
-        let hasValidCost = stat.cost.isFinite && stat.cost > 0
+        let hasValidCost = stat.isPriceKnown && stat.cost.isFinite && stat.cost > 0
 
         HStack(alignment: .center, spacing: 6) {
             Circle()
@@ -69,6 +69,9 @@ struct ModelStatRowView: View {
     }
 
     private var timeSummary: String {
+        if !stat.isPriceKnown, stat.totalTokens > 0 {
+            return "unpriced"
+        }
         if stat.activeSeconds > 0 {
             return "\(stat.activeSeconds.formattedWorkDuration()) used"
         }
@@ -76,7 +79,7 @@ struct ModelStatRowView: View {
     }
 }
 
-struct ContextOnlyModelStatRowView: View {
+struct ContextOnlyModelStatRowView: View, Equatable {
     let stat: ContextOnlyModelStat
 
     var body: some View {

@@ -5,6 +5,7 @@ struct PanelHeaderView: View {
     let isLoading: Bool
     let lastFetchedAt: Date?
     let onRefresh: () -> Void
+    let onSettings: () -> Void
 
     private static let timeFormatter: DateFormatter = {
         let formatter = DateFormatter()
@@ -32,6 +33,15 @@ struct PanelHeaderView: View {
                     .font(.system(size: 10))
                     .foregroundColor(Color.white.opacity(0.25))
             }
+            Button(action: onSettings) {
+                Image(systemName: "gearshape")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundColor(Color.white.opacity(0.4))
+                    .accessibilityHidden(true)
+            }
+            .buttonStyle(.plain)
+            .padding(.leading, 6)
+            .accessibilityLabel(Text("Settings"))
             Button(action: onRefresh) {
                 Group {
                     if isLoading {

@@ -26,6 +26,7 @@ struct PanelByModelView: View {
                     if !usage.perModel.isEmpty {
                         ForEach(usage.perModel, id: \.id) { stat in
                             ModelStatRowView(stat: stat)
+                                .equatable()
                         }
                     }
 
@@ -34,6 +35,7 @@ struct PanelByModelView: View {
 
                         ForEach(usage.contextOnlyModels, id: \.id) { stat in
                             ContextOnlyModelStatRowView(stat: stat)
+                                .equatable()
                         }
 
                         Text("Excluded from Total Tokens. Cursor stores context-window size for these rows.")

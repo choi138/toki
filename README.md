@@ -24,7 +24,9 @@ A macOS menu bar app that tracks daily token usage and costs across multiple AI 
 - **Menu bar access** — click the white rabbit icon in the status bar to open a popover
 - **Overview tab** — see Total Tokens, Input, Output, Cache Read, Cache Hit, and Cost at a glance
 - **By Model tab** — break down token usage and cost per model
+- **Sources tab** — compare usage by agent, copy CSV/JSON exports, and inspect reader status
 - **Date selection** — pick a single day or a custom date range
+- **Settings** — adjust refresh interval, enable/disable readers, and launch at login
 - **Trend comparison** — ↑↓ indicators show how today compares to yesterday
 - **Auto-refresh** — data updates every 3 minutes automatically
 - **Manual refresh** — hit the refresh button to update on demand
@@ -75,6 +77,50 @@ open Toki.xcodeproj
 ```
 
 Then build and run the scheme in Xcode.
+
+---
+
+## Development Conventions
+
+Swift has official [API Design Guidelines](https://www.swift.org/documentation/api-design-guidelines/),
+but no single mandatory Apple formatting style. Toki follows the local
+SwiftFormat and SwiftLint configuration in this repository.
+
+- Use 4 spaces and keep lines near 120 columns.
+- Use `lowerCamelCase` for values/functions and `UpperCamelCase` for types.
+- Keep SwiftUI views small; move domain logic out of `body` implementations.
+- Reuse cached formatters for repeated date, number, and currency formatting.
+
+Required checks before opening a PR:
+
+```bash
+swiftformat . --lint
+swiftlint lint --strict --quiet
+xcodegen generate
+xcodebuild test \
+  -project Toki.xcodeproj \
+  -scheme TokiTests \
+  -destination "platform=macOS" \
+  CODE_SIGN_IDENTITY="" \
+  CODE_SIGNING_REQUIRED=NO \
+  CODE_SIGNING_ALLOWED=NO
+```
+
+---
+
+## Release
+
+Releases are built by the GitHub Actions **Release** workflow. Run it manually
+from Actions with `workflow_dispatch`, or push a version tag such as `v1.0.1`.
+The workflow regenerates the Xcode project with XcodeGen, archives the Release
+scheme, exports `Toki.app`, and uploads zipped app and dSYM artifacts.
+
+Unsigned artifacts are produced when signing secrets are not configured. To
+build a signed, notarization-ready archive, configure these repository secrets:
+`BUILD_CERTIFICATE_BASE64`, `P12_PASSWORD`, `KEYCHAIN_PASSWORD`,
+`DEVELOPMENT_TEAM`, and `CODE_SIGN_IDENTITY`. Optional secrets are
+`PROVISIONING_PROFILE_BASE64` for a provisioning profile and `NOTARY_APPLE_ID`,
+`NOTARY_PASSWORD`, `NOTARY_TEAM_ID` for notarization submission.
 
 ---
 

@@ -1,23 +1,36 @@
+import Combine
 import SwiftUI
 
 enum PanelTab {
     case overview
     case byModel
+    case sources
     case workTime
 }
 
 struct UsagePanelView: View {
-    @StateObject private var service = UsageService()
+    @StateObject private var viewModel = UsagePanelViewModel()
     @State private var activeTab: PanelTab = .overview
+    @State private var isShowingSettings = false
+    @State private var refreshCoordinator = UsagePanelRefreshCoordinator()
 
     var body: some View {
         VStack(spacing: 0) {
             PanelHeaderView(
-                isLoading: service.isLoading,
-                lastFetchedAt: service.lastFetchedAt,
-                onRefresh: { Task { await service.refresh() } })
+                isLoading: viewModel.isLoading,
+                lastFetchedAt: viewModel.lastFetchedAt,
+                onRefresh: refresh,
+                onSettings: { isShowingSettings = true })
             panelDivider
-            PanelDatePickerView(service: service)
+            PanelDatePickerView(
+                startDate: viewModel.startDate,
+                endDate: viewModel.endDate,
+                isRangeMode: $viewModel.isRangeMode,
+                isSingleDay: viewModel.isSingleDay,
+                selectDay: selectDay,
+                selectRangeStart: selectRangeStart,
+                selectRangeEnd: selectRangeEnd,
+                refresh: refresh)
             panelDivider
             PanelTabBarView(activeTab: $activeTab)
             panelDivider
@@ -25,17 +38,22 @@ struct UsagePanelView: View {
                 switch activeTab {
                 case .overview:
                     PanelHeroView(
-                        usage: service.usageData,
-                        isLoading: service.isLoading,
-                        yesterdayTotal: service.shouldCompareAgainstYesterday
-                            ? service.yesterdayTotalTokens
+                        usage: viewModel.usageData,
+                        isLoading: viewModel.isLoading,
+                        yesterdayTotal: viewModel.shouldCompareAgainstYesterday
+                            ? viewModel.yesterdayTotalTokens
                             : nil)
                     panelDivider
-                    PanelTokenBreakdownView(usage: service.usageData, isLoading: service.isLoading)
+                    PanelTokenBreakdownView(usage: viewModel.usageData, isLoading: viewModel.isLoading)
                 case .byModel:
-                    PanelByModelView(usage: service.usageData, isLoading: service.isLoading)
+                    PanelByModelView(usage: viewModel.usageData, isLoading: viewModel.isLoading)
+                case .sources:
+                    PanelSourceView(
+                        usage: viewModel.usageData,
+                        readerStatuses: viewModel.readerStatuses,
+                        isLoading: viewModel.isLoading)
                 case .workTime:
-                    PanelWorkTimeView(usage: service.usageData, isLoading: service.isLoading)
+                    PanelWorkTimeView(usage: viewModel.usageData, isLoading: viewModel.isLoading)
                 }
             }
             panelDivider
@@ -44,14 +62,23 @@ struct UsagePanelView: View {
         .frame(width: 280)
         .background(Color(red: 0.09, green: 0.09, blue: 0.11))
         .preferredColorScheme(.dark)
-        .task {
-            await service.refresh()
-            while !Task.isCancelled {
-                try? await Task.sleep(for: .seconds(180))
-                if !Task.isCancelled {
-                    await service.refresh()
-                }
-            }
+        .sheet(isPresented: $isShowingSettings) {
+            PanelSettingsView(settings: viewModel.settings, readerNames: viewModel.readerNames)
+        }
+        .onAppear {
+            startRefreshLoop(refreshImmediately: true)
+        }
+        .onDisappear {
+            refreshCoordinator.cancel()
+        }
+        .onReceive(viewModel.settings.$enabledReaderNames.dropFirst()) { _ in
+            scheduleSettingsRefresh()
+        }
+        .onReceive(viewModel.settings.$showsZeroSourceRows.dropFirst()) { _ in
+            scheduleSettingsRefresh()
+        }
+        .onReceive(viewModel.settings.refreshIntervalPublisher.dropFirst()) { _ in
+            startRefreshLoop(refreshImmediately: false)
         }
     }
 
@@ -59,5 +86,37 @@ struct UsagePanelView: View {
         Rectangle()
             .fill(Color.white.opacity(0.07))
             .frame(height: 0.5)
+    }
+
+    private func refresh() {
+        Task { await viewModel.refresh() }
+    }
+
+    private func selectDay(_ date: Date) {
+        viewModel.selectDay(date)
+        refresh()
+    }
+
+    private func selectRangeStart(_ date: Date) {
+        viewModel.selectRangeStart(date)
+        refresh()
+    }
+
+    private func selectRangeEnd(_ date: Date) {
+        viewModel.selectRangeEnd(date)
+        refresh()
+    }
+
+    private func startRefreshLoop(refreshImmediately: Bool) {
+        refreshCoordinator.startLoop(
+            refreshImmediately: refreshImmediately,
+            intervalSeconds: { viewModel.settings.refreshIntervalSeconds },
+            refresh: { await viewModel.refresh() })
+    }
+
+    private func scheduleSettingsRefresh() {
+        refreshCoordinator.scheduleSettingsRefresh {
+            await viewModel.refresh()
+        }
     }
 }
