@@ -30,7 +30,7 @@ struct PerModelUsage {
     var sources: Set<String> = []
 }
 
-struct WorkTimeMetrics {
+struct WorkTimeMetrics: Equatable {
     var agentSeconds: TimeInterval
     var mainAgentSeconds: TimeInterval
     var subagentSeconds: TimeInterval
@@ -126,6 +126,17 @@ struct RawTokenUsage {
         if fallbackActiveSeconds > 0 { return .fallback(activeSeconds: fallbackActiveSeconds) }
         if activityEvents.isEmpty { return resolvedWorkTime }
         return .zero
+    }
+
+    var hasReportableData: Bool {
+        totalTokens > 0
+            || cost > 0
+            || activeSeconds > 0
+            || workTime.hasActivity
+            || fallbackWorkTime.hasActivity
+            || fallbackActiveSeconds > 0
+            || !perModel.isEmpty
+            || !supplemental.isEmpty
     }
 }
 

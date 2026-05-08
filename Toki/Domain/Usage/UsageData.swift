@@ -2,15 +2,54 @@ import Foundation
 
 // MARK: - Per-Model Stat (for view layer)
 
-struct ModelStat {
+struct ModelStat: Equatable {
     let id: String
     let totalTokens: Int
     let cost: Double
     let activeSeconds: TimeInterval
     let sources: [String]
+    let isPriceKnown: Bool
 }
 
-struct SupplementalStat {
+struct SourceStat: Equatable {
+    let source: String
+    let inputTokens: Int
+    let outputTokens: Int
+    let cacheReadTokens: Int
+    let cacheWriteTokens: Int
+    let reasoningTokens: Int
+    let cost: Double
+    let activeSeconds: TimeInterval
+
+    var id: String {
+        source
+    }
+
+    var totalTokens: Int {
+        inputTokens + outputTokens + cacheReadTokens + cacheWriteTokens + reasoningTokens
+    }
+}
+
+enum ReaderStatusState: String {
+    case loaded
+    case empty
+    case disabled
+    case failed
+}
+
+struct ReaderStatus: Identifiable, Equatable {
+    let name: String
+    let state: ReaderStatusState
+    let message: String?
+    let lastReadAt: Date?
+    let totalTokens: Int
+
+    var id: String {
+        name
+    }
+}
+
+struct SupplementalStat: Equatable {
     let id: String
     let label: String
     let value: Int
@@ -31,7 +70,7 @@ struct SupplementalStat {
     }
 }
 
-struct ContextOnlyModelStat {
+struct ContextOnlyModelStat: Equatable {
     let id: String
     let model: String
     let source: String
@@ -41,7 +80,7 @@ struct ContextOnlyModelStat {
 
 // MARK: - Model
 
-struct UsageData {
+struct UsageData: Equatable {
     let date: Date
     let inputTokens: Int
     let outputTokens: Int
@@ -53,6 +92,7 @@ struct UsageData {
     let workTime: WorkTimeMetrics
 
     let perModel: [ModelStat]
+    let sourceStats: [SourceStat]
     let supplementalStats: [SupplementalStat]
     let contextOnlyModels: [ContextOnlyModelStat]
 
@@ -67,6 +107,7 @@ struct UsageData {
         activeSeconds: TimeInterval,
         workTime: WorkTimeMetrics? = nil,
         perModel: [ModelStat],
+        sourceStats: [SourceStat] = [],
         supplementalStats: [SupplementalStat] = [],
         contextOnlyModels: [ContextOnlyModelStat] = []) {
         self.date = date
@@ -79,6 +120,7 @@ struct UsageData {
         self.activeSeconds = activeSeconds
         self.workTime = workTime ?? .fallback(activeSeconds: activeSeconds)
         self.perModel = perModel
+        self.sourceStats = sourceStats
         self.supplementalStats = supplementalStats
         self.contextOnlyModels = contextOnlyModels
     }

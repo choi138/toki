@@ -1,40 +1,15 @@
 import Foundation
 
-private struct SupplementalStatAggregateKey: Hashable {
-    let label: String
-    let unit: SupplementalUnit
-    let source: String
-    let includedInTotals: Bool
-    let quality: UsageQuality
+private struct UsageServiceSnapshot: Equatable {
+    var usageData: UsageData = .empty
+    var isLoading = false
+    var lastFetchedAt: Date?
+    var yesterdayTotalTokens: Int?
+    var readerStatuses: [ReaderStatus] = []
 }
-
-private struct ContextOnlyModelAggregateKey: Hashable {
-    let model: String
-    let source: String
-    let quality: UsageQuality
-}
-
-private struct UsageRequestRange: Equatable {
-    let start: Date
-    let end: Date
-}
-
-private let defaultUsageReaders: [any TokenReader] = [
-    ClaudeCodeReader(),
-    CodexReader(),
-    CursorReader(),
-    GeminiReader(),
-    OpenCodeReader(),
-    OpenClawReader(),
-]
 
 @MainActor
-final class UsageService: ObservableObject {
-    @Published var usageData: UsageData = .empty
-    @Published var isLoading = false
-    @Published var lastFetchedAt: Date?
-    @Published var yesterdayTotalTokens: Int?
-
+final class UsagePanelViewModel: ObservableObject {
     @Published var startDate: Date
     @Published var endDate: Date
     @Published var isRangeMode = false {
@@ -45,19 +20,29 @@ final class UsageService: ObservableObject {
         }
     }
 
-    private let readers: [any TokenReader]
+    @Published private var snapshot = UsageServiceSnapshot()
+
+    let settings: UsagePanelSettings
+
+    private let aggregator: UsageAggregator
     private var needsRefreshAfterCurrentLoad = false
     private var followsCurrentDaySelection = true
     private var calendarDayObserver: NSObjectProtocol?
     private var yesterdayComparisonTask: Task<Void, Never>?
-    private var activeRefreshRange: UsageRequestRange?
+    private var activeRefreshRequest: UsageAggregationRequest?
 
     private var calendar: Calendar {
         .autoupdatingCurrent
     }
 
-    init(readers: [any TokenReader] = defaultUsageReaders) {
-        self.readers = readers
+    convenience init(readers: [any TokenReader] = UsageAggregator.defaultReaders, settings: UsagePanelSettings? = nil) {
+        self.init(aggregator: UsageAggregator(readers: readers), settings: settings)
+    }
+
+    init(aggregator: UsageAggregator, settings: UsagePanelSettings? = nil) {
+        self.aggregator = aggregator
+        self.settings = settings ?? UsagePanelSettings(readerNames: aggregator.readerNames)
+
         let calendar = Calendar.autoupdatingCurrent
         let today = calendar.startOfDay(for: Date())
         startDate = today
@@ -78,6 +63,30 @@ final class UsageService: ObservableObject {
         if let calendarDayObserver {
             NotificationCenter.default.removeObserver(calendarDayObserver)
         }
+    }
+
+    var readerNames: [String] {
+        aggregator.readerNames
+    }
+
+    var usageData: UsageData {
+        snapshot.usageData
+    }
+
+    var isLoading: Bool {
+        snapshot.isLoading
+    }
+
+    var lastFetchedAt: Date? {
+        snapshot.lastFetchedAt
+    }
+
+    var yesterdayTotalTokens: Int? {
+        snapshot.yesterdayTotalTokens
+    }
+
+    var readerStatuses: [ReaderStatus] {
+        snapshot.readerStatuses
     }
 
     var isSingleDay: Bool {
@@ -141,10 +150,10 @@ final class UsageService: ObservableObject {
 
     func refresh() async {
         syncSelectionWithTodayIfNeeded()
-        let requestedRange = UsageRequestRange(start: startDate, end: endDate)
+        let request = makeUsageRequest(start: startDate, end: endDate)
 
-        if isLoading {
-            guard activeRefreshRange != requestedRange else {
+        if snapshot.isLoading {
+            guard activeRefreshRequest != request else {
                 needsRefreshAfterCurrentLoad = false
                 return
             }
@@ -153,11 +162,14 @@ final class UsageService: ObservableObject {
         }
 
         cancelYesterdayComparison()
-        activeRefreshRange = requestedRange
-        isLoading = true
+        activeRefreshRequest = request
+        updateSnapshot { $0.isLoading = true }
+        var didPublishResult = false
         defer {
-            activeRefreshRange = nil
-            isLoading = false
+            activeRefreshRequest = nil
+            if !didPublishResult {
+                updateSnapshot { $0.isLoading = false }
+            }
 
             if needsRefreshAfterCurrentLoad {
                 needsRefreshAfterCurrentLoad = false
@@ -165,106 +177,51 @@ final class UsageService: ObservableObject {
             }
         }
 
-        let requestedStart = requestedRange.start
-        let requestedEnd = requestedRange.end
         let compareAgainstYesterday = shouldCompareAgainstYesterday(
-            start: requestedStart,
-            end: requestedEnd)
+            start: request.start,
+            end: request.end)
+        let result = await aggregator.aggregateUsage(for: request)
 
-        let combined = await fetchRange(from: requestedStart, to: requestedEnd)
-
-        guard requestedStart == startDate, requestedEnd == endDate else {
+        guard request == makeUsageRequest(start: startDate, end: endDate) else {
             needsRefreshAfterCurrentLoad = true
             return
         }
 
-        let sortedModels = combined.perModel
-            .filter {
-                $0.value.totalTokens > 0
-                    || $0.value.activeSeconds > 0
-                    || $0.value.cost > 0
-            }
-            .map {
-                ModelStat(
-                    id: $0.key,
-                    totalTokens: $0.value.totalTokens,
-                    cost: $0.value.cost,
-                    activeSeconds: $0.value.activeSeconds,
-                    sources: $0.value.sources.sorted())
-            }
-            .sorted { lhs, rhs in
-                if lhs.activeSeconds != rhs.activeSeconds {
-                    return lhs.activeSeconds > rhs.activeSeconds
-                }
-                if lhs.totalTokens != rhs.totalTokens {
-                    return lhs.totalTokens > rhs.totalTokens
-                }
-                if lhs.cost != rhs.cost {
-                    return lhs.cost > rhs.cost
-                }
-                return lhs.id < rhs.id
-            }
-
-        let supplementalStats = buildSupplementalStats(from: combined.supplemental)
-        let contextOnlyModels = buildContextOnlyModels(from: combined.supplemental)
-
-        usageData = UsageData(
-            date: requestedStart,
-            inputTokens: combined.inputTokens,
-            outputTokens: combined.outputTokens,
-            cacheReadTokens: combined.cacheReadTokens,
-            cacheWriteTokens: combined.cacheWriteTokens,
-            reasoningTokens: combined.reasoningTokens,
-            cost: combined.cost,
-            activeSeconds: combined.activeSeconds,
-            workTime: combined.resolvedWorkTime,
-            perModel: sortedModels,
-            supplementalStats: supplementalStats,
-            contextOnlyModels: contextOnlyModels)
-
-        lastFetchedAt = Date()
+        updateSnapshot {
+            $0.usageData = result.usageData
+            $0.readerStatuses = result.readerStatuses
+            $0.lastFetchedAt = Date()
+            $0.isLoading = false
+        }
+        didPublishResult = true
 
         if compareAgainstYesterday {
-            startYesterdayComparison(for: requestedStart, end: requestedEnd)
+            startYesterdayComparison(for: request)
         }
     }
 }
 
-private extension UsageService {
+typealias UsageService = UsagePanelViewModel
+
+private extension UsagePanelViewModel {
+    private func updateSnapshot(_ update: (inout UsageServiceSnapshot) -> Void) {
+        var nextSnapshot = snapshot
+        update(&nextSnapshot)
+        guard nextSnapshot != snapshot else { return }
+        snapshot = nextSnapshot
+    }
+
     private func handleCalendarDayChange(now: Date = Date()) {
         guard syncSelectionWithTodayIfNeeded(now: now) else { return }
         Task { await refresh() }
     }
 
-    private func fetchRange(from start: Date, to end: Date) async -> RawTokenUsage {
-        guard !Task.isCancelled else { return RawTokenUsage() }
-
-        var combined = RawTokenUsage()
-        await withTaskGroup(of: RawTokenUsage.self) { group in
-            for reader in readers {
-                guard !Task.isCancelled else {
-                    group.cancelAll()
-                    break
-                }
-
-                group.addTask {
-                    guard !Task.isCancelled else { return RawTokenUsage() }
-                    let usage = await (try? reader.readUsage(from: start, to: end)) ?? RawTokenUsage()
-                    return Task.isCancelled ? RawTokenUsage() : usage
-                }
-            }
-            for await partial in group {
-                guard !Task.isCancelled else {
-                    group.cancelAll()
-                    return
-                }
-                combined += partial
-            }
-        }
-
-        guard !Task.isCancelled else { return RawTokenUsage() }
-        combined.recomputeMergedActiveEstimate(clippingEndDate: end)
-        return combined
+    private func makeUsageRequest(start: Date, end: Date) -> UsageAggregationRequest {
+        UsageAggregationRequest(
+            start: start,
+            end: end,
+            enabledReaderNames: settings.normalizedReaderSettings(for: readerNames),
+            includesEmptySourceRows: settings.showsZeroSourceRows)
     }
 
     private func cancelYesterdayComparison() {
@@ -274,8 +231,8 @@ private extension UsageService {
 
     private func resetYesterdayComparison() {
         cancelYesterdayComparison()
-        if yesterdayTotalTokens != nil {
-            yesterdayTotalTokens = nil
+        if snapshot.yesterdayTotalTokens != nil {
+            updateSnapshot { $0.yesterdayTotalTokens = nil }
         }
     }
 
@@ -284,103 +241,27 @@ private extension UsageService {
             && calendar.isDateInToday(start)
     }
 
-    private func startYesterdayComparison(for requestedStart: Date, end requestedEnd: Date) {
+    private func startYesterdayComparison(for request: UsageAggregationRequest) {
         yesterdayComparisonTask = Task { [weak self] in
             guard let self else { return }
-            let prevStart = calendar.date(byAdding: .day, value: -1, to: requestedStart)!
+            let prevStart = calendar.date(byAdding: .day, value: -1, to: request.start)!
             guard !Task.isCancelled else { return }
-            let previousTotalTokens = await fetchRange(from: prevStart, to: requestedStart).totalTokens
+
+            let previousRequest = UsageAggregationRequest(
+                start: prevStart,
+                end: request.start,
+                enabledReaderNames: request.enabledReaderNames,
+                includesEmptySourceRows: request.includesEmptySourceRows)
+            let previousTotalTokens = await aggregator.aggregateUsage(for: previousRequest).usageData.totalTokens
 
             guard !Task.isCancelled else { return }
-            guard requestedStart == startDate,
-                  requestedEnd == endDate,
-                  shouldCompareAgainstYesterday(start: requestedStart, end: requestedEnd) else {
+            guard request == makeUsageRequest(start: startDate, end: endDate),
+                  shouldCompareAgainstYesterday(start: request.start, end: request.end) else {
                 return
             }
 
-            yesterdayTotalTokens = previousTotalTokens
+            updateSnapshot { $0.yesterdayTotalTokens = previousTotalTokens }
             yesterdayComparisonTask = nil
-        }
-    }
-
-    private func buildSupplementalStats(from supplemental: [SupplementalUsage]) -> [SupplementalStat] {
-        var grouped: [SupplementalStatAggregateKey: Int] = [:]
-
-        supplemental
-            .filter { $0.value > 0 }
-            .forEach { item in
-                let key = SupplementalStatAggregateKey(
-                    label: item.label,
-                    unit: item.unit,
-                    source: item.source,
-                    includedInTotals: item.includedInTotals,
-                    quality: item.quality)
-                grouped[key, default: 0] += item.value
-            }
-
-        return grouped.map { key, value in
-            SupplementalStat(
-                id: "\(key.source)|\(key.label)|\(key.unit.rawValue)|\(key.includedInTotals)|\(key.quality.rawValue)",
-                label: key.label,
-                value: value,
-                unit: key.unit,
-                source: key.source,
-                includedInTotals: key.includedInTotals,
-                quality: key.quality)
-        }
-        .sorted { lhs, rhs in
-            let lhsPriority = supplementalSortPriority(for: lhs)
-            let rhsPriority = supplementalSortPriority(for: rhs)
-            if lhsPriority != rhsPriority { return lhsPriority < rhsPriority }
-            if lhs.source != rhs.source { return lhs.source < rhs.source }
-            return lhs.value > rhs.value
-        }
-    }
-
-    private func buildContextOnlyModels(from supplemental: [SupplementalUsage]) -> [ContextOnlyModelStat] {
-        var grouped: [ContextOnlyModelAggregateKey: Int] = [:]
-
-        supplemental
-            .filter {
-                $0.value > 0
-                    && $0.unit == .tokens
-                    && $0.quality == .contextOnly
-                    && $0.model != nil
-            }
-            .forEach { item in
-                let key = ContextOnlyModelAggregateKey(
-                    model: item.model ?? "",
-                    source: item.source,
-                    quality: item.quality)
-                grouped[key, default: 0] += item.value
-            }
-
-        return grouped.map { key, value in
-            ContextOnlyModelStat(
-                id: "\(key.model)|\(key.source)|\(key.quality.rawValue)",
-                model: key.model,
-                source: key.source,
-                contextTokens: value,
-                quality: key.quality)
-        }
-        .sorted { lhs, rhs in
-            if lhs.contextTokens != rhs.contextTokens { return lhs.contextTokens > rhs.contextTokens }
-            return lhs.model < rhs.model
-        }
-    }
-
-    private func supplementalSortPriority(for stat: SupplementalStat) -> Int {
-        if stat.label.contains("Context") { return 0 }
-        if stat.label.contains("Sessions") { return 1 }
-        if stat.label.contains("Reported Cost") { return 2 }
-
-        switch stat.unit {
-        case .tokens:
-            return 3
-        case .count:
-            return 4
-        case .cents:
-            return 5
         }
     }
 }

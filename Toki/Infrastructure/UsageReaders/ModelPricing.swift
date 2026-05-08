@@ -22,6 +22,24 @@ struct ModelPrice {
     }
 }
 
+// MARK: - Model Price Lookup
+
+struct ModelPriceLookup {
+    enum Match: Equatable {
+        case exact(modelId: String)
+        case prefix(prefix: String)
+        case missing
+    }
+
+    let modelId: String
+    let price: ModelPrice?
+    let match: Match
+
+    var isPriced: Bool {
+        price != nil
+    }
+}
+
 // MARK: - Pricing Table
 
 private func price(
@@ -101,9 +119,27 @@ private let prefixPricingTable: [String: ModelPrice] = exactPricingTable.filter 
 private let sortedPrefixPricingKeys: [(key: String, value: ModelPrice)] =
     prefixPricingTable.sorted { $0.key.count > $1.key.count }
 
-func modelPrice(for modelId: String) -> ModelPrice? {
+func modelPriceLookup(for modelId: String) -> ModelPriceLookup {
     if let price = exactPricingTable[modelId] {
-        return price
+        return ModelPriceLookup(
+            modelId: modelId,
+            price: price,
+            match: .exact(modelId: modelId))
     }
-    return sortedPrefixPricingKeys.first { modelId.hasPrefix($0.key) }?.value
+
+    if let match = sortedPrefixPricingKeys.first(where: { modelId.hasPrefix($0.key) }) {
+        return ModelPriceLookup(
+            modelId: modelId,
+            price: match.value,
+            match: .prefix(prefix: match.key))
+    }
+
+    return ModelPriceLookup(
+        modelId: modelId,
+        price: nil,
+        match: .missing)
+}
+
+func modelPrice(for modelId: String) -> ModelPrice? {
+    modelPriceLookup(for: modelId).price
 }
