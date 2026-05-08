@@ -52,6 +52,12 @@ struct PanelSourceView: View {
                 Button {
                     copyUsageExport(usage, format: format)
                     copiedFormat = format
+                    Task { @MainActor in
+                        try? await Task.sleep(for: .seconds(2))
+                        if copiedFormat == format {
+                            copiedFormat = nil
+                        }
+                    }
                 } label: {
                     Text(copiedFormat == format ? "Copied" : format.rawValue)
                         .font(.system(size: 10, weight: .semibold))
@@ -159,8 +165,11 @@ private struct ReaderStatusRowView: View, Equatable {
     private var statusText: String {
         switch status.state {
         case .loaded:
-            "Read \(status.lastReadAt.map { Self.timeFormatter.string(from: $0) } ?? "")"
-                .trimmingCharacters(in: .whitespaces)
+            if let lastReadAt = status.lastReadAt {
+                "Read \(Self.timeFormatter.string(from: lastReadAt))"
+            } else {
+                "Loaded"
+            }
         case .empty:
             "No local data"
         case .disabled:

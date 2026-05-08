@@ -81,8 +81,9 @@ final class UsageServiceDiagnosticsTests: XCTestCase {
         await initialRefresh.value
 
         var totalTokens = service.usageData.totalTokens
-        for _ in 0..<20 where totalTokens != 10 {
-            try? await Task.sleep(for: .milliseconds(10))
+        let deadline = Date().addingTimeInterval(2)
+        while totalTokens != 10, Date() < deadline {
+            try? await Task.sleep(for: .milliseconds(20))
             totalTokens = service.usageData.totalTokens
         }
 

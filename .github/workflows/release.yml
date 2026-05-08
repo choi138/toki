@@ -66,14 +66,16 @@ jobs:
         run: |
           CERTIFICATE_PATH="$RUNNER_TEMP/build_certificate.p12"
           KEYCHAIN_PATH="$RUNNER_TEMP/app-signing.keychain-db"
+          EXISTING_KEYCHAINS="$(security list-keychains -d user | sed -e 's/^[[:space:]]*"//' -e 's/"$//' | tr '\n' ' ')"
 
           echo "$BUILD_CERTIFICATE_BASE64" | base64 --decode > "$CERTIFICATE_PATH"
           security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
           security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
           security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
           security import "$CERTIFICATE_PATH" -P "$P12_PASSWORD" -A -t cert -f pkcs12 -k "$KEYCHAIN_PATH"
+          rm -f "$CERTIFICATE_PATH"
           security set-key-partition-list -S apple-tool:,apple: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
-          security list-keychain -d user -s "$KEYCHAIN_PATH"
+          security list-keychains -d user -s "$KEYCHAIN_PATH" $EXISTING_KEYCHAINS
 
       - name: Install provisioning profile
         if: env.HAS_SIGNING == 'true' && env.HAS_PROFILE == 'true'
@@ -180,6 +182,11 @@ jobs:
           xcrun stapler validate "$EXPORT_PATH/$APP_NAME.app"
           ditto -c -k --sequesterRsrc --keepParent "$EXPORT_PATH/$APP_NAME.app" "$ARTIFACT_PATH/$APP_NAME-macOS.zip"
 
+      - name: Warn about missing notarization
+        if: env.HAS_SIGNING == 'true' && env.HAS_NOTARY != 'true'
+        run: |
+          echo "::warning::Signed artifact $ARTIFACT_PATH/$APP_NAME-macOS.zip was built without notarization because NOTARY_APPLE_ID, NOTARY_PASSWORD, or NOTARY_TEAM_ID is missing."
+
       - name: Upload workflow artifacts
         uses: actions/upload-artifact@v4
         with:
@@ -192,3 +199,9 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: build/artifacts/*.zip
+
+      - name: Clean up signing keychain
+        if: always() && env.HAS_SIGNING == 'true'
+        run: |
+          rm -f "$RUNNER_TEMP/build_certificate.p12"
+          security delete-keychain "$RUNNER_TEMP/app-signing.keychain-db" || true

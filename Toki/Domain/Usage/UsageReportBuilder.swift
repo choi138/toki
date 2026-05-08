@@ -115,7 +115,8 @@ private extension UsageReportBuilder {
         }
         .sorted { lhs, rhs in
             if lhs.contextTokens != rhs.contextTokens { return lhs.contextTokens > rhs.contextTokens }
-            return lhs.model < rhs.model
+            if lhs.model != rhs.model { return lhs.model < rhs.model }
+            return lhs.source < rhs.source
         }
     }
 

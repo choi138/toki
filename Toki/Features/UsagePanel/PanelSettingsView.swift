@@ -7,6 +7,7 @@ struct PanelSettingsView: View {
     private let readerNames: [String]
     @State private var launchAtLoginEnabled = SMAppService.mainApp.status == .enabled
     @State private var launchAtLoginIsUpdating = false
+    @State private var launchAtLoginError: String?
 
     init(settings: UsagePanelSettings, readerNames: [String] = UsagePanelSettings.defaultReaderNames) {
         self.settings = settings
@@ -35,6 +36,14 @@ struct PanelSettingsView: View {
                             get: { settings.showsZeroSourceRows },
                             set: { settings.setShowsZeroSourceRows($0) }))
                     launchAtLoginToggle
+                    if let launchAtLoginError {
+                        Text(launchAtLoginError)
+                            .font(.system(size: 10, weight: .medium))
+                            .foregroundColor(Color(red: 1.0, green: 0.45, blue: 0.35).opacity(0.8))
+                            .padding(.horizontal, 10)
+                            .padding(.bottom, 7)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
                 }
             }
             .padding(.horizontal, 16)
@@ -122,18 +131,30 @@ struct PanelSettingsView: View {
     }
 
     private func setLaunchAtLogin(_ isEnabled: Bool) {
-        guard launchAtLoginEnabled != isEnabled else { return }
+        guard launchAtLoginEnabled != isEnabled, !launchAtLoginIsUpdating else { return }
         launchAtLoginIsUpdating = true
-        do {
-            if isEnabled {
-                try SMAppService.mainApp.register()
-            } else {
-                try SMAppService.mainApp.unregister()
+        launchAtLoginError = nil
+
+        Task {
+            let result = await Task.detached(priority: .userInitiated) {
+                do {
+                    if isEnabled {
+                        try SMAppService.mainApp.register()
+                    } else {
+                        try SMAppService.mainApp.unregister()
+                    }
+                    return Result<Void, Error>.success(())
+                } catch {
+                    return .failure(error)
+                }
+            }.value
+
+            if case let .failure(error) = result {
+                launchAtLoginError = error.localizedDescription
+                NSLog("Launch at Login update failed: \(error.localizedDescription)")
             }
             launchAtLoginEnabled = SMAppService.mainApp.status == .enabled
-        } catch {
-            launchAtLoginEnabled = SMAppService.mainApp.status == .enabled
+            launchAtLoginIsUpdating = false
         }
-        launchAtLoginIsUpdating = false
     }
 }

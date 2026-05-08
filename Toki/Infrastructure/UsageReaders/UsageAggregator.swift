@@ -78,7 +78,7 @@ private extension UsageAggregator {
         guard !Task.isCancelled else { return UsageFetchSummary() }
 
         var results: [ReaderFetchResult] = readers.enumerated().compactMap { index, reader in
-            guard !(request.enabledReaderNames[reader.name] ?? true) else { return nil }
+            guard request.enabledReaderNames[reader.name] == false else { return nil }
             return ReaderFetchResult(
                 index: index,
                 usage: RawTokenUsage(),

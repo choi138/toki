@@ -92,7 +92,8 @@ struct PanelDatePickerView: View {
     private var singleDayRow: some View {
         HStack(spacing: 10) {
             navButton(icon: "chevron.left", accessibilityLabel: "Previous day") {
-                selectDay(calendar.date(byAdding: .day, value: -1, to: startDate)!)
+                guard let previousDay = calendar.date(byAdding: .day, value: -1, to: startDate) else { return }
+                selectDay(previousDay)
             }
 
             Button { showStartPicker.toggle() } label: {
@@ -117,7 +118,7 @@ struct PanelDatePickerView: View {
                 icon: "chevron.right",
                 disabled: isToday,
                 accessibilityLabel: "Next day") {
-                    let nextDay = calendar.date(byAdding: .day, value: 1, to: startDate)!
+                    guard let nextDay = calendar.date(byAdding: .day, value: 1, to: startDate) else { return }
                     guard nextDay <= Date() else { return }
                     selectDay(nextDay)
                 }
