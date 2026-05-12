@@ -136,7 +136,7 @@ struct PanelDailyTokenChartView: View {
             } else if hasTokenData {
                 chart
             } else {
-                Text("No hourly data")
+                Text(usage.totalTokens > 0 ? "No hourly detail" : "No hourly data")
                     .font(.system(size: 12))
                     .foregroundColor(Color.white.opacity(0.3))
                     .frame(maxWidth: .infinity, alignment: .center)

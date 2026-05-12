@@ -143,6 +143,30 @@ final class UsageServiceDiagnosticsTests: XCTestCase {
         XCTAssertEqual(report.peakTokenBucket?.totalTokens, 345)
     }
 
+    func test_usageReportSkipsHourlyBucketsForLongRanges() throws {
+        let calendar = Calendar.current
+        let startDate = calendar.startOfDay(for: tokiTestISODate("2026-04-10T12:00:00Z"))
+        let endDate = try XCTUnwrap(calendar.date(byAdding: .day, value: 30, to: startDate))
+
+        var rawUsage = RawTokenUsage()
+        rawUsage.inputTokens = 100
+        rawUsage.recordTokenEvent(
+            timestamp: startDate,
+            source: "Mock",
+            model: "gpt-5.4",
+            inputTokens: 100,
+            outputTokens: 0)
+
+        let report = UsageReportBuilder.report(
+            from: rawUsage,
+            date: startDate,
+            endDate: endDate,
+            sourceStats: [])
+
+        XCTAssertTrue(report.timeBuckets.isEmpty)
+        XCTAssertNil(report.peakTokenBucket)
+    }
+
     private func makeDefaults() -> (String, UserDefaults) {
         let suiteName = "UsageServiceDiagnosticsTests.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suiteName)!

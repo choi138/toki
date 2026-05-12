@@ -1,6 +1,8 @@
 import Foundation
 
 enum UsageReportBuilder {
+    private static let maximumHourlyBucketCount = 48
+
     static func report(
         from usage: RawTokenUsage,
         date: Date,
@@ -102,6 +104,10 @@ private extension UsageReportBuilder {
 
         var result: [Date] = []
         while current < endDate {
+            guard result.count < maximumHourlyBucketCount else {
+                return []
+            }
+
             result.append(current)
             guard let next = calendar.date(byAdding: .hour, value: 1, to: current),
                   next > current else {
