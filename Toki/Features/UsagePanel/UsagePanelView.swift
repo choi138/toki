@@ -1,6 +1,11 @@
 import Combine
 import SwiftUI
 
+enum UsagePanelLayout {
+    static let width: CGFloat = 280
+    static let height: CGFloat = 392
+}
+
 enum PanelTab {
     case overview
     case byModel
@@ -34,34 +39,17 @@ struct UsagePanelView: View {
             panelDivider
             PanelTabBarView(activeTab: $activeTab)
             panelDivider
-            Group {
-                switch activeTab {
-                case .overview:
-                    PanelHeroView(
-                        usage: viewModel.usageData,
-                        isLoading: viewModel.isLoading,
-                        yesterdayTotal: viewModel.shouldCompareAgainstYesterday
-                            ? viewModel.yesterdayTotalTokens
-                            : nil)
-                    panelDivider
-                    PanelDailyTokenChartView(usage: viewModel.usageData, isLoading: viewModel.isLoading)
-                    panelDivider
-                    PanelTokenBreakdownView(usage: viewModel.usageData, isLoading: viewModel.isLoading)
-                case .byModel:
-                    PanelByModelView(usage: viewModel.usageData, isLoading: viewModel.isLoading)
-                case .sources:
-                    PanelSourceView(
-                        usage: viewModel.usageData,
-                        readerStatuses: viewModel.readerStatuses,
-                        isLoading: viewModel.isLoading)
-                case .workTime:
-                    PanelWorkTimeView(usage: viewModel.usageData, isLoading: viewModel.isLoading)
-                }
+            ScrollView(.vertical) {
+                tabContent
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
             panelDivider
             PanelFooterView()
         }
-        .frame(width: 280)
+        .frame(
+            width: UsagePanelLayout.width,
+            height: UsagePanelLayout.height,
+            alignment: .top)
         .background(Color(red: 0.09, green: 0.09, blue: 0.11))
         .preferredColorScheme(.dark)
         .sheet(isPresented: $isShowingSettings) {
@@ -81,6 +69,32 @@ struct UsagePanelView: View {
         }
         .onReceive(viewModel.settings.refreshIntervalPublisher.dropFirst()) { _ in
             startRefreshLoop(refreshImmediately: false)
+        }
+    }
+
+    @ViewBuilder
+    private var tabContent: some View {
+        switch activeTab {
+        case .overview:
+            PanelHeroView(
+                usage: viewModel.usageData,
+                isLoading: viewModel.isLoading,
+                yesterdayTotal: viewModel.shouldCompareAgainstYesterday
+                    ? viewModel.yesterdayTotalTokens
+                    : nil)
+            panelDivider
+            PanelDailyTokenChartView(usage: viewModel.usageData, isLoading: viewModel.isLoading)
+            panelDivider
+            PanelTokenBreakdownView(usage: viewModel.usageData, isLoading: viewModel.isLoading)
+        case .byModel:
+            PanelByModelView(usage: viewModel.usageData, isLoading: viewModel.isLoading)
+        case .sources:
+            PanelSourceView(
+                usage: viewModel.usageData,
+                readerStatuses: viewModel.readerStatuses,
+                isLoading: viewModel.isLoading)
+        case .workTime:
+            PanelWorkTimeView(usage: viewModel.usageData, isLoading: viewModel.isLoading)
         }
     }
 
