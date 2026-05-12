@@ -46,6 +46,8 @@ final class CodexReaderTests: XCTestCase {
         XCTAssertEqual(usage.outputTokens, 30)
         XCTAssertEqual(usage.reasoningTokens, 10)
         XCTAssertEqual(usage.totalTokens, 140)
+        XCTAssertEqual(usage.tokenEvents.map(\.totalTokens), [55, 85])
+        XCTAssertEqual(usage.tokenEvents.first?.timestamp, isoDate("2026-04-10T00:01:00Z"))
         XCTAssertEqual(usage.perModel["gpt-5.4"]?.totalTokens, 140)
         let expectedCost = modelPrice(for: "gpt-5.4")?.cost(
             input: usage.inputTokens,

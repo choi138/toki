@@ -30,6 +30,22 @@ struct PerModelUsage {
     var sources: Set<String> = []
 }
 
+struct TokenUsageEvent: Equatable, Codable {
+    let timestamp: Date
+    let source: String
+    let model: String?
+    let inputTokens: Int
+    let outputTokens: Int
+    let cacheReadTokens: Int
+    let cacheWriteTokens: Int
+    let reasoningTokens: Int
+    let cost: Double
+
+    var totalTokens: Int {
+        inputTokens + outputTokens + cacheReadTokens + cacheWriteTokens + reasoningTokens
+    }
+}
+
 struct WorkTimeMetrics: Equatable {
     var agentSeconds: TimeInterval
     var mainAgentSeconds: TimeInterval
@@ -107,6 +123,7 @@ struct RawTokenUsage {
     var workTime = WorkTimeMetrics.zero
     var perModel: [String: PerModelUsage] = [:]
     var activityEvents: [ActivityTimeEvent<String>] = []
+    var tokenEvents: [TokenUsageEvent] = []
     var fallbackActiveSeconds: TimeInterval = 0
     var fallbackActiveSecondsByModel: [String: TimeInterval] = [:]
     var fallbackWorkTime = WorkTimeMetrics.zero
@@ -136,7 +153,32 @@ struct RawTokenUsage {
             || fallbackWorkTime.hasActivity
             || fallbackActiveSeconds > 0
             || !perModel.isEmpty
+            || !tokenEvents.isEmpty
             || !supplemental.isEmpty
+    }
+
+    mutating func recordTokenEvent(
+        timestamp: Date,
+        source: String,
+        model: String?,
+        inputTokens: Int,
+        outputTokens: Int,
+        cacheReadTokens: Int = 0,
+        cacheWriteTokens: Int = 0,
+        reasoningTokens: Int = 0,
+        cost: Double = 0) {
+        let event = TokenUsageEvent(
+            timestamp: timestamp,
+            source: source,
+            model: model,
+            inputTokens: inputTokens,
+            outputTokens: outputTokens,
+            cacheReadTokens: cacheReadTokens,
+            cacheWriteTokens: cacheWriteTokens,
+            reasoningTokens: reasoningTokens,
+            cost: cost)
+        guard event.totalTokens > 0 else { return }
+        tokenEvents.append(event)
     }
 }
 
@@ -154,6 +196,7 @@ func += (lhs: inout RawTokenUsage, rhs: RawTokenUsage) {
     lhs.cost += rhs.cost
     lhs.activeSeconds += rhs.activeSeconds
     lhs.activityEvents.append(contentsOf: rhs.activityEvents)
+    lhs.tokenEvents.append(contentsOf: rhs.tokenEvents)
     lhs.fallbackActiveSeconds += rhs.fallbackActiveSeconds
 
     if rhs.activityEvents.isEmpty, rhs.activeSeconds > 0 {

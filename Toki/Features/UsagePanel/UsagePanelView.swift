@@ -44,6 +44,8 @@ struct UsagePanelView: View {
                             ? viewModel.yesterdayTotalTokens
                             : nil)
                     panelDivider
+                    PanelDailyTokenChartView(usage: viewModel.usageData, isLoading: viewModel.isLoading)
+                    panelDivider
                     PanelTokenBreakdownView(usage: viewModel.usageData, isLoading: viewModel.isLoading)
                 case .byModel:
                     PanelByModelView(usage: viewModel.usageData, isLoading: viewModel.isLoading)

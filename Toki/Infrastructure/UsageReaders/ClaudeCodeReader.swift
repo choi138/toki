@@ -78,6 +78,7 @@ struct ClaudeCodeReader: TokenReader {
                 ?? "\(streamID)#\(record.lineIndex)"
 
             let entry = Entry(
+                timestamp: date,
                 model: record.model,
                 input: record.input,
                 output: record.output,
@@ -162,6 +163,16 @@ struct ClaudeCodeReader: TokenReader {
                 result.perModel[modelKey, default: PerModelUsage()].cost += entryCost
                 result.perModel[modelKey, default: PerModelUsage()].sources.insert(source)
             }
+
+            result.recordTokenEvent(
+                timestamp: entry.timestamp,
+                source: source,
+                model: modelKey,
+                inputTokens: entry.input,
+                outputTokens: entry.output,
+                cacheReadTokens: entry.cacheRead,
+                cacheWriteTokens: entry.cacheWrite,
+                cost: entryCost)
         }
 
         result.mergeActivityEvents(
@@ -204,11 +215,13 @@ struct ClaudeCodeReader: TokenReader {
 // MARK: - Private Types
 
 private struct Entry {
+    let timestamp: Date
     let model: String?
     let input, output, cacheRead, cacheWrite: Int
 
     func mergedMax(with other: Entry) -> Entry {
         Entry(
+            timestamp: max(timestamp, other.timestamp),
             model: model ?? other.model,
             input: max(input, other.input),
             output: max(output, other.output),

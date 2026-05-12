@@ -230,6 +230,14 @@ extension CursorReader {
                 usage.perModel[modelID, default: PerModelUsage()].cost += requestCost
                 usage.perModel[modelID, default: PerModelUsage()].sources.insert(source)
             }
+
+            usage.recordTokenEvent(
+                timestamp: createdAt,
+                source: source,
+                model: modelID,
+                inputTokens: input,
+                outputTokens: output,
+                cost: requestCost)
         }
 
         return usage

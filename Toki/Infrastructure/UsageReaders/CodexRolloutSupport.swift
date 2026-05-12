@@ -52,9 +52,29 @@ actor CodexRolloutUsageCache {
         return cached.dailyActivityTimestamps
     }
 
+    func dailyTokenUsageEvents(for url: URL) async -> [String: [CodexCachedTokenUsageEvent]]? {
+        await loadIfNeeded()
+
+        guard let fileSignature = codexFileSignature(for: url),
+              let cached = entries[url.path],
+              cached.fileSize == fileSignature.fileSize,
+              cached.modifiedAt == fileSignature.modifiedAt,
+              cached.timeZoneIdentifier == codexCacheTimeZoneIdentifier() else {
+            return nil
+        }
+
+        if cached.dailyTokenUsageEvents.isEmpty,
+           cached.dailyUsage.values.contains(where: { $0.totalTokens > 0 }) {
+            return nil
+        }
+
+        return cached.dailyTokenUsageEvents
+    }
+
     func store(
         dailyUsage: [String: CodexCachedDailyUsage],
         dailyActivityTimestamps: [String: [TimeInterval]],
+        dailyTokenUsageEvents: [String: [CodexCachedTokenUsageEvent]] = [:],
         for url: URL) async {
         await loadIfNeeded()
 
@@ -65,7 +85,8 @@ actor CodexRolloutUsageCache {
             modifiedAt: fileSignature.modifiedAt,
             timeZoneIdentifier: codexCacheTimeZoneIdentifier(),
             dailyUsage: dailyUsage,
-            dailyActivityTimestamps: dailyActivityTimestamps)
+            dailyActivityTimestamps: dailyActivityTimestamps,
+            dailyTokenUsageEvents: dailyTokenUsageEvents)
 
         hasPendingChanges = true
         persistIfNeeded()
@@ -111,18 +132,21 @@ struct CodexRolloutUsageCacheEntry: Codable {
     let timeZoneIdentifier: String
     let dailyUsage: [String: CodexCachedDailyUsage]
     let dailyActivityTimestamps: [String: [TimeInterval]]
+    let dailyTokenUsageEvents: [String: [CodexCachedTokenUsageEvent]]
 
     init(
         fileSize: Int,
         modifiedAt: TimeInterval,
         timeZoneIdentifier: String,
         dailyUsage: [String: CodexCachedDailyUsage],
-        dailyActivityTimestamps: [String: [TimeInterval]] = [:]) {
+        dailyActivityTimestamps: [String: [TimeInterval]] = [:],
+        dailyTokenUsageEvents: [String: [CodexCachedTokenUsageEvent]] = [:]) {
         self.fileSize = fileSize
         self.modifiedAt = modifiedAt
         self.timeZoneIdentifier = timeZoneIdentifier
         self.dailyUsage = dailyUsage
         self.dailyActivityTimestamps = dailyActivityTimestamps
+        self.dailyTokenUsageEvents = dailyTokenUsageEvents
     }
 
     enum CodingKeys: String, CodingKey {
@@ -131,6 +155,7 @@ struct CodexRolloutUsageCacheEntry: Codable {
         case timeZoneIdentifier
         case dailyUsage
         case dailyActivityTimestamps
+        case dailyTokenUsageEvents
     }
 
     init(from decoder: Decoder) throws {
@@ -142,6 +167,9 @@ struct CodexRolloutUsageCacheEntry: Codable {
         dailyActivityTimestamps = try container.decodeIfPresent(
             [String: [TimeInterval]].self,
             forKey: .dailyActivityTimestamps) ?? [:]
+        dailyTokenUsageEvents = try container.decodeIfPresent(
+            [String: [CodexCachedTokenUsageEvent]].self,
+            forKey: .dailyTokenUsageEvents) ?? [:]
     }
 }
 
@@ -163,6 +191,26 @@ struct CodexCachedDailyUsage: Codable {
         outputTokens += usage.outputTokens
         cacheReadTokens += usage.cacheReadTokens
         reasoningTokens += usage.reasoningTokens
+    }
+}
+
+struct CodexCachedTokenUsageEvent: Codable {
+    let timestamp: TimeInterval
+    let inputTokens: Int
+    let outputTokens: Int
+    let cacheReadTokens: Int
+    let reasoningTokens: Int
+
+    var totalTokens: Int {
+        inputTokens + outputTokens + cacheReadTokens + reasoningTokens
+    }
+
+    init(timestamp: Date, usage: RawTokenUsage) {
+        self.timestamp = timestamp.timeIntervalSince1970
+        inputTokens = usage.inputTokens
+        outputTokens = usage.outputTokens
+        cacheReadTokens = usage.cacheReadTokens
+        reasoningTokens = usage.reasoningTokens
     }
 }
 
@@ -233,6 +281,27 @@ func dailyActivityTimestampValues(from timestamps: [Date]) -> [String: [TimeInte
         let dayKey = codexDayKey(for: timestamp)
         result[dayKey, default: []].append(timestamp.timeIntervalSince1970)
     }
+}
+
+func dailyTokenUsageEvents(fromRolloutLines lines: [String]) -> [String: [CodexCachedTokenUsageEvent]] {
+    var previousSnapshot: CodexUsageSnapshot?
+    var result: [String: [CodexCachedTokenUsageEvent]] = [:]
+
+    for entry in codexRolloutSnapshots(fromRolloutLines: lines) {
+        guard !Task.isCancelled else { return [:] }
+
+        let delta = entry.snapshot.delta(since: previousSnapshot)
+        previousSnapshot = entry.snapshot
+
+        let usage = delta.normalizedUsage
+        guard usage.totalTokens > 0 else { continue }
+
+        let dayKey = codexDayKey(for: entry.date)
+        result[dayKey, default: []].append(
+            CodexCachedTokenUsageEvent(timestamp: entry.date, usage: usage))
+    }
+
+    return result
 }
 
 func codexRolloutSnapshots(fromRolloutLines lines: [String]) -> [CodexTimedSnapshot] {
