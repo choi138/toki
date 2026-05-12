@@ -1,7 +1,13 @@
 import Foundation
 
 enum UsageReportBuilder {
-    static func report(from usage: RawTokenUsage, date: Date, sourceStats: [SourceStat]) -> UsageData {
+    private static let maximumHourlyBucketCount = 48
+
+    static func report(
+        from usage: RawTokenUsage,
+        date: Date,
+        endDate: Date,
+        sourceStats: [SourceStat]) -> UsageData {
         UsageData(
             date: date,
             inputTokens: usage.inputTokens,
@@ -14,6 +20,10 @@ enum UsageReportBuilder {
             workTime: usage.resolvedWorkTime,
             perModel: buildModelStats(from: usage.perModel),
             sourceStats: sourceStats,
+            timeBuckets: buildTimeBuckets(
+                from: usage.tokenEvents,
+                startDate: date,
+                endDate: endDate),
             supplementalStats: buildSupplementalStats(from: usage.supplemental),
             contextOnlyModels: buildContextOnlyModels(from: usage.supplemental))
     }
@@ -51,6 +61,61 @@ private extension UsageReportBuilder {
                     isPriceKnown: modelPriceLookup(for: $0.key).isPriced)
             }
             .sorted(by: modelStatSort)
+    }
+
+    static func buildTimeBuckets(
+        from events: [TokenUsageEvent],
+        startDate: Date,
+        endDate: Date,
+        calendar: Calendar = .autoupdatingCurrent) -> [UsageTimeBucket] {
+        guard startDate < endDate else { return [] }
+
+        let bucketStarts = hourlyBucketStarts(
+            from: startDate,
+            to: endDate,
+            calendar: calendar)
+        guard !bucketStarts.isEmpty else { return [] }
+
+        var buckets = bucketStarts.reduce(into: [Date: UsageTimeBucket]()) { result, bucketStart in
+            guard let nextHour = calendar.date(byAdding: .hour, value: 1, to: bucketStart) else { return }
+            result[bucketStart] = .empty(
+                startDate: bucketStart,
+                endDate: min(nextHour, endDate))
+        }
+
+        for event in events where event.timestamp >= startDate && event.timestamp < endDate {
+            guard let bucketStart = calendar.dateInterval(of: .hour, for: event.timestamp)?.start,
+                  buckets[bucketStart] != nil else {
+                continue
+            }
+            buckets[bucketStart]?.accumulate(event)
+        }
+
+        return bucketStarts.compactMap { buckets[$0] }
+    }
+
+    static func hourlyBucketStarts(
+        from startDate: Date,
+        to endDate: Date,
+        calendar: Calendar) -> [Date] {
+        guard var current = calendar.dateInterval(of: .hour, for: startDate)?.start else {
+            return []
+        }
+
+        var result: [Date] = []
+        while current < endDate {
+            guard result.count < maximumHourlyBucketCount else {
+                return []
+            }
+
+            result.append(current)
+            guard let next = calendar.date(byAdding: .hour, value: 1, to: current),
+                  next > current else {
+                break
+            }
+            current = next
+        }
+        return result
     }
 
     static func buildSupplementalStats(from supplemental: [SupplementalUsage]) -> [SupplementalStat] {

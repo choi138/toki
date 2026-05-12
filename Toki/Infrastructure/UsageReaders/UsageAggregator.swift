@@ -55,6 +55,7 @@ final class UsageAggregator {
             usageData: UsageReportBuilder.report(
                 from: summary.usage,
                 date: request.start,
+                endDate: request.end,
                 sourceStats: summary.sourceStats),
             readerStatuses: summary.readerStatuses)
     }

@@ -94,6 +94,79 @@ final class UsageServiceDiagnosticsTests: XCTestCase {
         XCTAssertEqual(service.readerStatuses.map(\.state), [.loaded, .disabled])
     }
 
+    func test_usageReportBuildsHourlyTokenBucketsAndPeak() throws {
+        let calendar = Calendar.current
+        let startDate = calendar.startOfDay(for: tokiTestISODate("2026-04-10T12:00:00Z"))
+        let endDate = try XCTUnwrap(calendar.date(byAdding: .day, value: 1, to: startDate))
+        let firstHour = try XCTUnwrap(calendar.date(byAdding: .hour, value: 2, to: startDate))
+        let secondHour = try XCTUnwrap(calendar.date(byAdding: .hour, value: 3, to: startDate))
+
+        var rawUsage = RawTokenUsage()
+        rawUsage.inputTokens = 460
+        rawUsage.outputTokens = 65
+        try rawUsage.recordTokenEvent(
+            timestamp: XCTUnwrap(calendar.date(byAdding: .minute, value: 5, to: firstHour)),
+            source: "Mock",
+            model: "gpt-5.4",
+            inputTokens: 100,
+            outputTokens: 20,
+            cost: 0.1)
+        try rawUsage.recordTokenEvent(
+            timestamp: XCTUnwrap(calendar.date(byAdding: .minute, value: 35, to: firstHour)),
+            source: "Mock",
+            model: "gpt-5.4",
+            inputTokens: 50,
+            outputTokens: 10,
+            cost: 0.05)
+        rawUsage.recordTokenEvent(
+            timestamp: secondHour,
+            source: "Mock",
+            model: "gpt-5.4",
+            inputTokens: 310,
+            outputTokens: 35,
+            cost: 0.2)
+
+        let report = UsageReportBuilder.report(
+            from: rawUsage,
+            date: startDate,
+            endDate: endDate,
+            sourceStats: [])
+
+        XCTAssertEqual(report.timeBuckets.count, 24)
+        XCTAssertEqual(
+            report.timeBuckets.first(where: { $0.startDate == firstHour })?.totalTokens,
+            180)
+        XCTAssertEqual(
+            report.timeBuckets.first(where: { $0.startDate == secondHour })?.totalTokens,
+            345)
+        XCTAssertEqual(report.peakTokenBucket?.startDate, secondHour)
+        XCTAssertEqual(report.peakTokenBucket?.totalTokens, 345)
+    }
+
+    func test_usageReportSkipsHourlyBucketsForLongRanges() throws {
+        let calendar = Calendar.current
+        let startDate = calendar.startOfDay(for: tokiTestISODate("2026-04-10T12:00:00Z"))
+        let endDate = try XCTUnwrap(calendar.date(byAdding: .day, value: 30, to: startDate))
+
+        var rawUsage = RawTokenUsage()
+        rawUsage.inputTokens = 100
+        rawUsage.recordTokenEvent(
+            timestamp: startDate,
+            source: "Mock",
+            model: "gpt-5.4",
+            inputTokens: 100,
+            outputTokens: 0)
+
+        let report = UsageReportBuilder.report(
+            from: rawUsage,
+            date: startDate,
+            endDate: endDate,
+            sourceStats: [])
+
+        XCTAssertTrue(report.timeBuckets.isEmpty)
+        XCTAssertNil(report.peakTokenBucket)
+    }
+
     private func makeDefaults() -> (String, UserDefaults) {
         let suiteName = "UsageServiceDiagnosticsTests.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suiteName)!

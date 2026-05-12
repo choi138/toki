@@ -122,6 +122,17 @@ struct OpenCodeReader: TokenReader {
                 result.perModel[normalizedModelID, default: PerModelUsage()].cost += messageCost
                 result.perModel[normalizedModelID, default: PerModelUsage()].sources.insert(name)
             }
+
+            result.recordTokenEvent(
+                timestamp: Date(timeIntervalSince1970: TimeInterval(timestamp) / 1000),
+                source: name,
+                model: normalizedModel,
+                inputTokens: input,
+                outputTokens: output,
+                cacheReadTokens: cacheRead,
+                cacheWriteTokens: cacheWrite,
+                reasoningTokens: reasoning,
+                cost: messageCost)
         }
 
         result.mergeActivityEvents(activityEvents, source: name, clippingEndDate: clippingEndDate)

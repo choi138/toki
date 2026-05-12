@@ -46,6 +46,7 @@ final class CursorReaderUsageTests: XCTestCase {
         XCTAssertEqual(usage.perModel["gpt-5.2"]?.totalTokens, 150)
         XCTAssertEqual(usage.perModel["claude-4.5-sonnet-thinking"]?.totalTokens, 100)
         XCTAssertEqual(usage.cost, 0.00117, accuracy: 0.000001)
+        XCTAssertEqual(usage.tokenEvents.map(\.totalTokens).sorted(), [100, 150])
     }
 
     func test_cursorReader_deduplicatesTokenBearingBubblesPerUsageUuid() {

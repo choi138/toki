@@ -39,6 +39,9 @@ final class ClaudeCodeReaderActivityTests: XCTestCase {
             to: claudeCodeReaderActivityISODate("2026-04-11T00:00:00Z"))
 
         XCTAssertEqual(usage.totalTokens, 17)
+        XCTAssertEqual(usage.tokenEvents.count, 1)
+        XCTAssertEqual(usage.tokenEvents.first?.timestamp, claudeCodeReaderActivityISODate("2026-04-10T00:02:00Z"))
+        XCTAssertEqual(usage.tokenEvents.first?.totalTokens, 17)
         XCTAssertEqual(usage.activeSeconds, 90, accuracy: 0.001)
         XCTAssertEqual(
             usage.perModel["claude-sonnet-4-6"]?.activeSeconds ?? 0,

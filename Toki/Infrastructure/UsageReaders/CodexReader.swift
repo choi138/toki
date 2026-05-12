@@ -141,6 +141,16 @@ extension CodexReader {
                 result.perModel[normalizedModel, default: PerModelUsage()].cost += entryCost
                 result.perModel[normalizedModel, default: PerModelUsage()].sources.insert("Codex")
             }
+
+            result.recordTokenEvent(
+                timestamp: entry.date,
+                source: "Codex",
+                model: normalizedModel,
+                inputTokens: usage.inputTokens,
+                outputTokens: usage.outputTokens,
+                cacheReadTokens: usage.cacheReadTokens,
+                reasoningTokens: usage.reasoningTokens,
+                cost: entryCost)
         }
 
         if includeActivity {
@@ -291,27 +301,45 @@ private extension CodexReader {
         }
 
         let rolloutDailyUsage: [String: CodexCachedDailyUsage]
-        if let cached = await CodexRolloutUsageCache.shared.dailyUsage(for: url) {
-            rolloutDailyUsage = cached
+        let rolloutDailyTokenUsageEvents: [String: [CodexCachedTokenUsageEvent]]
+        if let cachedUsage = await CodexRolloutUsageCache.shared.dailyUsage(for: url),
+           let cachedTokenEvents = await CodexRolloutUsageCache.shared.dailyTokenUsageEvents(for: url) {
+            rolloutDailyUsage = cachedUsage
+            rolloutDailyTokenUsageEvents = cachedTokenEvents
         } else {
+            let existingDailyUsage = await CodexRolloutUsageCache.shared.dailyUsage(for: url)
             let lines = readJSONLLines(at: url)
             guard !Task.isCancelled else { return RawTokenUsage() }
 
-            rolloutDailyUsage = dailyUsage(fromRolloutLines: lines)
+            let rebuiltDailyUsage = dailyUsage(fromRolloutLines: lines)
+            rolloutDailyUsage = dailyUsageForTimestampBackfill(
+                rebuiltDailyUsage: rebuiltDailyUsage,
+                existingDailyUsage: existingDailyUsage)
+            guard !Task.isCancelled else { return RawTokenUsage() }
+
+            let dailyActivityTimestamps = dailyActivityTimestamps(fromRolloutLines: lines)
+            rolloutDailyTokenUsageEvents = dailyTokenUsageEvents(fromRolloutLines: lines)
             guard !Task.isCancelled else { return RawTokenUsage() }
 
             await CodexRolloutUsageCache.shared.store(
                 dailyUsage: rolloutDailyUsage,
-                dailyActivityTimestamps: dailyActivityTimestamps(fromRolloutLines: lines),
+                dailyActivityTimestamps: dailyActivityTimestamps,
+                dailyTokenUsageEvents: rolloutDailyTokenUsageEvents,
                 for: url)
         }
 
-        return usage(
+        var result = usage(
             fromDailyUsage: rolloutDailyUsage,
             model: model,
             agentKind: agentKind,
             from: startDate,
             to: endDate)
+        result.tokenEvents = tokenEvents(
+            fromCachedDailyTokenUsageEvents: rolloutDailyTokenUsageEvents,
+            model: model,
+            from: startDate,
+            to: endDate)
+        return result
     }
 
     private static func activityEvents(
@@ -359,6 +387,7 @@ private extension CodexReader {
 
             let rebuiltDailyUsage = dailyUsage(fromRolloutLines: lines)
             let dailyActivityTimestamps = dailyActivityTimestamps(fromRolloutLines: lines)
+            let dailyTokenUsageEvents = dailyTokenUsageEvents(fromRolloutLines: lines)
             guard !Task.isCancelled else { return [] }
 
             let dailyUsageToStore = dailyUsageForTimestampBackfill(
@@ -369,6 +398,7 @@ private extension CodexReader {
                 await CodexRolloutUsageCache.shared.store(
                     dailyUsage: dailyUsageToStore,
                     dailyActivityTimestamps: dailyActivityTimestamps,
+                    dailyTokenUsageEvents: dailyTokenUsageEvents,
                     for: url)
             }
 
@@ -422,6 +452,56 @@ private extension CodexReader {
                             timestamp: Date(timeIntervalSince1970: timestamp),
                             key: model,
                             agentKind: agentKind)
+                    })
+            }
+
+            guard let nextDay = calendar.date(byAdding: .day, value: 1, to: currentDay) else { break }
+            currentDay = nextDay
+        }
+
+        return result
+    }
+
+    private static func tokenEvents(
+        fromCachedDailyTokenUsageEvents cached: [String: [CodexCachedTokenUsageEvent]],
+        model: String?,
+        from startDate: Date,
+        to endDate: Date) -> [TokenUsageEvent] {
+        let normalizedModel = normalizedModelID(model)
+        let calendar = Calendar.current
+        var currentDay = calendar.startOfDay(for: startDate)
+        var result: [TokenUsageEvent] = []
+
+        while currentDay < endDate {
+            guard !Task.isCancelled else { return [] }
+
+            let dayKey = codexDayKey(for: currentDay)
+            if let events = cached[dayKey] {
+                result.append(
+                    contentsOf: events.compactMap { event in
+                        let timestamp = Date(timeIntervalSince1970: event.timestamp)
+                        guard timestamp >= startDate, timestamp < endDate else { return nil }
+
+                        let eventCost: Double = if let normalizedModel, let price = modelPrice(for: normalizedModel) {
+                            price.cost(
+                                input: event.inputTokens,
+                                output: event.outputTokens + event.reasoningTokens,
+                                cacheRead: event.cacheReadTokens,
+                                cacheWrite: 0)
+                        } else {
+                            0
+                        }
+
+                        return TokenUsageEvent(
+                            timestamp: timestamp,
+                            source: "Codex",
+                            model: normalizedModel,
+                            inputTokens: event.inputTokens,
+                            outputTokens: event.outputTokens,
+                            cacheReadTokens: event.cacheReadTokens,
+                            cacheWriteTokens: 0,
+                            reasoningTokens: event.reasoningTokens,
+                            cost: eventCost)
                     })
             }
 

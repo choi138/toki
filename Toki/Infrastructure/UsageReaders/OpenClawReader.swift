@@ -33,16 +33,29 @@ struct OpenClawReader: TokenReader {
                 }
 
                 guard let usage = msg.usage else { continue }
-                result.inputTokens += usage.inputTokens ?? usage.promptTokens ?? 0
-                result.outputTokens += usage.outputTokens ?? usage.completionTokens ?? 0
-                result.cacheReadTokens += usage.cacheReadInputTokens ?? 0
-                result.cacheWriteTokens += usage.cacheCreationInputTokens ?? 0
+                let input = usage.inputTokens ?? usage.promptTokens ?? 0
+                let output = usage.outputTokens ?? usage.completionTokens ?? 0
+                let cacheRead = usage.cacheReadInputTokens ?? 0
+                let cacheWrite = usage.cacheCreationInputTokens ?? 0
+
+                result.inputTokens += input
+                result.outputTokens += output
+                result.cacheReadTokens += cacheRead
+                result.cacheWriteTokens += cacheWrite
                 if let eventDate {
                     activityEvents.append(
                         ActivityTimeEvent(
                             streamID: file.path,
                             timestamp: eventDate,
                             key: nil))
+                    result.recordTokenEvent(
+                        timestamp: eventDate,
+                        source: name,
+                        model: nil,
+                        inputTokens: input,
+                        outputTokens: output,
+                        cacheReadTokens: cacheRead,
+                        cacheWriteTokens: cacheWrite)
                 }
             }
         }

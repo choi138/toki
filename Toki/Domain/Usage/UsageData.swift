@@ -30,6 +30,46 @@ struct SourceStat: Equatable {
     }
 }
 
+struct UsageTimeBucket: Identifiable, Equatable {
+    let startDate: Date
+    let endDate: Date
+    var inputTokens: Int
+    var outputTokens: Int
+    var cacheReadTokens: Int
+    var cacheWriteTokens: Int
+    var reasoningTokens: Int
+    var cost: Double
+
+    var id: Date {
+        startDate
+    }
+
+    var totalTokens: Int {
+        inputTokens + outputTokens + cacheReadTokens + cacheWriteTokens + reasoningTokens
+    }
+
+    static func empty(startDate: Date, endDate: Date) -> UsageTimeBucket {
+        UsageTimeBucket(
+            startDate: startDate,
+            endDate: endDate,
+            inputTokens: 0,
+            outputTokens: 0,
+            cacheReadTokens: 0,
+            cacheWriteTokens: 0,
+            reasoningTokens: 0,
+            cost: 0)
+    }
+
+    mutating func accumulate(_ event: TokenUsageEvent) {
+        inputTokens += event.inputTokens
+        outputTokens += event.outputTokens
+        cacheReadTokens += event.cacheReadTokens
+        cacheWriteTokens += event.cacheWriteTokens
+        reasoningTokens += event.reasoningTokens
+        cost += event.cost
+    }
+}
+
 enum ReaderStatusState: String {
     case loaded
     case empty
@@ -93,6 +133,7 @@ struct UsageData: Equatable {
 
     let perModel: [ModelStat]
     let sourceStats: [SourceStat]
+    let timeBuckets: [UsageTimeBucket]
     let supplementalStats: [SupplementalStat]
     let contextOnlyModels: [ContextOnlyModelStat]
 
@@ -108,6 +149,7 @@ struct UsageData: Equatable {
         workTime: WorkTimeMetrics? = nil,
         perModel: [ModelStat],
         sourceStats: [SourceStat] = [],
+        timeBuckets: [UsageTimeBucket] = [],
         supplementalStats: [SupplementalStat] = [],
         contextOnlyModels: [ContextOnlyModelStat] = []) {
         self.date = date
@@ -121,6 +163,7 @@ struct UsageData: Equatable {
         self.workTime = workTime ?? .fallback(activeSeconds: activeSeconds)
         self.perModel = perModel
         self.sourceStats = sourceStats
+        self.timeBuckets = timeBuckets
         self.supplementalStats = supplementalStats
         self.contextOnlyModels = contextOnlyModels
     }
@@ -138,6 +181,17 @@ struct UsageData: Equatable {
 
     var hasExcludedSupplementalStats: Bool {
         supplementalStats.contains { !$0.includedInTotals }
+    }
+
+    var peakTokenBucket: UsageTimeBucket? {
+        timeBuckets
+            .filter { $0.totalTokens > 0 }
+            .max { lhs, rhs in
+                if lhs.totalTokens != rhs.totalTokens {
+                    return lhs.totalTokens < rhs.totalTokens
+                }
+                return lhs.startDate > rhs.startDate
+            }
     }
 }
 

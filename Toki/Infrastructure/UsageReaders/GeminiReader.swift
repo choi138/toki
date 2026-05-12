@@ -47,10 +47,20 @@ struct GeminiReader: TokenReader {
             var hasUsageMetadata = false
             for msg in messages {
                 guard let meta = msg.usageMetadata else { continue }
+                let input = meta.promptTokenCount ?? 0
+                let output = meta.candidatesTokenCount ?? 0
+                let cacheRead = meta.cachedContentTokenCount ?? 0
                 hasUsageMetadata = true
-                result.inputTokens += meta.promptTokenCount ?? 0
-                result.outputTokens += meta.candidatesTokenCount ?? 0
-                result.cacheReadTokens += meta.cachedContentTokenCount ?? 0
+                result.inputTokens += input
+                result.outputTokens += output
+                result.cacheReadTokens += cacheRead
+                result.recordTokenEvent(
+                    timestamp: fileDate,
+                    source: name,
+                    model: nil,
+                    inputTokens: input,
+                    outputTokens: output,
+                    cacheReadTokens: cacheRead)
             }
 
             if hasUsageMetadata {
@@ -118,6 +128,16 @@ struct GeminiReader: TokenReader {
                 entry.sources.insert(name)
                 result.perModel[model] = entry
             }
+
+            result.recordTokenEvent(
+                timestamp: date,
+                source: name,
+                model: model,
+                inputTokens: input,
+                outputTokens: output,
+                cacheReadTokens: cacheRead,
+                reasoningTokens: reasoning,
+                cost: entryCost)
         }
 
         return result
