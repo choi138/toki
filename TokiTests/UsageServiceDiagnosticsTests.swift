@@ -104,15 +104,15 @@ final class UsageServiceDiagnosticsTests: XCTestCase {
         var rawUsage = RawTokenUsage()
         rawUsage.inputTokens = 460
         rawUsage.outputTokens = 65
-        rawUsage.recordTokenEvent(
-            timestamp: try XCTUnwrap(calendar.date(byAdding: .minute, value: 5, to: firstHour)),
+        try rawUsage.recordTokenEvent(
+            timestamp: XCTUnwrap(calendar.date(byAdding: .minute, value: 5, to: firstHour)),
             source: "Mock",
             model: "gpt-5.4",
             inputTokens: 100,
             outputTokens: 20,
             cost: 0.1)
-        rawUsage.recordTokenEvent(
-            timestamp: try XCTUnwrap(calendar.date(byAdding: .minute, value: 35, to: firstHour)),
+        try rawUsage.recordTokenEvent(
+            timestamp: XCTUnwrap(calendar.date(byAdding: .minute, value: 35, to: firstHour)),
             source: "Mock",
             model: "gpt-5.4",
             inputTokens: 50,

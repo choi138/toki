@@ -482,15 +482,14 @@ private extension CodexReader {
                         let timestamp = Date(timeIntervalSince1970: event.timestamp)
                         guard timestamp >= startDate, timestamp < endDate else { return nil }
 
-                        let eventCost: Double
-                        if let normalizedModel, let price = modelPrice(for: normalizedModel) {
-                            eventCost = price.cost(
+                        let eventCost: Double = if let normalizedModel, let price = modelPrice(for: normalizedModel) {
+                            price.cost(
                                 input: event.inputTokens,
                                 output: event.outputTokens + event.reasoningTokens,
                                 cacheRead: event.cacheReadTokens,
                                 cacheWrite: 0)
                         } else {
-                            eventCost = 0
+                            0
                         }
 
                         return TokenUsageEvent(

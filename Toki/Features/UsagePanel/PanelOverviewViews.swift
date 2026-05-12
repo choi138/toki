@@ -1,5 +1,5 @@
-import Foundation
 import Charts
+import Foundation
 import SwiftUI
 
 struct PanelHeroView: View {
