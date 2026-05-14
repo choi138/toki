@@ -2,12 +2,13 @@ import Combine
 import SwiftUI
 
 enum UsagePanelLayout {
-    static let width: CGFloat = 280
-    static let height: CGFloat = 392
+    static let width: CGFloat = 320
+    static let height: CGFloat = 420
 }
 
 enum PanelTab {
     case overview
+    case hourly
     case byModel
     case sources
     case workTime
@@ -16,6 +17,7 @@ enum PanelTab {
 struct UsagePanelView: View {
     @StateObject private var viewModel = UsagePanelViewModel()
     @State private var activeTab: PanelTab = .overview
+    @State private var isShowingSecurityAudit = false
     @State private var isShowingSettings = false
     @State private var refreshCoordinator = UsagePanelRefreshCoordinator()
 
@@ -25,6 +27,7 @@ struct UsagePanelView: View {
                 isLoading: viewModel.isLoading,
                 lastFetchedAt: viewModel.lastFetchedAt,
                 onRefresh: refresh,
+                onSecurityAudit: { isShowingSecurityAudit = true },
                 onSettings: { isShowingSettings = true })
             panelDivider
             PanelDatePickerView(
@@ -41,8 +44,9 @@ struct UsagePanelView: View {
             panelDivider
             ScrollView(.vertical) {
                 tabContent
+                    .frame(maxWidth: .infinity, alignment: .top)
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             panelDivider
             PanelFooterView()
         }
@@ -54,6 +58,9 @@ struct UsagePanelView: View {
         .preferredColorScheme(.dark)
         .sheet(isPresented: $isShowingSettings) {
             PanelSettingsView(settings: viewModel.settings, readerNames: viewModel.readerNames)
+        }
+        .sheet(isPresented: $isShowingSecurityAudit) {
+            SecurityAuditView()
         }
         .onAppear {
             startRefreshLoop(refreshImmediately: true)
@@ -83,9 +90,9 @@ struct UsagePanelView: View {
                     ? viewModel.yesterdayTotalTokens
                     : nil)
             panelDivider
-            PanelDailyTokenChartView(usage: viewModel.usageData, isLoading: viewModel.isLoading)
-            panelDivider
             PanelTokenBreakdownView(usage: viewModel.usageData, isLoading: viewModel.isLoading)
+        case .hourly:
+            PanelHourlyUsageView(usage: viewModel.usageData, isLoading: viewModel.isLoading)
         case .byModel:
             PanelByModelView(usage: viewModel.usageData, isLoading: viewModel.isLoading)
         case .sources:

@@ -45,13 +45,20 @@ extension CodexReader {
             return
         }
 
+        let mergedAgentKind = existing.agentKind == .subagent || session.agentKind == .subagent
+            ? WorkTimeAgentKind.subagent
+            : .main
+        let mergedHasSourceAttribution = existing.hasSourceAttribution || session.hasSourceAttribution
+
         guard normalizedModelID(existing.model) == nil,
               let model = normalizedModelID(session.model) else {
-            if existing.agentKind == .main, session.agentKind == .subagent {
+            if existing.agentKind != mergedAgentKind
+                || existing.hasSourceAttribution != mergedHasSourceAttribution {
                 sessionsByPath[session.rolloutPath] = CodexSession(
                     rolloutPath: existing.rolloutPath,
                     model: existing.model,
-                    agentKind: .subagent)
+                    agentKind: mergedAgentKind,
+                    hasSourceAttribution: mergedHasSourceAttribution)
             }
             return
         }
@@ -59,12 +66,13 @@ extension CodexReader {
         sessionsByPath[session.rolloutPath] = CodexSession(
             rolloutPath: existing.rolloutPath,
             model: model,
-            agentKind: existing.agentKind == .subagent ? .subagent : session.agentKind)
+            agentKind: mergedAgentKind,
+            hasSourceAttribution: mergedHasSourceAttribution)
     }
 
     func pathsWithCompleteDatabaseAttribution(in sessions: [CodexSession]) -> Set<String> {
         Set(sessions.compactMap { session in
-            normalizedModelID(session.model) != nil && session.agentKind == .subagent ? session.rolloutPath : nil
+            normalizedModelID(session.model) != nil && session.hasSourceAttribution ? session.rolloutPath : nil
         })
     }
 
@@ -102,11 +110,13 @@ extension CodexReader {
             let rawModel = sqlite3_column_text(statement, 1).map { String(cString: $0) } ?? ""
             let rawSource = sqlite3_column_text(statement, 2).map { String(cString: $0) } ?? ""
             let model = rawModel.isEmpty ? nil : rawModel
+            let source = rawSource.trimmingCharacters(in: .whitespacesAndNewlines)
             sessions.append(
                 CodexSession(
                     rolloutPath: rolloutPath,
                     model: model,
-                    agentKind: codexAgentKind(fromSource: rawSource)))
+                    agentKind: codexAgentKind(fromSource: source),
+                    hasSourceAttribution: !source.isEmpty))
         }
         return sessions
     }
@@ -157,14 +167,51 @@ extension CodexReader {
                     continue
                 }
 
+                let attribution = extractAttribution(from: fileURL)
                 sessions.append(
                     CodexSession(
                         rolloutPath: fileURL.path,
-                        model: extractModel(from: fileURL),
-                        agentKind: extractAgentKind(from: fileURL)))
+                        model: attribution.model,
+                        agentKind: attribution.agentKind,
+                        hasSourceAttribution: attribution.hasSourceAttribution))
             }
         }
         return sessions
+    }
+
+    private func extractAttribution(from url: URL) -> CodexSessionAttribution {
+        let decoder = JSONDecoder()
+        var model: String?
+        var agentKind = WorkTimeAgentKind.main
+        var hasSourceAttribution = false
+
+        forEachJSONLLineUntil(at: url) { line, _ in
+            guard model == nil || !hasSourceAttribution else { return false }
+            guard let lineData = line.data(using: .utf8) else { return true }
+
+            if model == nil,
+               let entry = try? decoder.decode(CodexModelEntry.self, from: lineData),
+               entry.type == "turn_context",
+               let entryModel = entry.payload?.model,
+               !entryModel.isEmpty {
+                model = entryModel
+            }
+
+            if !hasSourceAttribution,
+               let entry = try? decoder.decode(CodexSessionMetaEntry.self, from: lineData),
+               entry.type == "session_meta",
+               let source = entry.payload?.source {
+                agentKind = source.isSubagent ? .subagent : .main
+                hasSourceAttribution = true
+            }
+
+            return model == nil || !hasSourceAttribution
+        }
+
+        return CodexSessionAttribution(
+            model: model,
+            agentKind: agentKind,
+            hasSourceAttribution: hasSourceAttribution)
     }
 
     private func extractModel(from url: URL) -> String? {

@@ -59,6 +59,10 @@ final class UsageAggregator {
                 sourceStats: summary.sourceStats),
             readerStatuses: summary.readerStatuses)
     }
+
+    func aggregateTotalTokens(for request: UsageAggregationRequest) async -> Int {
+        await fetchTotalTokens(for: request)
+    }
 }
 
 private struct ReaderFetchResult {
@@ -75,6 +79,39 @@ private struct UsageFetchSummary {
 }
 
 private extension UsageAggregator {
+    func fetchTotalTokens(for request: UsageAggregationRequest) async -> Int {
+        guard !Task.isCancelled else { return 0 }
+
+        var totalTokens = 0
+        await withTaskGroup(of: Int.self) { group in
+            for reader in readers {
+                guard request.enabledReaderNames[reader.name] ?? true else { continue }
+                guard !Task.isCancelled else {
+                    group.cancelAll()
+                    break
+                }
+
+                group.addTask {
+                    await readerTotalTokens(
+                        reader: reader,
+                        from: request.start,
+                        to: request.end)
+                }
+            }
+
+            for await partial in group {
+                guard !Task.isCancelled else {
+                    group.cancelAll()
+                    return
+                }
+                totalTokens += partial
+            }
+        }
+
+        guard !Task.isCancelled else { return 0 }
+        return totalTokens
+    }
+
     func fetchRange(for request: UsageAggregationRequest) async -> UsageFetchSummary {
         guard !Task.isCancelled else { return UsageFetchSummary() }
 
@@ -134,6 +171,19 @@ private extension UsageAggregator {
             sourceStats: sortedResults
                 .compactMap(\.sourceStat)
                 .sorted(by: sourceStatSort))
+    }
+}
+
+private func readerTotalTokens(
+    reader: any TokenReader,
+    from startDate: Date,
+    to endDate: Date) async -> Int {
+    guard !Task.isCancelled else { return 0 }
+
+    do {
+        return try await reader.readTotalTokens(from: startDate, to: endDate)
+    } catch {
+        return 0
     }
 }
 

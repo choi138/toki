@@ -252,7 +252,7 @@ private extension UsagePanelViewModel {
                 end: request.start,
                 enabledReaderNames: request.enabledReaderNames,
                 includesEmptySourceRows: request.includesEmptySourceRows)
-            let previousTotalTokens = await aggregator.aggregateUsage(for: previousRequest).usageData.totalTokens
+            let previousTotalTokens = await aggregator.aggregateTotalTokens(for: previousRequest)
 
             guard !Task.isCancelled else { return }
             guard request == makeUsageRequest(start: startDate, end: endDate),

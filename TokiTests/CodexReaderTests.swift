@@ -1,6 +1,7 @@
 import XCTest
 @testable import Toki
 
+// swiftlint:disable:next type_body_length
 final class CodexReaderTests: XCTestCase {
     func test_codexReader_usesBaselineBeforeRangeAndDeduplicatesSnapshots() {
         let lines = [
@@ -151,6 +152,105 @@ final class CodexReaderTests: XCTestCase {
         XCTAssertEqual(usage.outputTokens, 5)
         XCTAssertEqual(usage.reasoningTokens, 5)
         XCTAssertEqual(usage.totalTokens, 60)
+    }
+
+    func test_codexRolloutDailySummaryBuildsTotalsActivityAndTokenEventsInTimestampOrder() {
+        let lines = [
+            tokenCountLine(
+                ts: "2026-04-10T13:00:00Z",
+                input: 170,
+                cachedInput: 30,
+                output: 40,
+                reasoning: 10,
+                total: 220),
+            tokenCountLine(
+                ts: "2026-04-10T10:00:00Z",
+                input: 120,
+                cachedInput: 20,
+                output: 30,
+                reasoning: 5,
+                total: 150),
+        ]
+
+        let summary = codexRolloutDailySummary(
+            fromSnapshots: codexRolloutSnapshots(fromRolloutLines: lines))
+        let daySummary = summary.dailyUsage["2026-04-10"]
+
+        XCTAssertEqual(daySummary?.inputTokens, 140)
+        XCTAssertEqual(daySummary?.cacheReadTokens, 30)
+        XCTAssertEqual(daySummary?.outputTokens, 30)
+        XCTAssertEqual(daySummary?.reasoningTokens, 10)
+        XCTAssertEqual(daySummary?.totalTokens, 210)
+        XCTAssertEqual(summary.dailyActivityTimestamps["2026-04-10"]?.count, 2)
+        XCTAssertEqual(summary.dailyTokenUsageEvents["2026-04-10"]?.map(\.totalTokens), [150, 60])
+    }
+
+    func test_codexRolloutDailySummaryStreamsJsonlWithoutMaterializingLines() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let url = directory.appendingPathComponent("rollout.jsonl")
+        let content = [
+            tokenCountLine(
+                ts: "2026-04-10T00:01:00Z",
+                input: 100,
+                cachedInput: 10,
+                output: 20,
+                reasoning: 5,
+                total: 125),
+            tokenCountLine(
+                ts: "2026-04-10T00:02:00Z",
+                input: 130,
+                cachedInput: 20,
+                output: 35,
+                reasoning: 10,
+                total: 165),
+        ].joined(separator: "\n")
+        try content.write(to: url, atomically: true, encoding: .utf8)
+
+        let summary = codexRolloutDailySummary(fromRolloutAt: url)
+
+        XCTAssertEqual(summary.dailyUsage["2026-04-10"]?.totalTokens, 165)
+        XCTAssertEqual(summary.dailyTokenUsageEvents["2026-04-10"]?.map(\.totalTokens), [120, 45])
+    }
+
+    func test_codexReaderSkipsJsonlLookupWhenDatabaseHasCompleteAttribution() {
+        let skippedPaths = CodexReader().pathsWithCompleteDatabaseAttribution(
+            in: [
+                CodexSession(rolloutPath: "/tmp/main-with-model.jsonl", model: "gpt-5.4"),
+                CodexSession(rolloutPath: "/tmp/subagent-with-model.jsonl", model: "gpt-5.4", agentKind: .subagent),
+                CodexSession(rolloutPath: "/tmp/subagent-without-model.jsonl", model: nil, agentKind: .subagent),
+                CodexSession(
+                    rolloutPath: "/tmp/model-without-source.jsonl",
+                    model: "gpt-5.4",
+                    hasSourceAttribution: false),
+            ])
+
+        XCTAssertEqual(skippedPaths, ["/tmp/main-with-model.jsonl", "/tmp/subagent-with-model.jsonl"])
+    }
+
+    func test_codexReaderMergesJsonlSourceAttributionWhenDatabaseSourceIsMissing() {
+        let merged = CodexReader().mergedSessions(
+            databaseSessions: [
+                CodexSession(
+                    rolloutPath: "/tmp/rollout-a.jsonl",
+                    model: "gpt-5.4",
+                    hasSourceAttribution: false),
+            ],
+            jsonlSessions: [
+                CodexSession(
+                    rolloutPath: "/tmp/rollout-a.jsonl",
+                    model: nil,
+                    agentKind: .subagent,
+                    hasSourceAttribution: true),
+            ])
+
+        XCTAssertEqual(merged.count, 1)
+        XCTAssertEqual(merged.first?.model, "gpt-5.4")
+        XCTAssertEqual(merged.first?.agentKind, .subagent)
+        XCTAssertEqual(merged.first?.hasSourceAttribution, true)
     }
 
     private func tokenCountLine(
