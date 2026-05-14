@@ -25,6 +25,7 @@ A macOS menu bar app that tracks daily token usage and costs across multiple AI 
 - **Overview tab** — see Total Tokens, Input, Output, Cache Read, Cache Hit, and Cost at a glance
 - **By Model tab** — break down token usage and cost per model
 - **Sources tab** — compare usage by agent, copy CSV/JSON exports, and inspect reader status
+- **Local security audit** — scan AI agent logs for masked secrets such as API keys, access tokens, cloud credentials, JWTs, and private key markers
 - **Date selection** — pick a single day or a custom date range
 - **Settings** — adjust refresh interval, enable/disable readers, and launch at login
 - **Trend comparison** — ↑↓ indicators show how today compares to yesterday

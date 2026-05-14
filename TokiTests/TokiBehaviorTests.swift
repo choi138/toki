@@ -1,6 +1,7 @@
 import XCTest
 @testable import Toki
 
+// swiftlint:disable file_length
 final class UsageServiceBehaviorTests: XCTestCase {
     func test_usageService_skipsYesterdayFetchForPastSingleDay() async throws {
         let recorder = MockReaderRecorder()
@@ -207,7 +208,90 @@ final class UsageServiceBehaviorTests: XCTestCase {
     }
 }
 
+// swiftlint:disable:next type_body_length
 final class UsageServiceRefreshReentryTests: XCTestCase {
+    func test_usageAggregator_totalTokensMatchesFullUsageTotalsWithMockReaders() async {
+        let firstRecorder = MockReaderRecorder()
+        let secondRecorder = MockReaderRecorder()
+        let start = Calendar.current.startOfDay(for: Date())
+        let end = Calendar.current.date(byAdding: .day, value: 1, to: start) ?? Date()
+        let request = UsageAggregationRequest(
+            start: start,
+            end: end,
+            enabledReaderNames: [:],
+            includesEmptySourceRows: false)
+        let aggregator = UsageAggregator(readers: [
+            MockReader(name: "First", recorder: firstRecorder) { _, _ in
+                mockUsage(totalTokens: 40)
+            },
+            MockReader(name: "Second", recorder: secondRecorder) { _, _ in
+                mockUsage(totalTokens: 85)
+            },
+        ])
+
+        let fullTotalTokens = await aggregator.aggregateUsage(for: request).usageData.totalTokens
+        let lightweightTotalTokens = await aggregator.aggregateTotalTokens(for: request)
+
+        XCTAssertEqual(lightweightTotalTokens, fullTotalTokens)
+        XCTAssertEqual(lightweightTotalTokens, 125)
+    }
+
+    func test_usageAggregator_totalTokensSkipsDisabledReaders() async {
+        let enabledRecorder = LightweightUsageRecorder()
+        let disabledRecorder = LightweightUsageRecorder()
+        let start = Calendar.current.startOfDay(for: Date())
+        let end = Calendar.current.date(byAdding: .day, value: 1, to: start) ?? Date()
+        let request = UsageAggregationRequest(
+            start: start,
+            end: end,
+            enabledReaderNames: [
+                "Enabled": true,
+                "Disabled": false,
+            ],
+            includesEmptySourceRows: false)
+        let aggregator = UsageAggregator(readers: [
+            RecordingTotalReader(name: "Enabled", totalTokens: 40, recorder: enabledRecorder),
+            RecordingTotalReader(name: "Disabled", totalTokens: 999, recorder: disabledRecorder),
+        ])
+
+        let lightweightTotalTokens = await aggregator.aggregateTotalTokens(for: request)
+
+        let enabledSnapshot = await enabledRecorder.snapshot()
+        let disabledSnapshot = await disabledRecorder.snapshot()
+        XCTAssertEqual(lightweightTotalTokens, 40)
+        XCTAssertEqual(enabledSnapshot.totalStarts, [start])
+        XCTAssertTrue(enabledSnapshot.usageStarts.isEmpty)
+        XCTAssertTrue(disabledSnapshot.totalStarts.isEmpty)
+        XCTAssertTrue(disabledSnapshot.usageStarts.isEmpty)
+    }
+
+    func test_usageService_yesterdayComparisonUsesLightweightTotalTokenPath() async throws {
+        let recorder = LightweightUsageRecorder()
+        let today = Calendar.current.startOfDay(for: Date())
+        let yesterday = try XCTUnwrap(Calendar.current.date(byAdding: .day, value: -1, to: today))
+        let reader = LightweightComparisonReader(
+            today: today,
+            yesterday: yesterday,
+            recorder: recorder)
+
+        let service = await MainActor.run { UsageService(readers: [reader]) }
+        await service.refresh()
+
+        var snapshot = await recorder.snapshot()
+        var yesterdayTotal = await MainActor.run { service.yesterdayTotalTokens }
+        for _ in 0..<20 where yesterdayTotal != 77 {
+            try? await Task.sleep(for: .milliseconds(10))
+            snapshot = await recorder.snapshot()
+            yesterdayTotal = await MainActor.run { service.yesterdayTotalTokens }
+        }
+
+        let usageData = await MainActor.run { service.usageData }
+        XCTAssertEqual(usageData.totalTokens, 120)
+        XCTAssertEqual(yesterdayTotal, 77)
+        XCTAssertEqual(snapshot.usageStarts, [today])
+        XCTAssertEqual(snapshot.totalStarts, [yesterday])
+    }
+
     func test_usageService_preservesZeroYesterdayTotalForTodayComparison() async throws {
         let recorder = MockReaderRecorder()
         let today = Calendar.current.startOfDay(for: Date())
@@ -551,5 +635,55 @@ private struct DelayedSecondYesterdayReader: TokenReader {
         default:
             return mockUsage(totalTokens: 5)
         }
+    }
+}
+
+private actor LightweightUsageRecorder {
+    private var usageStarts: [Date] = []
+    private var totalStarts: [Date] = []
+
+    func recordUsage(start: Date) {
+        usageStarts.append(start)
+    }
+
+    func recordTotal(start: Date) {
+        totalStarts.append(start)
+    }
+
+    func snapshot() -> (usageStarts: [Date], totalStarts: [Date]) {
+        (usageStarts, totalStarts)
+    }
+}
+
+private struct LightweightComparisonReader: TokenReader {
+    let name = "Mock"
+    let today: Date
+    let yesterday: Date
+    let recorder: LightweightUsageRecorder
+
+    func readUsage(from startDate: Date, to endDate: Date) async throws -> RawTokenUsage {
+        await recorder.recordUsage(start: startDate)
+        return mockUsage(totalTokens: startDate == today ? 120 : 999)
+    }
+
+    func readTotalTokens(from startDate: Date, to endDate: Date) async throws -> Int {
+        await recorder.recordTotal(start: startDate)
+        return startDate == yesterday ? 77 : 999
+    }
+}
+
+private struct RecordingTotalReader: TokenReader {
+    let name: String
+    let totalTokens: Int
+    let recorder: LightweightUsageRecorder
+
+    func readUsage(from startDate: Date, to endDate: Date) async throws -> RawTokenUsage {
+        await recorder.recordUsage(start: startDate)
+        return mockUsage(totalTokens: 999)
+    }
+
+    func readTotalTokens(from startDate: Date, to endDate: Date) async throws -> Int {
+        await recorder.recordTotal(start: startDate)
+        return totalTokens
     }
 }

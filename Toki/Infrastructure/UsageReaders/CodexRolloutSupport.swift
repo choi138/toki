@@ -173,6 +173,18 @@ struct CodexRolloutUsageCacheEntry: Codable {
     }
 }
 
+struct CodexRolloutDailySummary {
+    var dailyUsage: [String: CodexCachedDailyUsage] = [:]
+    var dailyActivityTimestamps: [String: [TimeInterval]] = [:]
+    var dailyTokenUsageEvents: [String: [CodexCachedTokenUsageEvent]] = [:]
+
+    var isEmpty: Bool {
+        dailyUsage.isEmpty
+            && dailyActivityTimestamps.isEmpty
+            && dailyTokenUsageEvents.isEmpty
+    }
+}
+
 struct CodexCachedDailyUsage: Codable {
     var inputTokens = 0
     var outputTokens = 0
@@ -284,11 +296,20 @@ func dailyActivityTimestampValues(from timestamps: [Date]) -> [String: [TimeInte
 }
 
 func dailyTokenUsageEvents(fromRolloutLines lines: [String]) -> [String: [CodexCachedTokenUsageEvent]] {
-    var previousSnapshot: CodexUsageSnapshot?
-    var result: [String: [CodexCachedTokenUsageEvent]] = [:]
+    codexRolloutDailySummary(fromSnapshots: codexRolloutSnapshots(fromRolloutLines: lines)).dailyTokenUsageEvents
+}
 
-    for entry in codexRolloutSnapshots(fromRolloutLines: lines) {
-        guard !Task.isCancelled else { return [:] }
+func codexRolloutDailySummary(fromRolloutAt url: URL) -> CodexRolloutDailySummary {
+    codexRolloutDailySummary(fromSnapshots: codexRolloutSnapshots(fromRolloutAt: url))
+}
+
+func codexRolloutDailySummary(fromSnapshots snapshots: [CodexTimedSnapshot]) -> CodexRolloutDailySummary {
+    var previousSnapshot: CodexUsageSnapshot?
+    var summary = CodexRolloutDailySummary()
+    var activityTimestamps: [Date] = []
+
+    for entry in snapshots {
+        guard !Task.isCancelled else { return CodexRolloutDailySummary() }
 
         let delta = entry.snapshot.delta(since: previousSnapshot)
         previousSnapshot = entry.snapshot
@@ -296,12 +317,19 @@ func dailyTokenUsageEvents(fromRolloutLines lines: [String]) -> [String: [CodexC
         let usage = delta.normalizedUsage
         guard usage.totalTokens > 0 else { continue }
 
+        activityTimestamps.append(entry.date)
         let dayKey = codexDayKey(for: entry.date)
-        result[dayKey, default: []].append(
+        summary.dailyUsage[dayKey, default: .zero].accumulate(usage)
+        summary.dailyActivityTimestamps[dayKey, default: []].append(entry.date.timeIntervalSince1970)
+        summary.dailyTokenUsageEvents[dayKey, default: []].append(
             CodexCachedTokenUsageEvent(timestamp: entry.date, usage: usage))
     }
 
-    return result
+    for (dayKey, seconds) in dailyActiveSeconds(from: activityTimestamps) {
+        summary.dailyUsage[dayKey, default: .zero].activeSeconds += seconds
+    }
+
+    return summary
 }
 
 func codexRolloutSnapshots(fromRolloutLines lines: [String]) -> [CodexTimedSnapshot] {
@@ -328,174 +356,101 @@ func codexRolloutSnapshots(fromRolloutLines lines: [String]) -> [CodexTimedSnaps
     }
 }
 
+func codexRolloutSnapshots(fromRolloutAt url: URL) -> [CodexTimedSnapshot] {
+    let decoder = JSONDecoder()
+    var snapshots: [CodexTimedSnapshot] = []
+
+    forEachJSONLLine(at: url) { line, index in
+        guard let data = line.data(using: .utf8),
+              let entry = try? decoder.decode(CodexRolloutEntry.self, from: data),
+              let timestamp = entry.timestamp,
+              let date = DateParser.parse(timestamp),
+              let snapshot = entry.tokenSnapshot else {
+            return
+        }
+
+        snapshots.append(
+            CodexTimedSnapshot(
+                date: date,
+                snapshot: snapshot,
+                fileOrder: index))
+    }
+
+    return snapshots.sorted { lhs, rhs in
+        if lhs.date == rhs.date {
+            return lhs.fileOrder < rhs.fileOrder
+        }
+        return lhs.date < rhs.date
+    }
+}
+
+func forEachJSONLLine(at url: URL, _ body: (String, Int) -> Void) {
+    forEachJSONLLineUntil(at: url) { line, index in
+        body(line, index)
+        return true
+    }
+}
+
+func forEachJSONLLineUntil(at url: URL, _ body: (String, Int) -> Bool) {
+    guard let handle = try? FileHandle(forReadingFrom: url) else { return }
+    defer { try? handle.close() }
+
+    var lineIndex = 0
+    var pending = Data()
+
+    while true {
+        guard !Task.isCancelled else { return }
+
+        let chunk: Data
+        do {
+            guard let data = try handle.read(upToCount: 64 * 1024),
+                  !data.isEmpty else {
+                break
+            }
+            chunk = data
+        } catch {
+            break
+        }
+
+        pending.append(chunk)
+        while let newlineIndex = pending.firstIndex(of: 0x0A) {
+            guard !Task.isCancelled else { return }
+
+            let lineData = pending.subdata(in: pending.startIndex..<newlineIndex)
+            pending.removeSubrange(pending.startIndex...newlineIndex)
+            if let line = jsonlLineString(from: lineData) {
+                guard body(line, lineIndex) else { return }
+                lineIndex += 1
+            }
+        }
+    }
+
+    if let line = jsonlLineString(from: pending) {
+        _ = body(line, lineIndex)
+    }
+}
+
+private func jsonlLineString(from data: Data) -> String? {
+    let trimmedData = data.trimmingCarriageReturn()
+    guard !trimmedData.isEmpty,
+          let line = String(data: trimmedData, encoding: .utf8) else {
+        return nil
+    }
+
+    let trimmedLine = line.trimmingCharacters(in: .whitespaces)
+    return trimmedLine.isEmpty ? nil : trimmedLine
+}
+
+private extension Data {
+    func trimmingCarriageReturn() -> Data {
+        guard last == 0x0D else { return self }
+        return Data(dropLast())
+    }
+}
+
 func codexIsWholeDayAlignedRange(from startDate: Date, to endDate: Date) -> Bool {
     let calendar = Calendar.current
     return startDate == calendar.startOfDay(for: startDate)
         && endDate == calendar.startOfDay(for: endDate)
         && startDate < endDate
-}
-
-struct CodexModelEntry: Decodable {
-    let type: String?
-    let payload: Payload?
-
-    struct Payload: Decodable {
-        let model: String?
-    }
-}
-
-struct CodexSession {
-    let rolloutPath: String
-    let model: String?
-    let agentKind: WorkTimeAgentKind
-
-    init(
-        rolloutPath: String,
-        model: String?,
-        agentKind: WorkTimeAgentKind = .main) {
-        self.rolloutPath = rolloutPath
-        self.model = model
-        self.agentKind = agentKind
-    }
-}
-
-func codexAgentKind(fromSource source: String?) -> WorkTimeAgentKind {
-    guard let source = source?.trimmingCharacters(in: .whitespacesAndNewlines),
-          !source.isEmpty else {
-        return .main
-    }
-
-    if source == "subagent" {
-        return .subagent
-    }
-
-    guard let data = source.data(using: .utf8),
-          let marker = try? JSONDecoder().decode(CodexSourceMarker.self, from: data) else {
-        return .main
-    }
-    return marker.isSubagent ? .subagent : .main
-}
-
-struct CodexSessionMetaEntry: Decodable {
-    let type: String?
-    let payload: Payload?
-
-    struct Payload: Decodable {
-        let source: CodexSourceMarker?
-    }
-}
-
-struct CodexSourceMarker: Decodable {
-    let isSubagent: Bool
-
-    init(from decoder: Decoder) throws {
-        if let container = try? decoder.singleValueContainer(),
-           let value = try? container.decode(String.self) {
-            isSubagent = value == "subagent"
-            return
-        }
-
-        guard let container = try? decoder.container(keyedBy: DynamicCodingKey.self),
-              let subagentKey = DynamicCodingKey(stringValue: "subagent") else {
-            isSubagent = false
-            return
-        }
-
-        isSubagent = container.contains(subagentKey)
-    }
-}
-
-struct DynamicCodingKey: CodingKey {
-    let stringValue: String
-    let intValue: Int?
-
-    init?(stringValue: String) {
-        self.stringValue = stringValue
-        intValue = nil
-    }
-
-    init?(intValue: Int) {
-        nil
-    }
-}
-
-struct CodexRolloutEntry: Decodable {
-    let timestamp: String?
-    let type: String?
-    let payload: Payload?
-
-    var tokenSnapshot: CodexUsageSnapshot? {
-        guard type == "event_msg",
-              payload?.type == "token_count",
-              let totalUsage = payload?.info?.totalTokenUsage else {
-            return nil
-        }
-
-        return CodexUsageSnapshot(
-            inputTokens: totalUsage.inputTokens ?? 0,
-            cachedInputTokens: totalUsage.cachedInputTokens ?? 0,
-            outputTokens: totalUsage.outputTokens ?? 0,
-            reasoningOutputTokens: totalUsage.reasoningOutputTokens ?? 0)
-    }
-
-    struct Payload: Decodable {
-        let type: String?
-        let info: Info?
-
-        struct Info: Decodable {
-            let totalTokenUsage: TotalTokenUsage?
-
-            enum CodingKeys: String, CodingKey {
-                case totalTokenUsage = "total_token_usage"
-            }
-        }
-    }
-}
-
-struct TotalTokenUsage: Decodable {
-    let inputTokens: Int?
-    let cachedInputTokens: Int?
-    let outputTokens: Int?
-    let reasoningOutputTokens: Int?
-
-    enum CodingKeys: String, CodingKey {
-        case inputTokens = "input_tokens"
-        case cachedInputTokens = "cached_input_tokens"
-        case outputTokens = "output_tokens"
-        case reasoningOutputTokens = "reasoning_output_tokens"
-    }
-}
-
-struct CodexUsageSnapshot {
-    let inputTokens: Int
-    let cachedInputTokens: Int
-    let outputTokens: Int
-    let reasoningOutputTokens: Int
-
-    func delta(since previous: CodexUsageSnapshot?) -> CodexUsageSnapshot {
-        guard let previous else { return self }
-
-        return CodexUsageSnapshot(
-            inputTokens: max(0, inputTokens - previous.inputTokens),
-            cachedInputTokens: max(0, cachedInputTokens - previous.cachedInputTokens),
-            outputTokens: max(0, outputTokens - previous.outputTokens),
-            reasoningOutputTokens: max(0, reasoningOutputTokens - previous.reasoningOutputTokens))
-    }
-
-    var normalizedUsage: RawTokenUsage {
-        let uncachedInput = max(0, inputTokens - cachedInputTokens)
-        let nonReasoningOutput = max(0, outputTokens - reasoningOutputTokens)
-
-        return RawTokenUsage(
-            inputTokens: uncachedInput,
-            outputTokens: nonReasoningOutput,
-            cacheReadTokens: cachedInputTokens,
-            reasoningTokens: reasoningOutputTokens)
-    }
-}
-
-struct CodexTimedSnapshot {
-    let date: Date
-    let snapshot: CodexUsageSnapshot
-    let fileOrder: Int
 }

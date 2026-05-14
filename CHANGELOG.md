@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - GitHub Actions release workflow for manual and tag-triggered macOS release artifact builds.
 - Release documentation covering workflow usage and required signing/notarization secrets.
 - Sources tab with per-agent totals, reader status diagnostics, and CSV/JSON copy export.
+- Local security audit sheet for scanning AI agent logs for masked API keys, tokens, cloud credentials, JWTs, private key markers, and environment secrets.
 - Settings panel for refresh interval, reader enablement, zero-row display, and Launch at Login.
 - Pricing lookup diagnostics for exact, prefix, and missing model price matches.
 

@@ -56,6 +56,37 @@ struct CodexReader: TokenReader {
 
         return result
     }
+
+    func readTotalTokens(from startDate: Date, to endDate: Date) async throws -> Int {
+        guard !Task.isCancelled,
+              FileManager.default.fileExists(atPath: dbPath) else {
+            return 0
+        }
+
+        guard codexIsWholeDayAlignedRange(from: startDate, to: endDate) else {
+            return try await readUsage(from: startDate, to: endDate).totalTokens
+        }
+
+        let sessions = overlappingSessions(from: startDate, to: endDate)
+        guard !Task.isCancelled, !sessions.isEmpty else { return 0 }
+
+        var totalTokens = 0
+        await CodexRolloutUsageCache.shared.beginBatch()
+        for session in sessions {
+            guard !Task.isCancelled else { break }
+
+            let url = URL(fileURLWithPath: session.rolloutPath)
+            guard FileManager.default.fileExists(atPath: url.path) else { continue }
+            let summary = await Self.cachedDailySummary(fromRolloutAt: url)
+            totalTokens += Self.totalTokens(
+                fromDailyUsage: summary.dailyUsage,
+                from: startDate,
+                to: endDate)
+        }
+        await CodexRolloutUsageCache.shared.endBatch()
+
+        return Task.isCancelled ? 0 : totalTokens
+    }
 }
 
 extension CodexReader {
@@ -238,50 +269,51 @@ extension CodexReader {
     }
 
     private static func dailyUsage(fromRolloutLines lines: [String]) -> [String: CodexCachedDailyUsage] {
-        var previousSnapshot: CodexUsageSnapshot?
-        var result: [String: CodexCachedDailyUsage] = [:]
-        var activityTimestamps: [Date] = []
-
-        for entry in codexRolloutSnapshots(fromRolloutLines: lines) {
-            guard !Task.isCancelled else { return [:] }
-
-            let delta = entry.snapshot.delta(since: previousSnapshot)
-            previousSnapshot = entry.snapshot
-
-            let usage = delta.normalizedUsage
-            guard usage.totalTokens > 0 else { continue }
-            activityTimestamps.append(entry.date)
-
-            let dayKey = codexDayKey(for: entry.date)
-            result[dayKey, default: .zero].accumulate(usage)
-        }
-
-        for (dayKey, seconds) in dailyActiveSeconds(from: activityTimestamps) {
-            result[dayKey, default: .zero].activeSeconds += seconds
-        }
-
-        return result
+        codexRolloutDailySummary(fromSnapshots: codexRolloutSnapshots(fromRolloutLines: lines)).dailyUsage
     }
 
     private static func dailyActivityTimestamps(fromRolloutLines lines: [String]) -> [String: [TimeInterval]] {
-        var previousSnapshot: CodexUsageSnapshot?
-        var activityTimestamps: [Date] = []
-
-        for entry in codexRolloutSnapshots(fromRolloutLines: lines) {
-            guard !Task.isCancelled else { return [:] }
-
-            let delta = entry.snapshot.delta(since: previousSnapshot)
-            previousSnapshot = entry.snapshot
-
-            guard delta.normalizedUsage.totalTokens > 0 else { continue }
-            activityTimestamps.append(entry.date)
-        }
-
-        return dailyActivityTimestampValues(from: activityTimestamps)
+        codexRolloutDailySummary(fromSnapshots: codexRolloutSnapshots(fromRolloutLines: lines))
+            .dailyActivityTimestamps
     }
 }
 
 private extension CodexReader {
+    private static func cachedDailySummary(fromRolloutAt url: URL) async -> CodexRolloutDailySummary {
+        let cachedDailyUsage = await CodexRolloutUsageCache.shared.dailyUsage(for: url)
+        let cachedActivityTimestamps = await CodexRolloutUsageCache.shared.dailyActivityTimestamps(for: url)
+        let cachedTokenUsageEvents = await CodexRolloutUsageCache.shared.dailyTokenUsageEvents(for: url)
+
+        if let cachedDailyUsage,
+           let cachedActivityTimestamps,
+           let cachedTokenUsageEvents {
+            return CodexRolloutDailySummary(
+                dailyUsage: cachedDailyUsage,
+                dailyActivityTimestamps: cachedActivityTimestamps,
+                dailyTokenUsageEvents: cachedTokenUsageEvents)
+        }
+
+        let rebuiltSummary = codexRolloutDailySummary(fromRolloutAt: url)
+        guard !Task.isCancelled else { return CodexRolloutDailySummary() }
+
+        let summaryToStore = CodexRolloutDailySummary(
+            dailyUsage: dailyUsageForTimestampBackfill(
+                rebuiltDailyUsage: rebuiltSummary.dailyUsage,
+                existingDailyUsage: cachedDailyUsage),
+            dailyActivityTimestamps: rebuiltSummary.dailyActivityTimestamps,
+            dailyTokenUsageEvents: rebuiltSummary.dailyTokenUsageEvents)
+
+        if !summaryToStore.isEmpty {
+            await CodexRolloutUsageCache.shared.store(
+                dailyUsage: summaryToStore.dailyUsage,
+                dailyActivityTimestamps: summaryToStore.dailyActivityTimestamps,
+                dailyTokenUsageEvents: summaryToStore.dailyTokenUsageEvents,
+                for: url)
+        }
+
+        return summaryToStore
+    }
+
     private static func cachedUsage(
         fromRolloutAt url: URL,
         model: String?,
@@ -300,42 +332,16 @@ private extension CodexReader {
                 includeActivity: false)
         }
 
-        let rolloutDailyUsage: [String: CodexCachedDailyUsage]
-        let rolloutDailyTokenUsageEvents: [String: [CodexCachedTokenUsageEvent]]
-        if let cachedUsage = await CodexRolloutUsageCache.shared.dailyUsage(for: url),
-           let cachedTokenEvents = await CodexRolloutUsageCache.shared.dailyTokenUsageEvents(for: url) {
-            rolloutDailyUsage = cachedUsage
-            rolloutDailyTokenUsageEvents = cachedTokenEvents
-        } else {
-            let existingDailyUsage = await CodexRolloutUsageCache.shared.dailyUsage(for: url)
-            let lines = readJSONLLines(at: url)
-            guard !Task.isCancelled else { return RawTokenUsage() }
-
-            let rebuiltDailyUsage = dailyUsage(fromRolloutLines: lines)
-            rolloutDailyUsage = dailyUsageForTimestampBackfill(
-                rebuiltDailyUsage: rebuiltDailyUsage,
-                existingDailyUsage: existingDailyUsage)
-            guard !Task.isCancelled else { return RawTokenUsage() }
-
-            let dailyActivityTimestamps = dailyActivityTimestamps(fromRolloutLines: lines)
-            rolloutDailyTokenUsageEvents = dailyTokenUsageEvents(fromRolloutLines: lines)
-            guard !Task.isCancelled else { return RawTokenUsage() }
-
-            await CodexRolloutUsageCache.shared.store(
-                dailyUsage: rolloutDailyUsage,
-                dailyActivityTimestamps: dailyActivityTimestamps,
-                dailyTokenUsageEvents: rolloutDailyTokenUsageEvents,
-                for: url)
-        }
+        let summary = await cachedDailySummary(fromRolloutAt: url)
 
         var result = usage(
-            fromDailyUsage: rolloutDailyUsage,
+            fromDailyUsage: summary.dailyUsage,
             model: model,
             agentKind: agentKind,
             from: startDate,
             to: endDate)
         result.tokenEvents = tokenEvents(
-            fromCachedDailyTokenUsageEvents: rolloutDailyTokenUsageEvents,
+            fromCachedDailyTokenUsageEvents: summary.dailyTokenUsageEvents,
             model: model,
             from: startDate,
             to: endDate)
@@ -381,29 +387,10 @@ private extension CodexReader {
         }
 
         if codexIsWholeDayAlignedRange(from: startDate, to: endDate) {
-            let existingDailyUsage = await CodexRolloutUsageCache.shared.dailyUsage(for: url)
-            let lines = readJSONLLines(at: url)
-            guard !Task.isCancelled else { return [] }
-
-            let rebuiltDailyUsage = dailyUsage(fromRolloutLines: lines)
-            let dailyActivityTimestamps = dailyActivityTimestamps(fromRolloutLines: lines)
-            let dailyTokenUsageEvents = dailyTokenUsageEvents(fromRolloutLines: lines)
-            guard !Task.isCancelled else { return [] }
-
-            let dailyUsageToStore = dailyUsageForTimestampBackfill(
-                rebuiltDailyUsage: rebuiltDailyUsage,
-                existingDailyUsage: existingDailyUsage)
-
-            if !dailyUsageToStore.isEmpty || !dailyActivityTimestamps.isEmpty {
-                await CodexRolloutUsageCache.shared.store(
-                    dailyUsage: dailyUsageToStore,
-                    dailyActivityTimestamps: dailyActivityTimestamps,
-                    dailyTokenUsageEvents: dailyTokenUsageEvents,
-                    for: url)
-            }
+            let summary = await cachedDailySummary(fromRolloutAt: url)
 
             return activityEvents(
-                fromCachedTimestamps: dailyActivityTimestamps,
+                fromCachedTimestamps: summary.dailyActivityTimestamps,
                 streamID: url.path,
                 model: normalizedModel,
                 agentKind: agentKind,
@@ -454,6 +441,26 @@ private extension CodexReader {
                             agentKind: agentKind)
                     })
             }
+
+            guard let nextDay = calendar.date(byAdding: .day, value: 1, to: currentDay) else { break }
+            currentDay = nextDay
+        }
+
+        return result
+    }
+
+    private static func totalTokens(
+        fromDailyUsage dailyUsage: [String: CodexCachedDailyUsage],
+        from startDate: Date,
+        to endDate: Date) -> Int {
+        let calendar = Calendar.current
+        var currentDay = calendar.startOfDay(for: startDate)
+        var result = 0
+
+        while currentDay < endDate {
+            guard !Task.isCancelled else { return 0 }
+
+            result += dailyUsage[codexDayKey(for: currentDay)]?.totalTokens ?? 0
 
             guard let nextDay = calendar.date(byAdding: .day, value: 1, to: currentDay) else { break }
             currentDay = nextDay

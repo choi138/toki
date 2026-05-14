@@ -26,6 +26,12 @@ struct PanelTabBarView: View {
             TabButton(title: "Time", isActive: activeTab == .workTime) {
                 activeTab = .workTime
             }
+            Rectangle()
+                .fill(Color.white.opacity(0.07))
+                .frame(width: 0.5)
+            TabButton(title: "Hourly", isActive: activeTab == .hourly) {
+                activeTab = .hourly
+            }
         }
         .frame(height: 32)
     }

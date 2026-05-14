@@ -1,6 +1,7 @@
 import XCTest
 @testable import Toki
 
+// swiftlint:disable:next type_body_length
 final class CodexReaderBehaviorTests: XCTestCase {
     func test_codexReader_keepsRolloutStreamsSeparatedWhenMergingActivity() {
         let first = CodexReader.usage(
@@ -112,15 +113,41 @@ final class CodexReaderBehaviorTests: XCTestCase {
         XCTAssertEqual(merged.first?.agentKind, .subagent)
     }
 
-    func test_codexReader_keepsJsonlLookupWhenDatabaseModelMayNeedAgentKind() {
+    func test_codexReader_skipsJsonlLookupWhenDatabaseHasModelAndSourceAttribution() {
         let skippedPaths = CodexReader().pathsWithCompleteDatabaseAttribution(
             in: [
                 CodexSession(rolloutPath: "/tmp/main-with-model.jsonl", model: "gpt-5.4"),
                 CodexSession(rolloutPath: "/tmp/subagent-with-model.jsonl", model: "gpt-5.4", agentKind: .subagent),
                 CodexSession(rolloutPath: "/tmp/subagent-without-model.jsonl", model: nil, agentKind: .subagent),
+                CodexSession(
+                    rolloutPath: "/tmp/model-without-source.jsonl",
+                    model: "gpt-5.4",
+                    hasSourceAttribution: false),
             ])
 
-        XCTAssertEqual(skippedPaths, ["/tmp/subagent-with-model.jsonl"])
+        XCTAssertEqual(skippedPaths, ["/tmp/main-with-model.jsonl", "/tmp/subagent-with-model.jsonl"])
+    }
+
+    func test_codexReader_mergesJsonlSourceAttributionWhenDatabaseSourceIsMissing() {
+        let merged = CodexReader().mergedSessions(
+            databaseSessions: [
+                CodexSession(
+                    rolloutPath: "/tmp/rollout-a.jsonl",
+                    model: "gpt-5.4",
+                    hasSourceAttribution: false),
+            ],
+            jsonlSessions: [
+                CodexSession(
+                    rolloutPath: "/tmp/rollout-a.jsonl",
+                    model: nil,
+                    agentKind: .subagent,
+                    hasSourceAttribution: true),
+            ])
+
+        XCTAssertEqual(merged.count, 1)
+        XCTAssertEqual(merged.first?.model, "gpt-5.4")
+        XCTAssertEqual(merged.first?.agentKind, .subagent)
+        XCTAssertEqual(merged.first?.hasSourceAttribution, true)
     }
 
     func test_codexAgentKindDetectsSubagentSource() {
