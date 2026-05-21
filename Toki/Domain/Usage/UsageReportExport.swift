@@ -38,12 +38,16 @@ enum UsageExport {
 
 private struct UsageExportPayload: Encodable {
     let date: String
+    let startDate: String
+    let endDate: String
     let totals: UsageExportTotals
     let sources: [UsageExportSource]
     let models: [UsageExportModel]
 
     init(usage: UsageData) {
         date = Self.isoDateFormatter.string(from: usage.date)
+        startDate = Self.isoDateFormatter.string(from: usage.date)
+        endDate = Self.isoDateFormatter.string(from: usage.endDate)
         totals = UsageExportTotals(usage: usage)
         sources = usage.sourceStats.map(UsageExportSource.init)
         models = usage.perModel.map(UsageExportModel.init)
@@ -129,7 +133,11 @@ private extension UsageExport {
             "total_tokens",
             "cost_usd",
             "active_seconds",
+            "start_date",
+            "end_date",
         ]
+        let startDate = isoDateFormatter.string(from: usage.date)
+        let endDate = isoDateFormatter.string(from: usage.endDate)
 
         let total = [
             "total",
@@ -142,6 +150,8 @@ private extension UsageExport {
             "\(usage.totalTokens)",
             String(format: "%.6f", usage.cost),
             String(format: "%.3f", usage.activeSeconds),
+            startDate,
+            endDate,
         ]
 
         let sources = usage.sourceStats.map { source in
@@ -156,6 +166,8 @@ private extension UsageExport {
                 "\(source.totalTokens)",
                 String(format: "%.6f", source.cost),
                 String(format: "%.3f", source.activeSeconds),
+                startDate,
+                endDate,
             ]
         }
 
@@ -171,11 +183,15 @@ private extension UsageExport {
                 "\(model.totalTokens)",
                 model.isPriceKnown ? String(format: "%.6f", model.cost) : "",
                 String(format: "%.3f", model.activeSeconds),
+                startDate,
+                endDate,
             ]
         }
 
         return [header, total] + sources + models
     }
+
+    private static let isoDateFormatter = ISO8601DateFormatter()
 
     static func csvEscape(_ value: String) -> String {
         guard value.contains(",")

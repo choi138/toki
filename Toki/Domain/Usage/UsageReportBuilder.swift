@@ -10,6 +10,7 @@ enum UsageReportBuilder {
         sourceStats: [SourceStat]) -> UsageData {
         UsageData(
             date: date,
+            endDate: endDate,
             inputTokens: usage.inputTokens,
             outputTokens: usage.outputTokens,
             cacheReadTokens: usage.cacheReadTokens,

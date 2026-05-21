@@ -5,6 +5,7 @@ final class UsageExportTests: XCTestCase {
     func test_csvExportIncludesTotalsSourcesAndModels() {
         let usage = UsageData(
             date: tokiTestISODate("2026-04-10T00:00:00Z"),
+            endDate: tokiTestISODate("2026-04-11T00:00:00Z"),
             inputTokens: 10,
             outputTokens: 5,
             cacheReadTokens: 2,
@@ -36,14 +37,17 @@ final class UsageExportTests: XCTestCase {
         let csv = UsageExport.csvString(for: usage)
 
         XCTAssertTrue(csv.contains("section,name,input_tokens"))
+        XCTAssertTrue(csv.contains("active_seconds,start_date,end_date"))
         XCTAssertTrue(csv.contains("total,All,10,5,2,1,3,21,0.250000,120.000"))
+        XCTAssertTrue(csv.contains("2026-04-10T00:00:00Z,2026-04-11T00:00:00Z"))
         XCTAssertTrue(csv.contains("source,Codex,10,5,2,1,3,21,0.250000,120.000"))
         XCTAssertTrue(csv.contains("model,gpt-5.4,,,,,,21,0.250000,120.000"))
     }
 
-    func test_jsonExportIncludesPriceKnownFlag() throws {
+    func test_jsonExportIncludesRangeAndPriceKnownFlag() throws {
         let usage = UsageData(
             date: tokiTestISODate("2026-04-10T00:00:00Z"),
+            endDate: tokiTestISODate("2026-04-12T00:00:00Z"),
             inputTokens: 1,
             outputTokens: 0,
             cacheReadTokens: 0,
@@ -66,6 +70,9 @@ final class UsageExportTests: XCTestCase {
             JSONSerialization.jsonObject(with: data) as? [String: Any])
         let models = try XCTUnwrap(object["models"] as? [[String: Any]])
 
+        XCTAssertEqual(object["date"] as? String, "2026-04-10T00:00:00Z")
+        XCTAssertEqual(object["startDate"] as? String, "2026-04-10T00:00:00Z")
+        XCTAssertEqual(object["endDate"] as? String, "2026-04-12T00:00:00Z")
         XCTAssertEqual(models.first?["model"] as? String, "unknown-model")
         XCTAssertEqual(models.first?["isPriceKnown"] as? Bool, false)
     }

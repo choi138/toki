@@ -5,32 +5,36 @@ import SQLite3
 /// Queries assistant messages with token data
 struct OpenCodeReader: TokenReader {
     let name = "OpenCode"
+    private let dbPathOverride: String?
+
+    init(dbPathOverride: String? = nil) {
+        self.dbPathOverride = dbPathOverride
+    }
 
     private var dbPath: String {
-        homeDir().appendingPathComponent(".local/share/opencode/opencode.db").path
+        dbPathOverride ?? homeDir().appendingPathComponent(".local/share/opencode/opencode.db").path
     }
 
     func readUsage(from startDate: Date, to endDate: Date) async throws -> RawTokenUsage {
-        guard let database = openDatabase() else {
+        guard let database = try openDatabase() else {
             return RawTokenUsage()
         }
         defer { sqlite3_close(database) }
 
-        guard let statement = preparedUsageStatement(in: database, from: startDate, to: endDate) else {
-            return RawTokenUsage()
-        }
+        let statement = try preparedUsageStatement(in: database, from: startDate, to: endDate)
         defer { sqlite3_finalize(statement) }
 
-        return accumulateUsageRows(from: statement, clippingEndDate: endDate)
+        return try accumulateUsageRows(from: statement, clippingEndDate: endDate)
     }
 
-    private func openDatabase() -> OpaquePointer? {
+    private func openDatabase() throws -> OpaquePointer? {
         guard FileManager.default.fileExists(atPath: dbPath) else { return nil }
 
         var database: OpaquePointer?
         guard sqlite3_open_v2(dbPath, &database, SQLITE_OPEN_READONLY, nil) == SQLITE_OK else {
+            let error = OpenCodeSQLiteError(operation: "open", database: database)
             sqlite3_close(database)
-            return nil
+            throw error
         }
 
         sqlite3_busy_timeout(database, 2000)
@@ -40,7 +44,7 @@ struct OpenCodeReader: TokenReader {
     private func preparedUsageStatement(
         in database: OpaquePointer,
         from startDate: Date,
-        to endDate: Date) -> OpaquePointer? {
+        to endDate: Date) throws -> OpaquePointer {
         let startEpoch = startDate.timeIntervalSince1970 * 1000
         let endEpoch = endDate.timeIntervalSince1970 * 1000
         let query = """
@@ -62,13 +66,17 @@ struct OpenCodeReader: TokenReader {
 
         var statement: OpaquePointer?
         guard sqlite3_prepare_v2(database, query, -1, &statement, nil) == SQLITE_OK else {
-            return nil
+            throw OpenCodeSQLiteError(operation: "prepare", database: database)
+        }
+        guard let statement else {
+            throw OpenCodeSQLiteError(operation: "prepare", database: database)
         }
 
         guard sqlite3_bind_int64(statement, 1, Int64(startEpoch)) == SQLITE_OK,
               sqlite3_bind_int64(statement, 2, Int64(endEpoch)) == SQLITE_OK else {
+            let error = OpenCodeSQLiteError(operation: "bind", database: database)
             sqlite3_finalize(statement)
-            return nil
+            throw error
         }
 
         return statement
@@ -76,11 +84,12 @@ struct OpenCodeReader: TokenReader {
 
     private func accumulateUsageRows(
         from statement: OpaquePointer,
-        clippingEndDate: Date) -> RawTokenUsage {
+        clippingEndDate: Date) throws -> RawTokenUsage {
         var result = RawTokenUsage()
         var activityEvents: [ActivityTimeEvent<String>] = []
 
-        while sqlite3_step(statement) == SQLITE_ROW {
+        var stepStatus = sqlite3_step(statement)
+        while stepStatus == SQLITE_ROW {
             let sessionID = sqlite3_column_text(statement, 0).map { String(cString: $0) } ?? ""
             let timestamp = sqlite3_column_int64(statement, 1)
             let input = Int(sqlite3_column_int64(statement, 2))
@@ -133,10 +142,34 @@ struct OpenCodeReader: TokenReader {
                 cacheWriteTokens: cacheWrite,
                 reasoningTokens: reasoning,
                 cost: messageCost)
+
+            stepStatus = sqlite3_step(statement)
+        }
+
+        guard stepStatus == SQLITE_DONE else {
+            throw OpenCodeSQLiteError(operation: "query", database: sqlite3_db_handle(statement))
         }
 
         result.mergeActivityEvents(activityEvents, source: name, clippingEndDate: clippingEndDate)
 
         return result
+    }
+}
+
+private struct OpenCodeSQLiteError: LocalizedError {
+    let operation: String
+    let message: String
+
+    init(operation: String, database: OpaquePointer?) {
+        self.operation = operation
+        if let database, let errorMessage = sqlite3_errmsg(database) {
+            message = String(cString: errorMessage)
+        } else {
+            message = "unknown SQLite error"
+        }
+    }
+
+    var errorDescription: String? {
+        "OpenCode SQLite \(operation) failed: \(message)"
     }
 }

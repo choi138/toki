@@ -69,7 +69,7 @@ final class SecurityAuditScanner: SecurityAuditScanning {
 
                 _ = await scanFilesUsingCache(
                     batch,
-                    sourceName: source.name,
+                    source: source,
                     scannedAt: scannedAt,
                     cache: &cache,
                     onFileStarted: { sourceName, fileURL in
@@ -106,32 +106,6 @@ final class SecurityAuditScanner: SecurityAuditScanning {
             skippedSourceNames: planSummary.skippedSourceNames,
             findings: findings.sorted(by: sortFindings))
     }
-
-    static func defaultSources(homeDirectory: URL = homeDir()) -> [SecurityAuditFileSource] {
-        [
-            SecurityAuditFileSource(
-                name: "Claude Code",
-                rootURL: homeDirectory.appendingPathComponent(".claude/projects"),
-                allowedExtensions: ["jsonl"]),
-            SecurityAuditFileSource(
-                name: "Codex",
-                rootURL: homeDirectory.appendingPathComponent(".codex/sessions"),
-                allowedExtensions: ["jsonl"]),
-            SecurityAuditFileSource(
-                name: "Gemini CLI",
-                rootURL: homeDirectory.appendingPathComponent(".gemini/tmp"),
-                allowedExtensions: ["json"]),
-            SecurityAuditFileSource(
-                name: "OpenClaw",
-                rootURL: homeDirectory.appendingPathComponent(".openclaw/agents"),
-                allowedExtensions: ["jsonl"]),
-        ]
-    }
-}
-
-private struct SecurityFileScanResult {
-    let findings: [SecurityFinding]
-    let lineCount: Int
 }
 
 private struct SecurityAuditSourceScanPlan {
@@ -221,7 +195,14 @@ private extension SecurityAuditScanner {
             if let modifiedAfter {
                 let modifiedDate = (try? url.resourceValues(forKeys: [.contentModificationDateKey]))?
                     .contentModificationDate
-                guard let modifiedDate, modifiedDate >= modifiedAfter else { return nil }
+                let sqliteWALModifiedDate = sqliteWALModificationDate(
+                    for: source,
+                    fileURL: url,
+                    fileManager: fileManager)
+                guard modifiedDate.map({ $0 >= modifiedAfter }) == true
+                    || sqliteWALModifiedDate.map({ $0 >= modifiedAfter }) == true else {
+                    return nil
+                }
             }
 
             return url
@@ -235,18 +216,18 @@ private extension SecurityAuditScanner {
 
     func scanFiles(
         _ fileURLs: [URL],
-        sourceName: String,
+        source: SecurityAuditFileSource,
         onFileStarted: ((String, URL) -> Void)? = nil,
         onFileCompleted: ((String, URL, SecurityFileScanResult) -> Void)? = nil)
         async -> [(URL, SecurityFileScanResult)] {
         await withTaskGroup(of: SecurityIndexedFileScanResult.self) { group in
             for (index, fileURL) in fileURLs.enumerated() {
-                onFileStarted?(sourceName, fileURL)
+                onFileStarted?(source.name, fileURL)
                 group.addTask {
                     let fileModificationDate = self.modificationDate(for: fileURL)
                     let result = await self.scanFile(
                         fileURL,
-                        sourceName: sourceName,
+                        source: source,
                         fallbackDetectedAt: fileModificationDate)
                     return SecurityIndexedFileScanResult(index: index, fileURL: fileURL, result: result)
                 }
@@ -255,7 +236,7 @@ private extension SecurityAuditScanner {
             var results: [SecurityIndexedFileScanResult] = []
             for await fileResult in group {
                 results.append(fileResult)
-                onFileCompleted?(sourceName, fileResult.fileURL, fileResult.result)
+                onFileCompleted?(source.name, fileResult.fileURL, fileResult.result)
             }
             return results
                 .sorted { $0.index < $1.index }
@@ -265,11 +246,12 @@ private extension SecurityAuditScanner {
 
     func scanFilesUsingCache(
         _ fileURLs: [URL],
-        sourceName: String,
+        source: SecurityAuditFileSource,
         scannedAt: Date,
         cache: inout SecurityAuditCache,
         onFileStarted: ((String, URL) -> Void)? = nil,
         onFileCompleted: ((String, URL, SecurityFileScanResult) -> Void)? = nil) async -> [SecurityFileScanResult] {
+        let sourceName = source.name
         var resultsByPath: [String: SecurityFileScanResult] = [:]
         var filesToScanFully: [URL] = []
 
@@ -286,6 +268,10 @@ private extension SecurityAuditScanner {
 
             let fileSize = (attributes[.size] as? NSNumber)?.int64Value ?? 0
             let modificationDate = attributes[.modificationDate] as? Date ?? modificationDate(for: fileURL)
+            let sqliteWALSignature = sqliteWALSignature(
+                for: source,
+                fileURL: fileURL,
+                fileManager: fileManager)
 
             if let cached = cache.entriesByPath[path],
                cached.ruleSetIdentifier == ruleSetIdentifier,
@@ -293,6 +279,7 @@ private extension SecurityAuditScanner {
                cached.path == path,
                cached.fileSize == fileSize,
                cached.modificationDate == modificationDate,
+               cached.sqliteWALSignature == sqliteWALSignature,
                cached.byteOffset == fileSize,
                SecurityAuditCacheSignature.matches(
                    cached.signature,
@@ -325,6 +312,7 @@ private extension SecurityAuditScanner {
                     fileURL: fileURL,
                     fileSize: fileSize,
                     modificationDate: modificationDate,
+                    sqliteWALSignature: sqliteWALSignature,
                     lineCount: lineCount,
                     findings: mergedFindings,
                     scannedAt: scannedAt)
@@ -339,7 +327,7 @@ private extension SecurityAuditScanner {
 
         await scanAndCacheFullFiles(
             filesToScanFully,
-            sourceName: sourceName,
+            source: source,
             scannedAt: scannedAt,
             cache: &cache,
             resultsByPath: &resultsByPath,
@@ -352,14 +340,15 @@ private extension SecurityAuditScanner {
 
     func scanAndCacheFullFiles(
         _ fileURLs: [URL],
-        sourceName: String,
+        source: SecurityAuditFileSource,
         scannedAt: Date,
         cache: inout SecurityAuditCache,
         resultsByPath: inout [String: SecurityFileScanResult],
         onFileCompleted: ((String, URL, SecurityFileScanResult) -> Void)?) async {
+        let sourceName = source.name
         let fullScanResults = await scanFiles(
             fileURLs,
-            sourceName: sourceName,
+            source: source,
             onFileStarted: nil,
             onFileCompleted: onFileCompleted)
         for (fileURL, fileResult) in fullScanResults {
@@ -367,16 +356,24 @@ private extension SecurityAuditScanner {
             let attributes = try? fileManager.attributesOfItem(atPath: path)
             let fileSize = (attributes?[.size] as? NSNumber)?.int64Value ?? 0
             let modificationDate = attributes?[.modificationDate] as? Date ?? modificationDate(for: fileURL)
-            updateCache(
-                &cache,
-                sourceName: sourceName,
-                path: path,
-                fileURL: fileURL,
-                fileSize: fileSize,
-                modificationDate: modificationDate,
-                lineCount: fileResult.lineCount,
-                findings: fileResult.findings,
-                scannedAt: scannedAt)
+            if fileResult.isCacheable {
+                updateCache(
+                    &cache,
+                    sourceName: sourceName,
+                    path: path,
+                    fileURL: fileURL,
+                    fileSize: fileSize,
+                    modificationDate: modificationDate,
+                    sqliteWALSignature: sqliteWALSignature(
+                        for: source,
+                        fileURL: fileURL,
+                        fileManager: fileManager),
+                    lineCount: fileResult.lineCount,
+                    findings: fileResult.findings,
+                    scannedAt: scannedAt)
+            } else {
+                cache.entriesByPath.removeValue(forKey: path)
+            }
             resultsByPath[path] = fileResult
         }
     }
@@ -442,6 +439,7 @@ private extension SecurityAuditScanner {
         fileURL: URL,
         fileSize: Int64,
         modificationDate: Date?,
+        sqliteWALSignature: SecurityAuditSQLiteWALSignature?,
         lineCount: Int,
         findings: [SecurityFinding],
         scannedAt: Date) {
@@ -456,6 +454,7 @@ private extension SecurityAuditScanner {
             path: path,
             fileSize: fileSize,
             modificationDate: modificationDate,
+            sqliteWALSignature: sqliteWALSignature,
             lineCount: lineCount,
             findings: findings.map(SecurityAuditCachedFinding.init),
             lastScannedAt: scannedAt,
@@ -474,8 +473,16 @@ private extension SecurityAuditScanner {
 
     func scanFile(
         _ fileURL: URL,
-        sourceName: String,
+        source: SecurityAuditFileSource,
         fallbackDetectedAt: Date?) async -> SecurityFileScanResult {
+        if !source.sqliteTextQueries.isEmpty {
+            return scanSQLiteFile(
+                fileURL,
+                sourceName: source.name,
+                queries: source.sqliteTextQueries,
+                fallbackDetectedAt: fallbackDetectedAt)
+        }
+
         var findings: [SecurityFinding] = []
         var lineNumber = 0
 
@@ -486,7 +493,7 @@ private extension SecurityAuditScanner {
                 findings.append(
                     contentsOf: scanLine(
                         line,
-                        sourceName: sourceName,
+                        sourceName: source.name,
                         fileURL: fileURL,
                         lineNumber: lineNumber,
                         fallbackDetectedAt: fallbackDetectedAt))
@@ -569,5 +576,21 @@ private extension SecurityAuditScanner {
             return lhs.location.filePath < rhs.location.filePath
         }
         return lhs.location.lineNumber < rhs.location.lineNumber
+    }
+}
+
+extension SecurityAuditScanner {
+    func scanTextLine(
+        _ line: String,
+        sourceName: String,
+        fileURL: URL,
+        lineNumber: Int,
+        fallbackDetectedAt: Date?) -> [SecurityFinding] {
+        scanLine(
+            line,
+            sourceName: sourceName,
+            fileURL: fileURL,
+            lineNumber: lineNumber,
+            fallbackDetectedAt: fallbackDetectedAt)
     }
 }

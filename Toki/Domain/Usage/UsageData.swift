@@ -122,6 +122,7 @@ struct ContextOnlyModelStat: Equatable {
 
 struct UsageData: Equatable {
     let date: Date
+    let endDate: Date
     let inputTokens: Int
     let outputTokens: Int
     let cacheReadTokens: Int
@@ -139,6 +140,7 @@ struct UsageData: Equatable {
 
     init(
         date: Date,
+        endDate: Date? = nil,
         inputTokens: Int,
         outputTokens: Int,
         cacheReadTokens: Int,
@@ -153,6 +155,7 @@ struct UsageData: Equatable {
         supplementalStats: [SupplementalStat] = [],
         contextOnlyModels: [ContextOnlyModelStat] = []) {
         self.date = date
+        self.endDate = endDate ?? date
         self.inputTokens = inputTokens
         self.outputTokens = outputTokens
         self.cacheReadTokens = cacheReadTokens

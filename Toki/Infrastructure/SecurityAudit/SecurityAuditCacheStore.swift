@@ -33,6 +33,7 @@ struct SecurityAuditCachedFile: Codable, Equatable {
     let path: String
     let fileSize: Int64
     let modificationDate: Date?
+    let sqliteWALSignature: SecurityAuditSQLiteWALSignature?
     let lineCount: Int
     let findings: [SecurityAuditCachedFinding]
     let lastScannedAt: Date
@@ -76,6 +77,13 @@ struct SecurityAuditFileSignature: Codable, Equatable {
         tailByteCount = try container.decode(Int.self, forKey: .tailByteCount)
         endedWithNewline = try container.decode(Bool.self, forKey: .endedWithNewline)
     }
+}
+
+struct SecurityAuditSQLiteWALSignature: Codable, Equatable {
+    let exists: Bool
+    let fileSize: Int64
+    let modificationDate: Date?
+    let signature: SecurityAuditFileSignature?
 }
 
 struct SecurityAuditCachedFinding: Codable, Equatable {

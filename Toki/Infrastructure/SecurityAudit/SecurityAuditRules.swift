@@ -4,6 +4,18 @@ struct SecurityAuditFileSource: Equatable {
     let name: String
     let rootURL: URL
     let allowedExtensions: Set<String>
+    let sqliteTextQueries: [String]
+
+    init(
+        name: String,
+        rootURL: URL,
+        allowedExtensions: Set<String>,
+        sqliteTextQueries: [String] = []) {
+        self.name = name
+        self.rootURL = rootURL
+        self.allowedExtensions = allowedExtensions
+        self.sqliteTextQueries = sqliteTextQueries
+    }
 }
 
 struct SecurityAuditRule {
