@@ -2,7 +2,9 @@ import Foundation
 
 /// Reads ~/.openclaw/agents/**/*.jsonl
 struct OpenClawReader: TokenReader {
-    let name = "OpenClaw"
+    static let sourceName = "OpenClaw"
+
+    let name = Self.sourceName
 
     private var agentsURL: URL {
         homeDir().appendingPathComponent(".openclaw/agents")
@@ -14,25 +16,48 @@ struct OpenClawReader: TokenReader {
         }
 
         let files = findFiles(in: agentsURL, withExtension: "jsonl", modifiedAfter: startDate)
+        var result = RawTokenUsage()
+        for file in files {
+            result += Self.usage(
+                fromJSONLLines: readJSONLLines(at: file),
+                streamID: file.path,
+                from: startDate,
+                to: endDate)
+        }
+        return result
+    }
+
+    static func usage(
+        fromJSONLLines lines: [String],
+        streamID: String,
+        from startDate: Date,
+        to endDate: Date) -> RawTokenUsage {
+        usage(
+            fromJSONLSessions: [(streamID: streamID, lines: lines)],
+            from: startDate,
+            to: endDate)
+    }
+
+    private static func usage(
+        fromJSONLSessions sessions: [(streamID: String, lines: [String])],
+        from startDate: Date,
+        to endDate: Date) -> RawTokenUsage {
         let decoder = JSONDecoder()
 
         var result = RawTokenUsage()
         var activityEvents: [ActivityTimeEvent<String>] = []
 
-        for file in files {
-            for line in readJSONLLines(at: file) {
+        for session in sessions {
+            for line in session.lines {
                 guard let data = line.data(using: .utf8),
                       let msg = try? decoder.decode(RawMessage.self, from: data),
-                      msg.role == "assistant" else { continue }
+                      msg.role == "assistant",
+                      let tsStr = msg.timestamp ?? msg.createdAt,
+                      let eventDate = DateParser.parse(tsStr),
+                      eventDate >= startDate,
+                      eventDate < endDate,
+                      let usage = msg.usage else { continue }
 
-                var eventDate: Date?
-                if let tsStr = msg.timestamp ?? msg.createdAt {
-                    guard let date = DateParser.parse(tsStr),
-                          date >= startDate, date < endDate else { continue }
-                    eventDate = date
-                }
-
-                guard let usage = msg.usage else { continue }
                 let input = usage.inputTokens ?? usage.promptTokens ?? 0
                 let output = usage.outputTokens ?? usage.completionTokens ?? 0
                 let cacheRead = usage.cacheReadInputTokens ?? 0
@@ -42,25 +67,23 @@ struct OpenClawReader: TokenReader {
                 result.outputTokens += output
                 result.cacheReadTokens += cacheRead
                 result.cacheWriteTokens += cacheWrite
-                if let eventDate {
-                    activityEvents.append(
-                        ActivityTimeEvent(
-                            streamID: file.path,
-                            timestamp: eventDate,
-                            key: nil))
-                    result.recordTokenEvent(
+                activityEvents.append(
+                    ActivityTimeEvent(
+                        streamID: session.streamID,
                         timestamp: eventDate,
-                        source: name,
-                        model: nil,
-                        inputTokens: input,
-                        outputTokens: output,
-                        cacheReadTokens: cacheRead,
-                        cacheWriteTokens: cacheWrite)
-                }
+                        key: nil))
+                result.recordTokenEvent(
+                    timestamp: eventDate,
+                    source: sourceName,
+                    model: nil,
+                    inputTokens: input,
+                    outputTokens: output,
+                    cacheReadTokens: cacheRead,
+                    cacheWriteTokens: cacheWrite)
             }
         }
 
-        result.mergeActivityEvents(activityEvents, source: name, clippingEndDate: endDate)
+        result.mergeActivityEvents(activityEvents, source: sourceName, clippingEndDate: endDate)
 
         return result
     }

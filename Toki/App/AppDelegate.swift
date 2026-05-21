@@ -10,6 +10,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var currentFrame = 0
     private var animationTimer: Timer?
     private var activityCheckTimer: Timer?
+    private var isActivityCheckInFlight = false
 
     private var isAnimating: Bool {
         animationTimer != nil
@@ -89,11 +90,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func checkActivityInBackground() {
+        guard !isActivityCheckInFlight else { return }
+        isActivityCheckInFlight = true
+
         // File I/O on background queue to avoid blocking the main run loop
         DispatchQueue.global(qos: .utility).async { [weak self] in
             let isActive = ActivityMonitor.isAnyToolActive()
             DispatchQueue.main.async {
-                self?.applyAnimationState(isActive: isActive)
+                guard let self else { return }
+                self.isActivityCheckInFlight = false
+                self.applyAnimationState(isActive: isActive)
             }
         }
     }

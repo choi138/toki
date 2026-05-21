@@ -2,6 +2,7 @@ import Foundation
 import SQLite3
 
 let sqliteTransient = unsafeBitCast(-1, to: sqlite3_destructor_type.self)
+private let cursorModelLookupIdentifierChunkSize = 250
 
 /// Reads Cursor's global usage state from the app's local SQLite store.
 /// Aggregates one token-bearing assistant response per usage UUID.
@@ -29,18 +30,18 @@ struct CursorReader: TokenReader {
         var db: OpaquePointer?
         defer { sqlite3_close(db) }
         guard sqlite3_open_v2(dbPath, &db, SQLITE_OPEN_READONLY, nil) == SQLITE_OK else {
-            return RawTokenUsage()
+            throw CursorSQLiteError(operation: "open", database: db)
         }
         sqlite3_busy_timeout(db, 2000)
 
-        let bubblePayloads = cursorQueryBubblePayloads(
+        let bubblePayloads = try cursorQueryBubblePayloads(
             db: db,
             from: startDate,
             to: endDate)
         guard !Task.isCancelled else { return RawTokenUsage() }
 
         let composerPayloads: [String] = if Self.shouldIncludeLiveComposerContext(from: startDate, to: endDate) {
-            cursorQueryLiveComposerPayloads(
+            try cursorQueryLiveComposerPayloads(
                 db: db,
                 from: startDate,
                 to: endDate)
@@ -173,6 +174,7 @@ extension CursorReader {
 
         var seenUsageIdentifiers = Set<String>()
         var usage = RawTokenUsage()
+        var activityEvents: [ActivityTimeEvent<String>] = []
         let orderedBubbles = bubbles
             .compactMap { bubble -> (CursorBubble, Date)? in
                 let input = bubble.tokenCount?.inputTokens ?? 0
@@ -238,8 +240,15 @@ extension CursorReader {
                 inputTokens: input,
                 outputTokens: output,
                 cost: requestCost)
+
+            activityEvents.append(
+                ActivityTimeEvent(
+                    streamID: source,
+                    timestamp: createdAt,
+                    key: modelID))
         }
 
+        usage.mergeActivityEvents(activityEvents, source: source, clippingEndDate: endDate)
         return usage
     }
 
@@ -275,7 +284,7 @@ enum SQLiteBind {
 private func cursorQueryBubblePayloads(
     db: OpaquePointer?,
     from startDate: Date,
-    to endDate: Date) -> [String] {
+    to endDate: Date) throws -> [String] {
     guard !Task.isCancelled else { return [] }
 
     let startText = cursorSQLiteTimestampString(for: startDate)
@@ -296,7 +305,7 @@ private func cursorQueryBubblePayloads(
         AND julianday(json_extract(CAST(value AS TEXT), '$.createdAt')) < julianday(?)
     """
 
-    let tokenPayloads = cursorQueryPayloads(
+    let tokenPayloads = try cursorQueryPayloads(
         db: db,
         query: tokenQuery,
         binds: bubbleKeyBinds + [.text(startText), .text(endText)])
@@ -310,36 +319,45 @@ private func cursorQueryBubblePayloads(
         return tokenPayloads
     }
 
-    let placeholders = Array(repeating: "?", count: identifierList.count).joined(separator: ", ")
-    let modelQuery = """
-        SELECT CAST(value AS TEXT)
-        FROM cursorDiskKV
-        WHERE \(cursorKeyRangeSQL(forPrefix: "bubbleId:"))
-        AND json_valid(CAST(value AS TEXT))
-        AND (
-            json_extract(CAST(value AS TEXT), '$.tokenCount') IS NULL
-            OR (
-                COALESCE(CAST(json_extract(CAST(value AS TEXT), '$.tokenCount.inputTokens') AS INTEGER), 0)
-                + COALESCE(CAST(json_extract(CAST(value AS TEXT), '$.tokenCount.outputTokens') AS INTEGER), 0)
-            ) = 0
-        )
-        AND (
-            json_extract(CAST(value AS TEXT), '$.modelInfo') IS NOT NULL
-            OR json_extract(CAST(value AS TEXT), '$.modelName') IS NOT NULL
-            OR json_extract(CAST(value AS TEXT), '$.model') IS NOT NULL
-        )
-        AND (
-            json_extract(CAST(value AS TEXT), '$.requestId') IN (\(placeholders))
-            OR json_extract(CAST(value AS TEXT), '$.usageUuid') IN (\(placeholders))
-            OR json_extract(CAST(value AS TEXT), '$.bubbleId') IN (\(placeholders))
-        )
-    """
-    let identifierBinds = identifierList.map(SQLiteBind.text)
-    let modelPayloads = cursorQueryPayloads(
-        db: db,
-        query: modelQuery,
-        binds: bubbleKeyBinds + identifierBinds + identifierBinds + identifierBinds)
-    guard !Task.isCancelled else { return [] }
+    var modelPayloads: [String] = []
+    for chunkStart in stride(from: 0, to: identifierList.count, by: cursorModelLookupIdentifierChunkSize) {
+        let chunkEnd = min(chunkStart + cursorModelLookupIdentifierChunkSize, identifierList.count)
+        let identifierChunk = Array(identifierList[chunkStart..<chunkEnd])
+        let placeholders = Array(repeating: "?", count: identifierChunk.count).joined(separator: ", ")
+        let modelQuery = """
+            SELECT CAST(value AS TEXT)
+            FROM cursorDiskKV
+            WHERE \(cursorKeyRangeSQL(forPrefix: "bubbleId:"))
+            AND json_valid(CAST(value AS TEXT))
+            AND (
+                json_extract(CAST(value AS TEXT), '$.tokenCount') IS NULL
+                OR (
+                    COALESCE(CAST(json_extract(CAST(value AS TEXT), '$.tokenCount.inputTokens') AS INTEGER), 0)
+                    + COALESCE(CAST(json_extract(CAST(value AS TEXT), '$.tokenCount.outputTokens') AS INTEGER), 0)
+                ) = 0
+            )
+            AND (
+                json_extract(CAST(value AS TEXT), '$.modelInfo') IS NOT NULL
+                OR json_extract(CAST(value AS TEXT), '$.modelName') IS NOT NULL
+                OR json_extract(CAST(value AS TEXT), '$.model') IS NOT NULL
+            )
+            AND (
+                json_extract(CAST(value AS TEXT), '$.requestId') IN (\(placeholders))
+                OR json_extract(CAST(value AS TEXT), '$.usageUuid') IN (\(placeholders))
+                OR json_extract(CAST(value AS TEXT), '$.bubbleId') IN (\(placeholders))
+            )
+        """
+        let identifierBinds = identifierChunk.map(SQLiteBind.text)
+        do {
+            modelPayloads += try cursorQueryPayloads(
+                db: db,
+                query: modelQuery,
+                binds: bubbleKeyBinds + identifierBinds + identifierBinds + identifierBinds)
+        } catch {
+            return tokenPayloads
+        }
+        guard !Task.isCancelled else { return [] }
+    }
 
     return tokenPayloads + modelPayloads
 }
@@ -347,7 +365,7 @@ private func cursorQueryBubblePayloads(
 private func cursorQueryLiveComposerPayloads(
     db: OpaquePointer?,
     from startDate: Date,
-    to endDate: Date) -> [String] {
+    to endDate: Date) throws -> [String] {
     guard !Task.isCancelled else { return [] }
 
     // composerData is a mutable live snapshot, not a historical log.
@@ -375,7 +393,7 @@ private func cursorQueryLiveComposerPayloads(
         ) AS INTEGER) > 0
     """
 
-    return cursorQueryPayloads(
+    return try cursorQueryPayloads(
         db: db,
         query: composerQuery,
         binds: composerKeyBinds + [.int64(startMillis), .int64(endMillis)])
@@ -412,12 +430,12 @@ private func cursorPrefixUpperBound(for prefix: String) -> String {
 private func cursorQueryPayloads(
     db: OpaquePointer?,
     query: String,
-    binds: [SQLiteBind] = []) -> [String] {
+    binds: [SQLiteBind] = []) throws -> [String] {
     guard !Task.isCancelled else { return [] }
 
     var stmt: OpaquePointer?
     guard sqlite3_prepare_v2(db, query, -1, &stmt, nil) == SQLITE_OK else {
-        return []
+        throw CursorSQLiteError(operation: "prepare", database: db)
     }
     defer { sqlite3_finalize(stmt) }
 
@@ -430,18 +448,43 @@ private func cursorQueryPayloads(
             sqlite3_bind_text(stmt, bindIndex, textValue, -1, sqliteTransient)
         }
         guard status == SQLITE_OK else {
-            return []
+            throw CursorSQLiteError(operation: "bind", database: db)
         }
     }
 
     var payloads: [String] = []
-    while sqlite3_step(stmt) == SQLITE_ROW {
+    var stepStatus = sqlite3_step(stmt)
+    while stepStatus == SQLITE_ROW {
         guard !Task.isCancelled else { return payloads }
 
-        guard let text = sqlite3_column_text(stmt, 0) else { continue }
-        payloads.append(String(cString: text))
+        if let text = sqlite3_column_text(stmt, 0) {
+            payloads.append(String(cString: text))
+        }
+        stepStatus = sqlite3_step(stmt)
+    }
+
+    guard stepStatus == SQLITE_DONE else {
+        throw CursorSQLiteError(operation: "query", database: db)
     }
     return payloads
+}
+
+private struct CursorSQLiteError: LocalizedError {
+    let operation: String
+    let message: String
+
+    init(operation: String, database: OpaquePointer?) {
+        self.operation = operation
+        if let database, let errorMessage = sqlite3_errmsg(database) {
+            message = String(cString: errorMessage)
+        } else {
+            message = "unknown SQLite error"
+        }
+    }
+
+    var errorDescription: String? {
+        "Cursor SQLite \(operation) failed: \(message)"
+    }
 }
 
 private func cursorDecodePayloads<T: Decodable>(_ payloads: [String], as type: T.Type) -> [T] {

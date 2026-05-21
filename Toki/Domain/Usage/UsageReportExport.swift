@@ -5,6 +5,8 @@ enum UsageExportFormat: String, CaseIterable {
     case json = "JSON"
 }
 
+private let usageExportISODateFormatter = ISO8601DateFormatter()
+
 enum UsageExport {
     static func string(for usage: UsageData, format: UsageExportFormat) -> String {
         switch format {
@@ -38,18 +40,20 @@ enum UsageExport {
 
 private struct UsageExportPayload: Encodable {
     let date: String
+    let startDate: String
+    let endDate: String
     let totals: UsageExportTotals
     let sources: [UsageExportSource]
     let models: [UsageExportModel]
 
     init(usage: UsageData) {
-        date = Self.isoDateFormatter.string(from: usage.date)
+        date = usageExportISODateFormatter.string(from: usage.date)
+        startDate = usageExportISODateFormatter.string(from: usage.date)
+        endDate = usageExportISODateFormatter.string(from: usage.endDate)
         totals = UsageExportTotals(usage: usage)
         sources = usage.sourceStats.map(UsageExportSource.init)
         models = usage.perModel.map(UsageExportModel.init)
     }
-
-    private static let isoDateFormatter = ISO8601DateFormatter()
 }
 
 private struct UsageExportTotals: Encodable {
@@ -129,7 +133,11 @@ private extension UsageExport {
             "total_tokens",
             "cost_usd",
             "active_seconds",
+            "start_date",
+            "end_date",
         ]
+        let startDate = usageExportISODateFormatter.string(from: usage.date)
+        let endDate = usageExportISODateFormatter.string(from: usage.endDate)
 
         let total = [
             "total",
@@ -142,6 +150,8 @@ private extension UsageExport {
             "\(usage.totalTokens)",
             String(format: "%.6f", usage.cost),
             String(format: "%.3f", usage.activeSeconds),
+            startDate,
+            endDate,
         ]
 
         let sources = usage.sourceStats.map { source in
@@ -156,6 +166,8 @@ private extension UsageExport {
                 "\(source.totalTokens)",
                 String(format: "%.6f", source.cost),
                 String(format: "%.3f", source.activeSeconds),
+                startDate,
+                endDate,
             ]
         }
 
@@ -171,6 +183,8 @@ private extension UsageExport {
                 "\(model.totalTokens)",
                 model.isPriceKnown ? String(format: "%.6f", model.cost) : "",
                 String(format: "%.3f", model.activeSeconds),
+                startDate,
+                endDate,
             ]
         }
 

@@ -47,6 +47,9 @@ final class CursorReaderUsageTests: XCTestCase {
         XCTAssertEqual(usage.perModel["claude-4.5-sonnet-thinking"]?.totalTokens, 100)
         XCTAssertEqual(usage.cost, 0.00117, accuracy: 0.000001)
         XCTAssertEqual(usage.tokenEvents.map(\.totalTokens).sorted(), [100, 150])
+        XCTAssertEqual(usage.activeSeconds, 60, accuracy: 0.001)
+        XCTAssertEqual(usage.perModel["gpt-5.2"]?.activeSeconds ?? 0, 30, accuracy: 0.001)
+        XCTAssertEqual(usage.perModel["claude-4.5-sonnet-thinking"]?.activeSeconds ?? 0, 30, accuracy: 0.001)
     }
 
     func test_cursorReader_deduplicatesTokenBearingBubblesPerUsageUuid() {
@@ -207,6 +210,72 @@ final class CursorReaderUsageTests: XCTestCase {
 }
 
 final class CursorReaderDatabaseTests: XCTestCase {
+    func test_cursorReader_readUsage_returnsEmptyForMissingDatabase() async throws {
+        let missingURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)
+            .appendingPathComponent("state.vscdb")
+        let reader = CursorReader(dbPathOverride: missingURL.path)
+
+        let usage = try await reader.readUsage(
+            from: tokiTestISODate("2026-04-10T00:00:00Z"),
+            to: tokiTestISODate("2026-04-11T00:00:00Z"))
+
+        XCTAssertFalse(usage.hasReportableData)
+    }
+
+    func test_cursorReader_readUsage_throwsForOpenFailure() async throws {
+        let tempDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let reader = CursorReader(dbPathOverride: tempDir.path)
+
+        do {
+            _ = try await reader.readUsage(
+                from: tokiTestISODate("2026-04-10T00:00:00Z"),
+                to: tokiTestISODate("2026-04-11T00:00:00Z"))
+            XCTFail("Expected CursorReader to throw for a database open failure")
+        } catch {
+            XCTAssertTrue(error.localizedDescription.contains("Cursor SQLite open failed"))
+        }
+    }
+
+    func test_cursorReader_readUsage_throwsForPrepareFailure() async throws {
+        let tempDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let dbURL = tempDir.appendingPathComponent("state.vscdb")
+        try createEmptySQLiteDB(at: dbURL)
+        let reader = CursorReader(dbPathOverride: dbURL.path)
+
+        do {
+            _ = try await reader.readUsage(
+                from: tokiTestISODate("2026-04-10T00:00:00Z"),
+                to: tokiTestISODate("2026-04-11T00:00:00Z"))
+            XCTFail("Expected CursorReader to throw for a statement prepare failure")
+        } catch {
+            XCTAssertTrue(error.localizedDescription.contains("Cursor SQLite prepare failed"))
+        }
+    }
+
+    func test_cursorReader_failureMarksAggregatorStatusFailed() async throws {
+        let tempDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let aggregator = UsageAggregator(readers: [CursorReader(dbPathOverride: tempDir.path)])
+        let result = await aggregator.aggregateUsage(
+            for: UsageAggregationRequest(
+                start: tokiTestISODate("2026-04-10T00:00:00Z"),
+                end: tokiTestISODate("2026-04-11T00:00:00Z"),
+                enabledReaderNames: [:],
+                includesEmptySourceRows: false))
+
+        XCTAssertEqual(result.readerStatuses.first?.name, "Cursor")
+        XCTAssertEqual(result.readerStatuses.first?.state, .failed)
+    }
+
     func test_cursorReader_readUsage_keepsModelLookupForZeroTokenModelBubbles() async throws {
         let tempDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
@@ -251,6 +320,74 @@ final class CursorReaderDatabaseTests: XCTestCase {
         XCTAssertEqual(usage.outputTokens, 30)
         XCTAssertEqual(usage.perModel["gpt-5.2"]?.totalTokens, 150)
         XCTAssertEqual(usage.cost, 0.00063, accuracy: 0.000001)
+    }
+}
+
+final class OpenCodeReaderDatabaseTests: XCTestCase {
+    func test_openCodeReader_readUsage_returnsEmptyForMissingDatabase() async throws {
+        let missingURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)
+            .appendingPathComponent("opencode.db")
+        let reader = OpenCodeReader(dbPathOverride: missingURL.path)
+
+        let usage = try await reader.readUsage(
+            from: tokiTestISODate("2026-04-10T00:00:00Z"),
+            to: tokiTestISODate("2026-04-11T00:00:00Z"))
+
+        XCTAssertFalse(usage.hasReportableData)
+    }
+
+    func test_openCodeReader_readUsage_throwsForOpenFailure() async throws {
+        let tempDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let reader = OpenCodeReader(dbPathOverride: tempDir.path)
+
+        do {
+            _ = try await reader.readUsage(
+                from: tokiTestISODate("2026-04-10T00:00:00Z"),
+                to: tokiTestISODate("2026-04-11T00:00:00Z"))
+            XCTFail("Expected OpenCodeReader to throw for a database open failure")
+        } catch {
+            XCTAssertTrue(error.localizedDescription.contains("OpenCode SQLite open failed"))
+        }
+    }
+
+    func test_openCodeReader_readUsage_throwsForPrepareFailure() async throws {
+        let tempDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let dbURL = tempDir.appendingPathComponent("opencode.db")
+        try createEmptySQLiteDB(at: dbURL)
+        let reader = OpenCodeReader(dbPathOverride: dbURL.path)
+
+        do {
+            _ = try await reader.readUsage(
+                from: tokiTestISODate("2026-04-10T00:00:00Z"),
+                to: tokiTestISODate("2026-04-11T00:00:00Z"))
+            XCTFail("Expected OpenCodeReader to throw for a statement prepare failure")
+        } catch {
+            XCTAssertTrue(error.localizedDescription.contains("OpenCode SQLite prepare failed"))
+        }
+    }
+
+    func test_openCodeReader_failureMarksAggregatorStatusFailed() async throws {
+        let tempDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let aggregator = UsageAggregator(readers: [OpenCodeReader(dbPathOverride: tempDir.path)])
+        let result = await aggregator.aggregateUsage(
+            for: UsageAggregationRequest(
+                start: tokiTestISODate("2026-04-10T00:00:00Z"),
+                end: tokiTestISODate("2026-04-11T00:00:00Z"),
+                enabledReaderNames: [:],
+                includesEmptySourceRows: false))
+
+        XCTAssertEqual(result.readerStatuses.first?.name, "OpenCode")
+        XCTAssertEqual(result.readerStatuses.first?.state, .failed)
     }
 }
 
@@ -354,4 +491,12 @@ private func createCursorStateDB(
             throw NSError(domain: "CursorReaderTests", code: 4)
         }
     }
+}
+
+private func createEmptySQLiteDB(at url: URL) throws {
+    var db: OpaquePointer?
+    guard sqlite3_open(url.path, &db) == SQLITE_OK, let db else {
+        throw NSError(domain: "CursorReaderTests", code: 5)
+    }
+    sqlite3_close(db)
 }
