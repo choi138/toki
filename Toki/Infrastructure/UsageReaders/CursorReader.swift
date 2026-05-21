@@ -2,6 +2,7 @@ import Foundation
 import SQLite3
 
 let sqliteTransient = unsafeBitCast(-1, to: sqlite3_destructor_type.self)
+private let cursorModelLookupIdentifierChunkSize = 250
 
 /// Reads Cursor's global usage state from the app's local SQLite store.
 /// Aggregates one token-bearing assistant response per usage UUID.
@@ -318,36 +319,45 @@ private func cursorQueryBubblePayloads(
         return tokenPayloads
     }
 
-    let placeholders = Array(repeating: "?", count: identifierList.count).joined(separator: ", ")
-    let modelQuery = """
-        SELECT CAST(value AS TEXT)
-        FROM cursorDiskKV
-        WHERE \(cursorKeyRangeSQL(forPrefix: "bubbleId:"))
-        AND json_valid(CAST(value AS TEXT))
-        AND (
-            json_extract(CAST(value AS TEXT), '$.tokenCount') IS NULL
-            OR (
-                COALESCE(CAST(json_extract(CAST(value AS TEXT), '$.tokenCount.inputTokens') AS INTEGER), 0)
-                + COALESCE(CAST(json_extract(CAST(value AS TEXT), '$.tokenCount.outputTokens') AS INTEGER), 0)
-            ) = 0
-        )
-        AND (
-            json_extract(CAST(value AS TEXT), '$.modelInfo') IS NOT NULL
-            OR json_extract(CAST(value AS TEXT), '$.modelName') IS NOT NULL
-            OR json_extract(CAST(value AS TEXT), '$.model') IS NOT NULL
-        )
-        AND (
-            json_extract(CAST(value AS TEXT), '$.requestId') IN (\(placeholders))
-            OR json_extract(CAST(value AS TEXT), '$.usageUuid') IN (\(placeholders))
-            OR json_extract(CAST(value AS TEXT), '$.bubbleId') IN (\(placeholders))
-        )
-    """
-    let identifierBinds = identifierList.map(SQLiteBind.text)
-    let modelPayloads = try cursorQueryPayloads(
-        db: db,
-        query: modelQuery,
-        binds: bubbleKeyBinds + identifierBinds + identifierBinds + identifierBinds)
-    guard !Task.isCancelled else { return [] }
+    var modelPayloads: [String] = []
+    for chunkStart in stride(from: 0, to: identifierList.count, by: cursorModelLookupIdentifierChunkSize) {
+        let chunkEnd = min(chunkStart + cursorModelLookupIdentifierChunkSize, identifierList.count)
+        let identifierChunk = Array(identifierList[chunkStart..<chunkEnd])
+        let placeholders = Array(repeating: "?", count: identifierChunk.count).joined(separator: ", ")
+        let modelQuery = """
+            SELECT CAST(value AS TEXT)
+            FROM cursorDiskKV
+            WHERE \(cursorKeyRangeSQL(forPrefix: "bubbleId:"))
+            AND json_valid(CAST(value AS TEXT))
+            AND (
+                json_extract(CAST(value AS TEXT), '$.tokenCount') IS NULL
+                OR (
+                    COALESCE(CAST(json_extract(CAST(value AS TEXT), '$.tokenCount.inputTokens') AS INTEGER), 0)
+                    + COALESCE(CAST(json_extract(CAST(value AS TEXT), '$.tokenCount.outputTokens') AS INTEGER), 0)
+                ) = 0
+            )
+            AND (
+                json_extract(CAST(value AS TEXT), '$.modelInfo') IS NOT NULL
+                OR json_extract(CAST(value AS TEXT), '$.modelName') IS NOT NULL
+                OR json_extract(CAST(value AS TEXT), '$.model') IS NOT NULL
+            )
+            AND (
+                json_extract(CAST(value AS TEXT), '$.requestId') IN (\(placeholders))
+                OR json_extract(CAST(value AS TEXT), '$.usageUuid') IN (\(placeholders))
+                OR json_extract(CAST(value AS TEXT), '$.bubbleId') IN (\(placeholders))
+            )
+        """
+        let identifierBinds = identifierChunk.map(SQLiteBind.text)
+        do {
+            modelPayloads += try cursorQueryPayloads(
+                db: db,
+                query: modelQuery,
+                binds: bubbleKeyBinds + identifierBinds + identifierBinds + identifierBinds)
+        } catch {
+            return tokenPayloads
+        }
+        guard !Task.isCancelled else { return [] }
+    }
 
     return tokenPayloads + modelPayloads
 }

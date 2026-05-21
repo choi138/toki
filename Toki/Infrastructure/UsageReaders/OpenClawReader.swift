@@ -2,7 +2,9 @@ import Foundation
 
 /// Reads ~/.openclaw/agents/**/*.jsonl
 struct OpenClawReader: TokenReader {
-    let name = "OpenClaw"
+    static let sourceName = "OpenClaw"
+
+    let name = Self.sourceName
 
     private var agentsURL: URL {
         homeDir().appendingPathComponent(".openclaw/agents")
@@ -14,12 +16,15 @@ struct OpenClawReader: TokenReader {
         }
 
         let files = findFiles(in: agentsURL, withExtension: "jsonl", modifiedAfter: startDate)
-        return Self.usage(
-            fromJSONLSessions: files.map { file in
-                (streamID: file.path, lines: readJSONLLines(at: file))
-            },
-            from: startDate,
-            to: endDate)
+        var result = RawTokenUsage()
+        for file in files {
+            result += Self.usage(
+                fromJSONLLines: readJSONLLines(at: file),
+                streamID: file.path,
+                from: startDate,
+                to: endDate)
+        }
+        return result
     }
 
     static func usage(
@@ -69,7 +74,7 @@ struct OpenClawReader: TokenReader {
                         key: nil))
                 result.recordTokenEvent(
                     timestamp: eventDate,
-                    source: "OpenClaw",
+                    source: sourceName,
                     model: nil,
                     inputTokens: input,
                     outputTokens: output,
@@ -78,7 +83,7 @@ struct OpenClawReader: TokenReader {
             }
         }
 
-        result.mergeActivityEvents(activityEvents, source: "OpenClaw", clippingEndDate: endDate)
+        result.mergeActivityEvents(activityEvents, source: sourceName, clippingEndDate: endDate)
 
         return result
     }

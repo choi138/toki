@@ -5,6 +5,8 @@ enum UsageExportFormat: String, CaseIterable {
     case json = "JSON"
 }
 
+private let usageExportISODateFormatter = ISO8601DateFormatter()
+
 enum UsageExport {
     static func string(for usage: UsageData, format: UsageExportFormat) -> String {
         switch format {
@@ -45,15 +47,13 @@ private struct UsageExportPayload: Encodable {
     let models: [UsageExportModel]
 
     init(usage: UsageData) {
-        date = Self.isoDateFormatter.string(from: usage.date)
-        startDate = Self.isoDateFormatter.string(from: usage.date)
-        endDate = Self.isoDateFormatter.string(from: usage.endDate)
+        date = usageExportISODateFormatter.string(from: usage.date)
+        startDate = usageExportISODateFormatter.string(from: usage.date)
+        endDate = usageExportISODateFormatter.string(from: usage.endDate)
         totals = UsageExportTotals(usage: usage)
         sources = usage.sourceStats.map(UsageExportSource.init)
         models = usage.perModel.map(UsageExportModel.init)
     }
-
-    private static let isoDateFormatter = ISO8601DateFormatter()
 }
 
 private struct UsageExportTotals: Encodable {
@@ -136,8 +136,8 @@ private extension UsageExport {
             "start_date",
             "end_date",
         ]
-        let startDate = isoDateFormatter.string(from: usage.date)
-        let endDate = isoDateFormatter.string(from: usage.endDate)
+        let startDate = usageExportISODateFormatter.string(from: usage.date)
+        let endDate = usageExportISODateFormatter.string(from: usage.endDate)
 
         let total = [
             "total",
@@ -190,8 +190,6 @@ private extension UsageExport {
 
         return [header, total] + sources + models
     }
-
-    private static let isoDateFormatter = ISO8601DateFormatter()
 
     static func csvEscape(_ value: String) -> String {
         guard value.contains(",")

@@ -82,11 +82,11 @@ extension SecurityAuditScanner {
                     lineCount: lineNumber,
                     isCacheable: false)
             }
+            defer { sqlite3_finalize(statement) }
 
             var isQueryComplete = false
             while !isQueryComplete {
                 guard !Task.isCancelled else {
-                    sqlite3_finalize(statement)
                     return SecurityFileScanResult(
                         findings: findings,
                         lineCount: lineNumber,
@@ -113,14 +113,12 @@ extension SecurityAuditScanner {
                 case SQLITE_DONE:
                     isQueryComplete = true
                 default:
-                    sqlite3_finalize(statement)
                     return SecurityFileScanResult(
                         findings: findings,
                         lineCount: lineNumber,
                         isCacheable: false)
                 }
             }
-            sqlite3_finalize(statement)
         }
 
         return SecurityFileScanResult(findings: findings, lineCount: lineNumber)
