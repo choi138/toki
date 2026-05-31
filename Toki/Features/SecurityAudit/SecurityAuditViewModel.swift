@@ -3,15 +3,42 @@ import Foundation
 
 @MainActor
 final class SecurityAuditViewModel: ObservableObject {
+    nonisolated static let initialDisplayedFindingCount = 200
+    nonisolated static let displayedFindingPageSize = 200
+
     @Published private(set) var result: SecurityAuditResult?
     @Published private(set) var isScanning = false
     @Published private(set) var copiedFindingID: SecurityFinding.ID?
     @Published private(set) var scanProgress: SecurityAuditProgress?
-    @Published var selectedSeverity: SecuritySeverity?
-    @Published var selectedCategory: SecurityFindingCategory?
-    @Published var selectedSourceName: String?
+    @Published private(set) var displayedFindings: [SecurityFinding] = []
+    @Published private(set) var filteredFindingCount = 0
+    @Published private(set) var sourceNames: [String] = []
+    @Published private(set) var categories: [SecurityFindingCategory] = []
+    @Published private(set) var severityCounts: [SecuritySeverity: Int] = [:]
+    @Published var selectedSeverity: SecuritySeverity? {
+        didSet {
+            guard oldValue != selectedSeverity else { return }
+            updateFilteredFindings(resetDisplayLimit: true)
+        }
+    }
+
+    @Published var selectedCategory: SecurityFindingCategory? {
+        didSet {
+            guard oldValue != selectedCategory else { return }
+            updateFilteredFindings(resetDisplayLimit: true)
+        }
+    }
+
+    @Published var selectedSourceName: String? {
+        didSet {
+            guard oldValue != selectedSourceName else { return }
+            updateFilteredFindings(resetDisplayLimit: true)
+        }
+    }
 
     private let scanner: any SecurityAuditScanning
+    private var filteredFindings: [SecurityFinding] = []
+    private var findingDisplayLimit = SecurityAuditViewModel.initialDisplayedFindingCount
 
     init(scanner: any SecurityAuditScanning = SecurityAuditScanner()) {
         self.scanner = scanner
@@ -21,33 +48,24 @@ final class SecurityAuditViewModel: ObservableObject {
         result?.findings ?? []
     }
 
-    var filteredFindings: [SecurityFinding] {
-        findings.filter { finding in
-            if let selectedSeverity, finding.severity != selectedSeverity {
-                return false
-            }
-            if let selectedCategory, finding.category != selectedCategory {
-                return false
-            }
-            if let selectedSourceName, finding.sourceName != selectedSourceName {
-                return false
-            }
-            return true
-        }
+    var hiddenFindingCount: Int {
+        max(0, filteredFindingCount - displayedFindings.count)
     }
 
-    var sourceNames: [String] {
-        Array(Set(findings.map(\.sourceName))).sorted()
+    var canShowMoreFindings: Bool {
+        hiddenFindingCount > 0
     }
 
-    var categories: [SecurityFindingCategory] {
-        Array(Set(findings.map(\.category))).sorted { $0.displayName < $1.displayName }
+    var nextFindingPageCount: Int {
+        min(Self.displayedFindingPageSize, hiddenFindingCount)
     }
 
     func scan() async {
         guard !isScanning else { return }
 
         isScanning = true
+        result = nil
+        resetFindingPresentation()
         scanProgress = .idle
         defer {
             isScanning = false
@@ -61,14 +79,26 @@ final class SecurityAuditViewModel: ObservableObject {
                     self?.scanProgress = progress
                 }
             })
+        rebuildFindingPresentation(for: scanResult.findings)
         result = scanResult
         clearUnavailableFilters()
+    }
+
+    func count(for severity: SecuritySeverity) -> Int {
+        severityCounts[severity] ?? 0
     }
 
     func clearFilters() {
         selectedSeverity = nil
         selectedCategory = nil
         selectedSourceName = nil
+    }
+
+    func showMoreFindings() {
+        findingDisplayLimit = min(
+            findingDisplayLimit + Self.displayedFindingPageSize,
+            filteredFindings.count)
+        updateDisplayedFindings()
     }
 
     func copyPath(for finding: SecurityFinding) {
@@ -97,6 +127,48 @@ final class SecurityAuditViewModel: ObservableObject {
 }
 
 private extension SecurityAuditViewModel {
+    func rebuildFindingPresentation(for findings: [SecurityFinding]) {
+        sourceNames = Array(Set(findings.map(\.sourceName))).sorted()
+        categories = Array(Set(findings.map(\.category))).sorted { $0.displayName < $1.displayName }
+        severityCounts = Dictionary(grouping: findings, by: \.severity).mapValues(\.count)
+        updateFilteredFindings(resetDisplayLimit: true, findings: findings)
+    }
+
+    func resetFindingPresentation() {
+        sourceNames = []
+        categories = []
+        severityCounts = [:]
+        filteredFindings = []
+        filteredFindingCount = 0
+        displayedFindings = []
+        findingDisplayLimit = Self.initialDisplayedFindingCount
+    }
+
+    func updateFilteredFindings(resetDisplayLimit: Bool, findings sourceFindings: [SecurityFinding]? = nil) {
+        let allFindings = sourceFindings ?? findings
+        if resetDisplayLimit {
+            findingDisplayLimit = Self.initialDisplayedFindingCount
+        }
+        filteredFindings = allFindings.filter { finding in
+            if let selectedSeverity, finding.severity != selectedSeverity {
+                return false
+            }
+            if let selectedCategory, finding.category != selectedCategory {
+                return false
+            }
+            if let selectedSourceName, finding.sourceName != selectedSourceName {
+                return false
+            }
+            return true
+        }
+        filteredFindingCount = filteredFindings.count
+        updateDisplayedFindings()
+    }
+
+    func updateDisplayedFindings() {
+        displayedFindings = Array(filteredFindings.prefix(findingDisplayLimit))
+    }
+
     func clearUnavailableFilters() {
         if let selectedSeverity, !findings.contains(where: { $0.severity == selectedSeverity }) {
             self.selectedSeverity = nil
