@@ -6,6 +6,32 @@ struct CodexModelEntry: Decodable {
 
     struct Payload: Decodable {
         let model: String?
+        let cwd: String?
+        let workdir: String?
+        let workingDirectory: String?
+        let workingDirectorySnake: String?
+        let projectPath: String?
+        let projectPathSnake: String?
+
+        var resolvedProjectPath: String? {
+            firstNonEmpty(
+                cwd,
+                workingDirectory,
+                workingDirectorySnake,
+                workdir,
+                projectPath,
+                projectPathSnake)
+        }
+
+        enum CodingKeys: String, CodingKey {
+            case model
+            case cwd
+            case workdir
+            case workingDirectory
+            case workingDirectorySnake = "working_directory"
+            case projectPath
+            case projectPathSnake = "project_path"
+        }
     }
 }
 
@@ -14,16 +40,29 @@ struct CodexSession {
     let model: String?
     let agentKind: WorkTimeAgentKind
     let hasSourceAttribution: Bool
+    let projectPath: String?
+    let projectAttributionQuality: AttributionQuality
 
     init(
         rolloutPath: String,
         model: String?,
         agentKind: WorkTimeAgentKind = .main,
-        hasSourceAttribution: Bool = true) {
+        hasSourceAttribution: Bool = true,
+        projectPath: String? = nil,
+        projectAttributionQuality: AttributionQuality = .unknown) {
         self.rolloutPath = rolloutPath
         self.model = model
         self.agentKind = agentKind
         self.hasSourceAttribution = hasSourceAttribution
+        self.projectPath = projectPath?.trimmedNonEmpty
+        self.projectAttributionQuality = self.projectPath == nil ? .unknown : projectAttributionQuality
+    }
+
+    var attribution: UsageAttribution {
+        UsageAttribution(
+            projectPath: projectPath,
+            sessionID: usageSessionID(fromPath: rolloutPath),
+            quality: projectAttributionQuality)
     }
 }
 
@@ -31,6 +70,7 @@ struct CodexSessionAttribution {
     let model: String?
     let agentKind: WorkTimeAgentKind
     let hasSourceAttribution: Bool
+    let projectPath: String?
 }
 
 func codexAgentKind(fromSource source: String?) -> WorkTimeAgentKind {
@@ -56,6 +96,32 @@ struct CodexSessionMetaEntry: Decodable {
 
     struct Payload: Decodable {
         let source: CodexSourceMarker?
+        let cwd: String?
+        let workdir: String?
+        let workingDirectory: String?
+        let workingDirectorySnake: String?
+        let projectPath: String?
+        let projectPathSnake: String?
+
+        var resolvedProjectPath: String? {
+            firstNonEmpty(
+                cwd,
+                workingDirectory,
+                workingDirectorySnake,
+                workdir,
+                projectPath,
+                projectPathSnake)
+        }
+
+        enum CodingKeys: String, CodingKey {
+            case source
+            case cwd
+            case workdir
+            case workingDirectory
+            case workingDirectorySnake = "working_directory"
+            case projectPath
+            case projectPathSnake = "project_path"
+        }
     }
 }
 
@@ -172,4 +238,20 @@ struct CodexTimedSnapshot {
     let date: Date
     let snapshot: CodexUsageSnapshot
     let fileOrder: Int
+}
+
+private func firstNonEmpty(_ values: String?...) -> String? {
+    for value in values {
+        if let trimmed = value?.trimmedNonEmpty {
+            return trimmed
+        }
+    }
+    return nil
+}
+
+private extension String {
+    var trimmedNonEmpty: String? {
+        let trimmed = trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
 }

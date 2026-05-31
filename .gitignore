@@ -26,3 +26,6 @@ build/
 # Temp / debug
 rabbit_preview.png
 /tmp/toki_*
+
+# Local tool state
+.codegraph/

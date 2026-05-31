@@ -91,6 +91,9 @@ struct OpenCodeReader: TokenReader {
         var stepStatus = sqlite3_step(statement)
         while stepStatus == SQLITE_ROW {
             let sessionID = sqlite3_column_text(statement, 0).map { String(cString: $0) } ?? ""
+            let attribution = UsageAttribution(
+                sessionID: sessionID.isEmpty ? nil : sessionID,
+                quality: .unknown)
             let timestamp = sqlite3_column_int64(statement, 1)
             let input = Int(sqlite3_column_int64(statement, 2))
             let output = Int(sqlite3_column_int64(statement, 3))
@@ -141,7 +144,8 @@ struct OpenCodeReader: TokenReader {
                 cacheReadTokens: cacheRead,
                 cacheWriteTokens: cacheWrite,
                 reasoningTokens: reasoning,
-                cost: messageCost)
+                cost: messageCost,
+                attribution: attribution)
 
             stepStatus = sqlite3_step(statement)
         }

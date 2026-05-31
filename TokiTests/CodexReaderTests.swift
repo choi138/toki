@@ -90,6 +90,31 @@ final class CodexReaderTests: XCTestCase {
         XCTAssertEqual(usage.cost, expectedCost ?? 0, accuracy: 0.000001)
     }
 
+    func test_codexReaderAttachesSessionAttributionToTokenEvents() {
+        let usage = CodexReader.usage(
+            fromRolloutLines: [
+                tokenCountLine(
+                    ts: "2026-04-10T09:00:00Z",
+                    input: 120,
+                    cachedInput: 20,
+                    output: 30,
+                    reasoning: 5,
+                    total: 150),
+            ],
+            model: "gpt-5.4-mini",
+            from: isoDate("2026-04-10T00:00:00Z"),
+            to: isoDate("2026-04-11T00:00:00Z"),
+            streamID: "/tmp/rollout-a.jsonl",
+            attribution: UsageAttribution(
+                projectPath: "/Users/example/Toki",
+                sessionID: "rollout-a",
+                quality: .exact))
+
+        XCTAssertEqual(usage.tokenEvents.first?.attribution?.projectName, "Toki")
+        XCTAssertEqual(usage.tokenEvents.first?.attribution?.sessionID, "rollout-a")
+        XCTAssertEqual(usage.tokenEvents.first?.attribution?.quality, .exact)
+    }
+
     func test_codexReader_respects_partialDayRange() {
         let lines = [
             tokenCountLine(
@@ -219,16 +244,41 @@ final class CodexReaderTests: XCTestCase {
     func test_codexReaderSkipsJsonlLookupWhenDatabaseHasCompleteAttribution() {
         let skippedPaths = CodexReader().pathsWithCompleteDatabaseAttribution(
             in: [
-                CodexSession(rolloutPath: "/tmp/main-with-model.jsonl", model: "gpt-5.4"),
-                CodexSession(rolloutPath: "/tmp/subagent-with-model.jsonl", model: "gpt-5.4", agentKind: .subagent),
+                CodexSession(
+                    rolloutPath: "/tmp/main-with-model.jsonl",
+                    model: "gpt-5.4",
+                    projectPath: "/tmp/project-a",
+                    projectAttributionQuality: .exact),
+                CodexSession(
+                    rolloutPath: "/tmp/subagent-with-model.jsonl",
+                    model: "gpt-5.4",
+                    agentKind: .subagent,
+                    projectPath: "/tmp/project-b",
+                    projectAttributionQuality: .exact),
                 CodexSession(rolloutPath: "/tmp/subagent-without-model.jsonl", model: nil, agentKind: .subagent),
                 CodexSession(
                     rolloutPath: "/tmp/model-without-source.jsonl",
                     model: "gpt-5.4",
-                    hasSourceAttribution: false),
+                    hasSourceAttribution: false,
+                    projectPath: "/tmp/project-c",
+                    projectAttributionQuality: .exact),
             ])
 
         XCTAssertEqual(skippedPaths, ["/tmp/main-with-model.jsonl", "/tmp/subagent-with-model.jsonl"])
+    }
+
+    func test_codexReaderSkipsJsonlLookupForTotalOnlyAttributionWithoutProjectPath() {
+        let skippedPaths = CodexReader().pathsWithCompleteDatabaseAttribution(
+            in: [
+                CodexSession(rolloutPath: "/tmp/main-with-model.jsonl", model: "gpt-5.4"),
+                CodexSession(
+                    rolloutPath: "/tmp/model-without-source.jsonl",
+                    model: "gpt-5.4",
+                    hasSourceAttribution: false),
+            ],
+            requiresProjectAttribution: false)
+
+        XCTAssertEqual(skippedPaths, ["/tmp/main-with-model.jsonl"])
     }
 
     func test_codexReaderMergesJsonlSourceAttributionWhenDatabaseSourceIsMissing() {

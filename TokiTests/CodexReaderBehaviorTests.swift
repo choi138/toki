@@ -116,13 +116,24 @@ final class CodexReaderBehaviorTests: XCTestCase {
     func test_codexReader_skipsJsonlLookupWhenDatabaseHasModelAndSourceAttribution() {
         let skippedPaths = CodexReader().pathsWithCompleteDatabaseAttribution(
             in: [
-                CodexSession(rolloutPath: "/tmp/main-with-model.jsonl", model: "gpt-5.4"),
-                CodexSession(rolloutPath: "/tmp/subagent-with-model.jsonl", model: "gpt-5.4", agentKind: .subagent),
+                CodexSession(
+                    rolloutPath: "/tmp/main-with-model.jsonl",
+                    model: "gpt-5.4",
+                    projectPath: "/tmp/project-a",
+                    projectAttributionQuality: .exact),
+                CodexSession(
+                    rolloutPath: "/tmp/subagent-with-model.jsonl",
+                    model: "gpt-5.4",
+                    agentKind: .subagent,
+                    projectPath: "/tmp/project-b",
+                    projectAttributionQuality: .exact),
                 CodexSession(rolloutPath: "/tmp/subagent-without-model.jsonl", model: nil, agentKind: .subagent),
                 CodexSession(
                     rolloutPath: "/tmp/model-without-source.jsonl",
                     model: "gpt-5.4",
-                    hasSourceAttribution: false),
+                    hasSourceAttribution: false,
+                    projectPath: "/tmp/project-c",
+                    projectAttributionQuality: .exact),
             ])
 
         XCTAssertEqual(skippedPaths, ["/tmp/main-with-model.jsonl", "/tmp/subagent-with-model.jsonl"])

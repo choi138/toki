@@ -2,7 +2,10 @@ import Foundation
 import SQLite3
 
 extension CodexReader {
-    func overlappingSessions(from startDate: Date, to endDate: Date) -> [CodexSession] {
+    func overlappingSessions(
+        from startDate: Date,
+        to endDate: Date,
+        requiresProjectAttribution: Bool = true) -> [CodexSession] {
         guard !Task.isCancelled else { return [] }
 
         let databaseSessions = deduplicatedSessionsPreferringModel(
@@ -12,7 +15,9 @@ extension CodexReader {
         let jsonlSessions = overlappingSessionsFromJSONL(
             from: startDate,
             to: endDate,
-            pathsWithCompleteDatabaseAttribution: pathsWithCompleteDatabaseAttribution(in: databaseSessions))
+            pathsWithCompleteDatabaseAttribution: pathsWithCompleteDatabaseAttribution(
+                in: databaseSessions,
+                requiresProjectAttribution: requiresProjectAttribution))
         return mergedSessions(databaseSessions: databaseSessions, jsonlSessions: jsonlSessions)
     }
 
@@ -49,6 +54,8 @@ extension CodexReader {
             ? WorkTimeAgentKind.subagent
             : .main
         let mergedHasSourceAttribution = existing.hasSourceAttribution || session.hasSourceAttribution
+        let mergedProjectPath = bestProjectPath(existing: existing, candidate: session)
+        let mergedProjectQuality = bestProjectQuality(existing: existing, candidate: session)
 
         guard normalizedModelID(existing.model) == nil,
               let model = normalizedModelID(session.model) else {
@@ -58,7 +65,18 @@ extension CodexReader {
                     rolloutPath: existing.rolloutPath,
                     model: existing.model,
                     agentKind: mergedAgentKind,
-                    hasSourceAttribution: mergedHasSourceAttribution)
+                    hasSourceAttribution: mergedHasSourceAttribution,
+                    projectPath: mergedProjectPath,
+                    projectAttributionQuality: mergedProjectQuality)
+            } else if existing.projectPath != mergedProjectPath
+                || existing.projectAttributionQuality != mergedProjectQuality {
+                sessionsByPath[session.rolloutPath] = CodexSession(
+                    rolloutPath: existing.rolloutPath,
+                    model: existing.model,
+                    agentKind: existing.agentKind,
+                    hasSourceAttribution: existing.hasSourceAttribution,
+                    projectPath: mergedProjectPath,
+                    projectAttributionQuality: mergedProjectQuality)
             }
             return
         }
@@ -67,12 +85,45 @@ extension CodexReader {
             rolloutPath: existing.rolloutPath,
             model: model,
             agentKind: mergedAgentKind,
-            hasSourceAttribution: mergedHasSourceAttribution)
+            hasSourceAttribution: mergedHasSourceAttribution,
+            projectPath: mergedProjectPath,
+            projectAttributionQuality: mergedProjectQuality)
     }
 
-    func pathsWithCompleteDatabaseAttribution(in sessions: [CodexSession]) -> Set<String> {
+    private func bestProjectPath(existing: CodexSession, candidate: CodexSession) -> String? {
+        let existingRank = codexProjectQualityRank(existing.projectAttributionQuality)
+        let candidateRank = codexProjectQualityRank(candidate.projectAttributionQuality)
+
+        if candidate.projectPath != nil, candidateRank > existingRank {
+            return candidate.projectPath
+        }
+        return existing.projectPath ?? candidate.projectPath
+    }
+
+    private func bestProjectQuality(existing: CodexSession, candidate: CodexSession) -> AttributionQuality {
+        let existingRank = codexProjectQualityRank(existing.projectAttributionQuality)
+        let candidateRank = codexProjectQualityRank(candidate.projectAttributionQuality)
+
+        if candidate.projectPath != nil, candidateRank > existingRank {
+            return candidate.projectAttributionQuality
+        }
+        if existing.projectPath != nil {
+            return existing.projectAttributionQuality
+        }
+        return candidate.projectPath == nil ? .unknown : candidate.projectAttributionQuality
+    }
+
+    func pathsWithCompleteDatabaseAttribution(
+        in sessions: [CodexSession],
+        requiresProjectAttribution: Bool = true) -> Set<String> {
         Set(sessions.compactMap { session in
-            normalizedModelID(session.model) != nil && session.hasSourceAttribution ? session.rolloutPath : nil
+            let hasRequiredProjectAttribution = !requiresProjectAttribution || session.projectPath != nil
+            guard normalizedModelID(session.model) != nil,
+                  session.hasSourceAttribution,
+                  hasRequiredProjectAttribution else {
+                return nil
+            }
+            return session.rolloutPath
         })
     }
 
@@ -173,7 +224,9 @@ extension CodexReader {
                         rolloutPath: fileURL.path,
                         model: attribution.model,
                         agentKind: attribution.agentKind,
-                        hasSourceAttribution: attribution.hasSourceAttribution))
+                        hasSourceAttribution: attribution.hasSourceAttribution,
+                        projectPath: attribution.projectPath,
+                        projectAttributionQuality: attribution.projectPath == nil ? .unknown : .exact))
             }
         }
         return sessions
@@ -184,17 +237,22 @@ extension CodexReader {
         var model: String?
         var agentKind = WorkTimeAgentKind.main
         var hasSourceAttribution = false
+        var projectPath: String?
 
         forEachJSONLLineUntil(at: url) { line, _ in
-            guard model == nil || !hasSourceAttribution else { return false }
+            guard model == nil || !hasSourceAttribution || projectPath == nil else { return false }
             guard let lineData = line.data(using: .utf8) else { return true }
 
-            if model == nil,
-               let entry = try? decoder.decode(CodexModelEntry.self, from: lineData),
-               entry.type == "turn_context",
-               let entryModel = entry.payload?.model,
-               !entryModel.isEmpty {
-                model = entryModel
+            if let entry = try? decoder.decode(CodexModelEntry.self, from: lineData),
+               entry.type == "turn_context" {
+                if model == nil,
+                   let entryModel = entry.payload?.model,
+                   !entryModel.isEmpty {
+                    model = entryModel
+                }
+                if projectPath == nil {
+                    projectPath = entry.payload?.resolvedProjectPath
+                }
             }
 
             if !hasSourceAttribution,
@@ -205,13 +263,20 @@ extension CodexReader {
                 hasSourceAttribution = true
             }
 
-            return model == nil || !hasSourceAttribution
+            if projectPath == nil,
+               let entry = try? decoder.decode(CodexSessionMetaEntry.self, from: lineData),
+               entry.type == "session_meta" {
+                projectPath = entry.payload?.resolvedProjectPath
+            }
+
+            return model == nil || !hasSourceAttribution || projectPath == nil
         }
 
         return CodexSessionAttribution(
             model: model,
             agentKind: agentKind,
-            hasSourceAttribution: hasSourceAttribution)
+            hasSourceAttribution: hasSourceAttribution,
+            projectPath: projectPath)
     }
 
     private func extractModel(from url: URL) -> String? {
@@ -283,6 +348,17 @@ extension CodexReader {
             return nil
         }
         return transform(line.trimmingCharacters(in: .whitespaces))
+    }
+}
+
+private func codexProjectQualityRank(_ quality: AttributionQuality) -> Int {
+    switch quality {
+    case .exact:
+        3
+    case .inferred:
+        2
+    case .unknown:
+        1
     }
 }
 

@@ -31,6 +31,7 @@ struct CodexReader: TokenReader {
                 fromRolloutAt: url,
                 model: session.model,
                 agentKind: session.agentKind,
+                attribution: session.attribution,
                 from: startDate,
                 to: endDate)
             guard !Task.isCancelled else { break }
@@ -67,7 +68,10 @@ struct CodexReader: TokenReader {
             return try await readUsage(from: startDate, to: endDate).totalTokens
         }
 
-        let sessions = overlappingSessions(from: startDate, to: endDate)
+        let sessions = overlappingSessions(
+            from: startDate,
+            to: endDate,
+            requiresProjectAttribution: false)
         guard !Task.isCancelled, !sessions.isEmpty else { return 0 }
 
         var totalTokens = 0
@@ -131,6 +135,7 @@ extension CodexReader {
         to endDate: Date,
         streamID: String,
         agentKind: WorkTimeAgentKind = .main,
+        attribution: UsageAttribution? = nil,
         includeActivity: Bool = true) -> RawTokenUsage {
         let normalizedModel = normalizedModelID(model)
 
@@ -181,7 +186,8 @@ extension CodexReader {
                 outputTokens: usage.outputTokens,
                 cacheReadTokens: usage.cacheReadTokens,
                 reasoningTokens: usage.reasoningTokens,
-                cost: entryCost)
+                cost: entryCost,
+                attribution: attribution)
         }
 
         if includeActivity {
@@ -318,6 +324,7 @@ private extension CodexReader {
         fromRolloutAt url: URL,
         model: String?,
         agentKind: WorkTimeAgentKind,
+        attribution: UsageAttribution,
         from startDate: Date,
         to endDate: Date) async -> RawTokenUsage {
         guard !Task.isCancelled else { return RawTokenUsage() }
@@ -329,6 +336,7 @@ private extension CodexReader {
                 from: startDate,
                 to: endDate,
                 streamID: url.path,
+                attribution: attribution,
                 includeActivity: false)
         }
 
@@ -343,6 +351,7 @@ private extension CodexReader {
         result.tokenEvents = tokenEvents(
             fromCachedDailyTokenUsageEvents: summary.dailyTokenUsageEvents,
             model: model,
+            attribution: attribution,
             from: startDate,
             to: endDate)
         return result
@@ -472,6 +481,7 @@ private extension CodexReader {
     private static func tokenEvents(
         fromCachedDailyTokenUsageEvents cached: [String: [CodexCachedTokenUsageEvent]],
         model: String?,
+        attribution: UsageAttribution,
         from startDate: Date,
         to endDate: Date) -> [TokenUsageEvent] {
         let normalizedModel = normalizedModelID(model)
@@ -508,7 +518,8 @@ private extension CodexReader {
                             cacheReadTokens: event.cacheReadTokens,
                             cacheWriteTokens: 0,
                             reasoningTokens: event.reasoningTokens,
-                            cost: eventCost)
+                            cost: eventCost,
+                            attribution: attribution)
                     })
             }
 

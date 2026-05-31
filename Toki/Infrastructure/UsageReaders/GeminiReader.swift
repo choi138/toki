@@ -60,7 +60,10 @@ struct GeminiReader: TokenReader {
                     model: nil,
                     inputTokens: input,
                     outputTokens: output,
-                    cacheReadTokens: cacheRead)
+                    cacheReadTokens: cacheRead,
+                    attribution: UsageAttribution(
+                        sessionID: usageSessionID(fromPath: file.path),
+                        quality: .unknown))
             }
 
             if hasUsageMetadata {
@@ -137,7 +140,10 @@ struct GeminiReader: TokenReader {
                 outputTokens: output,
                 cacheReadTokens: cacheRead,
                 reasoningTokens: reasoning,
-                cost: entryCost)
+                cost: entryCost,
+                attribution: UsageAttribution(
+                    sessionID: usageSessionID(fromPath: streamID),
+                    quality: .unknown))
         }
 
         return result

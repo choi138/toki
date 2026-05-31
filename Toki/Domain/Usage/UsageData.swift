@@ -70,6 +70,50 @@ struct UsageTimeBucket: Identifiable, Equatable {
     }
 }
 
+struct ProjectUsageStat: Identifiable, Equatable {
+    let id: String
+    let name: String
+    let path: String?
+    let quality: AttributionQuality
+    let sources: [String]
+    let sessionCount: Int
+    let inputTokens: Int
+    let outputTokens: Int
+    let cacheReadTokens: Int
+    let cacheWriteTokens: Int
+    let reasoningTokens: Int
+    let cost: Double
+    let firstActivityAt: Date?
+    let lastActivityAt: Date?
+
+    var totalTokens: Int {
+        inputTokens + outputTokens + cacheReadTokens + cacheWriteTokens + reasoningTokens
+    }
+}
+
+struct SessionUsageStat: Identifiable, Equatable {
+    let id: String
+    let source: String
+    let projectName: String
+    let projectPath: String?
+    let sessionID: String?
+    let sessionLabel: String
+    let quality: AttributionQuality
+    let models: [String]
+    let inputTokens: Int
+    let outputTokens: Int
+    let cacheReadTokens: Int
+    let cacheWriteTokens: Int
+    let reasoningTokens: Int
+    let cost: Double
+    let firstActivityAt: Date
+    let lastActivityAt: Date
+
+    var totalTokens: Int {
+        inputTokens + outputTokens + cacheReadTokens + cacheWriteTokens + reasoningTokens
+    }
+}
+
 enum ReaderStatusState: String {
     case loaded
     case empty
@@ -135,6 +179,8 @@ struct UsageData: Equatable {
     let perModel: [ModelStat]
     let sourceStats: [SourceStat]
     let timeBuckets: [UsageTimeBucket]
+    let projectStats: [ProjectUsageStat]
+    let sessionStats: [SessionUsageStat]
     let supplementalStats: [SupplementalStat]
     let contextOnlyModels: [ContextOnlyModelStat]
 
@@ -152,6 +198,8 @@ struct UsageData: Equatable {
         perModel: [ModelStat],
         sourceStats: [SourceStat] = [],
         timeBuckets: [UsageTimeBucket] = [],
+        projectStats: [ProjectUsageStat] = [],
+        sessionStats: [SessionUsageStat] = [],
         supplementalStats: [SupplementalStat] = [],
         contextOnlyModels: [ContextOnlyModelStat] = []) {
         self.date = date
@@ -167,6 +215,8 @@ struct UsageData: Equatable {
         self.perModel = perModel
         self.sourceStats = sourceStats
         self.timeBuckets = timeBuckets
+        self.projectStats = projectStats
+        self.sessionStats = sessionStats
         self.supplementalStats = supplementalStats
         self.contextOnlyModels = contextOnlyModels
     }
@@ -184,6 +234,16 @@ struct UsageData: Equatable {
 
     var hasExcludedSupplementalStats: Bool {
         supplementalStats.contains { !$0.includedInTotals }
+    }
+
+    var attributedCost: Double {
+        projectStats
+            .filter { $0.quality != .unknown }
+            .reduce(0) { $0 + $1.cost }
+    }
+
+    var attributedSessionCount: Int {
+        sessionStats.filter { $0.quality != .unknown }.count
     }
 
     var peakTokenBucket: UsageTimeBucket? {

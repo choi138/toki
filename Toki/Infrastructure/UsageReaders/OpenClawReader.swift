@@ -79,7 +79,10 @@ struct OpenClawReader: TokenReader {
                     inputTokens: input,
                     outputTokens: output,
                     cacheReadTokens: cacheRead,
-                    cacheWriteTokens: cacheWrite)
+                    cacheWriteTokens: cacheWrite,
+                    attribution: UsageAttribution(
+                        sessionID: usageSessionID(fromPath: session.streamID),
+                        quality: .unknown))
             }
         }
 

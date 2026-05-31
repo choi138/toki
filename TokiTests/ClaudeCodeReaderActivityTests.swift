@@ -48,6 +48,47 @@ final class ClaudeCodeReaderActivityTests: XCTestCase {
             90,
             accuracy: 0.001)
     }
+
+    func test_claudeCodeReaderAttachesCwdAttributionToTokenEvents() {
+        let usage = ClaudeCodeReader.usage(
+            fromJSONLLines: [
+                """
+                {"type":"assistant","timestamp":"2026-04-10T00:00:00Z","requestId":"req-1",\
+                "sessionId":"session-a","cwd":"/Users/example/Toki",\
+                "message":{"id":"msg-1","model":"claude-sonnet-4-6","usage":{\
+                "input_tokens":10,"output_tokens":2,"cache_read_input_tokens":0,\
+                "cache_creation_input_tokens":0}}}
+                """,
+            ],
+            streamID: "/Users/example/.claude/projects/-Users-example-Toki/session-a.jsonl",
+            from: claudeCodeReaderActivityISODate("2026-04-10T00:00:00Z"),
+            to: claudeCodeReaderActivityISODate("2026-04-11T00:00:00Z"))
+
+        XCTAssertEqual(usage.tokenEvents.first?.attribution?.projectPath, "/Users/example/Toki")
+        XCTAssertEqual(usage.tokenEvents.first?.attribution?.projectName, "Toki")
+        XCTAssertEqual(usage.tokenEvents.first?.attribution?.sessionID, "session-a")
+        XCTAssertEqual(usage.tokenEvents.first?.attribution?.quality, .exact)
+    }
+
+    func test_claudeCodeReaderUsesTranscriptIDAndSafeProjectNameWhenSessionIDIsMissing() {
+        let usage = ClaudeCodeReader.usage(
+            fromJSONLLines: [
+                """
+                {"type":"assistant","timestamp":"2026-04-10T00:00:00Z","requestId":"req-1",\
+                "message":{"id":"msg-1","model":"claude-sonnet-4-6","usage":{\
+                "input_tokens":10,"output_tokens":2,"cache_read_input_tokens":0,\
+                "cache_creation_input_tokens":0}}}
+                """,
+            ],
+            streamID: "/Users/example/.claude/projects/-Users-me-my-app/session-a.jsonl",
+            from: claudeCodeReaderActivityISODate("2026-04-10T00:00:00Z"),
+            to: claudeCodeReaderActivityISODate("2026-04-11T00:00:00Z"))
+
+        XCTAssertNil(usage.tokenEvents.first?.attribution?.projectPath)
+        XCTAssertEqual(usage.tokenEvents.first?.attribution?.projectName, "Users-me-my-app")
+        XCTAssertEqual(usage.tokenEvents.first?.attribution?.sessionID, "session-a")
+        XCTAssertEqual(usage.tokenEvents.first?.attribution?.quality, .inferred)
+    }
 }
 
 private func claudeCodeReaderActivityLine(

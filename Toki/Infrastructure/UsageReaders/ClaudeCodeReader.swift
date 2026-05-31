@@ -1,5 +1,7 @@
 import Foundation
 
+private let claudeUsageCacheParserVersion = 2
+
 /// Reads ~/.claude/projects/**/*.jsonl
 /// Deduplicates by requestId, keeps max token counts per message
 struct ClaudeCodeReader: TokenReader {
@@ -83,7 +85,8 @@ struct ClaudeCodeReader: TokenReader {
                 input: record.input,
                 output: record.output,
                 cacheRead: record.cacheRead,
-                cacheWrite: record.cacheWrite)
+                cacheWrite: record.cacheWrite,
+                attribution: attribution(for: record, streamID: streamID))
 
             if let existing = dedup[key] {
                 dedup[key] = existing.mergedMax(with: entry)
@@ -172,7 +175,8 @@ struct ClaudeCodeReader: TokenReader {
                 outputTokens: entry.output,
                 cacheReadTokens: entry.cacheRead,
                 cacheWriteTokens: entry.cacheWrite,
-                cost: entryCost)
+                cost: entryCost,
+                attribution: entry.attribution)
         }
 
         result.mergeActivityEvents(
@@ -202,6 +206,8 @@ struct ClaudeCodeReader: TokenReader {
                 lineIndex: index,
                 timestamp: date.timeIntervalSince1970,
                 requestId: msg.requestId,
+                sessionID: msg.sessionID,
+                cwd: msg.cwd,
                 messageID: msg.message?.id,
                 model: msg.message?.model,
                 input: usage.inputTokens ?? 0,
@@ -218,6 +224,7 @@ private struct Entry {
     let timestamp: Date
     let model: String?
     let input, output, cacheRead, cacheWrite: Int
+    let attribution: UsageAttribution?
 
     func mergedMax(with other: Entry) -> Entry {
         Entry(
@@ -226,7 +233,8 @@ private struct Entry {
             input: max(input, other.input),
             output: max(output, other.output),
             cacheRead: max(cacheRead, other.cacheRead),
-            cacheWrite: max(cacheWrite, other.cacheWrite))
+            cacheWrite: max(cacheWrite, other.cacheWrite),
+            attribution: bestUsageAttribution(attribution, other.attribution))
     }
 }
 
@@ -275,11 +283,91 @@ private struct ActivitySeries {
     }
 }
 
+private func attribution(for record: ClaudeCachedUsageRecord, streamID: String) -> UsageAttribution {
+    let sessionID = record.sessionID
+        ?? usageSessionID(fromPath: streamID).trimmedNonEmpty
+        ?? record.requestId
+
+    if let cwd = record.cwd?.trimmedNonEmpty {
+        return UsageAttribution(
+            projectPath: cwd,
+            sessionID: sessionID,
+            quality: .exact)
+    }
+
+    if let attribution = inferredAttributionFromClaudeStreamID(streamID, sessionID: sessionID) {
+        return attribution
+    }
+
+    return UsageAttribution(
+        sessionID: sessionID,
+        quality: .unknown)
+}
+
+private func inferredAttributionFromClaudeStreamID(_ streamID: String, sessionID: String?) -> UsageAttribution? {
+    guard streamID.contains("/") else {
+        guard let projectName = streamID.trimmedNonEmpty else { return nil }
+        return UsageAttribution(
+            projectName: projectName,
+            sessionID: sessionID,
+            quality: .inferred)
+    }
+
+    let url = URL(fileURLWithPath: streamID)
+    let parentName = url.deletingLastPathComponent().lastPathComponent.trimmedNonEmpty
+    guard let parentName, parentName != "." else {
+        return nil
+    }
+
+    if parentName.hasPrefix("-") {
+        guard let projectName = projectNameFromClaudeEncodedFolder(parentName) else { return nil }
+        return UsageAttribution(
+            projectName: projectName,
+            sessionID: sessionID,
+            quality: .inferred)
+    }
+
+    guard let projectPath = url.deletingLastPathComponent().path.trimmedNonEmpty else { return nil }
+    return UsageAttribution(
+        projectPath: projectPath,
+        sessionID: sessionID,
+        quality: .inferred)
+}
+
+private func projectNameFromClaudeEncodedFolder(_ parentName: String) -> String? {
+    let encodedHomePath = homeDir().path.replacingOccurrences(of: "/", with: "-")
+    if parentName.hasPrefix(encodedHomePath) {
+        let suffix = parentName.dropFirst(encodedHomePath.count)
+        if let projectName = String(suffix).trimmingLeadingHyphens.trimmedNonEmpty {
+            return projectName
+        }
+    }
+
+    return parentName.trimmingLeadingHyphens.trimmedNonEmpty
+}
+
 private struct RawMessage: Decodable {
     let type: String?
     let timestamp: String?
     let requestId: String?
+    let sessionId: String?
+    let sessionIdSnake: String?
+    let cwd: String?
     let message: Message?
+
+    var sessionID: String? {
+        sessionId ?? sessionIdSnake
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case type
+        case timestamp
+        case requestId
+        case sessionId
+        case sessionIdSnake = "session_id"
+        case cwd
+        case message
+    }
 
     struct Message: Decodable {
         let id: String?
@@ -326,6 +414,7 @@ private actor ClaudeUsageCache {
 
         guard let fileSignature = claudeFileSignature(for: url),
               let cached = entries[url.path],
+              cached.parserVersion == claudeUsageCacheParserVersion,
               cached.fileSize == fileSignature.fileSize,
               cached.modifiedAt == fileSignature.modifiedAt else {
             return nil
@@ -340,6 +429,7 @@ private actor ClaudeUsageCache {
         guard let fileSignature = claudeFileSignature(for: url) else { return }
 
         entries[url.path] = ClaudeUsageCacheEntry(
+            parserVersion: claudeUsageCacheParserVersion,
             fileSize: fileSignature.fileSize,
             modifiedAt: fileSignature.modifiedAt,
             records: records)
@@ -383,21 +473,60 @@ private struct ClaudeUsageCacheFile: Codable {
 }
 
 private struct ClaudeUsageCacheEntry: Codable {
+    let parserVersion: Int?
     let fileSize: Int
     let modifiedAt: TimeInterval
     let records: [ClaudeCachedUsageRecord]
+
+    init(
+        parserVersion: Int? = nil,
+        fileSize: Int,
+        modifiedAt: TimeInterval,
+        records: [ClaudeCachedUsageRecord]) {
+        self.parserVersion = parserVersion
+        self.fileSize = fileSize
+        self.modifiedAt = modifiedAt
+        self.records = records
+    }
 }
 
 private struct ClaudeCachedUsageRecord: Codable {
     let lineIndex: Int
     let timestamp: TimeInterval
     let requestId: String?
+    let sessionID: String?
+    let cwd: String?
     let messageID: String?
     let model: String?
     let input: Int
     let output: Int
     let cacheRead: Int
     let cacheWrite: Int
+
+    init(
+        lineIndex: Int,
+        timestamp: TimeInterval,
+        requestId: String?,
+        sessionID: String? = nil,
+        cwd: String? = nil,
+        messageID: String?,
+        model: String?,
+        input: Int,
+        output: Int,
+        cacheRead: Int,
+        cacheWrite: Int) {
+        self.lineIndex = lineIndex
+        self.timestamp = timestamp
+        self.requestId = requestId
+        self.sessionID = sessionID
+        self.cwd = cwd
+        self.messageID = messageID
+        self.model = model
+        self.input = input
+        self.output = output
+        self.cacheRead = cacheRead
+        self.cacheWrite = cacheWrite
+    }
 }
 
 private struct ClaudeFileSignature {
@@ -423,4 +552,15 @@ private func claudeUsageCacheURL() -> URL {
         .appendingPathComponent("Application Support")
         .appendingPathComponent("Toki")
         .appendingPathComponent("claude-usage-cache.json")
+}
+
+private extension String {
+    var trimmingLeadingHyphens: String {
+        String(drop { $0 == "-" })
+    }
+
+    var trimmedNonEmpty: String? {
+        let trimmed = trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
 }
