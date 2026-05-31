@@ -4,66 +4,59 @@ struct PanelTabBarView: View {
     @Binding var activeTab: PanelTab
 
     var body: some View {
-        HStack(spacing: 0) {
-            TabButton(title: "Overview", isActive: activeTab == .overview) {
-                activeTab = .overview
+        Menu {
+            ForEach(PanelTab.allCases) { tab in
+                Button {
+                    activeTab = tab
+                } label: {
+                    Label(
+                        tab.title,
+                        systemImage: tab == activeTab ? "checkmark.circle.fill" : tab.systemImage)
+                }
             }
-            Rectangle()
-                .fill(Color.white.opacity(0.07))
-                .frame(width: 0.5)
-            TabButton(title: "Projects", isActive: activeTab == .projects) {
-                activeTab = .projects
-            }
-            Rectangle()
-                .fill(Color.white.opacity(0.07))
-                .frame(width: 0.5)
-            TabButton(title: "Models", isActive: activeTab == .byModel) {
-                activeTab = .byModel
-            }
-            Rectangle()
-                .fill(Color.white.opacity(0.07))
-                .frame(width: 0.5)
-            TabButton(title: "Sources", isActive: activeTab == .sources) {
-                activeTab = .sources
-            }
-            Rectangle()
-                .fill(Color.white.opacity(0.07))
-                .frame(width: 0.5)
-            TabButton(title: "Time", isActive: activeTab == .workTime) {
-                activeTab = .workTime
-            }
-            Rectangle()
-                .fill(Color.white.opacity(0.07))
-                .frame(width: 0.5)
-            TabButton(title: "Hourly", isActive: activeTab == .hourly) {
-                activeTab = .hourly
-            }
-        }
-        .frame(height: 32)
-    }
-}
+        } label: {
+            HStack(spacing: 10) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 5, style: .continuous)
+                        .fill(activeTab.accentColor.opacity(0.16))
+                    Image(systemName: activeTab.systemImage)
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundColor(activeTab.accentColor)
+                        .accessibilityHidden(true)
+                }
+                .frame(width: 24, height: 24)
 
-private struct TabButton: View {
-    let title: String
-    let isActive: Bool
-    let action: () -> Void
+                VStack(alignment: .leading, spacing: 1) {
+                    Text("View")
+                        .font(.system(size: 9, weight: .semibold))
+                        .foregroundColor(Color.white.opacity(0.28))
+                    Text(activeTab.title)
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundColor(.white)
+                }
 
-    var body: some View {
-        Button(action: action) {
-            VStack(spacing: 0) {
-                Spacer()
-                Text(title)
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundColor(isActive ? .white : Color.white.opacity(0.3))
-                Spacer()
-                Rectangle()
-                    .fill(isActive ? Color(red: 0.55, green: 0.45, blue: 1.0) : Color.clear)
-                    .frame(height: 2)
+                Spacer(minLength: 8)
+
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 9, weight: .bold))
+                    .foregroundColor(Color.white.opacity(0.34))
+                    .accessibilityHidden(true)
             }
+            .frame(height: 30)
+            .padding(.horizontal, 10)
+            .background(
+                RoundedRectangle(cornerRadius: 7, style: .continuous)
+                    .fill(Color.white.opacity(0.055)))
+            .overlay(
+                RoundedRectangle(cornerRadius: 7, style: .continuous)
+                    .stroke(Color.white.opacity(0.08), lineWidth: 0.5))
+            .contentShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
         }
         .buttonStyle(.plain)
-        .frame(maxWidth: .infinity)
-        .accessibilityLabel(Text(title))
-        .accessibilityAddTraits(isActive ? .isSelected : [])
+        .padding(.horizontal, 16)
+        .padding(.vertical, 6)
+        .frame(height: 44)
+        .accessibilityLabel(Text("Usage view"))
+        .accessibilityValue(Text(activeTab.title))
     }
 }
