@@ -8,6 +8,7 @@ enum UsagePanelLayout {
 
 enum PanelTab {
     case overview
+    case projects
     case hourly
     case byModel
     case sources
@@ -91,6 +92,8 @@ struct UsagePanelView: View {
                     : nil)
             panelDivider
             PanelTokenBreakdownView(usage: viewModel.usageData, isLoading: viewModel.isLoading)
+        case .projects:
+            PanelProjectTimelineView(usage: viewModel.usageData, isLoading: viewModel.isLoading)
         case .hourly:
             PanelHourlyUsageView(usage: viewModel.usageData, isLoading: viewModel.isLoading)
         case .byModel:

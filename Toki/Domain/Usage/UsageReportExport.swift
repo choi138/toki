@@ -45,6 +45,8 @@ private struct UsageExportPayload: Encodable {
     let totals: UsageExportTotals
     let sources: [UsageExportSource]
     let models: [UsageExportModel]
+    let projects: [UsageExportProject]
+    let sessions: [UsageExportSession]
 
     init(usage: UsageData) {
         date = usageExportISODateFormatter.string(from: usage.date)
@@ -53,6 +55,8 @@ private struct UsageExportPayload: Encodable {
         totals = UsageExportTotals(usage: usage)
         sources = usage.sourceStats.map(UsageExportSource.init)
         models = usage.perModel.map(UsageExportModel.init)
+        projects = usage.projectStats.map(UsageExportProject.init)
+        sessions = usage.sessionStats.map(UsageExportSession.init)
     }
 }
 
@@ -120,11 +124,76 @@ private struct UsageExportModel: Encodable {
     }
 }
 
+private struct UsageExportProject: Encodable {
+    let name: String
+    let path: String?
+    let quality: String
+    let sources: [String]
+    let sessionCount: Int
+    let totalTokens: Int
+    let cost: Double
+    let firstActivityAt: String?
+    let lastActivityAt: String?
+
+    init(project: ProjectUsageStat) {
+        name = project.name
+        path = project.path
+        quality = project.quality.rawValue
+        sources = project.sources
+        sessionCount = project.sessionCount
+        totalTokens = project.totalTokens
+        cost = project.cost
+        firstActivityAt = project.firstActivityAt.map { usageExportISODateFormatter.string(from: $0) }
+        lastActivityAt = project.lastActivityAt.map { usageExportISODateFormatter.string(from: $0) }
+    }
+}
+
+private struct UsageExportSession: Encodable {
+    let source: String
+    let projectName: String
+    let projectPath: String?
+    let sessionID: String?
+    let sessionLabel: String
+    let quality: String
+    let models: [String]
+    let totalTokens: Int
+    let cost: Double
+    let firstActivityAt: String
+    let lastActivityAt: String
+
+    init(session: SessionUsageStat) {
+        source = session.source
+        projectName = session.projectName
+        projectPath = session.projectPath
+        sessionID = session.sessionID
+        sessionLabel = session.sessionLabel
+        quality = session.quality.rawValue
+        models = session.models
+        totalTokens = session.totalTokens
+        cost = session.cost
+        firstActivityAt = usageExportISODateFormatter.string(from: session.firstActivityAt)
+        lastActivityAt = usageExportISODateFormatter.string(from: session.lastActivityAt)
+    }
+}
+
 private extension UsageExport {
     static func csvRows(for usage: UsageData) -> [[String]] {
-        let header = [
+        let startDate = usageExportISODateFormatter.string(from: usage.date)
+        let endDate = usageExportISODateFormatter.string(from: usage.endDate)
+
+        return [csvHeader, csvTotalRow(for: usage, startDate: startDate, endDate: endDate)]
+            + csvSourceRows(for: usage, startDate: startDate, endDate: endDate)
+            + csvModelRows(for: usage, startDate: startDate, endDate: endDate)
+            + csvProjectRows(for: usage)
+            + csvSessionRows(for: usage)
+    }
+
+    static var csvHeader: [String] {
+        [
             "section",
             "name",
+            "source",
+            "model",
             "input_tokens",
             "output_tokens",
             "cache_read_tokens",
@@ -135,13 +204,21 @@ private extension UsageExport {
             "active_seconds",
             "start_date",
             "end_date",
+            "project_path",
+            "session_id",
+            "attribution_quality",
         ]
-        let startDate = usageExportISODateFormatter.string(from: usage.date)
-        let endDate = usageExportISODateFormatter.string(from: usage.endDate)
+    }
 
-        let total = [
+    static func csvTotalRow(
+        for usage: UsageData,
+        startDate: String,
+        endDate: String) -> [String] {
+        [
             "total",
             "All",
+            "",
+            "",
             "\(usage.inputTokens)",
             "\(usage.outputTokens)",
             "\(usage.cacheReadTokens)",
@@ -152,12 +229,22 @@ private extension UsageExport {
             String(format: "%.3f", usage.activeSeconds),
             startDate,
             endDate,
+            "",
+            "",
+            "",
         ]
+    }
 
-        let sources = usage.sourceStats.map { source in
+    static func csvSourceRows(
+        for usage: UsageData,
+        startDate: String,
+        endDate: String) -> [[String]] {
+        usage.sourceStats.map { source in
             [
                 "source",
                 source.source,
+                source.source,
+                "",
                 "\(source.inputTokens)",
                 "\(source.outputTokens)",
                 "\(source.cacheReadTokens)",
@@ -168,12 +255,22 @@ private extension UsageExport {
                 String(format: "%.3f", source.activeSeconds),
                 startDate,
                 endDate,
+                "",
+                "",
+                "",
             ]
         }
+    }
 
-        let models = usage.perModel.map { model in
+    static func csvModelRows(
+        for usage: UsageData,
+        startDate: String,
+        endDate: String) -> [[String]] {
+        usage.perModel.map { model in
             [
                 "model",
+                model.id,
+                model.sources.joined(separator: ";"),
                 model.id,
                 "",
                 "",
@@ -185,10 +282,59 @@ private extension UsageExport {
                 String(format: "%.3f", model.activeSeconds),
                 startDate,
                 endDate,
+                "",
+                "",
+                "",
             ]
         }
+    }
 
-        return [header, total] + sources + models
+    static func csvProjectRows(for usage: UsageData) -> [[String]] {
+        usage.projectStats.map { project in
+            [
+                "project",
+                project.name,
+                project.sources.joined(separator: ";"),
+                "",
+                "\(project.inputTokens)",
+                "\(project.outputTokens)",
+                "\(project.cacheReadTokens)",
+                "\(project.cacheWriteTokens)",
+                "\(project.reasoningTokens)",
+                "\(project.totalTokens)",
+                String(format: "%.6f", project.cost),
+                "",
+                project.firstActivityAt.map { usageExportISODateFormatter.string(from: $0) } ?? "",
+                project.lastActivityAt.map { usageExportISODateFormatter.string(from: $0) } ?? "",
+                project.path ?? "",
+                "",
+                project.quality.rawValue,
+            ]
+        }
+    }
+
+    static func csvSessionRows(for usage: UsageData) -> [[String]] {
+        usage.sessionStats.map { session in
+            [
+                "session",
+                session.projectName,
+                session.source,
+                session.models.joined(separator: ";"),
+                "\(session.inputTokens)",
+                "\(session.outputTokens)",
+                "\(session.cacheReadTokens)",
+                "\(session.cacheWriteTokens)",
+                "\(session.reasoningTokens)",
+                "\(session.totalTokens)",
+                String(format: "%.6f", session.cost),
+                "",
+                usageExportISODateFormatter.string(from: session.firstActivityAt),
+                usageExportISODateFormatter.string(from: session.lastActivityAt),
+                session.projectPath ?? "",
+                session.sessionID ?? "",
+                session.quality.rawValue,
+            ]
+        }
     }
 
     static func csvEscape(_ value: String) -> String {

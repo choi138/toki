@@ -200,7 +200,7 @@ private struct ReaderStatusRowView: View, Equatable {
     }()
 }
 
-private func panelAccentColor(forSource source: String) -> Color {
+func panelAccentColor(forSource source: String) -> Color {
     switch source {
     case "Claude Code":
         Color(red: 0.55, green: 0.45, blue: 1.0)

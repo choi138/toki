@@ -12,6 +12,39 @@ enum UsageQuality: String {
     case derived
 }
 
+enum AttributionQuality: String, Codable {
+    case exact
+    case inferred
+    case unknown
+}
+
+struct UsageAttribution: Equatable, Codable {
+    let projectPath: String?
+    let projectName: String?
+    let sessionID: String?
+    let sessionLabel: String?
+    let quality: AttributionQuality
+
+    init(
+        projectPath: String? = nil,
+        projectName: String? = nil,
+        sessionID: String? = nil,
+        sessionLabel: String? = nil,
+        quality: AttributionQuality = .unknown) {
+        let normalizedPath = projectPath?.nilIfBlank
+        let normalizedName = projectName?.nilIfBlank ?? usageProjectName(from: normalizedPath)
+        self.projectPath = normalizedPath
+        self.projectName = normalizedName
+        self.sessionID = sessionID?.nilIfBlank
+        self.sessionLabel = sessionLabel?.nilIfBlank
+        self.quality = normalizedName == nil ? .unknown : quality
+    }
+
+    var resolvedProjectName: String {
+        projectName?.nilIfBlank ?? "Unknown Project"
+    }
+}
+
 struct SupplementalUsage {
     let id: String
     let label: String
@@ -40,6 +73,30 @@ struct TokenUsageEvent: Equatable, Codable {
     let cacheWriteTokens: Int
     let reasoningTokens: Int
     let cost: Double
+    let attribution: UsageAttribution?
+
+    init(
+        timestamp: Date,
+        source: String,
+        model: String?,
+        inputTokens: Int,
+        outputTokens: Int,
+        cacheReadTokens: Int,
+        cacheWriteTokens: Int,
+        reasoningTokens: Int,
+        cost: Double,
+        attribution: UsageAttribution? = nil) {
+        self.timestamp = timestamp
+        self.source = source
+        self.model = model
+        self.inputTokens = inputTokens
+        self.outputTokens = outputTokens
+        self.cacheReadTokens = cacheReadTokens
+        self.cacheWriteTokens = cacheWriteTokens
+        self.reasoningTokens = reasoningTokens
+        self.cost = cost
+        self.attribution = attribution
+    }
 
     var totalTokens: Int {
         inputTokens + outputTokens + cacheReadTokens + cacheWriteTokens + reasoningTokens
@@ -166,7 +223,8 @@ struct RawTokenUsage {
         cacheReadTokens: Int = 0,
         cacheWriteTokens: Int = 0,
         reasoningTokens: Int = 0,
-        cost: Double = 0) {
+        cost: Double = 0,
+        attribution: UsageAttribution? = nil) {
         let event = TokenUsageEvent(
             timestamp: timestamp,
             source: source,
@@ -176,9 +234,46 @@ struct RawTokenUsage {
             cacheReadTokens: cacheReadTokens,
             cacheWriteTokens: cacheWriteTokens,
             reasoningTokens: reasoningTokens,
-            cost: cost)
+            cost: cost,
+            attribution: attribution)
         guard event.totalTokens > 0 else { return }
         tokenEvents.append(event)
+    }
+}
+
+func usageSessionID(fromPath path: String) -> String {
+    URL(fileURLWithPath: path).deletingPathExtension().lastPathComponent
+}
+
+func bestUsageAttribution(_ lhs: UsageAttribution?, _ rhs: UsageAttribution?) -> UsageAttribution? {
+    guard let lhs else { return rhs }
+    guard let rhs else { return lhs }
+    return usageAttributionRank(rhs) > usageAttributionRank(lhs) ? rhs : lhs
+}
+
+private func usageAttributionRank(_ attribution: UsageAttribution) -> Int {
+    let qualityScore = switch attribution.quality {
+    case .exact:
+        300
+    case .inferred:
+        200
+    case .unknown:
+        100
+    }
+    let pathScore = attribution.projectPath == nil ? 0 : 20
+    let sessionScore = attribution.sessionID == nil ? 0 : 1
+    return qualityScore + pathScore + sessionScore
+}
+
+private func usageProjectName(from path: String?) -> String? {
+    guard let path = path?.nilIfBlank else { return nil }
+    return URL(fileURLWithPath: path).lastPathComponent.nilIfBlank
+}
+
+private extension String {
+    var nilIfBlank: String? {
+        let trimmed = trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
     }
 }
 

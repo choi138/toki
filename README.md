@@ -25,6 +25,7 @@ A macOS menu bar app that tracks daily token usage and costs across multiple AI 
 
 - **Menu bar access** — click the white rabbit icon in the status bar to open a popover
 - **Overview tab** — see Total Tokens, Input, Output, Cache Read, Cache Hit, and Cost at a glance
+- **Projects tab** — attribute cost and token usage to projects and sessions where local logs expose enough context
 - **Models tab** — break down token usage and cost per model
 - **Sources tab** — compare usage by agent, copy CSV/JSON exports, and inspect reader status
 - **Time tab** — compare main-agent, subagent, wall-clock, and parallel work time

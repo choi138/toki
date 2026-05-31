@@ -239,7 +239,10 @@ extension CursorReader {
                 model: modelID,
                 inputTokens: input,
                 outputTokens: output,
-                cost: requestCost)
+                cost: requestCost,
+                attribution: UsageAttribution(
+                    sessionID: usageIdentifier,
+                    quality: .unknown))
 
             activityEvents.append(
                 ActivityTimeEvent(
