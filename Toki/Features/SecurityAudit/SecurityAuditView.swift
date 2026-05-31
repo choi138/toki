@@ -68,13 +68,13 @@ private struct SecurityAuditContentView: View {
     @ObservedObject var viewModel: SecurityAuditViewModel
 
     var body: some View {
-        VStack(spacing: 0) {
+        LazyVStack(spacing: 0) {
             SecurityAuditScanControlsView(viewModel: viewModel)
 
             if viewModel.isScanning {
                 SecurityAuditLoadingView(progress: viewModel.scanProgress)
             } else if let result = viewModel.result {
-                SecurityAuditSummaryView(result: result)
+                SecurityAuditSummaryView(result: result, viewModel: viewModel)
                 if result.hasFindings {
                     SecurityAuditFiltersView(viewModel: viewModel)
                     SecurityAuditFindingListView(viewModel: viewModel)
@@ -156,21 +156,22 @@ private struct SecurityAuditScanControlsView: View {
 
 private struct SecurityAuditSummaryView: View {
     let result: SecurityAuditResult
+    @ObservedObject var viewModel: SecurityAuditViewModel
 
     var body: some View {
         VStack(spacing: 8) {
             HStack(spacing: 8) {
                 SeveritySummaryView(
                     title: "High",
-                    count: result.count(for: .high),
+                    count: viewModel.count(for: .high),
                     color: Color(red: 1.0, green: 0.45, blue: 0.35))
                 SeveritySummaryView(
                     title: "Medium",
-                    count: result.count(for: .medium),
+                    count: viewModel.count(for: .medium),
                     color: Color(red: 1.0, green: 0.8, blue: 0.35))
                 SeveritySummaryView(
                     title: "Low",
-                    count: result.count(for: .low),
+                    count: viewModel.count(for: .low),
                     color: Color.white.opacity(0.38))
             }
 
@@ -245,33 +246,6 @@ private struct SecurityAuditFiltersView: View {
                     Button(sourceName) { viewModel.selectedSourceName = sourceName }
                 }
             }
-    }
-}
-
-private struct SecurityAuditFindingListView: View {
-    @ObservedObject var viewModel: SecurityAuditViewModel
-
-    var body: some View {
-        VStack(spacing: 0) {
-            SecurityAuditSectionCaption(title: "\(viewModel.filteredFindings.count) Findings")
-            if viewModel.filteredFindings.isEmpty {
-                Text("No matching findings")
-                    .font(.system(size: 12))
-                    .foregroundColor(Color.white.opacity(0.3))
-                    .frame(maxWidth: .infinity, alignment: .center)
-                    .padding(.vertical, 18)
-            } else {
-                ForEach(viewModel.filteredFindings) { finding in
-                    SecurityFindingRowView(
-                        finding: finding,
-                        isCopied: viewModel.copiedFindingID == finding.id,
-                        copyPath: { viewModel.copyPath(for: finding) },
-                        copyMaskedFinding: { viewModel.copyMaskedFinding(finding) },
-                        revealInFinder: { viewModel.revealInFinder(finding) })
-                }
-            }
-        }
-        .padding(.top, 4)
     }
 }
 
@@ -417,7 +391,7 @@ private struct SeveritySummaryView: View {
     }
 }
 
-private struct SecurityAuditSectionCaption: View {
+struct SecurityAuditSectionCaption: View {
     let title: String
 
     var body: some View {
@@ -484,93 +458,6 @@ private struct SecurityFilterMenu<Content: View>: View {
         .buttonStyle(.plain)
         .accessibilityLabel(Text(title))
         .accessibilityValue(Text(value))
-    }
-}
-
-private struct SecurityFindingRowView: View {
-    let finding: SecurityFinding
-    let isCopied: Bool
-    let copyPath: () -> Void
-    let copyMaskedFinding: () -> Void
-    let revealInFinder: () -> Void
-
-    var body: some View {
-        HStack(alignment: .top, spacing: 8) {
-            severityDot
-            findingText
-            Spacer(minLength: 6)
-            actionMenu
-        }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 8)
-    }
-
-    private var severityDot: some View {
-        Circle()
-            .fill(severityColor.opacity(0.75))
-            .frame(width: 6, height: 6)
-            .padding(.top, 4)
-    }
-
-    private var findingText: some View {
-        VStack(alignment: .leading, spacing: 5) {
-            HStack(spacing: 5) {
-                Text(finding.sourceName)
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundColor(Color.white.opacity(0.62))
-                    .lineLimit(1)
-                Text(finding.category.displayName)
-                    .font(.system(size: 10, weight: .semibold))
-                    .foregroundColor(severityColor.opacity(0.82))
-                    .lineLimit(1)
-            }
-
-            Text(finding.maskedEvidence)
-                .font(.system(size: 12, weight: .semibold, design: .monospaced))
-                .foregroundColor(Color.white.opacity(0.82))
-                .lineLimit(1)
-
-            Text("\(shortPath):\(finding.location.lineNumber)")
-                .font(.system(size: 10))
-                .foregroundColor(Color.white.opacity(0.32))
-                .lineLimit(1)
-        }
-    }
-
-    private var actionMenu: some View {
-        Menu {
-            Button(isCopied ? "Copied" : "Copy Masked Finding", action: copyMaskedFinding)
-            Button("Copy Path", action: copyPath)
-            Button("Reveal in Finder", action: revealInFinder)
-        } label: {
-            Image(systemName: "ellipsis.circle")
-                .font(.system(size: 13, weight: .semibold))
-                .foregroundColor(Color.white.opacity(0.38))
-                .frame(width: 18, height: 18)
-                .accessibilityHidden(true)
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel(Text("Finding actions"))
-    }
-
-    private var severityColor: Color {
-        switch finding.severity {
-        case .high:
-            Color(red: 1.0, green: 0.45, blue: 0.35)
-        case .medium:
-            Color(red: 1.0, green: 0.8, blue: 0.35)
-        case .low:
-            Color.white.opacity(0.42)
-        }
-    }
-
-    private var shortPath: String {
-        let url = URL(fileURLWithPath: finding.location.filePath)
-        let parent = url.deletingLastPathComponent().lastPathComponent
-        if parent.isEmpty {
-            return url.lastPathComponent
-        }
-        return "\(parent)/\(url.lastPathComponent)"
     }
 }
 
