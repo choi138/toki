@@ -49,6 +49,22 @@ final class SecurityAuditViewModelTests: XCTestCase {
         XCTAssertEqual(viewModel.hiddenFindingCount, 0)
         XCTAssertFalse(viewModel.canShowMoreFindings)
     }
+
+    func testReselectingSameFilterDoesNotResetDisplayedFindings() async {
+        let findings = makeFindings(count: 250, sourceName: "Codex")
+            + makeFindings(count: 12, sourceName: "Claude Code", startingLineNumber: 1000)
+        let viewModel = SecurityAuditViewModel(
+            scanner: StubSecurityAuditScanner(result: result(findings: findings)))
+
+        await viewModel.scan()
+        viewModel.selectedSourceName = "Codex"
+        viewModel.showMoreFindings()
+        viewModel.selectedSourceName = "Codex"
+
+        XCTAssertEqual(viewModel.filteredFindingCount, 250)
+        XCTAssertEqual(viewModel.displayedFindings.count, 250)
+        XCTAssertEqual(viewModel.hiddenFindingCount, 0)
+    }
 }
 
 private struct StubSecurityAuditScanner: SecurityAuditScanning {

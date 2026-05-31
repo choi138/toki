@@ -17,18 +17,21 @@ final class SecurityAuditViewModel: ObservableObject {
     @Published private(set) var severityCounts: [SecuritySeverity: Int] = [:]
     @Published var selectedSeverity: SecuritySeverity? {
         didSet {
+            guard oldValue != selectedSeverity else { return }
             updateFilteredFindings(resetDisplayLimit: true)
         }
     }
 
     @Published var selectedCategory: SecurityFindingCategory? {
         didSet {
+            guard oldValue != selectedCategory else { return }
             updateFilteredFindings(resetDisplayLimit: true)
         }
     }
 
     @Published var selectedSourceName: String? {
         didSet {
+            guard oldValue != selectedSourceName else { return }
             updateFilteredFindings(resetDisplayLimit: true)
         }
     }
