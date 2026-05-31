@@ -14,7 +14,9 @@ enum PanelTab: CaseIterable, Hashable, Identifiable {
     case workTime
     case hourly
 
-    var id: Self { self }
+    var id: Self {
+        self
+    }
 
     var title: String {
         switch self {
