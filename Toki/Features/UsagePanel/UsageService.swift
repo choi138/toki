@@ -21,14 +21,13 @@ enum TokenTotalPeriod: String, CaseIterable, Codable, Hashable, Identifiable {
     }
 
     func dateInterval(endingAt endDate: Date, calendar: Calendar) -> DateInterval {
-        let startDate: Date
-        switch self {
+        let startDate: Date = switch self {
         case .last7Days:
-            startDate = calendar.date(byAdding: .day, value: -7, to: endDate) ?? endDate
+            calendar.date(byAdding: .day, value: -7, to: endDate) ?? endDate
         case .last30Days:
-            startDate = calendar.date(byAdding: .day, value: -30, to: endDate) ?? endDate
+            calendar.date(byAdding: .day, value: -30, to: endDate) ?? endDate
         case .allTime:
-            startDate = Date(timeIntervalSince1970: 0)
+            Date(timeIntervalSince1970: 0)
         }
 
         return DateInterval(start: min(startDate, endDate), end: endDate)
@@ -324,7 +323,6 @@ final class UsagePanelViewModel: ObservableObject {
             startYesterdayComparison(for: request)
         }
     }
-
 }
 
 typealias UsageService = UsagePanelViewModel
@@ -351,8 +349,8 @@ extension UsagePanelViewModel {
         }
 
         guard periodTokenTotals.isEmpty
-                || lastPeriodTokenTotalsRequest != totalsRequest
-                || !hasFreshPeriodTokenTotals else {
+            || lastPeriodTokenTotalsRequest != totalsRequest
+            || !hasFreshPeriodTokenTotals else {
             return
         }
         await refreshPeriodTokenTotals(for: totalsRequest)
