@@ -14,28 +14,54 @@ struct PanelHeroView: View {
                 .foregroundColor(Color.white.opacity(0.3))
                 .tracking(1.5)
 
-            if isLoading {
-                SkeletonBar(width: 148, height: 44, cornerRadius: 8)
-            } else {
-                Text(usage.totalTokens.formattedTokens())
-                    .font(.system(size: 42, weight: .bold, design: .rounded))
-                    .tracking(-1.5)
-                    .foregroundColor(.white)
-            }
+            totalTokenValue
+                .frame(height: 50, alignment: .leading)
 
-            if !isLoading, let comparison = comparisonContent {
-                HStack(spacing: 3) {
-                    Image(systemName: comparison.symbolName)
-                        .font(.system(size: 9, weight: .bold))
-                    Text(comparison.text)
-                        .font(.system(size: 10, weight: .medium))
-                }
-                .foregroundColor(comparison.color)
-            }
+            comparisonSlot
+                .frame(height: 13, alignment: .leading)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, 16)
         .padding(.vertical, 20)
+    }
+
+    @ViewBuilder
+    private var totalTokenValue: some View {
+        if isLoading {
+            SkeletonBar(width: 148, height: 44, cornerRadius: 8)
+        } else {
+            Text(usage.totalTokens.formattedTokens())
+                .font(.system(size: 42, weight: .bold, design: .rounded))
+                .foregroundColor(.white)
+                .lineLimit(1)
+        }
+    }
+
+    @ViewBuilder
+    private var comparisonSlot: some View {
+        if !isLoading, let comparison = comparisonContent {
+            comparisonRow(for: comparison)
+        } else {
+            comparisonRow(for: placeholderComparisonContent)
+                .hidden()
+        }
+    }
+
+    private func comparisonRow(for comparison: PanelHeroComparisonContent) -> some View {
+        HStack(spacing: 3) {
+            Image(systemName: comparison.symbolName)
+                .font(.system(size: 9, weight: .bold))
+            Text(comparison.text)
+                .font(.system(size: 10, weight: .medium))
+        }
+        .foregroundColor(comparison.color)
+    }
+
+    private var placeholderComparisonContent: PanelHeroComparisonContent {
+        PanelHeroComparisonContent(
+            symbolName: "minus",
+            text: "0% from yesterday",
+            color: Color.white.opacity(0.35))
     }
 
     private var comparisonContent: PanelHeroComparisonContent? {

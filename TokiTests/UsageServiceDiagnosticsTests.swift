@@ -173,3 +173,148 @@ final class UsageServiceDiagnosticsTests: XCTestCase {
         return (suiteName, defaults)
     }
 }
+
+@MainActor
+final class UsageServicePeriodTotalsTests: XCTestCase {
+    func test_usageService_loadsPeriodTokenTotalsWithLightweightRequests() async throws {
+        let (suiteName, defaults) = makeDefaults()
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let recorder = PeriodTokenRangeRecorder()
+        let calendar = Calendar.current
+        let today = calendar.startOfDay(for: Date())
+        let tomorrow = try XCTUnwrap(calendar.date(byAdding: .day, value: 1, to: today))
+        let pastDay = try XCTUnwrap(calendar.date(byAdding: .day, value: -3, to: today))
+        let last7Start = try XCTUnwrap(calendar.date(byAdding: .day, value: -7, to: tomorrow))
+        let last30Start = try XCTUnwrap(calendar.date(byAdding: .day, value: -30, to: tomorrow))
+        let allTimeStart = Date(timeIntervalSince1970: 0)
+        let reader = PeriodTokenTotalsReader(name: "Mock", recorder: recorder) { startDate, _ in
+            if startDate == last7Start { return 700 }
+            if startDate == last30Start { return 3000 }
+            if startDate == allTimeStart { return 9000 }
+            return -1
+        }
+
+        let service = UsageService(
+            readers: [reader],
+            periodTokenTotalsCache: PeriodTokenTotalsCache(defaults: defaults))
+        service.selectDay(pastDay)
+        await service.refresh()
+        await service.refreshPeriodTokenTotals()
+
+        let summariesByPeriod = Dictionary(
+            uniqueKeysWithValues: service.periodTokenTotals.map { ($0.period, $0) })
+        let calls = await recorder.snapshot()
+
+        XCTAssertEqual(service.usageData.totalTokens, 55)
+        XCTAssertEqual(summariesByPeriod[.last7Days]?.totalTokens, 700)
+        XCTAssertEqual(summariesByPeriod[.last30Days]?.totalTokens, 3000)
+        XCTAssertEqual(summariesByPeriod[.allTime]?.totalTokens, 9000)
+        XCTAssertEqual(calls.usage.map(\.start), [pastDay])
+        XCTAssertEqual(calls.total.map(\.start), [last7Start, last30Start, allTimeStart])
+        XCTAssertEqual(calls.total.map(\.end), [tomorrow, tomorrow, tomorrow])
+    }
+
+    func test_usageService_periodTokenTotalsSkipDisabledReaders() async {
+        let (suiteName, defaults) = makeDefaults()
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let enabledRecorder = PeriodTokenRangeRecorder()
+        let disabledRecorder = PeriodTokenRangeRecorder()
+        let enabled = PeriodTokenTotalsReader(name: "Enabled", recorder: enabledRecorder) { _, _ in
+            10
+        }
+        let disabled = PeriodTokenTotalsReader(name: "Disabled", recorder: disabledRecorder) { _, _ in
+            999
+        }
+        let settings = UsagePanelSettings(
+            defaults: defaults,
+            readerNames: ["Enabled", "Disabled"])
+        settings.setReader("Disabled", isEnabled: false)
+        let cache = PeriodTokenTotalsCache(defaults: defaults)
+
+        let service = UsageService(
+            readers: [enabled, disabled],
+            settings: settings,
+            periodTokenTotalsCache: cache)
+        await service.refreshPeriodTokenTotals()
+
+        let enabledCalls = await enabledRecorder.snapshot()
+        let disabledCalls = await disabledRecorder.snapshot()
+
+        XCTAssertEqual(service.periodTokenTotals.map(\.totalTokens), [10, 10, 10])
+        XCTAssertEqual(enabledCalls.total.count, 3)
+        XCTAssertTrue(enabledCalls.usage.isEmpty)
+        XCTAssertTrue(disabledCalls.total.isEmpty)
+        XCTAssertTrue(disabledCalls.usage.isEmpty)
+    }
+
+    func test_usageService_periodTokenTotalsUsesFreshCacheWithoutReaderCalls() async {
+        let (suiteName, defaults) = makeDefaults()
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let cache = PeriodTokenTotalsCache(defaults: defaults)
+        let seedRecorder = PeriodTokenRangeRecorder()
+        let seedReader = PeriodTokenTotalsReader(name: "Mock", recorder: seedRecorder) { _, _ in
+            42
+        }
+        let seedService = UsageService(
+            readers: [seedReader],
+            periodTokenTotalsCache: cache)
+        await seedService.refreshPeriodTokenTotals()
+
+        let cachedRecorder = PeriodTokenRangeRecorder()
+        let cachedReader = PeriodTokenTotalsReader(name: "Mock", recorder: cachedRecorder) { _, _ in
+            999
+        }
+        let cachedService = UsageService(
+            readers: [cachedReader],
+            periodTokenTotalsCache: cache)
+        await cachedService.refreshPeriodTokenTotalsIfNeeded()
+
+        let cachedCalls = await cachedRecorder.snapshot()
+
+        XCTAssertEqual(cachedService.periodTokenTotals.map(\.totalTokens), [42, 42, 42])
+        XCTAssertTrue(cachedCalls.total.isEmpty)
+        XCTAssertTrue(cachedCalls.usage.isEmpty)
+    }
+
+    private func makeDefaults() -> (String, UserDefaults) {
+        let suiteName = "UsageServicePeriodTotalsTests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        return (suiteName, defaults)
+    }
+}
+
+private actor PeriodTokenRangeRecorder {
+    private var usageRanges: [(start: Date, end: Date)] = []
+    private var totalRanges: [(start: Date, end: Date)] = []
+
+    func recordUsage(start: Date, end: Date) {
+        usageRanges.append((start: start, end: end))
+    }
+
+    func recordTotal(start: Date, end: Date) {
+        totalRanges.append((start: start, end: end))
+    }
+
+    func snapshot() -> (usage: [(start: Date, end: Date)], total: [(start: Date, end: Date)]) {
+        (usageRanges, totalRanges)
+    }
+}
+
+private struct PeriodTokenTotalsReader: TokenReader {
+    let name: String
+    let recorder: PeriodTokenRangeRecorder
+    let totalTokenHandler: @Sendable (Date, Date) -> Int
+
+    func readUsage(from startDate: Date, to endDate: Date) async throws -> RawTokenUsage {
+        await recorder.recordUsage(start: startDate, end: endDate)
+        return mockUsage(totalTokens: 55)
+    }
+
+    func readTotalTokens(from startDate: Date, to endDate: Date) async throws -> Int {
+        await recorder.recordTotal(start: startDate, end: endDate)
+        return totalTokenHandler(startDate, endDate)
+    }
+}

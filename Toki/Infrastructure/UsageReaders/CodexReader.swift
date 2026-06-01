@@ -284,7 +284,7 @@ extension CodexReader {
     }
 }
 
-private extension CodexReader {
+extension CodexReader {
     private static func cachedDailySummary(fromRolloutAt url: URL) async -> CodexRolloutDailySummary {
         let cachedDailyUsage = await CodexRolloutUsageCache.shared.dailyUsage(for: url)
         let cachedActivityTimestamps = await CodexRolloutUsageCache.shared.dailyActivityTimestamps(for: url)
@@ -458,15 +458,35 @@ private extension CodexReader {
         return result
     }
 
-    private static func totalTokens(
+    static func totalTokens(
         fromDailyUsage dailyUsage: [String: CodexCachedDailyUsage],
         from startDate: Date,
         to endDate: Date) -> Int {
+        guard !dailyUsage.isEmpty else { return 0 }
+
         let calendar = Calendar.current
         var currentDay = calendar.startOfDay(for: startDate)
+        let endDay = calendar.startOfDay(for: endDate)
+        guard currentDay < endDay else { return 0 }
+
+        let dayCount = calendar.dateComponents([.day], from: currentDay, to: endDay).day ?? Int.max
+        if dayCount > dailyUsage.count {
+            let startKey = codexDayKey(for: currentDay)
+            let endKey = codexDayKey(for: endDay)
+            var result = 0
+
+            for (dayKey, usage) in dailyUsage {
+                guard !Task.isCancelled else { return 0 }
+                guard dayKey >= startKey, dayKey < endKey else { continue }
+                result += usage.totalTokens
+            }
+
+            return result
+        }
+
         var result = 0
 
-        while currentDay < endDate {
+        while currentDay < endDay {
             guard !Task.isCancelled else { return 0 }
 
             result += dailyUsage[codexDayKey(for: currentDay)]?.totalTokens ?? 0

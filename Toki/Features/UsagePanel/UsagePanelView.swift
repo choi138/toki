@@ -102,6 +102,7 @@ struct UsagePanelView: View {
                 tabContent
                     .frame(maxWidth: .infinity, alignment: .top)
             }
+            .usagePanelScrollIndicators()
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             panelDivider
             PanelFooterView()
@@ -145,6 +146,13 @@ struct UsagePanelView: View {
                 yesterdayTotal: viewModel.shouldCompareAgainstYesterday
                     ? viewModel.yesterdayTotalTokens
                     : nil)
+                .task {
+                    await viewModel.refreshPeriodTokenTotalsIfNeeded()
+                }
+            panelDivider
+            PanelTokenTotalsView(
+                summaries: viewModel.periodTokenTotals,
+                isLoading: viewModel.isLoadingPeriodTokenTotals)
             panelDivider
             PanelTokenBreakdownView(usage: viewModel.usageData, isLoading: viewModel.isLoading)
         case .projects:
@@ -170,7 +178,7 @@ struct UsagePanelView: View {
     }
 
     private func refresh() {
-        Task { await viewModel.refresh() }
+        Task { await refreshVisibleData() }
     }
 
     private func selectDay(_ date: Date) {
@@ -192,12 +200,31 @@ struct UsagePanelView: View {
         refreshCoordinator.startLoop(
             refreshImmediately: refreshImmediately,
             intervalSeconds: { viewModel.settings.refreshIntervalSeconds },
-            refresh: { await viewModel.refresh() })
+            refresh: { await refreshVisibleData() })
     }
 
     private func scheduleSettingsRefresh() {
         refreshCoordinator.scheduleSettingsRefresh {
-            await viewModel.refresh()
+            await refreshVisibleData()
+        }
+    }
+
+    private func refreshVisibleData() async {
+        await viewModel.refresh()
+        if activeTab == .overview {
+            await viewModel.refreshPeriodTokenTotalsIfNeeded()
+        }
+    }
+}
+
+private extension View {
+    @ViewBuilder
+    func usagePanelScrollIndicators() -> some View {
+        if #available(macOS 14.0, *) {
+            scrollIndicators(.visible, axes: .vertical)
+                .scrollIndicatorsFlash(onAppear: true)
+        } else {
+            scrollIndicators(.visible, axes: .vertical)
         }
     }
 }
