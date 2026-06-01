@@ -117,9 +117,12 @@ xcodebuild test \
 ## Release
 
 Releases are built by the GitHub Actions **Release** workflow. Run it manually
-from Actions with `workflow_dispatch`, or push a version tag such as `v1.0.1`.
+from Actions with `workflow_dispatch` to produce workflow artifacts, or push a
+version tag such as `v1.1.0` to publish a GitHub Release. Tag-triggered releases
+upload zipped app and dSYM artifacts and use GitHub-generated release notes.
+
 The workflow regenerates the Xcode project with XcodeGen, archives the Release
-scheme, exports `Toki.app`, and uploads zipped app and dSYM artifacts.
+scheme, and exports `Toki.app`.
 
 Unsigned artifacts are produced when signing secrets are not configured. To
 build a signed, notarization-ready archive, configure these repository secrets:
