@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-06-01
+
 ### Added
 
 - Development conventions documenting the SwiftFormat, SwiftLint, SwiftUI, and test expectations for ongoing refactors.
@@ -32,5 +34,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **macOS 13+ support**: Minimum deployment target macOS 13 Ventura
 - **Dark/Light mode**: Full support for both macOS appearance modes via SwiftUI
 
-[Unreleased]: https://github.com/choegeun-won/Toki/compare/v1.0.0...HEAD
-[1.0.0]: https://github.com/choegeun-won/Toki/releases/tag/v1.0.0
+[Unreleased]: https://github.com/choi138/toki/compare/v1.1.0...HEAD
+[1.1.0]: https://github.com/choi138/toki/releases/tag/v1.1.0
+[1.0.0]: https://github.com/choi138/toki/releases/tag/v1.0.0
