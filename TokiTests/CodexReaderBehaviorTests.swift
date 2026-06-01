@@ -206,6 +206,7 @@ final class CodexReaderBehaviorTests: XCTestCase {
         let secondDay = try XCTUnwrap(calendar.date(byAdding: .day, value: 1, to: firstDay))
         let endDay = try XCTUnwrap(calendar.date(byAdding: .day, value: 3, to: firstDay))
         let excludedDay = try XCTUnwrap(calendar.date(byAdding: .day, value: 1, to: endDay))
+        let allTimeStart = calendar.startOfDay(for: Date(timeIntervalSince1970: 0))
         let dailyUsage = [
             codexDayKey(for: firstDay): CodexCachedDailyUsage(inputTokens: 10),
             codexDayKey(for: secondDay): CodexCachedDailyUsage(outputTokens: 20),
@@ -214,7 +215,7 @@ final class CodexReaderBehaviorTests: XCTestCase {
 
         let totalTokens = CodexReader.totalTokens(
             fromDailyUsage: dailyUsage,
-            from: Date(timeIntervalSince1970: 0),
+            from: allTimeStart,
             to: endDay)
 
         XCTAssertEqual(totalTokens, 30)

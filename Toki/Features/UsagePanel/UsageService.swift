@@ -27,7 +27,7 @@ enum TokenTotalPeriod: String, CaseIterable, Codable, Hashable, Identifiable {
         case .last30Days:
             calendar.date(byAdding: .day, value: -30, to: endDate) ?? endDate
         case .allTime:
-            Date(timeIntervalSince1970: 0)
+            calendar.startOfDay(for: Date(timeIntervalSince1970: 0))
         }
 
         return DateInterval(start: min(startDate, endDate), end: endDate)
@@ -387,6 +387,12 @@ private extension UsagePanelViewModel {
 
         guard !Task.isCancelled else { return }
         guard activePeriodTokenTotalsRequest == totalsRequest else { return }
+        guard makePeriodTokenTotalsRequest() == totalsRequest else {
+            activePeriodTokenTotalsRequest = nil
+            updateSnapshot { $0.isLoadingPeriodTokenTotals = false }
+            await refreshPeriodTokenTotalsIfNeeded()
+            return
+        }
 
         updateSnapshot {
             $0.periodTokenTotals = summaries
@@ -439,7 +445,10 @@ private extension UsagePanelViewModel {
 
     private func handleCalendarDayChange(now: Date = Date()) {
         guard syncSelectionWithTodayIfNeeded(now: now) else { return }
-        Task { await refresh() }
+        Task {
+            await refresh()
+            await refreshPeriodTokenTotalsIfNeeded()
+        }
     }
 
     private func makeUsageRequest(start: Date, end: Date) -> UsageAggregationRequest {

@@ -187,7 +187,7 @@ final class UsageServicePeriodTotalsTests: XCTestCase {
         let pastDay = try XCTUnwrap(calendar.date(byAdding: .day, value: -3, to: today))
         let last7Start = try XCTUnwrap(calendar.date(byAdding: .day, value: -7, to: tomorrow))
         let last30Start = try XCTUnwrap(calendar.date(byAdding: .day, value: -30, to: tomorrow))
-        let allTimeStart = Date(timeIntervalSince1970: 0)
+        let allTimeStart = calendar.startOfDay(for: Date(timeIntervalSince1970: 0))
         let reader = PeriodTokenTotalsReader(name: "Mock", recorder: recorder) { startDate, _ in
             if startDate == last7Start { return 700 }
             if startDate == last30Start { return 3000 }
@@ -279,6 +279,35 @@ final class UsageServicePeriodTotalsTests: XCTestCase {
         XCTAssertTrue(cachedCalls.usage.isEmpty)
     }
 
+    func test_usageService_discardsStalePeriodTokenTotalsWhenReaderSettingsChangeDuringLoad() async {
+        let (suiteName, defaults) = makeDefaults()
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let gate = BlockingReaderGate()
+        let enabled = BlockingPeriodTokenTotalsReader(name: "Enabled", gate: gate) { _, _ in
+            10
+        }
+        let disabled = BlockingPeriodTokenTotalsReader(name: "Disabled", gate: gate) { _, _ in
+            999
+        }
+        let settings = UsagePanelSettings(
+            defaults: defaults,
+            readerNames: ["Enabled", "Disabled"])
+
+        let service = UsageService(readers: [enabled, disabled], settings: settings)
+        let initialRefresh = Task {
+            await service.refreshPeriodTokenTotals()
+        }
+
+        await gate.waitForRequestCount(2)
+        settings.setReader("Disabled", isEnabled: false)
+        await gate.release()
+        await initialRefresh.value
+
+        XCTAssertEqual(service.periodTokenTotals.map(\.totalTokens), [10, 10, 10])
+        XCTAssertFalse(service.isLoadingPeriodTokenTotals)
+    }
+
     private func makeDefaults() -> (String, UserDefaults) {
         let suiteName = "UsageServicePeriodTotalsTests.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suiteName)!
@@ -315,6 +344,21 @@ private struct PeriodTokenTotalsReader: TokenReader {
 
     func readTotalTokens(from startDate: Date, to endDate: Date) async throws -> Int {
         await recorder.recordTotal(start: startDate, end: endDate)
+        return totalTokenHandler(startDate, endDate)
+    }
+}
+
+private struct BlockingPeriodTokenTotalsReader: TokenReader {
+    let name: String
+    let gate: BlockingReaderGate
+    let totalTokenHandler: @Sendable (Date, Date) -> Int
+
+    func readUsage(from startDate: Date, to endDate: Date) async throws -> RawTokenUsage {
+        mockUsage(totalTokens: totalTokenHandler(startDate, endDate))
+    }
+
+    func readTotalTokens(from startDate: Date, to endDate: Date) async throws -> Int {
+        await gate.enter()
         return totalTokenHandler(startDate, endDate)
     }
 }

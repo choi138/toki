@@ -462,6 +462,10 @@ extension CodexReader {
         fromDailyUsage dailyUsage: [String: CodexCachedDailyUsage],
         from startDate: Date,
         to endDate: Date) -> Int {
+        precondition(
+            codexIsWholeDayAlignedRange(from: startDate, to: endDate),
+            "Codex daily token totals require a whole-day aligned range.")
+
         guard !dailyUsage.isEmpty else { return 0 }
 
         let calendar = Calendar.current
