@@ -44,6 +44,7 @@
 		5738E10B3672E7C90CFED932 /* CodexSessionDiscovery.swift in Sources */ = {isa = PBXBuildFile; fileRef = B3907831981E3F74B11B856F /* CodexSessionDiscovery.swift */; };
 		615B3A9BD6A84DF17FF28CEC /* PanelOverviewViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 754DFBAADC9EFDF744D1150B /* PanelOverviewViews.swift */; };
 		619CE27CFA8BE9B5B002E929 /* TokiTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FC070E1937FCAFFD5B807BF6 /* TokiTests.swift */; };
+		BC23DE45FA67BC89DE01FA23 /* PanelHeroComparisonContentTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB12CD34EF56AB78CD90EF12 /* PanelHeroComparisonContentTests.swift */; };
 		6CFA95243695415B46ED9010 /* PanelByModelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 86C783AE85726291211C84FF /* PanelByModelView.swift */; };
 		6E27A36B8FB0714A92B39FB8 /* ActivityTimeEstimator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7D6611AB3D7B490F550D9A3F /* ActivityTimeEstimator.swift */; };
 		7391DCBFFC4ED63D5D5E8B3F /* UsagePanelSettingsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9CDFEBDB8BE38FBD5C551702 /* UsagePanelSettingsTests.swift */; };
@@ -157,6 +158,7 @@
 		A3EF4ADD86A64D8DE160FB1B /* ClaudeCodeReader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClaudeCodeReader.swift; sourceTree = "<group>"; };
 		A8B8538DFD695A976ED931B3 /* GeminiReader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GeminiReader.swift; sourceTree = "<group>"; };
 		A935D97F072BD30BEA608E73 /* TokiTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = TokiTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		AB12CD34EF56AB78CD90EF12 /* PanelHeroComparisonContentTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PanelHeroComparisonContentTests.swift; sourceTree = "<group>"; };
 		AC8EB66593C3D2A336093FEC /* ReaderSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReaderSupport.swift; sourceTree = "<group>"; };
 		B31BA1453045E7814FA75C65 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		B3907831981E3F74B11B856F /* CodexSessionDiscovery.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodexSessionDiscovery.swift; sourceTree = "<group>"; };
@@ -405,6 +407,7 @@
 				A2648C9A747404CF8E5E81E0 /* CursorReaderTests.swift */,
 				5C9C1A5B27CF3EDA7779FCB1 /* ModelPricingBehaviorTests.swift */,
 				B60EB0929925CB9634708D25 /* OpenClawReaderTests.swift */,
+				AB12CD34EF56AB78CD90EF12 /* PanelHeroComparisonContentTests.swift */,
 				FC74BF22FDE3F0D4CD8B7A5B /* SecurityAuditScannerTests.swift */,
 				D70C25A2FDAD65D9ACC194CD /* SecurityAuditSQLiteScannerTests.swift */,
 				52B50C813AEA3A99DD604528 /* SecurityAuditSQLiteTestSupport.swift */,
@@ -596,6 +599,7 @@
 				619CE27CFA8BE9B5B002E929 /* TokiTests.swift in Sources */,
 				8D617AF50823B2C916DBC177 /* UsageExportTests.swift in Sources */,
 				33D1AB9365F472C13FAC1FE5 /* UsageFormattingBehaviorTests.swift in Sources */,
+				BC23DE45FA67BC89DE01FA23 /* PanelHeroComparisonContentTests.swift in Sources */,
 				7391DCBFFC4ED63D5D5E8B3F /* UsagePanelSettingsTests.swift in Sources */,
 				CF177959CFC6AFC2D6B57957 /* UsageProjectTimelineReportTests.swift in Sources */,
 				BFA649180FEA64FB81ABE332 /* UsageServiceActiveTimeTests.swift in Sources */,
