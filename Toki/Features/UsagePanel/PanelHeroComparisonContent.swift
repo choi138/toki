@@ -1,7 +1,7 @@
 import SwiftUI
 
 struct PanelHeroComparisonContent {
-    let symbolName: String
+    let symbolName: String?
     let text: String
     let color: Color
 
@@ -19,9 +19,9 @@ struct PanelHeroComparisonContent {
             }
 
             return PanelHeroComparisonContent(
-                symbolName: "arrow.up",
+                symbolName: nil,
                 text: "No usage yesterday",
-                color: Color(red: 1.0, green: 0.45, blue: 0.4))
+                color: Color.white.opacity(0.35))
         }
 
         let delta = currentTotal - yesterdayTotal

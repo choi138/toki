@@ -49,8 +49,10 @@ struct PanelHeroView: View {
 
     private func comparisonRow(for comparison: PanelHeroComparisonContent) -> some View {
         HStack(spacing: 3) {
-            Image(systemName: comparison.symbolName)
-                .font(.system(size: 9, weight: .bold))
+            if let symbolName = comparison.symbolName {
+                Image(systemName: symbolName)
+                    .font(.system(size: 9, weight: .bold))
+            }
             Text(comparison.text)
                 .font(.system(size: 10, weight: .medium))
         }
