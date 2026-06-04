@@ -1,0 +1,71 @@
+{
+  "version": "1.0",
+  "skills": {
+    "project-conventions": {
+      "type": "domain",
+      "enforcement": "suggest",
+      "priority": "high",
+      "description": "Toki Swift/macOS source conventions for app structure, SwiftUI features, usage readers, security audit logic, tests, XcodeGen, SwiftFormat, and SwiftLint.",
+      "additionalContext": "This request likely touches Toki source or project configuration. Before editing, apply `project-conventions` and read `.agents/skills/project-conventions/conventions.md`. Load the relevant reference file for architecture, Swift style, or testing before implementing.",
+      "promptTriggers": {
+        "keywords": [
+          "toki",
+          "swift",
+          "swiftui",
+          "macos",
+          "menu bar",
+          "xcode",
+          "xcodegen",
+          "swiftlint",
+          "swiftformat",
+          "project.yml",
+          "usage panel",
+          "reader",
+          "token",
+          "cost",
+          "pricing",
+          "security audit",
+          "scanner",
+          "sqlite",
+          "claude",
+          "codex",
+          "cursor",
+          "opencode",
+          "gemini",
+          "openclaw",
+          "테스트",
+          "구현",
+          "수정",
+          "리팩토링",
+          "보안",
+          "스캔",
+          "사용량",
+          "토큰",
+          "비용"
+        ],
+        "intentPatterns": [
+          "(implement|build|create|edit|refactor|fix|test|update|change|구현|수정|리팩토링|테스트|변경).*(Toki|Swift|SwiftUI|macOS|reader|scanner|security|usage|token|cost|xcodegen|project\\.yml|swiftlint|swiftformat)",
+          "(Toki|Swift|SwiftUI|macOS|reader|scanner|security|usage|token|cost|xcodegen|project\\.yml|swiftlint|swiftformat).*(implement|build|create|edit|refactor|fix|test|update|change|구현|수정|리팩토링|테스트|변경)",
+          "(architecture|아키텍처|convention|컨벤션|workflow|policy|정책).*(Toki|Swift|SwiftUI|macOS|reader|security|usage)"
+        ]
+      },
+      "fileTriggers": {
+        "pathPatterns": [
+          "**/Toki/**/*.swift",
+          "**/TokiTests/**/*.swift",
+          "**/Toki/Info.plist",
+          "**/Toki/Assets.xcassets/**",
+          "**/Toki/Resources/**",
+          "**/project.yml",
+          "**/.swiftformat",
+          "**/.swiftlint.yml"
+        ],
+        "pathExclusions": [
+          "**/.codegraph/**",
+          "**/build/**",
+          "**/DerivedData/**"
+        ]
+      }
+    }
+  }
+}

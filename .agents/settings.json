@@ -1,0 +1,63 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup|resume|clear|compact",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node --no-warnings --experimental-strip-types \"${CLAUDE_PROJECT_DIR:-$PWD}/.claude/hooks/session_start_context.ts\""
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node --no-warnings --experimental-strip-types \"${CLAUDE_PROJECT_DIR:-$PWD}/.claude/hooks/skill_activation.ts\""
+          },
+          {
+            "type": "command",
+            "command": "node --no-warnings --experimental-strip-types \"${CLAUDE_PROJECT_DIR:-$PWD}/.claude/hooks/notify_completion.ts\" --mark-start",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node --no-warnings --experimental-strip-types \"${CLAUDE_PROJECT_DIR:-$PWD}/.claude/hooks/bash_guard.ts\""
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node --no-warnings --experimental-strip-types \"${CLAUDE_PROJECT_DIR:-$PWD}/.claude/hooks/notify_completion.ts\"",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "SubagentStop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node --no-warnings --experimental-strip-types \"${CLAUDE_PROJECT_DIR:-$PWD}/.claude/hooks/notify_completion.ts\"",
+            "timeout": 5
+          }
+        ]
+      }
+    ]
+  }
+}
