@@ -8,14 +8,12 @@ type HookInput = {
   cwd?: string;
   hook_event_name?: string;
   turn_id?: string;
-  prompt?: string;
   last_assistant_message?: string | null;
 };
 
 type NotifyState = {
   started_at: string;
   started_at_ms: number;
-  prompt: string;
   turn_id?: string;
   cwd?: string;
   notified_keys: string[];
@@ -136,7 +134,6 @@ const markStart = (inputData: HookInput, statePath: string): void => {
   const state: NotifyState = {
     started_at: new Date().toISOString(),
     started_at_ms: Date.now(),
-    prompt: inputData.prompt ?? "",
     turn_id: inputData.turn_id,
     cwd: inputData.cwd,
     notified_keys: [],
@@ -170,8 +167,7 @@ const notifyIfNeeded = (inputData: HookInput, statePath: string): void => {
     return;
   }
 
-  const bodySource = inputData.last_assistant_message ?? state.prompt ?? "Work completed.";
-  const body = truncateText(bodySource, MAX_BODY_LENGTH);
+  const body = truncateText(inputData.last_assistant_message ?? "Work completed.", MAX_BODY_LENGTH);
   const title = "Toki agent work complete";
 
   sendMacNotification(title, body.length > 0 ? body : "Work completed.");

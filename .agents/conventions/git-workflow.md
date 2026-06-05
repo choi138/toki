@@ -5,8 +5,8 @@
 3. Use branch prefixes like `feature/`, `fix/`, `chore/`, or `test/`.
 4. Prefer Conventional Commits for commit messages and PR titles:
    `<type>(<scope>): <description>`.
-5. Allowed common types: `feat`, `fix`, `docs`, `refactor`, `chore`, `test`,
-   `ci`, `perf`, `build`.
+5. Allowed common types: `feat`, `fix`, `docs`, `style`, `refactor`, `perf`,
+   `test`, `build`, `ci`, `chore`, `revert`.
 6. Always check `git status` and relevant `git diff` before staging, committing,
    pushing, or opening a PR.
 7. Preserve unrelated local changes. Do not reset, checkout, or revert files you

@@ -17,12 +17,12 @@ const ADDITIONAL_CONTEXT =
 
 const hasTokiTarget = (value: string): boolean => {
   const targetPatterns = [
-    /(?:^|[\s"'`])(?:\.\/)?Toki\/[^\s"'`]+/,
-    /(?:^|[\s"'`])(?:\.\/)?TokiTests\/[^\s"'`]+/,
-    /(?:^|[\s"'`])(?:\.\/)?project\.yml(?:$|[\s"'`])/,
-    /(?:^|[\s"'`])(?:\.\/)?\.swiftformat(?:$|[\s"'`])/,
-    /(?:^|[\s"'`])(?:\.\/)?\.swiftlint\.yml(?:$|[\s"'`])/,
-    /Toki\.xcodeproj/,
+    /(?:^|[\s"'`/])(?:\.\/)?Toki(?:\/[^\s"'`]*)?(?=$|[\s"'`])/,
+    /(?:^|[\s"'`/])(?:\.\/)?TokiTests(?:\/[^\s"'`]*)?(?=$|[\s"'`])/,
+    /(?:^|[\s"'`/])(?:\.\/)?Toki\.xcodeproj(?:\/[^\s"'`]*)?(?=$|[\s"'`])/,
+    /(?:^|[\s"'`/])(?:\.\/)?project\.yml(?=$|[\s"'`])/,
+    /(?:^|[\s"'`/])(?:\.\/)?\.swiftformat(?=$|[\s"'`])/,
+    /(?:^|[\s"'`/])(?:\.\/)?\.swiftlint\.yml(?=$|[\s"'`])/,
   ];
 
   return targetPatterns.some((pattern) => {
