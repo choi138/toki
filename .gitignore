@@ -29,3 +29,5 @@ rabbit_preview.png
 
 # Local tool state
 .codegraph/
+.agents/hooks/state/
+.agents/settings.local.json
