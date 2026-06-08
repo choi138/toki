@@ -125,7 +125,7 @@ swiftlint lint --strict --quiet
 xcodegen generate
 xcodebuild test \
   -project Toki.xcodeproj \
-  -scheme Toki \
+  -scheme TokiTests \
   -destination "platform=macOS" \
   CODE_SIGN_IDENTITY="" \
   CODE_SIGNING_REQUIRED=NO \
