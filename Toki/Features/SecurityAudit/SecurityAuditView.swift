@@ -20,6 +20,9 @@ struct SecurityAuditView: View {
         .frame(width: 360, height: 520)
         .background(Color(red: 0.09, green: 0.09, blue: 0.11))
         .preferredColorScheme(.dark)
+        .onDisappear {
+            viewModel.cancelScan()
+        }
     }
 
     private var divider: some View {
@@ -100,7 +103,7 @@ private struct SecurityAuditScanControlsView: View {
     var body: some View {
         HStack(spacing: 8) {
             Button {
-                Task { await viewModel.scan() }
+                viewModel.startScan()
             } label: {
                 scanButtonLabel
             }
@@ -108,7 +111,9 @@ private struct SecurityAuditScanControlsView: View {
             .disabled(viewModel.isScanning)
             .accessibilityLabel(Text(viewModel.isScanning ? "Scanning logs" : "Scan logs"))
 
-            if viewModel.result?.hasFindings == true {
+            if viewModel.isScanning {
+                cancelScanButton
+            } else if viewModel.result?.hasFindings == true {
                 clearFiltersButton
             }
         }
@@ -136,6 +141,21 @@ private struct SecurityAuditScanControlsView: View {
         .padding(.vertical, 8)
         .background(Color.white.opacity(0.08))
         .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+    }
+
+    private var cancelScanButton: some View {
+        Button {
+            viewModel.cancelScan()
+        } label: {
+            Image(systemName: "xmark.circle")
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundColor(Color.white.opacity(0.46))
+                .frame(width: 30, height: 30)
+                .contentShape(Rectangle())
+                .accessibilityHidden(true)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(Text("Cancel scan"))
     }
 
     private var clearFiltersButton: some View {

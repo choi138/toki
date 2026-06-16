@@ -1,5 +1,7 @@
 import Foundation
 
+// swiftlint:disable file_length
+
 final class SecurityAuditScanner: SecurityAuditScanning {
     private let sources: [SecurityAuditFileSource]
     private let rules: [SecurityAuditRule]
@@ -39,11 +41,19 @@ final class SecurityAuditScanner: SecurityAuditScanning {
         }
         let planSummary = makeScanPlanSummary(request: request, progress: progress)
         let totalFileCount = planSummary.totalFileCount
+        var lastScanProgressReport = Date.distantPast
 
         func report(
             phase: SecurityAuditProgress.Phase,
             sourceName: String? = nil,
-            fileURL: URL? = nil) {
+            fileURL: URL? = nil,
+            force: Bool = false) {
+            if !force, phase == .scanning, totalFileCount > 50 {
+                let now = Date()
+                guard now.timeIntervalSince(lastScanProgressReport) >= 0.12 else { return }
+                lastScanProgressReport = now
+            }
+
             progress?(SecurityAuditProgress(
                 phase: phase,
                 currentSourceName: sourceName,
@@ -96,7 +106,7 @@ final class SecurityAuditScanner: SecurityAuditScanning {
                 visiblePathsByEnabledSource: planSummary.visiblePathsByEnabledSource)
         }
         cacheStore?.save(cache)
-        report(phase: .finished)
+        report(phase: .finished, force: true)
 
         return SecurityAuditResult(
             scannedAt: scannedAt,
@@ -222,8 +232,18 @@ private extension SecurityAuditScanner {
         async -> [(URL, SecurityFileScanResult)] {
         await withTaskGroup(of: SecurityIndexedFileScanResult.self) { group in
             for (index, fileURL) in fileURLs.enumerated() {
+                guard !Task.isCancelled else { break }
+
                 onFileStarted?(source.name, fileURL)
                 group.addTask {
+                    guard !Task.isCancelled else {
+                        let result = SecurityFileScanResult(
+                            findings: [],
+                            lineCount: 0,
+                            isCacheable: false)
+                        return SecurityIndexedFileScanResult(index: index, fileURL: fileURL, result: result)
+                    }
+
                     let fileModificationDate = self.modificationDate(for: fileURL)
                     let result = await self.scanFile(
                         fileURL,
@@ -256,6 +276,8 @@ private extension SecurityAuditScanner {
         var filesToScanFully: [URL] = []
 
         for fileURL in fileURLs {
+            guard !Task.isCancelled else { break }
+
             onFileStarted?(sourceName, fileURL)
             let path = fileURL.standardizedFileURL.path
             guard let attributes = try? fileManager.attributesOfItem(atPath: path) else {
@@ -273,50 +295,29 @@ private extension SecurityAuditScanner {
                 fileURL: fileURL,
                 fileManager: fileManager)
 
-            if let cached = cache.entriesByPath[path],
-               cached.ruleSetIdentifier == ruleSetIdentifier,
-               cached.sourceName == sourceName,
-               cached.path == path,
-               cached.fileSize == fileSize,
-               cached.modificationDate == modificationDate,
-               cached.sqliteWALSignature == sqliteWALSignature,
-               cached.byteOffset == fileSize,
-               SecurityAuditCacheSignature.matches(
-                   cached.signature,
-                   fileURL: fileURL,
-                   byteOffset: fileSize) {
-                let result = SecurityFileScanResult(
-                    findings: cached.findings.map(\.finding),
-                    lineCount: cached.lineCount)
+            if let result = cachedResultIfAvailable(
+                cache: &cache,
+                sourceName: sourceName,
+                path: path,
+                fileURL: fileURL,
+                fileSize: fileSize,
+                modificationDate: modificationDate,
+                sqliteWALSignature: sqliteWALSignature,
+                scannedAt: scannedAt) {
                 resultsByPath[path] = result
                 onFileCompleted?(sourceName, fileURL, result)
                 continue
             }
 
-            if let cached = cache.entriesByPath[path],
-               cached.ruleSetIdentifier == ruleSetIdentifier,
-               cached.sourceName == sourceName,
-               shouldScanAppend(fileURL: fileURL, cached: cached, fileSize: fileSize) {
-                let appendedResult = scanAppendedBytes(
-                    fileURL,
-                    sourceName: sourceName,
-                    startOffset: cached.byteOffset,
-                    startingLineNumber: cached.lineCount,
-                    fallbackDetectedAt: modificationDate)
-                let mergedFindings = cached.findings.map(\.finding) + appendedResult.findings
-                let lineCount = cached.lineCount + appendedResult.lineCount
-                updateCache(
-                    &cache,
-                    sourceName: sourceName,
-                    path: path,
-                    fileURL: fileURL,
-                    fileSize: fileSize,
-                    modificationDate: modificationDate,
-                    sqliteWALSignature: sqliteWALSignature,
-                    lineCount: lineCount,
-                    findings: mergedFindings,
-                    scannedAt: scannedAt)
-                let result = SecurityFileScanResult(findings: mergedFindings, lineCount: lineCount)
+            if let result = appendedResultIfAvailable(
+                cache: &cache,
+                sourceName: sourceName,
+                path: path,
+                fileURL: fileURL,
+                fileSize: fileSize,
+                modificationDate: modificationDate,
+                sqliteWALSignature: sqliteWALSignature,
+                scannedAt: scannedAt) {
                 resultsByPath[path] = result
                 onFileCompleted?(sourceName, fileURL, result)
                 continue
@@ -336,6 +337,79 @@ private extension SecurityAuditScanner {
         return fileURLs.map {
             resultsByPath[$0.standardizedFileURL.path] ?? SecurityFileScanResult(findings: [], lineCount: 0)
         }
+    }
+
+    func cachedResultIfAvailable(
+        cache: inout SecurityAuditCache,
+        sourceName: String,
+        path: String,
+        fileURL: URL,
+        fileSize: Int64,
+        modificationDate: Date?,
+        sqliteWALSignature: SecurityAuditSQLiteWALSignature?,
+        scannedAt: Date) -> SecurityFileScanResult? {
+        guard let cached = cache.entriesByPath[path],
+              cached.ruleSetIdentifier == ruleSetIdentifier,
+              cached.sourceName == sourceName,
+              cached.path == path,
+              cached.fileSize == fileSize,
+              cached.modificationDate == modificationDate,
+              cached.sqliteWALSignature == sqliteWALSignature,
+              cached.byteOffset == fileSize,
+              SecurityAuditCacheSignature.matches(
+                  cached.signature,
+                  fileURL: fileURL,
+                  byteOffset: fileSize) else {
+            return nil
+        }
+
+        let findings = cached.findings.map(\.finding)
+        return SecurityFileScanResult(findings: findings, lineCount: cached.lineCount)
+    }
+
+    func appendedResultIfAvailable(
+        cache: inout SecurityAuditCache,
+        sourceName: String,
+        path: String,
+        fileURL: URL,
+        fileSize: Int64,
+        modificationDate: Date?,
+        sqliteWALSignature: SecurityAuditSQLiteWALSignature?,
+        scannedAt: Date) -> SecurityFileScanResult? {
+        guard let cached = cache.entriesByPath[path],
+              cached.ruleSetIdentifier == ruleSetIdentifier,
+              cached.sourceName == sourceName,
+              shouldScanAppend(fileURL: fileURL, cached: cached, fileSize: fileSize) else {
+            return nil
+        }
+
+        let appendedResult = scanAppendedBytes(
+            fileURL,
+            sourceName: sourceName,
+            startOffset: cached.byteOffset,
+            startingLineNumber: cached.lineCount,
+            fallbackDetectedAt: modificationDate)
+        let mergedFindings = cached.findings.map(\.finding) + appendedResult.findings
+        let lineCount = cached.lineCount + appendedResult.lineCount
+        guard appendedResult.isCacheable else {
+            return SecurityFileScanResult(
+                findings: mergedFindings,
+                lineCount: lineCount,
+                isCacheable: false)
+        }
+
+        updateCache(
+            &cache,
+            sourceName: sourceName,
+            path: path,
+            fileURL: fileURL,
+            fileSize: fileSize,
+            modificationDate: modificationDate,
+            sqliteWALSignature: sqliteWALSignature,
+            lineCount: lineCount,
+            findings: mergedFindings,
+            scannedAt: scannedAt)
+        return SecurityFileScanResult(findings: mergedFindings, lineCount: lineCount)
     }
 
     func scanAndCacheFullFiles(
@@ -404,6 +478,9 @@ private extension SecurityAuditScanner {
         do {
             try handle.seek(toOffset: UInt64(startOffset))
             let data = try handle.readToEnd() ?? Data()
+            guard !Task.isCancelled else {
+                return SecurityFileScanResult(findings: [], lineCount: 0, isCacheable: false)
+            }
             guard let text = String(data: data, encoding: .utf8) else {
                 return SecurityFileScanResult(findings: [], lineCount: 0)
             }
@@ -411,6 +488,13 @@ private extension SecurityAuditScanner {
             let lines = appendedLines(from: text)
             var findings: [SecurityFinding] = []
             for (index, line) in lines.enumerated() {
+                guard !Task.isCancelled else {
+                    return SecurityFileScanResult(
+                        findings: findings,
+                        lineCount: index,
+                        isCacheable: false)
+                }
+
                 findings.append(contentsOf: scanLine(
                     line,
                     sourceName: sourceName,
@@ -488,7 +572,12 @@ private extension SecurityAuditScanner {
 
         do {
             for try await line in fileURL.lines {
-                guard !Task.isCancelled else { break }
+                guard !Task.isCancelled else {
+                    return SecurityFileScanResult(
+                        findings: findings,
+                        lineCount: lineNumber,
+                        isCacheable: false)
+                }
                 lineNumber += 1
                 findings.append(
                     contentsOf: scanLine(
@@ -499,6 +588,12 @@ private extension SecurityAuditScanner {
                         fallbackDetectedAt: fallbackDetectedAt))
             }
         } catch {
+            if Task.isCancelled {
+                return SecurityFileScanResult(
+                    findings: findings,
+                    lineCount: lineNumber,
+                    isCacheable: false)
+            }
             return SecurityFileScanResult(findings: findings, lineCount: lineNumber)
         }
 

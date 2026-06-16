@@ -2,6 +2,7 @@ import SQLite3
 import XCTest
 @testable import Toki
 
+// swiftlint:disable file_length
 // swiftlint:disable:next type_body_length
 final class SecurityAuditScannerTests: XCTestCase {
     private var tempRoot: URL!
@@ -377,6 +378,79 @@ final class SecurityAuditScannerTests: XCTestCase {
         XCTAssertEqual(counter.count, 2)
     }
 
+    func testCanceledFullFileScanDoesNotCachePartialResult() async throws {
+        let cacheStore = cache()
+        _ = try writeFixture(
+            sourceName: "Codex",
+            relativePath: "2026/05/12/session.jsonl",
+            lines: [
+                #"{"text":"cache-secret-ABCDEFGHIJKLMNOP"}"#,
+                #"{"text":"cache-secret-ZYXWVUTSRQPONMLK"}"#,
+            ])
+        let gate = SecurityAuditValidatorGate()
+        let cancelingScanner = scanner(
+            for: ["Codex"],
+            rules: [blockingRule(gate: gate)],
+            cacheStore: cacheStore)
+
+        let canceledScan = Task {
+            await cancelingScanner.scan()
+        }
+        let didReachValidation = await gate.waitForValidation()
+        XCTAssertTrue(didReachValidation)
+        canceledScan.cancel()
+        gate.release()
+        _ = await canceledScan.value
+
+        let result = await scanner(
+            for: ["Codex"],
+            rules: [countingRule(counter: SecurityAuditValidatorCounter())],
+            cacheStore: cacheStore)
+            .scan()
+
+        XCTAssertEqual(result.findings.map(\.location.lineNumber), [1, 2])
+    }
+
+    func testCanceledAppendedScanDoesNotCachePartialResult() async throws {
+        let cacheStore = cache()
+        let file = try writeFixture(
+            sourceName: "Codex",
+            relativePath: "2026/05/12/session.jsonl",
+            lines: [#"{"text":"cache-secret-ABCDEFGHIJKLMNOP"}"#])
+        try append("\n", to: file)
+        let initialResult = await scanner(
+            for: ["Codex"],
+            rules: [countingRule(counter: SecurityAuditValidatorCounter())],
+            cacheStore: cacheStore)
+            .scan()
+        XCTAssertEqual(initialResult.findings.count, 1)
+
+        try append(#"{"text":"cache-secret-ZYXWVUTSRQPONMLK"}"# + "\n", to: file)
+        try append(#"{"text":"cache-secret-QWERTYUIOPASDFGH"}"# + "\n", to: file)
+        let gate = SecurityAuditValidatorGate()
+        let cancelingScanner = scanner(
+            for: ["Codex"],
+            rules: [blockingRule(gate: gate)],
+            cacheStore: cacheStore)
+
+        let canceledScan = Task {
+            await cancelingScanner.scan()
+        }
+        let didReachValidation = await gate.waitForValidation()
+        XCTAssertTrue(didReachValidation)
+        canceledScan.cancel()
+        gate.release()
+        _ = await canceledScan.value
+
+        let result = await scanner(
+            for: ["Codex"],
+            rules: [countingRule(counter: SecurityAuditValidatorCounter())],
+            cacheStore: cacheStore)
+            .scan()
+
+        XCTAssertEqual(result.findings.map(\.location.lineNumber), [1, 2, 3])
+    }
+
     func testScannerFullyRescansAppendedFileWhenCachedPrefixChanged() async throws {
         let counter = SecurityAuditValidatorCounter()
         let benignMiddle = #"{"text":"cache-public-ABCDEFGHIJKLMNOP"}"#
@@ -510,6 +584,16 @@ final class SecurityAuditScannerTests: XCTestCase {
             })
     }
 
+    private func blockingRule(gate: SecurityAuditValidatorGate) -> SecurityAuditRule {
+        SecurityAuditRule(
+            name: "Blocking test secret",
+            severity: .high,
+            category: .apiKey,
+            pattern: #"cache-secret-[A-Z]{16}"#,
+            prefilter: { $0.contains("cache-secret-") },
+            validator: { _ in gate.validate() })
+    }
+
     private func inertRule() -> SecurityAuditRule {
         SecurityAuditRule(
             name: "Inactive test secret",
@@ -583,4 +667,40 @@ private enum SecurityAuditTestSecret {
 
 private final class SecurityAuditValidatorCounter {
     var count = 0
+}
+
+private final class SecurityAuditValidatorGate {
+    private let firstValidation = DispatchSemaphore(value: 0)
+    private let releaseValidation = DispatchSemaphore(value: 0)
+    private let stateQueue = DispatchQueue(label: "toki.tests.security-audit-validator-gate")
+    private var didBlock = false
+
+    func validate() -> Bool {
+        let shouldBlock = stateQueue.sync {
+            guard !didBlock else { return false }
+            didBlock = true
+            return true
+        }
+
+        if shouldBlock {
+            firstValidation.signal()
+            releaseValidation.wait()
+        }
+        return true
+    }
+
+    func waitForValidation(timeout: TimeInterval = 1) async -> Bool {
+        await Task.detached {
+            self.waitForValidationSynchronously(timeout: timeout)
+        }.value
+    }
+
+    func release() {
+        releaseValidation.signal()
+    }
+
+    private func waitForValidationSynchronously(timeout: TimeInterval) -> Bool {
+        let milliseconds = Int(timeout * 1000)
+        return firstValidation.wait(timeout: .now() + .milliseconds(milliseconds)) == .success
+    }
 }
