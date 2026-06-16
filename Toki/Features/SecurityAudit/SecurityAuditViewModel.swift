@@ -39,9 +39,15 @@ final class SecurityAuditViewModel: ObservableObject {
     private let scanner: any SecurityAuditScanning
     private var filteredFindings: [SecurityFinding] = []
     private var findingDisplayLimit = SecurityAuditViewModel.initialDisplayedFindingCount
+    private var scanTask: Task<Void, Never>?
+    private var scanGeneration = 0
 
     init(scanner: any SecurityAuditScanning = SecurityAuditScanner()) {
         self.scanner = scanner
+    }
+
+    deinit {
+        scanTask?.cancel()
     }
 
     var findings: [SecurityFinding] {
@@ -60,25 +66,53 @@ final class SecurityAuditViewModel: ObservableObject {
         min(Self.displayedFindingPageSize, hiddenFindingCount)
     }
 
+    func startScan() {
+        guard scanTask == nil, !isScanning else { return }
+
+        scanTask = Task { [weak self] in
+            await self?.scan()
+        }
+    }
+
+    func cancelScan() {
+        scanTask?.cancel()
+        scanTask = nil
+        scanGeneration += 1
+        isScanning = false
+        scanProgress = nil
+    }
+
     func scan() async {
         guard !isScanning else { return }
 
+        scanGeneration += 1
+        let currentScanGeneration = scanGeneration
         isScanning = true
         result = nil
         resetFindingPresentation()
         scanProgress = .idle
         defer {
-            isScanning = false
-            scanProgress = nil
+            if scanGeneration == currentScanGeneration {
+                isScanning = false
+                scanProgress = nil
+                scanTask = nil
+            }
         }
 
         let scanResult = await scanner.scan(
             request: SecurityAuditRequest(),
-            progress: { [weak self] progress in
+            progress: { [weak self, currentScanGeneration] progress in
                 Task { @MainActor in
-                    self?.scanProgress = progress
+                    guard let self,
+                          self.isScanning,
+                          self.scanGeneration == currentScanGeneration else {
+                        return
+                    }
+                    self.scanProgress = progress
                 }
             })
+        guard !Task.isCancelled, scanGeneration == currentScanGeneration else { return }
+
         rebuildFindingPresentation(for: scanResult.findings)
         result = scanResult
         clearUnavailableFilters()

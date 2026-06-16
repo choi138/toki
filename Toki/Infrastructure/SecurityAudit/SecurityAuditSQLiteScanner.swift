@@ -100,6 +100,13 @@ extension SecurityAuditScanner {
 
                         let lines = text.split(separator: "\n", omittingEmptySubsequences: false)
                         for line in lines {
+                            guard !Task.isCancelled else {
+                                return SecurityFileScanResult(
+                                    findings: findings,
+                                    lineCount: lineNumber,
+                                    isCacheable: false)
+                            }
+
                             lineNumber += 1
                             findings.append(
                                 contentsOf: scanTextLine(
