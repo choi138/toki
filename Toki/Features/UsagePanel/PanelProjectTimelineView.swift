@@ -1,6 +1,9 @@
 import SwiftUI
 
 struct PanelProjectTimelineView: View {
+    private static let visibleProjectLimit = 4
+    private static let visibleSessionLimit = 8
+
     let usage: UsageData
     let isLoading: Bool
 
@@ -16,7 +19,7 @@ struct PanelProjectTimelineView: View {
                 ForEach(0..<5, id: \.self) { index in
                     PanelProjectSkeletonRow(width: CGFloat(80 + index * 10))
                 }
-            } else if usage.projectStats.isEmpty, usage.sessionStats.isEmpty {
+            } else if usage.projectStats.isEmpty, usage.sessionStats.isEmpty, untrackedUsageSummary == nil {
                 Text("No project data")
                     .font(.system(size: 12))
                     .foregroundColor(Color.white.opacity(0.3))
@@ -25,17 +28,23 @@ struct PanelProjectTimelineView: View {
             } else {
                 PanelProjectTimelineSummaryView(rows: summaryRows)
 
-                if !usage.projectStats.isEmpty {
+                if !usage.projectStats.isEmpty || untrackedUsageSummary != nil {
                     PanelSectionCaption(title: "Top Projects")
-                    ForEach(usage.projectStats.prefix(4)) { project in
+                    ForEach(visibleProjects) { project in
                         PanelProjectUsageRowView(project: project)
                             .equatable()
+                    }
+                    if let otherProjectsSummary {
+                        PanelProjectUsageSummaryRowView(summary: otherProjectsSummary)
+                    }
+                    if let untrackedUsageSummary {
+                        PanelProjectUsageSummaryRowView(summary: untrackedUsageSummary)
                     }
                 }
 
                 if !usage.sessionStats.isEmpty {
                     PanelSectionCaption(title: "Sessions")
-                    ForEach(usage.sessionStats.prefix(8)) { session in
+                    ForEach(usage.sessionStats.prefix(Self.visibleSessionLimit)) { session in
                         PanelSessionUsageRowView(session: session)
                             .equatable()
                     }
@@ -52,9 +61,17 @@ struct PanelProjectTimelineView: View {
                 value: topProjectLabel,
                 accent: topProjectAccent),
             PanelProjectTimelineSummaryRow(
+                label: "Project Total",
+                value: projectTotalLabel,
+                accent: Color(red: 0.4, green: 0.9, blue: 0.6)),
+            PanelProjectTimelineSummaryRow(
                 label: "Top Session",
                 value: topSessionLabel,
                 accent: Color(red: 0.45, green: 0.75, blue: 1.0)),
+            PanelProjectTimelineSummaryRow(
+                label: "Other Projects",
+                value: otherProjectsLabel,
+                accent: Color.white.opacity(0.5)),
             PanelProjectTimelineSummaryRow(
                 label: "Attributed",
                 value: attributedCostLabel,
@@ -69,10 +86,37 @@ struct PanelProjectTimelineView: View {
     private var loadingSummaryRows: [PanelProjectTimelineSummaryRow] {
         [
             PanelProjectTimelineSummaryRow(label: "Top Project", value: "", accent: Color.white.opacity(0.5)),
+            PanelProjectTimelineSummaryRow(label: "Project Total", value: "", accent: Color.white.opacity(0.5)),
             PanelProjectTimelineSummaryRow(label: "Top Session", value: "", accent: Color.white.opacity(0.5)),
+            PanelProjectTimelineSummaryRow(label: "Other Projects", value: "", accent: Color.white.opacity(0.5)),
             PanelProjectTimelineSummaryRow(label: "Attributed", value: "", accent: Color.white.opacity(0.5)),
             PanelProjectTimelineSummaryRow(label: "Sessions", value: "", accent: Color.white.opacity(0.5)),
         ]
+    }
+
+    private var visibleProjects: ArraySlice<ProjectUsageStat> {
+        usage.projectStats.prefix(Self.visibleProjectLimit)
+    }
+
+    private var hiddenProjects: ArraySlice<ProjectUsageStat> {
+        usage.projectStats.dropFirst(Self.visibleProjectLimit)
+    }
+
+    private var projectStatsTotalTokens: Int {
+        usage.projectStats.reduce(0) { $0 + $1.totalTokens }
+    }
+
+    private var projectStatsCost: Double {
+        usage.projectStats.reduce(0) { $0 + $1.cost }
+    }
+
+    private var projectTotalLabel: String {
+        projectStatsTotalTokens > 0 ? projectStatsTotalTokens.formattedTokens() : "-"
+    }
+
+    private var otherProjectsLabel: String {
+        guard let otherProjectsSummary else { return "-" }
+        return otherProjectsSummary.totalTokens.formattedTokens()
     }
 
     private var topProject: ProjectUsageStat? {
@@ -100,6 +144,41 @@ struct PanelProjectTimelineView: View {
 
         let percentage = (usage.attributedCost / usage.cost * 100).rounded()
         return "\(Int(percentage))%"
+    }
+
+    private var otherProjectsSummary: ProjectUsageSummary? {
+        let projects = Array(hiddenProjects)
+        guard !projects.isEmpty else { return nil }
+
+        let totalTokens = projects.reduce(0) { $0 + $1.totalTokens }
+        let cost = projects.reduce(0) { $0 + $1.cost }
+        let sessionCount = projects.reduce(0) { $0 + $1.sessionCount }
+        guard totalTokens > 0 || cost > 0 else { return nil }
+
+        return ProjectUsageSummary(
+            title: "Other Projects",
+            detail: otherProjectsDetail(
+                projectCount: projects.count,
+                sessionCount: sessionCount),
+            totalTokens: totalTokens,
+            cost: cost,
+            accent: Color.white.opacity(0.5))
+    }
+
+    private var untrackedUsageSummary: ProjectUsageSummary? {
+        let totalTokens = usage.totalTokens - projectStatsTotalTokens
+        guard totalTokens > 0 else { return nil }
+
+        return ProjectUsageSummary(
+            title: "Untracked Usage",
+            detail: "No project event data",
+            totalTokens: totalTokens,
+            cost: max(0, usage.cost - projectStatsCost),
+            accent: Color.white.opacity(0.35))
+    }
+
+    private func otherProjectsDetail(projectCount: Int, sessionCount: Int) -> String {
+        "\(projectCount.formattedCount(singular: "project")) · \(sessionCount.formattedCount(singular: "session"))"
     }
 }
 
@@ -160,6 +239,48 @@ private struct PanelProjectTimelineSummaryView: View {
     }
 }
 
+private struct ProjectUsageSummary {
+    let title: String
+    let detail: String
+    let totalTokens: Int
+    let cost: Double
+    let accent: Color
+}
+
+private struct PanelProjectUsageSummaryRowView: View {
+    let summary: ProjectUsageSummary
+
+    var body: some View {
+        HStack(alignment: .center, spacing: 6) {
+            Circle()
+                .fill(summary.accent.opacity(0.55))
+                .frame(width: 5, height: 5)
+            VStack(alignment: .leading, spacing: 3) {
+                Text(summary.title)
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundColor(Color.white.opacity(0.46))
+                    .lineLimit(1)
+                Text(summary.detail)
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundColor(Color.white.opacity(0.28))
+                    .lineLimit(1)
+            }
+            Spacer(minLength: 8)
+            Text(summary.totalTokens.formattedTokens())
+                .font(.system(size: 11, weight: .semibold, design: .rounded))
+                .foregroundColor(Color.white.opacity(0.64))
+                .frame(width: 44, alignment: .trailing)
+            Text(summary.cost > 0 ? summary.cost.formattedCost() : "-")
+                .font(.system(size: 11, weight: .semibold, design: .rounded))
+                .foregroundColor(summary.cost > 0 ? Color(red: 0.4, green: 0.9, blue: 0.6) : Color.white.opacity(0.25))
+                .frame(width: 56, alignment: .trailing)
+                .lineLimit(1)
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 7)
+    }
+}
+
 private struct PanelProjectUsageRowView: View, Equatable {
     let project: ProjectUsageStat
 
@@ -209,6 +330,12 @@ private struct PanelProjectUsageRowView: View, Equatable {
     private var accent: Color {
         guard let source = project.sources.first else { return Color.white.opacity(0.5) }
         return panelAccentColor(forSource: source)
+    }
+}
+
+private extension Int {
+    func formattedCount(singular: String) -> String {
+        self == 1 ? "1 \(singular)" : "\(self) \(singular)s"
     }
 }
 
