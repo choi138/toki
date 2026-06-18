@@ -102,6 +102,11 @@ private let exactPricingTable: [String: ModelPrice] = [
     "grok-code-fast-1": price(0.20, 1.50, 0.02),
     "grok-code": price(0.20, 1.50, 0.02),
     "grok": price(3.0, 15.0, 0.30),
+
+    // Nebius Token Factory self-service pricing does not list a separate cached-input discount,
+    // so cache reads/writes are billed at the input rate for this provider path.
+    "zai-org/GLM-5.2": price(1.40, 4.40, 1.40, 1.40),
+    "zai-org/GLM-5.2-Batch": price(0.70, 2.20, 0.70, 0.70),
 ]
 
 private let exactOnlyPricingKeys: Set = [
@@ -110,6 +115,8 @@ private let exactOnlyPricingKeys: Set = [
     "gemini-3",
     "grok",
     "grok-code",
+    "zai-org/GLM-5.2",
+    "zai-org/GLM-5.2-Batch",
 ]
 
 private let prefixPricingTable: [String: ModelPrice] = exactPricingTable.filter { key, _ in

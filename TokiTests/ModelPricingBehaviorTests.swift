@@ -54,9 +54,24 @@ final class ModelPricingBehaviorTests: XCTestCase {
         XCTAssertEqual(gpt55Pro.cacheReadPerMillion, 0.0, accuracy: 0.0001)
     }
 
+    func test_modelPrice_matchesNebiusGlm52() throws {
+        let glm52 = try XCTUnwrap(modelPrice(for: "zai-org/GLM-5.2"))
+        XCTAssertEqual(glm52.inputPerMillion, 1.40, accuracy: 0.0001)
+        XCTAssertEqual(glm52.outputPerMillion, 4.40, accuracy: 0.0001)
+        XCTAssertEqual(glm52.cacheReadPerMillion, 1.40, accuracy: 0.0001)
+        XCTAssertEqual(glm52.cacheWritePerMillion, 1.40, accuracy: 0.0001)
+
+        let glm52Batch = try XCTUnwrap(modelPrice(for: "zai-org/GLM-5.2-Batch"))
+        XCTAssertEqual(glm52Batch.inputPerMillion, 0.70, accuracy: 0.0001)
+        XCTAssertEqual(glm52Batch.outputPerMillion, 2.20, accuracy: 0.0001)
+        XCTAssertEqual(glm52Batch.cacheReadPerMillion, 0.70, accuracy: 0.0001)
+        XCTAssertEqual(glm52Batch.cacheWritePerMillion, 0.70, accuracy: 0.0001)
+    }
+
     func test_modelPrice_doesNotFallbackFromBroadBaseKeysToUnknownVariants() {
         XCTAssertNil(modelPrice(for: "claude-opus-4-7"))
         XCTAssertNil(modelPrice(for: "gpt-5-experimental"))
         XCTAssertNil(modelPrice(for: "gemini-3-ultra"))
+        XCTAssertNil(modelPrice(for: "zai-org/GLM-5.2-Batch-Experimental"))
     }
 }
