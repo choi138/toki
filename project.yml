@@ -32,6 +32,8 @@ targets:
       properties:
         CFBundleName: Toki
         CFBundleDisplayName: Toki
+        CFBundleShortVersionString: "1.1.0"
+        CFBundleVersion: "2"
         NSHighResolutionCapable: true
         LSUIElement: true
     dependencies:
