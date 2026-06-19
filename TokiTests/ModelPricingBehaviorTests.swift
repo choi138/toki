@@ -75,4 +75,12 @@ final class ModelPricingBehaviorTests: XCTestCase {
         XCTAssertNil(modelPrice(for: "zai-org/GLM-5.2-Experimental"))
         XCTAssertNil(modelPrice(for: "zai-org/GLM-5.2-Batch-Experimental"))
     }
+
+    func test_modelPrice_treatsGlm52AsExactOnly() {
+        // zai-org/GLM-5.2 is exact-only: an unrecognized variant must not
+        // match the GLM-5.2 key as a prefix (otherwise -Batch style suffixes
+        // would silently pick up the non-batch price).
+        XCTAssertNil(modelPrice(for: "zai-org/GLM-5.2-Other"))
+        XCTAssertNil(modelPrice(for: "zai-org/GLM-5.2-preview"))
+    }
 }

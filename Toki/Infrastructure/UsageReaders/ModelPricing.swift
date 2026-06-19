@@ -105,6 +105,9 @@ private let exactPricingTable: [String: ModelPrice] = [
 
     // Nebius Token Factory self-service pricing does not list a separate cached-input discount,
     // so cache reads/writes are billed at the input rate for this provider path.
+    // Both GLM keys are exact-only (see exactOnlyPricingKeys) so -Batch and
+    // other variants never fall back to a GLM-5.2 prefix match; Batch is a
+    // distinct exact key rather than a priced-down prefix of GLM-5.2.
     "zai-org/GLM-5.2": price(1.40, 4.40, 1.40, 1.40),
     "zai-org/GLM-5.2-Batch": price(0.70, 2.20, 0.70, 0.70),
 ]
