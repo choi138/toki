@@ -96,20 +96,73 @@ final class ProjectTimelineBreakdownTests: XCTestCase {
         XCTAssertEqual(untracked.cost, 2.0, accuracy: 0.0001)
     }
 
+    func test_costOnlyGap_marksIsCostOnlyAndLabelsDetail() throws {
+        let exact = makeStat(name: "p0", quality: .exact, tokens: 100, cost: 1.0)
+        let usage = makeUsage(projectStats: [exact], totalTokens: 100, cost: 3.0)
+        let untracked = try XCTUnwrap(ProjectTimelineBreakdown.derive(from: usage).untrackedUsage)
+        XCTAssertTrue(untracked.isCostOnly)
+        XCTAssertEqual(untracked.detail, "Cost-only attribution gap")
+    }
+
+    func test_reconcilesWhenTokensSpreadAcrossBuckets() {
+        // Tokens spread across input/output/cache/reasoning (not input-only),
+        // mirroring real reader output, must still reconcile to usage.totalTokens.
+        let exact = makeStat(name: "p0", quality: .exact, tokens: 100, cost: 1.0)
+        let usage = makeUsage(
+            projectStats: [exact],
+            inputTokens: 80,
+            outputTokens: 60,
+            cacheReadTokens: 30,
+            cacheWriteTokens: 10,
+            reasoningTokens: 20,
+            cost: 5.0)
+        XCTAssertEqual(usage.totalTokens, 200)
+        let breakdown = ProjectTimelineBreakdown.derive(from: usage)
+        let attributedTokens = breakdown.visibleProjects.reduce(0) { $0 + $1.totalTokens }
+            + (breakdown.otherProjects?.totalTokens ?? 0)
+        let totalTokens = attributedTokens + (breakdown.untrackedUsage?.totalTokens ?? 0)
+        XCTAssertEqual(totalTokens, usage.totalTokens)
+        let attributedCost = breakdown.visibleProjects.reduce(0) { $0 + $1.cost }
+            + (breakdown.otherProjects?.cost ?? 0)
+        let totalCost = attributedCost + (breakdown.untrackedUsage?.cost ?? 0)
+        XCTAssertEqual(totalCost, usage.cost, accuracy: 0.0001)
+    }
+
     // MARK: - Helpers
 
     private func makeUsage(
         projectStats: [ProjectUsageStat],
         totalTokens: Int,
         cost: Double) -> UsageData {
-        UsageData(
-            date: startDate,
-            endDate: endDate,
+        makeUsage(
+            projectStats: projectStats,
             inputTokens: totalTokens,
             outputTokens: 0,
             cacheReadTokens: 0,
             cacheWriteTokens: 0,
             reasoningTokens: 0,
+            cost: cost)
+    }
+
+    /// Builds usage with tokens spread across all buckets, mirroring real
+    /// reader output (input + output + cache + reasoning), so reconciliation
+    /// tests exercise the full `totalTokens` breakdown rather than input-only.
+    private func makeUsage(
+        projectStats: [ProjectUsageStat],
+        inputTokens: Int,
+        outputTokens: Int,
+        cacheReadTokens: Int,
+        cacheWriteTokens: Int,
+        reasoningTokens: Int,
+        cost: Double) -> UsageData {
+        UsageData(
+            date: startDate,
+            endDate: endDate,
+            inputTokens: inputTokens,
+            outputTokens: outputTokens,
+            cacheReadTokens: cacheReadTokens,
+            cacheWriteTokens: cacheWriteTokens,
+            reasoningTokens: reasoningTokens,
             cost: cost,
             activeSeconds: 0,
             perModel: [],
@@ -122,15 +175,19 @@ final class ProjectTimelineBreakdownTests: XCTestCase {
         tokens: Int,
         cost: Double,
         sessionCount: Int = 1) -> ProjectUsageStat {
-        ProjectUsageStat(
+        // Spread tokens across input and output so totalTokens is a real sum,
+        // not a single bucket; mirrors how readers populate ProjectUsageStat.
+        let input = tokens / 2
+        let output = tokens - input
+        return ProjectUsageStat(
             id: name,
             name: name,
             path: nil,
             quality: quality,
             sources: ["Codex"],
             sessionCount: sessionCount,
-            inputTokens: tokens,
-            outputTokens: 0,
+            inputTokens: input,
+            outputTokens: output,
             cacheReadTokens: 0,
             cacheWriteTokens: 0,
             reasoningTokens: 0,

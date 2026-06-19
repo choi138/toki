@@ -107,6 +107,9 @@ struct PanelProjectTimelineView: View {
     }
 
     private var projectTotalLabel: String {
+        // Same "attributed" basis as `UsageData.attributedCost`
+        // (project rows whose quality is not .unknown), so this token total
+        // and the Attributed % below describe the same set of rows.
         let total = breakdown.visibleProjects.reduce(0) { $0 + $1.totalTokens }
             + (breakdown.otherProjects?.totalTokens ?? 0)
         return total > 0 ? total.formattedTokens() : "-"
@@ -218,6 +221,7 @@ private struct ProjectUsageSummary {
     let totalTokens: Int
     let cost: Double
     let accent: Color
+    let isCostOnly: Bool
 
     init(from values: ProjectUsageSummaryValues, accent: Color) {
         title = values.title
@@ -225,6 +229,7 @@ private struct ProjectUsageSummary {
         totalTokens = values.totalTokens
         cost = values.cost
         self.accent = accent
+        isCostOnly = values.isCostOnly
     }
 }
 
@@ -247,9 +252,9 @@ private struct PanelProjectUsageSummaryRowView: View {
                     .lineLimit(1)
             }
             Spacer(minLength: 8)
-            Text(summary.totalTokens.formattedTokens())
+            Text(summary.isCostOnly ? "—" : summary.totalTokens.formattedTokens())
                 .font(.system(size: 11, weight: .semibold, design: .rounded))
-                .foregroundColor(Color.white.opacity(0.64))
+                .foregroundColor(summary.isCostOnly ? Color.white.opacity(0.3) : Color.white.opacity(0.64))
                 .frame(width: 44, alignment: .trailing)
             Text(summary.cost > 0 ? summary.cost.formattedCost() : "-")
                 .font(.system(size: 11, weight: .semibold, design: .rounded))

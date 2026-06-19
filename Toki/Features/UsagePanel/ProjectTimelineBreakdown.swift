@@ -23,6 +23,12 @@ struct ProjectUsageSummaryValues: Equatable {
     let detail: String
     let totalTokens: Int
     let cost: Double
+
+    /// True when the row exists purely from a cost-side attribution gap
+    /// (tokens fully attributed but some cost unattributed).
+    var isCostOnly: Bool {
+        totalTokens == 0 && cost > 0
+    }
 }
 
 extension ProjectTimelineBreakdown {
@@ -44,6 +50,10 @@ extension ProjectTimelineBreakdown {
         guard !hidden.isEmpty else { return nil }
         let totalTokens = hidden.reduce(0) { $0 + $1.totalTokens }
         let cost = hidden.reduce(0) { $0 + $1.cost }
+        // A collapsed hidden row should always carry at least some tokens or
+        // cost. Rows with neither are rounding/projection noise; dropping them
+        // keeps "Other Projects" from showing up for an empty remainder, and
+        // the drop is safe because such rows contribute nothing to the totals.
         guard totalTokens > 0 || cost > 0 else { return nil }
         let sessionCount = hidden.reduce(0) { $0 + $1.sessionCount }
         return ProjectUsageSummaryValues(
@@ -68,7 +78,13 @@ extension ProjectTimelineBreakdown {
 
         let untrackedProjects = usage.projectStats.filter { $0.quality == .unknown }
         let detail: String
-        if untrackedProjects.isEmpty {
+        if untrackedTokens == 0 {
+            // Cost-only gap: tokens reconcile but cost does not. Readers pair
+            // tokens and cost, so this only arises from independent rounding
+            // or partial cost coverage. Name it explicitly instead of showing
+            // a bare "-" token value that looks like missing data.
+            detail = "Cost-only attribution gap"
+        } else if untrackedProjects.isEmpty {
             detail = "No project event data"
         } else {
             let sessionCount = untrackedProjects.reduce(0) { $0 + $1.sessionCount }
