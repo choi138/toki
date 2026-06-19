@@ -1,8 +1,14 @@
 import SwiftUI
 
 struct PanelProjectTimelineView: View {
+    private static let visibleSessionLimit = 8
+
     let usage: UsageData
     let isLoading: Bool
+
+    private var breakdown: ProjectTimelineBreakdown {
+        .derive(from: usage)
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -16,7 +22,10 @@ struct PanelProjectTimelineView: View {
                 ForEach(0..<5, id: \.self) { index in
                     PanelProjectSkeletonRow(width: CGFloat(80 + index * 10))
                 }
-            } else if usage.projectStats.isEmpty, usage.sessionStats.isEmpty {
+            } else if visibleProjects.isEmpty,
+                      otherProjectsSummary == nil,
+                      untrackedUsageSummary == nil,
+                      usage.sessionStats.isEmpty {
                 Text("No project data")
                     .font(.system(size: 12))
                     .foregroundColor(Color.white.opacity(0.3))
@@ -25,17 +34,25 @@ struct PanelProjectTimelineView: View {
             } else {
                 PanelProjectTimelineSummaryView(rows: summaryRows)
 
-                if !usage.projectStats.isEmpty {
+                if !visibleProjects.isEmpty
+                    || otherProjectsSummary != nil
+                    || untrackedUsageSummary != nil {
                     PanelSectionCaption(title: "Top Projects")
-                    ForEach(usage.projectStats.prefix(4)) { project in
+                    ForEach(visibleProjects) { project in
                         PanelProjectUsageRowView(project: project)
                             .equatable()
+                    }
+                    if let otherProjectsSummary {
+                        PanelProjectUsageSummaryRowView(summary: otherProjectsSummary)
+                    }
+                    if let untrackedUsageSummary {
+                        PanelProjectUsageSummaryRowView(summary: untrackedUsageSummary)
                     }
                 }
 
                 if !usage.sessionStats.isEmpty {
                     PanelSectionCaption(title: "Sessions")
-                    ForEach(usage.sessionStats.prefix(8)) { session in
+                    ForEach(usage.sessionStats.prefix(Self.visibleSessionLimit)) { session in
                         PanelSessionUsageRowView(session: session)
                             .equatable()
                     }
@@ -52,9 +69,17 @@ struct PanelProjectTimelineView: View {
                 value: topProjectLabel,
                 accent: topProjectAccent),
             PanelProjectTimelineSummaryRow(
+                label: "Project Total",
+                value: projectTotalLabel,
+                accent: Color(red: 0.4, green: 0.9, blue: 0.6)),
+            PanelProjectTimelineSummaryRow(
                 label: "Top Session",
                 value: topSessionLabel,
                 accent: Color(red: 0.45, green: 0.75, blue: 1.0)),
+            PanelProjectTimelineSummaryRow(
+                label: "Other Projects",
+                value: otherProjectsLabel,
+                accent: Color.white.opacity(0.5)),
             PanelProjectTimelineSummaryRow(
                 label: "Attributed",
                 value: attributedCostLabel,
@@ -69,10 +94,40 @@ struct PanelProjectTimelineView: View {
     private var loadingSummaryRows: [PanelProjectTimelineSummaryRow] {
         [
             PanelProjectTimelineSummaryRow(label: "Top Project", value: "", accent: Color.white.opacity(0.5)),
+            PanelProjectTimelineSummaryRow(label: "Project Total", value: "", accent: Color.white.opacity(0.5)),
             PanelProjectTimelineSummaryRow(label: "Top Session", value: "", accent: Color.white.opacity(0.5)),
+            PanelProjectTimelineSummaryRow(label: "Other Projects", value: "", accent: Color.white.opacity(0.5)),
             PanelProjectTimelineSummaryRow(label: "Attributed", value: "", accent: Color.white.opacity(0.5)),
             PanelProjectTimelineSummaryRow(label: "Sessions", value: "", accent: Color.white.opacity(0.5)),
         ]
+    }
+
+    private var visibleProjects: [ProjectUsageStat] {
+        breakdown.visibleProjects
+    }
+
+    private var projectTotalLabel: String {
+        // Same "attributed" basis as `UsageData.attributedCost`
+        // (project rows whose quality is not .unknown), so this token total
+        // and the Attributed % below describe the same set of rows.
+        let total = breakdown.visibleProjects.reduce(0) { $0 + $1.totalTokens }
+            + (breakdown.otherProjects?.totalTokens ?? 0)
+        return total > 0 ? total.formattedTokens() : "-"
+    }
+
+    private var otherProjectsLabel: String {
+        guard let total = breakdown.otherProjects?.totalTokens else { return "-" }
+        return total.formattedTokens()
+    }
+
+    private var otherProjectsSummary: ProjectUsageSummary? {
+        guard let values = breakdown.otherProjects else { return nil }
+        return ProjectUsageSummary(from: values, accent: Color.white.opacity(0.5))
+    }
+
+    private var untrackedUsageSummary: ProjectUsageSummary? {
+        guard let values = breakdown.untrackedUsage else { return nil }
+        return ProjectUsageSummary(from: values, accent: Color.white.opacity(0.35))
     }
 
     private var topProject: ProjectUsageStat? {
@@ -157,6 +212,58 @@ private struct PanelProjectTimelineSummaryView: View {
     private func skeletonWidth(for value: String) -> CGFloat {
         let seed = value.unicodeScalars.reduce(0) { $0 + Int($1.value) }
         return CGFloat(42 + (seed % 28))
+    }
+}
+
+private struct ProjectUsageSummary {
+    let title: String
+    let detail: String
+    let totalTokens: Int
+    let cost: Double
+    let accent: Color
+    let isCostOnly: Bool
+
+    init(from values: ProjectUsageSummaryValues, accent: Color) {
+        title = values.title
+        detail = values.detail
+        totalTokens = values.totalTokens
+        cost = values.cost
+        self.accent = accent
+        isCostOnly = values.isCostOnly
+    }
+}
+
+private struct PanelProjectUsageSummaryRowView: View {
+    let summary: ProjectUsageSummary
+
+    var body: some View {
+        HStack(alignment: .center, spacing: 6) {
+            Circle()
+                .fill(summary.accent.opacity(0.55))
+                .frame(width: 5, height: 5)
+            VStack(alignment: .leading, spacing: 3) {
+                Text(summary.title)
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundColor(Color.white.opacity(0.46))
+                    .lineLimit(1)
+                Text(summary.detail)
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundColor(Color.white.opacity(0.28))
+                    .lineLimit(1)
+            }
+            Spacer(minLength: 8)
+            Text(summary.isCostOnly ? "—" : summary.totalTokens.formattedTokens())
+                .font(.system(size: 11, weight: .semibold, design: .rounded))
+                .foregroundColor(summary.isCostOnly ? Color.white.opacity(0.3) : Color.white.opacity(0.64))
+                .frame(width: 44, alignment: .trailing)
+            Text(summary.cost > 0 ? summary.cost.formattedCost() : "-")
+                .font(.system(size: 11, weight: .semibold, design: .rounded))
+                .foregroundColor(summary.cost > 0 ? Color(red: 0.4, green: 0.9, blue: 0.6) : Color.white.opacity(0.25))
+                .frame(width: 56, alignment: .trailing)
+                .lineLimit(1)
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 7)
     }
 }
 
