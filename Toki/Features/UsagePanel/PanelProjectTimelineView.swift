@@ -1,11 +1,14 @@
 import SwiftUI
 
 struct PanelProjectTimelineView: View {
-    private static let visibleProjectLimit = 4
     private static let visibleSessionLimit = 8
 
     let usage: UsageData
     let isLoading: Bool
+
+    private var breakdown: ProjectTimelineBreakdown {
+        .derive(from: usage)
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -94,29 +97,29 @@ struct PanelProjectTimelineView: View {
         ]
     }
 
-    private var visibleProjects: ArraySlice<ProjectUsageStat> {
-        usage.projectStats.prefix(Self.visibleProjectLimit)
-    }
-
-    private var hiddenProjects: ArraySlice<ProjectUsageStat> {
-        usage.projectStats.dropFirst(Self.visibleProjectLimit)
-    }
-
-    private var projectStatsTotalTokens: Int {
-        usage.projectStats.reduce(0) { $0 + $1.totalTokens }
-    }
-
-    private var projectStatsCost: Double {
-        usage.projectStats.reduce(0) { $0 + $1.cost }
+    private var visibleProjects: [ProjectUsageStat] {
+        breakdown.visibleProjects
     }
 
     private var projectTotalLabel: String {
-        projectStatsTotalTokens > 0 ? projectStatsTotalTokens.formattedTokens() : "-"
+        let total = breakdown.visibleProjects.reduce(0) { $0 + $1.totalTokens }
+            + (breakdown.otherProjects?.totalTokens ?? 0)
+        return total > 0 ? total.formattedTokens() : "-"
     }
 
     private var otherProjectsLabel: String {
-        guard let otherProjectsSummary else { return "-" }
-        return otherProjectsSummary.totalTokens.formattedTokens()
+        guard let total = breakdown.otherProjects?.totalTokens else { return "-" }
+        return total.formattedTokens()
+    }
+
+    private var otherProjectsSummary: ProjectUsageSummary? {
+        guard let values = breakdown.otherProjects else { return nil }
+        return ProjectUsageSummary(from: values, accent: Color.white.opacity(0.5))
+    }
+
+    private var untrackedUsageSummary: ProjectUsageSummary? {
+        guard let values = breakdown.untrackedUsage else { return nil }
+        return ProjectUsageSummary(from: values, accent: Color.white.opacity(0.35))
     }
 
     private var topProject: ProjectUsageStat? {
@@ -144,41 +147,6 @@ struct PanelProjectTimelineView: View {
 
         let percentage = (usage.attributedCost / usage.cost * 100).rounded()
         return "\(Int(percentage))%"
-    }
-
-    private var otherProjectsSummary: ProjectUsageSummary? {
-        let projects = Array(hiddenProjects)
-        guard !projects.isEmpty else { return nil }
-
-        let totalTokens = projects.reduce(0) { $0 + $1.totalTokens }
-        let cost = projects.reduce(0) { $0 + $1.cost }
-        let sessionCount = projects.reduce(0) { $0 + $1.sessionCount }
-        guard totalTokens > 0 || cost > 0 else { return nil }
-
-        return ProjectUsageSummary(
-            title: "Other Projects",
-            detail: otherProjectsDetail(
-                projectCount: projects.count,
-                sessionCount: sessionCount),
-            totalTokens: totalTokens,
-            cost: cost,
-            accent: Color.white.opacity(0.5))
-    }
-
-    private var untrackedUsageSummary: ProjectUsageSummary? {
-        let totalTokens = usage.totalTokens - projectStatsTotalTokens
-        guard totalTokens > 0 else { return nil }
-
-        return ProjectUsageSummary(
-            title: "Untracked Usage",
-            detail: "No project event data",
-            totalTokens: totalTokens,
-            cost: max(0, usage.cost - projectStatsCost),
-            accent: Color.white.opacity(0.35))
-    }
-
-    private func otherProjectsDetail(projectCount: Int, sessionCount: Int) -> String {
-        "\(projectCount.formattedCount(singular: "project")) · \(sessionCount.formattedCount(singular: "session"))"
     }
 }
 
@@ -245,6 +213,14 @@ private struct ProjectUsageSummary {
     let totalTokens: Int
     let cost: Double
     let accent: Color
+
+    init(from values: ProjectUsageSummaryValues, accent: Color) {
+        title = values.title
+        detail = values.detail
+        totalTokens = values.totalTokens
+        cost = values.cost
+        self.accent = accent
+    }
 }
 
 private struct PanelProjectUsageSummaryRowView: View {
@@ -330,12 +306,6 @@ private struct PanelProjectUsageRowView: View, Equatable {
     private var accent: Color {
         guard let source = project.sources.first else { return Color.white.opacity(0.5) }
         return panelAccentColor(forSource: source)
-    }
-}
-
-private extension Int {
-    func formattedCount(singular: String) -> String {
-        self == 1 ? "1 \(singular)" : "\(self) \(singular)s"
     }
 }
 
