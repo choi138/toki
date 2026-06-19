@@ -59,7 +59,12 @@ extension ProjectTimelineBreakdown {
         let attributedTokens = attributed.reduce(0) { $0 + $1.totalTokens }
         let attributedCost = attributed.reduce(0) { $0 + $1.cost }
         let untrackedTokens = max(0, usage.totalTokens - attributedTokens)
-        guard untrackedTokens > 0 else { return nil }
+        let untrackedCost = max(0, usage.cost - attributedCost)
+        // Surface untracked usage when either tokens or cost exceed the
+        // attributed totals, so a purely cost-side gap (tokens fully
+        // attributed but some cost unattributed) is not silently hidden.
+        // Keeps `attributed + untracked == usage` holding for both fields.
+        guard untrackedTokens > 0 || untrackedCost > 0 else { return nil }
 
         let untrackedProjects = usage.projectStats.filter { $0.quality == .unknown }
         let detail: String
@@ -76,7 +81,7 @@ extension ProjectTimelineBreakdown {
             title: "Untracked Usage",
             detail: detail,
             totalTokens: untrackedTokens,
-            cost: max(0, usage.cost - attributedCost))
+            cost: untrackedCost)
     }
 
     private static func countDetail(projectCount: Int, sessionCount: Int) -> String {

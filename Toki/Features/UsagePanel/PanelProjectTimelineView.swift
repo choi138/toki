@@ -22,7 +22,10 @@ struct PanelProjectTimelineView: View {
                 ForEach(0..<5, id: \.self) { index in
                     PanelProjectSkeletonRow(width: CGFloat(80 + index * 10))
                 }
-            } else if usage.projectStats.isEmpty, usage.sessionStats.isEmpty, untrackedUsageSummary == nil {
+            } else if visibleProjects.isEmpty,
+                      otherProjectsSummary == nil,
+                      untrackedUsageSummary == nil,
+                      usage.sessionStats.isEmpty {
                 Text("No project data")
                     .font(.system(size: 12))
                     .foregroundColor(Color.white.opacity(0.3))
@@ -31,7 +34,9 @@ struct PanelProjectTimelineView: View {
             } else {
                 PanelProjectTimelineSummaryView(rows: summaryRows)
 
-                if !usage.projectStats.isEmpty || untrackedUsageSummary != nil {
+                if !visibleProjects.isEmpty
+                    || otherProjectsSummary != nil
+                    || untrackedUsageSummary != nil {
                     PanelSectionCaption(title: "Top Projects")
                     ForEach(visibleProjects) { project in
                         PanelProjectUsageRowView(project: project)

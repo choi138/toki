@@ -70,10 +70,30 @@ final class ProjectTimelineBreakdownTests: XCTestCase {
         let exact = makeStat(name: "p0", quality: .exact, tokens: 100, cost: 1.0)
         let usage = makeUsage(projectStats: [exact], totalTokens: 450, cost: 4.5)
         let breakdown = ProjectTimelineBreakdown.derive(from: usage)
+
         let attributedTokens = breakdown.visibleProjects.reduce(0) { $0 + $1.totalTokens }
             + (breakdown.otherProjects?.totalTokens ?? 0)
         let totalTokens = attributedTokens + (breakdown.untrackedUsage?.totalTokens ?? 0)
         XCTAssertEqual(totalTokens, usage.totalTokens)
+
+        let attributedCost = breakdown.visibleProjects.reduce(0) { $0 + $1.cost }
+            + (breakdown.otherProjects?.cost ?? 0)
+        let totalCost = attributedCost + (breakdown.untrackedUsage?.cost ?? 0)
+        XCTAssertEqual(totalCost, usage.cost, accuracy: 0.0001)
+    }
+
+    func test_costOnlyGap_surfacesAsUntracked() throws {
+        // Tokens fully attributed, but cost under-attributed: the cost-side
+        // gap must still surface as untracked usage (not be hidden).
+        let exact = makeStat(name: "p0", quality: .exact, tokens: 100, cost: 1.0)
+        let usage = makeUsage(projectStats: [exact], totalTokens: 100, cost: 3.0)
+        let breakdown = ProjectTimelineBreakdown.derive(from: usage)
+
+        XCTAssertEqual(breakdown.visibleProjects.count, 1)
+        XCTAssertNil(breakdown.otherProjects)
+        let untracked = try XCTUnwrap(breakdown.untrackedUsage)
+        XCTAssertEqual(untracked.totalTokens, 0)
+        XCTAssertEqual(untracked.cost, 2.0, accuracy: 0.0001)
     }
 
     // MARK: - Helpers
