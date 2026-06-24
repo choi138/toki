@@ -7,6 +7,14 @@ extension Double {
         if self >= 10 { return String(format: "$%.1f", self) }
         return String(format: "$%.2f", self)
     }
+
+    func formattedTokensPerSecond() -> String {
+        guard isFinite, self > 0 else { return "0 token/s" }
+
+        let roundedOneDecimal = (self * 10).rounded() / 10
+        if roundedOneDecimal >= 10 { return String(format: "%.0f token/s", rounded()) }
+        return String(format: "%.1f token/s", roundedOneDecimal)
+    }
 }
 
 extension Int {

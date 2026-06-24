@@ -4,11 +4,14 @@ import SwiftUI
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItem: NSStatusItem!
     private var popover: NSPopover!
+    private let tokenVelocityMonitor = TokenVelocityMonitor()
+    private let tokenVelocityState = TokenVelocityState()
 
     private var runFrames: [NSImage] = []
     private var staticIcon: NSImage?
     private var currentFrame = 0
     private var animationTimer: Timer?
+    private var animationFrameInterval = RabbitRunAnimationSpeed.defaultFrameInterval
     private var activityCheckTimer: Timer?
     private var isActivityCheckInFlight = false
 
@@ -17,7 +20,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private enum Timing {
-        static let frameInterval: TimeInterval = 0.09 // ~11fps
         static let activityCheck: TimeInterval = 5.0
     }
 
@@ -54,11 +56,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
     }
 
-    private func startAnimation() {
+    private func startAnimation(frameInterval: TimeInterval) {
         guard !runFrames.isEmpty else { return }
-        currentFrame = 0
+        animationFrameInterval = frameInterval
         let timer = Timer(
-            timeInterval: Timing.frameInterval,
+            timeInterval: frameInterval,
             repeats: true) { [weak self] _ in
                 guard let self, let button = statusItem.button else { return }
                 button.image = runFrames[currentFrame % runFrames.count]
@@ -73,6 +75,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         animationTimer = nil
         currentFrame = 0
         statusItem.button?.image = staticIcon
+    }
+
+    private func updateAnimationSpeed(frameInterval: TimeInterval) {
+        guard isAnimating,
+              abs(animationFrameInterval - frameInterval) >= RabbitRunAnimationSpeed.changeThreshold else {
+            return
+        }
+
+        animationTimer?.invalidate()
+        animationTimer = nil
+        startAnimation(frameInterval: frameInterval)
     }
 
     // MARK: - Activity Detection
@@ -92,38 +105,90 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func checkActivityInBackground() {
         guard !isActivityCheckInFlight else { return }
         isActivityCheckInFlight = true
+        let tokenVelocityMonitor = tokenVelocityMonitor
 
         // File I/O on background queue to avoid blocking the main run loop
-        DispatchQueue.global(qos: .utility).async { [weak self] in
+        DispatchQueue.global(qos: .utility).async {
             let isActive = ActivityMonitor.isAnyToolActive()
-            DispatchQueue.main.async {
-                guard let self else { return }
-                self.isActivityCheckInFlight = false
-                self.applyAnimationState(isActive: isActive)
+
+            Task {
+                let velocitySample: TokenVelocitySample
+                if isActive {
+                    velocitySample = await tokenVelocityMonitor.sample()
+                } else {
+                    await tokenVelocityMonitor.reset()
+                    velocitySample = .zero()
+                }
+                OperationQueue.main.addOperation { [weak self] in
+                    guard let self else { return }
+                    self.isActivityCheckInFlight = false
+                    self.tokenVelocityState.update(velocitySample)
+                    self.applyAnimationState(
+                        isActive: isActive,
+                        tokenVelocity: velocitySample.tokensPerSecond)
+                }
             }
         }
     }
 
-    private func applyAnimationState(isActive: Bool) {
+    private func applyAnimationState(isActive: Bool, tokenVelocity: Double) {
+        let frameInterval = RabbitRunAnimationSpeed.frameInterval(tokensPerSecond: tokenVelocity)
         let shouldStart = isActive && !isAnimating
         let shouldStop = !isActive && isAnimating
 
-        if shouldStart { startAnimation() }
+        if shouldStart {
+            startAnimation(frameInterval: frameInterval)
+        } else if isActive {
+            updateAnimationSpeed(frameInterval: frameInterval)
+        }
         if shouldStop { stopAnimation() }
     }
+}
 
+enum RabbitRunAnimationSpeed {
+    static let defaultFrameInterval: TimeInterval = 0.09
+    static let changeThreshold: TimeInterval = 0.006
+
+    private static let speedBands: [(tokensPerSecond: Double, frameInterval: TimeInterval)] = [
+        (0, 0.09),
+        (200, 0.055),
+        (1_000, 0.035),
+        (5_000, 0.023),
+        (10_000, 0.016),
+    ]
+
+    static func frameInterval(tokensPerSecond: Double) -> TimeInterval {
+        guard tokensPerSecond > 0 else { return defaultFrameInterval }
+        guard let firstBand = speedBands.first,
+              let lastBand = speedBands.last else { return defaultFrameInterval }
+        guard tokensPerSecond < lastBand.tokensPerSecond else { return lastBand.frameInterval }
+
+        var lowerBand = firstBand
+        for upperBand in speedBands.dropFirst() where tokensPerSecond <= upperBand.tokensPerSecond {
+            let normalizedVelocity = (tokensPerSecond - lowerBand.tokensPerSecond)
+                / (upperBand.tokensPerSecond - lowerBand.tokensPerSecond)
+            return lowerBand.frameInterval
+                + (upperBand.frameInterval - lowerBand.frameInterval) * normalizedVelocity
+        }
+
+        return lastBand.frameInterval
+    }
+}
+
+private extension AppDelegate {
     // MARK: - Popover
 
-    private func setupPopover() {
+    func setupPopover() {
         popover = NSPopover()
         popover.contentSize = NSSize(
             width: UsagePanelLayout.width,
             height: UsagePanelLayout.height)
         popover.behavior = .transient
-        popover.contentViewController = NSHostingController(rootView: UsagePanelView())
+        popover.contentViewController = NSHostingController(
+            rootView: UsagePanelView(tokenVelocityState: tokenVelocityState))
     }
 
-    @objc private func togglePopover() {
+    @objc func togglePopover() {
         guard let button = statusItem.button else { return }
         if popover.isShown {
             popover.performClose(nil)
