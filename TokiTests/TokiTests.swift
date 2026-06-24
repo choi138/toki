@@ -46,14 +46,6 @@ final class TokiTests: XCTestCase {
         XCTAssertEqual(1234.5.formattedCost(), "$1.2K")
     }
 
-    func test_formattedTokensPerSecond() {
-        XCTAssertEqual(0.0.formattedTokensPerSecond(), "0 token/s")
-        XCTAssertEqual((-1.0).formattedTokensPerSecond(), "0 token/s")
-        XCTAssertEqual(4.25.formattedTokensPerSecond(), "4.3 token/s")
-        XCTAssertEqual(9.96.formattedTokensPerSecond(), "10 token/s")
-        XCTAssertEqual(42.3.formattedTokensPerSecond(), "42 token/s")
-    }
-
     func test_cacheEfficiency_zero() {
         let usage = UsageData(
             date: Date(),

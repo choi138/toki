@@ -68,6 +68,7 @@ struct PeriodTokenTotalsCacheEntry: Codable, Equatable {
     let fetchedAt: Date
 }
 
+@MainActor
 final class TokenVelocityState: ObservableObject {
     @Published private(set) var sample = TokenVelocitySample.zero()
 

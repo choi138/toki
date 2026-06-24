@@ -3,6 +3,11 @@ import SQLite3
 
 // Detects whether any AI coding tool is currently active.
 
+struct ActivityMonitorState: Equatable {
+    let isAnyToolActive: Bool
+    let isCodexActive: Bool
+}
+
 enum ActivityMonitor {
     private static let activeWindowSeconds: TimeInterval = 30
     private static let cursorActiveWindowSeconds: TimeInterval = 90
@@ -16,13 +21,21 @@ enum ActivityMonitor {
     }()
 
     static func isAnyToolActive() -> Bool {
-        let threshold = Date().addingTimeInterval(-activeWindowSeconds)
-        let cursorThreshold = Date().addingTimeInterval(-cursorActiveWindowSeconds)
+        currentState().isAnyToolActive
+    }
+
+    static func currentState(now: Date = Date()) -> ActivityMonitorState {
+        let threshold = now.addingTimeInterval(-activeWindowSeconds)
+        let cursorThreshold = now.addingTimeInterval(-cursorActiveWindowSeconds)
+        let codexActive = isCodexActive(since: threshold)
         // Cheap DB queries first; expensive directory scan last
-        return isCodexActive(since: threshold)
+        let anyToolActive = codexActive
             || isCursorActive(since: cursorThreshold)
             || isOpenCodeActive(since: threshold)
             || isClaudeCodeActive(since: threshold)
+        return ActivityMonitorState(
+            isAnyToolActive: anyToolActive,
+            isCodexActive: codexActive)
     }
 
     // MARK: - Claude Code
@@ -307,13 +320,11 @@ actor TokenVelocityMonitor {
             dayStart: interval.start,
             totalTokens: totalTokens,
             sampledAt: now)
-        defer {
-            lastPoint = currentPoint
-        }
 
         guard let previousPoint = lastPoint,
               previousPoint.dayStart == currentPoint.dayStart else {
             smoothedTokensPerSecond = 0
+            lastPoint = currentPoint
             return .zero(totalTokens: totalTokens, sampledAt: now)
         }
 
@@ -328,6 +339,7 @@ actor TokenVelocityMonitor {
         let tokenDelta = totalTokens - previousPoint.totalTokens
         guard tokenDelta >= 0 else {
             smoothedTokensPerSecond = 0
+            lastPoint = currentPoint
             return TokenVelocitySample(
                 totalTokens: totalTokens,
                 sampledAt: now,
@@ -335,6 +347,7 @@ actor TokenVelocityMonitor {
         }
         let rawTokensPerSecond = Double(tokenDelta) / elapsedSeconds
         smoothedTokensPerSecond = smoothedVelocity(from: rawTokensPerSecond)
+        lastPoint = currentPoint
 
         return TokenVelocitySample(
             totalTokens: totalTokens,
@@ -360,7 +373,7 @@ actor TokenVelocityMonitor {
     }
 
     private static func defaultDailyTokenTotal(from startDate: Date, to endDate: Date) async -> Int {
-        (try? await CodexReader().readTotalTokens(from: startDate, to: endDate)) ?? 0
+        await (try? CodexReader().readTotalTokens(from: startDate, to: endDate)) ?? 0
     }
 }
 

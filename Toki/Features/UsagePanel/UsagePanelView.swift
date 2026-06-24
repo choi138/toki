@@ -78,7 +78,12 @@ struct UsagePanelView: View {
     @State private var isShowingSettings = false
     @State private var refreshCoordinator = UsagePanelRefreshCoordinator()
 
-    init(tokenVelocityState: TokenVelocityState = TokenVelocityState()) {
+    @MainActor
+    init() {
+        tokenVelocityState = TokenVelocityState()
+    }
+
+    init(tokenVelocityState: TokenVelocityState) {
         self.tokenVelocityState = tokenVelocityState
     }
 
