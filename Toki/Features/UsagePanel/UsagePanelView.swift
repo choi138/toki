@@ -72,10 +72,20 @@ enum PanelTab: CaseIterable, Hashable, Identifiable {
 
 struct UsagePanelView: View {
     @StateObject private var viewModel = UsagePanelViewModel()
+    @ObservedObject private var tokenVelocityState: TokenVelocityState
     @State private var activeTab: PanelTab = .overview
     @State private var isShowingSecurityAudit = false
     @State private var isShowingSettings = false
     @State private var refreshCoordinator = UsagePanelRefreshCoordinator()
+
+    @MainActor
+    init() {
+        tokenVelocityState = TokenVelocityState()
+    }
+
+    init(tokenVelocityState: TokenVelocityState) {
+        self.tokenVelocityState = tokenVelocityState
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -154,7 +164,10 @@ struct UsagePanelView: View {
                 summaries: viewModel.periodTokenTotals,
                 isLoading: viewModel.isLoadingPeriodTokenTotals)
             panelDivider
-            PanelTokenBreakdownView(usage: viewModel.usageData, isLoading: viewModel.isLoading)
+            PanelTokenBreakdownView(
+                usage: viewModel.usageData,
+                isLoading: viewModel.isLoading,
+                tokensPerSecond: tokenVelocityState.tokensPerSecond)
         case .projects:
             PanelProjectTimelineView(usage: viewModel.usageData, isLoading: viewModel.isLoading)
         case .hourly:
