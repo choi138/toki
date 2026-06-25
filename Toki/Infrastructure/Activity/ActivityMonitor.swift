@@ -274,31 +274,31 @@ enum ActivityMonitor {
 }
 
 struct TokenVelocitySample: Equatable {
-    let totalTokens: Int
+    let outputTokens: Int
     let sampledAt: Date
     let tokensPerSecond: Double
 
-    static func zero(totalTokens: Int = 0, sampledAt: Date = Date()) -> TokenVelocitySample {
+    static func zero(outputTokens: Int = 0, sampledAt: Date = Date()) -> TokenVelocitySample {
         TokenVelocitySample(
-            totalTokens: totalTokens,
+            outputTokens: outputTokens,
             sampledAt: sampledAt,
             tokensPerSecond: 0)
     }
 }
 
 actor TokenVelocityMonitor {
-    typealias DailyTokenTotalReader = (Date, Date) async -> Int
+    typealias DailyOutputTokenReader = (Date, Date) async -> Int
 
     private struct SamplePoint {
         let dayStart: Date
-        let totalTokens: Int
+        let outputTokens: Int
         let sampledAt: Date
     }
 
     private let calendar: Calendar
     private let smoothingWeight: Double
     private let minimumElapsedSeconds: TimeInterval
-    private let readDailyTokenTotal: DailyTokenTotalReader
+    private let readDailyOutputTokens: DailyOutputTokenReader
     private var lastPoint: SamplePoint?
     private var smoothedTokensPerSecond: Double = 0
 
@@ -306,42 +306,42 @@ actor TokenVelocityMonitor {
         calendar: Calendar = .autoupdatingCurrent,
         smoothingWeight: Double = 0.65,
         minimumElapsedSeconds: TimeInterval = 1,
-        readDailyTokenTotal: @escaping DailyTokenTotalReader = TokenVelocityMonitor.defaultDailyTokenTotal) {
+        readDailyOutputTokens: @escaping DailyOutputTokenReader = TokenVelocityMonitor.defaultDailyOutputTokens) {
         self.calendar = calendar
         self.smoothingWeight = min(max(smoothingWeight, 0), 1)
         self.minimumElapsedSeconds = max(minimumElapsedSeconds, 0.1)
-        self.readDailyTokenTotal = readDailyTokenTotal
+        self.readDailyOutputTokens = readDailyOutputTokens
     }
 
     func sample(at now: Date = Date()) async -> TokenVelocitySample {
         let interval = dayInterval(containing: now)
-        let totalTokens = await readDailyTokenTotal(interval.start, interval.end)
+        let outputTokens = await readDailyOutputTokens(interval.start, interval.end)
         let currentPoint = SamplePoint(
             dayStart: interval.start,
-            totalTokens: totalTokens,
+            outputTokens: outputTokens,
             sampledAt: now)
 
         guard let previousPoint = lastPoint,
               previousPoint.dayStart == currentPoint.dayStart else {
             smoothedTokensPerSecond = 0
             lastPoint = currentPoint
-            return .zero(totalTokens: totalTokens, sampledAt: now)
+            return .zero(outputTokens: outputTokens, sampledAt: now)
         }
 
         let elapsedSeconds = now.timeIntervalSince(previousPoint.sampledAt)
         guard elapsedSeconds >= minimumElapsedSeconds else {
             return TokenVelocitySample(
-                totalTokens: totalTokens,
+                outputTokens: outputTokens,
                 sampledAt: now,
                 tokensPerSecond: smoothedTokensPerSecond)
         }
 
-        let tokenDelta = totalTokens - previousPoint.totalTokens
+        let tokenDelta = outputTokens - previousPoint.outputTokens
         guard tokenDelta >= 0 else {
             smoothedTokensPerSecond = 0
             lastPoint = currentPoint
             return TokenVelocitySample(
-                totalTokens: totalTokens,
+                outputTokens: outputTokens,
                 sampledAt: now,
                 tokensPerSecond: 0)
         }
@@ -350,7 +350,7 @@ actor TokenVelocityMonitor {
         lastPoint = currentPoint
 
         return TokenVelocitySample(
-            totalTokens: totalTokens,
+            outputTokens: outputTokens,
             sampledAt: now,
             tokensPerSecond: smoothedTokensPerSecond)
     }
@@ -372,8 +372,18 @@ actor TokenVelocityMonitor {
             + (1 - smoothingWeight) * smoothedTokensPerSecond
     }
 
-    private static func defaultDailyTokenTotal(from startDate: Date, to endDate: Date) async -> Int {
-        await (try? CodexReader().readTotalTokens(from: startDate, to: endDate)) ?? 0
+    private static func defaultDailyOutputTokens(from startDate: Date, to endDate: Date) async -> Int {
+        let request = UsageAggregationRequest(
+            start: startDate,
+            end: endDate,
+            enabledReaderNames: [:],
+            includesEmptySourceRows: false)
+        return await UsageAggregator(readers: [
+            ClaudeCodeReader(),
+            CodexReader(),
+            CursorReader(),
+            OpenCodeReader(),
+        ]).aggregateOutputTokens(for: request)
     }
 }
 
