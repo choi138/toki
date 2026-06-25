@@ -211,7 +211,7 @@ private extension AppDelegate {
             backing: .buffered,
             defer: false)
         panel.backgroundColor = .clear
-        panel.becomesKeyOnlyIfNeeded = true
+        panel.becomesKeyOnlyIfNeeded = false
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         panel.contentViewController = NSHostingController(
             rootView: UsagePanelView(tokenVelocityState: tokenVelocityState))
@@ -238,7 +238,7 @@ private extension AppDelegate {
     private func showPanel(relativeTo view: NSView) {
         guard let frame = panelFrame(relativeTo: view) else { return }
         panel.setFrame(frame, display: true)
-        panel.orderFrontRegardless()
+        panel.makeKeyAndOrderFront(nil)
         startPanelEventMonitoring()
     }
 
@@ -354,6 +354,6 @@ private final class MenuBarPanel: NSPanel {
     }
 
     override var canBecomeKey: Bool {
-        false
+        true
     }
 }
