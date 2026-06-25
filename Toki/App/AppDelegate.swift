@@ -1,10 +1,20 @@
 import AppKit
 import SwiftUI
 
+private enum PanelWindow {
+    static let cornerRadius: CGFloat = 8
+    static let gap: CGFloat = 6
+    static let screenInset: CGFloat = 8
+
+    static var size: NSSize {
+        NSSize(width: UsagePanelLayout.width, height: UsagePanelLayout.height)
+    }
+}
+
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItem: NSStatusItem!
-    private var popover: NSPopover!
+    private var panel: NSPanel!
     private let tokenVelocityMonitor = TokenVelocityMonitor()
     private let tokenVelocityState = TokenVelocityState()
 
@@ -14,6 +24,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var animationTimer: Timer?
     private var animationFrameInterval = RabbitRunAnimationSpeed.defaultFrameInterval
     private var activityCheckTimer: Timer?
+    private var localEventMonitor: Any?
+    private var globalEventMonitor: Any?
     private var isActivityCheckInFlight = false
 
     private var isAnimating: Bool {
@@ -26,20 +38,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         setupStatusItem()
-        setupPopover()
+        setupPanel()
         loadRunFrames()
         startActivityChecks()
+    }
+
+    func applicationWillTerminate(_ notification: Notification) {
+        stopPanelEventMonitoring()
     }
 
     // MARK: - Status Item
 
     private func setupStatusItem() {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
-        guard let button = statusItem.button else { return }
         staticIcon = NSImage(named: "MenuBarIcon")
         staticIcon?.isTemplate = true
+
+        guard let button = statusItem.button else { return }
         button.image = staticIcon
-        button.action = #selector(togglePopover)
+        button.action = #selector(togglePanel)
         button.target = self
     }
 
@@ -184,26 +201,159 @@ enum RabbitRunAnimationSpeed {
     }
 }
 
-private extension AppDelegate {
-    // MARK: - Popover
+// MARK: - Panel
 
-    func setupPopover() {
-        popover = NSPopover()
-        popover.contentSize = NSSize(
-            width: UsagePanelLayout.width,
-            height: UsagePanelLayout.height)
-        popover.behavior = .transient
-        popover.contentViewController = NSHostingController(
+private extension AppDelegate {
+    func setupPanel() {
+        panel = MenuBarPanel(
+            contentRect: NSRect(origin: .zero, size: PanelWindow.size),
+            styleMask: [.borderless, .nonactivatingPanel],
+            backing: .buffered,
+            defer: false)
+        panel.backgroundColor = .clear
+        panel.becomesKeyOnlyIfNeeded = false
+        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
+        panel.contentViewController = NSHostingController(
             rootView: UsagePanelView(tokenVelocityState: tokenVelocityState))
+        panel.hasShadow = true
+        panel.isMovable = false
+        panel.isOpaque = false
+        panel.isReleasedWhenClosed = false
+        panel.level = .statusBar
+
+        panel.contentView?.wantsLayer = true
+        panel.contentView?.layer?.cornerRadius = PanelWindow.cornerRadius
+        panel.contentView?.layer?.masksToBounds = true
     }
 
-    @objc func togglePopover() {
+    @objc func togglePanel() {
         guard let button = statusItem.button else { return }
-        if popover.isShown {
-            popover.performClose(nil)
+        if panel.isVisible {
+            closePanel()
         } else {
-            popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
-            NSApp.activate(ignoringOtherApps: true)
+            showPanel(relativeTo: button)
         }
+    }
+
+    private func showPanel(relativeTo view: NSView) {
+        guard let frame = panelFrame(relativeTo: view) else { return }
+        panel.setFrame(frame, display: true)
+        panel.makeKeyAndOrderFront(nil)
+        startPanelEventMonitoring()
+    }
+
+    private func closePanel() {
+        panel.orderOut(nil)
+        stopPanelEventMonitoring()
+    }
+
+    private func panelFrame(relativeTo view: NSView) -> NSRect? {
+        guard let statusItemFrame = statusItemFrame() else { return nil }
+        let visibleFrame = (view.window?.screen ?? NSScreen.main)?.visibleFrame ?? .zero
+
+        var origin = NSPoint(
+            x: statusItemFrame.midX - PanelWindow.size.width / 2,
+            y: statusItemFrame.minY - PanelWindow.size.height - PanelWindow.gap)
+
+        origin.x = min(
+            max(origin.x, visibleFrame.minX + PanelWindow.screenInset),
+            visibleFrame.maxX - PanelWindow.size.width - PanelWindow.screenInset)
+
+        if origin.y < visibleFrame.minY + PanelWindow.screenInset {
+            origin.y = statusItemFrame.maxY + PanelWindow.gap
+        }
+
+        if origin.y + PanelWindow.size.height > visibleFrame.maxY - PanelWindow.screenInset {
+            origin.y = visibleFrame.maxY - PanelWindow.size.height - PanelWindow.screenInset
+        }
+
+        return NSRect(origin: origin, size: PanelWindow.size)
+    }
+
+    private func startPanelEventMonitoring() {
+        guard localEventMonitor == nil, globalEventMonitor == nil else { return }
+
+        localEventMonitor = NSEvent.addLocalMonitorForEvents(
+            matching: [
+                .leftMouseDown,
+                .rightMouseDown,
+                .keyDown,
+            ]) { [weak self] event in
+                guard let self else { return event }
+
+                if event.type == .keyDown, event.keyCode == 53 {
+                    closePanel()
+                    return nil
+                }
+
+                if shouldClosePanel(for: event) {
+                    closePanel()
+                }
+
+                return event
+            }
+
+        globalEventMonitor = NSEvent.addGlobalMonitorForEvents(
+            matching: [
+                .leftMouseDown,
+                .rightMouseDown,
+            ]) { [weak self] event in
+                guard let self, shouldClosePanel(for: event) else { return }
+                closePanel()
+            }
+    }
+
+    private func stopPanelEventMonitoring() {
+        if let localEventMonitor {
+            NSEvent.removeMonitor(localEventMonitor)
+            self.localEventMonitor = nil
+        }
+
+        if let globalEventMonitor {
+            NSEvent.removeMonitor(globalEventMonitor)
+            self.globalEventMonitor = nil
+        }
+    }
+
+    private func shouldClosePanel(for event: NSEvent) -> Bool {
+        if let window = event.window, isPanelRelatedWindow(window) {
+            return false
+        }
+
+        let location = eventLocationInScreen(event)
+        if panel.frame.contains(location) {
+            return false
+        }
+
+        if statusItemFrame()?.contains(location) == true {
+            return false
+        }
+
+        return true
+    }
+
+    private func isPanelRelatedWindow(_ window: NSWindow) -> Bool {
+        window == panel || window.parent == panel || panel.childWindows?.contains(window) == true
+    }
+
+    private func eventLocationInScreen(_ event: NSEvent) -> NSPoint {
+        guard let window = event.window else { return event.locationInWindow }
+        return window.convertPoint(toScreen: event.locationInWindow)
+    }
+
+    private func statusItemFrame() -> NSRect? {
+        guard let button = statusItem.button, let statusItemWindow = button.window else { return nil }
+        let statusItemRectInWindow = button.convert(button.bounds, to: nil)
+        return statusItemWindow.convertToScreen(statusItemRectInWindow)
+    }
+}
+
+private final class MenuBarPanel: NSPanel {
+    override var canBecomeMain: Bool {
+        false
+    }
+
+    override var canBecomeKey: Bool {
+        true
     }
 }
