@@ -81,7 +81,7 @@ struct PanelTokenBreakdownView: View {
     var body: some View {
         VStack(spacing: 0) {
             StatRowView(
-                label: "Codex Speed",
+                label: "TPS",
                 value: tokensPerSecond.formattedTokensPerSecond(),
                 accent: Color(red: 0.55, green: 0.45, blue: 1.0),
                 isLoading: false)

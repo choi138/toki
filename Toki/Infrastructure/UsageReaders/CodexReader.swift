@@ -59,13 +59,33 @@ struct CodexReader: TokenReader {
     }
 
     func readTotalTokens(from startDate: Date, to endDate: Date) async throws -> Int {
+        try await readDailyTokenValue(
+            from: startDate,
+            to: endDate,
+            dailyValue: \.totalTokens,
+            fallbackValue: \.totalTokens)
+    }
+
+    func readOutputTokens(from startDate: Date, to endDate: Date) async throws -> Int {
+        try await readDailyTokenValue(
+            from: startDate,
+            to: endDate,
+            dailyValue: \.outputTokens,
+            fallbackValue: \.outputTokens)
+    }
+
+    private func readDailyTokenValue(
+        from startDate: Date,
+        to endDate: Date,
+        dailyValue: (CodexCachedDailyUsage) -> Int,
+        fallbackValue: (RawTokenUsage) -> Int) async throws -> Int {
         guard !Task.isCancelled,
               FileManager.default.fileExists(atPath: dbPath) else {
             return 0
         }
 
         guard codexIsWholeDayAlignedRange(from: startDate, to: endDate) else {
-            return try await readUsage(from: startDate, to: endDate).totalTokens
+            return try await fallbackValue(readUsage(from: startDate, to: endDate))
         }
 
         let sessions = overlappingSessions(
@@ -74,7 +94,7 @@ struct CodexReader: TokenReader {
             requiresProjectAttribution: false)
         guard !Task.isCancelled, !sessions.isEmpty else { return 0 }
 
-        var totalTokens = 0
+        var outputTokens = 0
         await CodexRolloutUsageCache.shared.beginBatch()
         for session in sessions {
             guard !Task.isCancelled else { break }
@@ -82,14 +102,15 @@ struct CodexReader: TokenReader {
             let url = URL(fileURLWithPath: session.rolloutPath)
             guard FileManager.default.fileExists(atPath: url.path) else { continue }
             let summary = await Self.cachedDailySummary(fromRolloutAt: url)
-            totalTokens += Self.totalTokens(
+            outputTokens += Self.dailyTokenSum(
                 fromDailyUsage: summary.dailyUsage,
                 from: startDate,
-                to: endDate)
+                to: endDate,
+                value: dailyValue)
         }
         await CodexRolloutUsageCache.shared.endBatch()
 
-        return Task.isCancelled ? 0 : totalTokens
+        return Task.isCancelled ? 0 : outputTokens
     }
 }
 
@@ -462,6 +483,29 @@ extension CodexReader {
         fromDailyUsage dailyUsage: [String: CodexCachedDailyUsage],
         from startDate: Date,
         to endDate: Date) -> Int {
+        dailyTokenSum(
+            fromDailyUsage: dailyUsage,
+            from: startDate,
+            to: endDate,
+            value: \.totalTokens)
+    }
+
+    static func outputTokens(
+        fromDailyUsage dailyUsage: [String: CodexCachedDailyUsage],
+        from startDate: Date,
+        to endDate: Date) -> Int {
+        dailyTokenSum(
+            fromDailyUsage: dailyUsage,
+            from: startDate,
+            to: endDate,
+            value: \.outputTokens)
+    }
+
+    private static func dailyTokenSum(
+        fromDailyUsage dailyUsage: [String: CodexCachedDailyUsage],
+        from startDate: Date,
+        to endDate: Date,
+        value: (CodexCachedDailyUsage) -> Int) -> Int {
         precondition(
             codexIsWholeDayAlignedRange(from: startDate, to: endDate),
             "Codex daily token totals require a whole-day aligned range.")
@@ -482,7 +526,7 @@ extension CodexReader {
             for (dayKey, usage) in dailyUsage {
                 guard !Task.isCancelled else { return 0 }
                 guard dayKey >= startKey, dayKey < endKey else { continue }
-                result += usage.totalTokens
+                result += value(usage)
             }
 
             return result
@@ -493,7 +537,7 @@ extension CodexReader {
         while currentDay < endDay {
             guard !Task.isCancelled else { return 0 }
 
-            result += dailyUsage[codexDayKey(for: currentDay)]?.totalTokens ?? 0
+            result += dailyUsage[codexDayKey(for: currentDay)].map(value) ?? 0
 
             guard let nextDay = calendar.date(byAdding: .day, value: 1, to: currentDay) else { break }
             currentDay = nextDay

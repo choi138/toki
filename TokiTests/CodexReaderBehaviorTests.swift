@@ -200,7 +200,7 @@ final class CodexReaderBehaviorTests: XCTestCase {
         XCTAssertEqual(merged["2026-04-10"]?.activeSeconds ?? 0, 60, accuracy: 0.001)
     }
 
-    func test_codexReader_totalTokensSumsSparseDailyUsageForWideRanges() throws {
+    func test_codexReader_tokenHelpersSumSparseDailyUsageForWideRanges() throws {
         let calendar = Calendar.current
         let firstDay = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 4, day: 10)))
         let secondDay = try XCTUnwrap(calendar.date(byAdding: .day, value: 1, to: firstDay))
@@ -217,8 +217,13 @@ final class CodexReaderBehaviorTests: XCTestCase {
             fromDailyUsage: dailyUsage,
             from: allTimeStart,
             to: endDay)
+        let outputTokens = CodexReader.outputTokens(
+            fromDailyUsage: dailyUsage,
+            from: allTimeStart,
+            to: endDay)
 
         XCTAssertEqual(totalTokens, 30)
+        XCTAssertEqual(outputTokens, 20)
     }
 
     func test_codexReader_stripsCachedActiveTimeWhenRolloutEventsExist() {

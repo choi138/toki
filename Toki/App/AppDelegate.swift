@@ -135,7 +135,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
             Task {
                 let velocitySample: TokenVelocitySample
-                if activityState.isCodexActive {
+                if activityState.isAnyToolActive {
                     velocitySample = await tokenVelocityMonitor.sample()
                 } else {
                     await tokenVelocityMonitor.reset()

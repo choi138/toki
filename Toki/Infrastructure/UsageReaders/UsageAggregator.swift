@@ -63,6 +63,10 @@ final class UsageAggregator {
     func aggregateTotalTokens(for request: UsageAggregationRequest) async -> Int {
         await fetchTotalTokens(for: request)
     }
+
+    func aggregateOutputTokens(for request: UsageAggregationRequest) async -> Int {
+        await fetchOutputTokens(for: request)
+    }
 }
 
 private struct ReaderFetchResult {
@@ -110,6 +114,39 @@ private extension UsageAggregator {
 
         guard !Task.isCancelled else { return 0 }
         return totalTokens
+    }
+
+    func fetchOutputTokens(for request: UsageAggregationRequest) async -> Int {
+        guard !Task.isCancelled else { return 0 }
+
+        var outputTokens = 0
+        await withTaskGroup(of: Int.self) { group in
+            for reader in readers {
+                guard request.enabledReaderNames[reader.name] ?? true else { continue }
+                guard !Task.isCancelled else {
+                    group.cancelAll()
+                    break
+                }
+
+                group.addTask {
+                    await readerOutputTokens(
+                        reader: reader,
+                        from: request.start,
+                        to: request.end)
+                }
+            }
+
+            for await partial in group {
+                guard !Task.isCancelled else {
+                    group.cancelAll()
+                    return
+                }
+                outputTokens += partial
+            }
+        }
+
+        guard !Task.isCancelled else { return 0 }
+        return outputTokens
     }
 
     func fetchRange(for request: UsageAggregationRequest) async -> UsageFetchSummary {
@@ -182,6 +219,19 @@ private func readerTotalTokens(
 
     do {
         return try await reader.readTotalTokens(from: startDate, to: endDate)
+    } catch {
+        return 0
+    }
+}
+
+private func readerOutputTokens(
+    reader: any TokenReader,
+    from startDate: Date,
+    to endDate: Date) async -> Int {
+    guard !Task.isCancelled else { return 0 }
+
+    do {
+        return try await reader.readOutputTokens(from: startDate, to: endDate)
     } catch {
         return 0
     }

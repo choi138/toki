@@ -265,6 +265,63 @@ final class UsageServiceRefreshReentryTests: XCTestCase {
         XCTAssertTrue(disabledSnapshot.usageStarts.isEmpty)
     }
 
+    func test_usageAggregator_outputTokensMatchesFullUsageOutputTokensWithMockReaders() async {
+        let firstRecorder = MockReaderRecorder()
+        let secondRecorder = MockReaderRecorder()
+        let start = Calendar.current.startOfDay(for: Date())
+        let end = Calendar.current.date(byAdding: .day, value: 1, to: start) ?? Date()
+        let request = UsageAggregationRequest(
+            start: start,
+            end: end,
+            enabledReaderNames: [:],
+            includesEmptySourceRows: false)
+        let aggregator = UsageAggregator(readers: [
+            MockReader(name: "First", recorder: firstRecorder) { _, _ in
+                mockOutputUsage(outputTokens: 40)
+            },
+            MockReader(name: "Second", recorder: secondRecorder) { _, _ in
+                mockOutputUsage(outputTokens: 85)
+            },
+        ])
+
+        let fullOutputTokens = await aggregator.aggregateUsage(for: request).usageData.outputTokens
+        let lightweightOutputTokens = await aggregator.aggregateOutputTokens(for: request)
+
+        XCTAssertEqual(lightweightOutputTokens, fullOutputTokens)
+        XCTAssertEqual(lightweightOutputTokens, 125)
+    }
+
+    func test_usageAggregator_outputTokensSkipsDisabledReaders() async {
+        let enabledRecorder = LightweightUsageRecorder()
+        let disabledRecorder = LightweightUsageRecorder()
+        let start = Calendar.current.startOfDay(for: Date())
+        let end = Calendar.current.date(byAdding: .day, value: 1, to: start) ?? Date()
+        let request = UsageAggregationRequest(
+            start: start,
+            end: end,
+            enabledReaderNames: [
+                "Enabled": true,
+                "Disabled": false,
+            ],
+            includesEmptySourceRows: false)
+        let aggregator = UsageAggregator(readers: [
+            RecordingOutputReader(name: "Enabled", outputTokens: 40, recorder: enabledRecorder),
+            RecordingOutputReader(name: "Disabled", outputTokens: 999, recorder: disabledRecorder),
+        ])
+
+        let lightweightOutputTokens = await aggregator.aggregateOutputTokens(for: request)
+
+        let enabledSnapshot = await enabledRecorder.snapshot()
+        let disabledSnapshot = await disabledRecorder.snapshot()
+        XCTAssertEqual(lightweightOutputTokens, 40)
+        XCTAssertEqual(enabledSnapshot.outputStarts, [start])
+        XCTAssertTrue(enabledSnapshot.usageStarts.isEmpty)
+        XCTAssertTrue(enabledSnapshot.totalStarts.isEmpty)
+        XCTAssertTrue(disabledSnapshot.outputStarts.isEmpty)
+        XCTAssertTrue(disabledSnapshot.usageStarts.isEmpty)
+        XCTAssertTrue(disabledSnapshot.totalStarts.isEmpty)
+    }
+
     func test_usageService_yesterdayComparisonUsesLightweightTotalTokenPath() async throws {
         let recorder = LightweightUsageRecorder()
         let today = Calendar.current.startOfDay(for: Date())
@@ -638,9 +695,16 @@ private struct DelayedSecondYesterdayReader: TokenReader {
     }
 }
 
+private struct LightweightUsageSnapshot {
+    let usageStarts: [Date]
+    let totalStarts: [Date]
+    let outputStarts: [Date]
+}
+
 private actor LightweightUsageRecorder {
     private var usageStarts: [Date] = []
     private var totalStarts: [Date] = []
+    private var outputStarts: [Date] = []
 
     func recordUsage(start: Date) {
         usageStarts.append(start)
@@ -650,8 +714,15 @@ private actor LightweightUsageRecorder {
         totalStarts.append(start)
     }
 
-    func snapshot() -> (usageStarts: [Date], totalStarts: [Date]) {
-        (usageStarts, totalStarts)
+    func recordOutput(start: Date) {
+        outputStarts.append(start)
+    }
+
+    func snapshot() -> LightweightUsageSnapshot {
+        LightweightUsageSnapshot(
+            usageStarts: usageStarts,
+            totalStarts: totalStarts,
+            outputStarts: outputStarts)
     }
 }
 
@@ -686,4 +757,26 @@ private struct RecordingTotalReader: TokenReader {
         await recorder.recordTotal(start: startDate)
         return totalTokens
     }
+}
+
+private struct RecordingOutputReader: TokenReader {
+    let name: String
+    let outputTokens: Int
+    let recorder: LightweightUsageRecorder
+
+    func readUsage(from startDate: Date, to endDate: Date) async throws -> RawTokenUsage {
+        await recorder.recordUsage(start: startDate)
+        return mockOutputUsage(outputTokens: 999)
+    }
+
+    func readOutputTokens(from startDate: Date, to endDate: Date) async throws -> Int {
+        await recorder.recordOutput(start: startDate)
+        return outputTokens
+    }
+}
+
+private func mockOutputUsage(outputTokens: Int) -> RawTokenUsage {
+    var usage = RawTokenUsage()
+    usage.outputTokens = outputTokens
+    return usage
 }
