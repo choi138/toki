@@ -225,6 +225,12 @@ struct UsageData: Equatable {
         inputTokens + outputTokens + cacheReadTokens + cacheWriteTokens + reasoningTokens
     }
 
+    /// Aggregate output throughput for the selected local usage period.
+    var periodOutputTokensPerSecond: Double {
+        guard outputTokens > 0, workTime.wallClockSeconds > 0 else { return 0 }
+        return Double(outputTokens) / workTime.wallClockSeconds
+    }
+
     /// Fraction of input-side tokens served from cache (0–100)
     var cacheEfficiency: Double {
         let denom = Double(inputTokens + cacheReadTokens)

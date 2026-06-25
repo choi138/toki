@@ -14,4 +14,40 @@ final class UsageFormattingBehaviorTests: XCTestCase {
         XCTAssertEqual(9.96.formattedTokensPerSecond(), "10 token/s")
         XCTAssertEqual(42.3.formattedTokensPerSecond(), "42 token/s")
     }
+
+    func test_periodOutputTokensPerSecond_usesOutputTokensOverWorkTime() {
+        let usage = UsageData(
+            date: Date(),
+            inputTokens: 1000,
+            outputTokens: 7200,
+            cacheReadTokens: 50000,
+            cacheWriteTokens: 0,
+            reasoningTokens: 300,
+            cost: 0,
+            activeSeconds: 360,
+            workTime: WorkTimeMetrics(
+                agentSeconds: 360,
+                wallClockSeconds: 240,
+                activeStreamCount: 2,
+                maxConcurrentStreams: 2),
+            perModel: [])
+
+        XCTAssertEqual(usage.periodOutputTokensPerSecond, 30, accuracy: 0.000_001)
+    }
+
+    func test_periodOutputTokensPerSecond_zeroWithoutWorkTime() {
+        let usage = UsageData(
+            date: Date(),
+            inputTokens: 0,
+            outputTokens: 7200,
+            cacheReadTokens: 0,
+            cacheWriteTokens: 0,
+            reasoningTokens: 0,
+            cost: 0,
+            activeSeconds: 0,
+            workTime: .zero,
+            perModel: [])
+
+        XCTAssertEqual(usage.periodOutputTokensPerSecond, 0)
+    }
 }
