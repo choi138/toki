@@ -166,8 +166,7 @@ struct UsagePanelView: View {
             panelDivider
             PanelTokenBreakdownView(
                 usage: viewModel.usageData,
-                isLoading: viewModel.isLoading,
-                tokensPerSecond: tokenVelocityState.tokensPerSecond)
+                isLoading: viewModel.isLoading)
         case .projects:
             PanelProjectTimelineView(usage: viewModel.usageData, isLoading: viewModel.isLoading)
         case .hourly:

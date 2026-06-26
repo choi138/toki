@@ -76,15 +76,14 @@ struct PanelHeroView: View {
 struct PanelTokenBreakdownView: View {
     let usage: UsageData
     let isLoading: Bool
-    let tokensPerSecond: Double
 
     var body: some View {
         VStack(spacing: 0) {
             StatRowView(
                 label: "TPS",
-                value: tokensPerSecond.formattedTokensPerSecond(),
+                value: usage.periodOutputTokensPerSecond.formattedTokensPerSecond(),
                 accent: Color(red: 0.55, green: 0.45, blue: 1.0),
-                isLoading: false)
+                isLoading: isLoading)
             StatRowView(
                 label: "AI Work Time",
                 value: usage.workTime.wallClockSeconds.formattedWorkDuration(),
