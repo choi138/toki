@@ -86,4 +86,17 @@ final class UsageFormattingBehaviorTests: XCTestCase {
 
         XCTAssertEqual(stat.panelCostSummary, "unpriced")
     }
+
+    func test_modelStatPanelCostSummaryShowsZeroForKnownPrice() {
+        let stat = ModelStat(
+            id: "gpt-5.4",
+            totalTokens: 100,
+            cost: 0,
+            activeSeconds: 0,
+            sources: ["GJC"],
+            isPriceKnown: true)
+
+        XCTAssertEqual(stat.panelCostSummary, "$0.00")
+        XCTAssertTrue(stat.hasKnownPanelCost)
+    }
 }

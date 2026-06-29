@@ -87,7 +87,7 @@ extension ModelStat {
     }
 
     var hasKnownPanelCost: Bool {
-        isPriceKnown && cost.isFinite && cost > 0
+        isPriceKnown && cost.isFinite && cost >= 0
     }
 }
 
