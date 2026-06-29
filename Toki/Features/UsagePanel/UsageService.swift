@@ -72,7 +72,7 @@ struct PeriodTokenTotalsCacheEntry: Codable, Equatable {
 final class TokenVelocityState: ObservableObject {
     @Published private(set) var sample = TokenVelocitySample.zero()
 
-    var tokensPerSecond: Double {
+    var liveTokensPerSecond: Double {
         sample.tokensPerSecond
     }
 

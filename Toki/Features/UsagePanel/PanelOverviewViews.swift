@@ -81,10 +81,12 @@ struct PanelTokenBreakdownView: View {
     var body: some View {
         VStack(spacing: 0) {
             StatRowView(
-                label: "TPS",
+                label: "Live TPS",
                 value: liveTokensPerSecond.formattedTokensPerSecond(),
                 accent: Color(red: 0.55, green: 0.45, blue: 1.0),
                 isLoading: isLoading)
+                .help("Live TPS is sampled from the active tools monitor and may differ from filtered usage totals.")
+                .accessibilityHint(Text("Live TPS is sampled from the active tools monitor."))
             StatRowView(
                 label: "AI Work Time",
                 value: usage.workTime.wallClockSeconds.formattedWorkDuration(),
