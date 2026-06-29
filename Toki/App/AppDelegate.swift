@@ -24,9 +24,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var animationTimer: Timer?
     private var animationFrameInterval = RabbitRunAnimationSpeed.defaultFrameInterval
     private var activityCheckTimer: Timer?
+    private var panelTokenVelocitySampleTimer: Timer?
     private var localEventMonitor: Any?
     private var globalEventMonitor: Any?
     private var isActivityCheckInFlight = false
+    private var isTokenVelocitySampleInFlight = false
+    private var isAnyToolActive = false
 
     private var isAnimating: Bool {
         animationTimer != nil
@@ -34,6 +37,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private enum Timing {
         static let activityCheck: TimeInterval = 5.0
+        static let panelTokenVelocitySample: TimeInterval = 2.0
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -44,6 +48,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        activityCheckTimer?.invalidate()
+        panelTokenVelocitySampleTimer?.invalidate()
+        animationTimer?.invalidate()
         stopPanelEventMonitoring()
     }
 
@@ -124,6 +131,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         activityCheckTimer = checkTimer
     }
 
+    private func startPanelTokenVelocitySampling() {
+        guard panelTokenVelocitySampleTimer == nil else { return }
+
+        sampleTokenVelocityInBackground()
+        let sampleTimer = Timer(
+            timeInterval: Timing.panelTokenVelocitySample,
+            repeats: true) { [weak self] _ in
+                Task { @MainActor [weak self] in
+                    self?.sampleTokenVelocityInBackground()
+                }
+            }
+        sampleTimer.tolerance = 0.15
+        RunLoop.main.add(sampleTimer, forMode: .common)
+        panelTokenVelocitySampleTimer = sampleTimer
+    }
+
+    private func stopPanelTokenVelocitySampling() {
+        panelTokenVelocitySampleTimer?.invalidate()
+        panelTokenVelocitySampleTimer = nil
+    }
+
     private func checkActivityInBackground() {
         guard !isActivityCheckInFlight else { return }
         isActivityCheckInFlight = true
@@ -145,11 +173,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 await MainActor.run { [weak self] in
                     guard let self else { return }
                     isActivityCheckInFlight = false
+                    isAnyToolActive = activityState.isAnyToolActive
                     tokenVelocityState.update(velocitySample)
                     applyAnimationState(
                         isActive: activityState.isAnyToolActive,
                         tokenVelocity: velocitySample.tokensPerSecond)
                 }
+            }
+        }
+    }
+
+    private func sampleTokenVelocityInBackground() {
+        guard !isTokenVelocitySampleInFlight else { return }
+        isTokenVelocitySampleInFlight = true
+        let tokenVelocityMonitor = tokenVelocityMonitor
+
+        Task.detached(priority: .utility) { [weak self] in
+            let velocitySample = await tokenVelocityMonitor.sample()
+
+            await MainActor.run { [weak self] in
+                guard let self else { return }
+                isTokenVelocitySampleInFlight = false
+                tokenVelocityState.update(velocitySample)
+                applyAnimationState(
+                    isActive: isAnyToolActive,
+                    tokenVelocity: velocitySample.tokensPerSecond)
             }
         }
     }
@@ -174,10 +222,10 @@ enum RabbitRunAnimationSpeed {
 
     private static let speedBands: [(tokensPerSecond: Double, frameInterval: TimeInterval)] = [
         (0, 0.09),
-        (200, 0.055),
-        (1000, 0.035),
-        (5000, 0.023),
-        (10000, 0.016),
+        (20, 0.055),
+        (40, 0.035),
+        (60, 0.023),
+        (80, 0.016),
     ]
 
     static func frameInterval(tokensPerSecond: Double) -> TimeInterval {
@@ -239,11 +287,13 @@ private extension AppDelegate {
         guard let frame = panelFrame(relativeTo: view) else { return }
         panel.setFrame(frame, display: true)
         panel.makeKeyAndOrderFront(nil)
+        startPanelTokenVelocitySampling()
         startPanelEventMonitoring()
     }
 
     private func closePanel() {
         panel.orderOut(nil)
+        stopPanelTokenVelocitySampling()
         stopPanelEventMonitoring()
     }
 
