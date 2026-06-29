@@ -7,7 +7,8 @@
 ![Stars](https://img.shields.io/github/stars/choi138/toki?style=social)
 
 Toki is a local-first macOS menu bar app for tracking token usage, cost,
-project attribution, and AI work time across coding agents.
+project attribution, and AI work time across Claude Code, Codex, Cursor,
+Gemini CLI, GJC, OpenCode, and OpenClaw.
 
 It reads each tool's local usage store, keeps the data on your machine, and
 gives you a single popover for daily totals, date ranges, exports, and security
@@ -19,11 +20,11 @@ checks.
 
 | Overview | Projects | Models |
 | --- | --- | --- |
-| <img src="Screenshots/screenshot_overview.png" width="220" alt="Overview view showing total tokens and period totals" /> | <img src="Screenshots/screenshot_projects.png" width="220" alt="Projects view showing attributed cost and sessions" /> | <img src="Screenshots/screenshot_models.png" width="220" alt="Models view showing token and cost breakdown by model" /> |
+| <img src="Screenshots/screenshot_overview.png" width="220" alt="Overview view showing total tokens and period totals" /> | <img src="Screenshots/screenshot_projects.png" width="220" alt="Projects view showing attributed cost and sessions" /> | <img src="Screenshots/screenshot_models.png" width="220" alt="Models view showing token and cost breakdown by model, including GJC" /> |
 
 | Sources | Time | Hourly |
 | --- | --- | --- |
-| <img src="Screenshots/screenshot_sources.png" width="220" alt="Sources view with CSV and JSON export controls and reader status" /> | <img src="Screenshots/screenshot_time.png" width="220" alt="Time view comparing direct, delegated, wall-clock, and parallel work time" /> | <img src="Screenshots/screenshot_hourly.png" width="220" alt="Hourly view with hourly usage chart and peak hour summary" /> |
+| <img src="Screenshots/screenshot_sources.png" width="220" alt="Sources view with CSV and JSON export controls and GJC reader status" /> | <img src="Screenshots/screenshot_time.png" width="220" alt="Time view comparing direct, delegated, wall-clock, and parallel work time" /> | <img src="Screenshots/screenshot_hourly.png" width="220" alt="Hourly view with hourly usage chart and peak hour summary" /> |
 
 ---
 
@@ -55,6 +56,7 @@ cloud sync is required.
 | **Codex** | `~/.codex/state_5.sqlite` plus discovered rollout JSONL files | Reconstructs ranged usage from rollout token-count snapshots. |
 | **Cursor** | `~/Library/Application Support/Cursor/User/globalStorage/state.vscdb` | Exact token rows are counted when present; context-window metrics are shown separately when exact tokens are unavailable. |
 | **Gemini CLI** | `~/.gemini/tmp/*/chats/**/*.json` | Reads current and legacy Gemini chat history formats. |
+| **GJC** | `~/.gjc/agent/sessions/**/*.jsonl` | Reads local JSONL sessions, including assistant and delegated task token usage plus recorded cost. |
 | **OpenCode** | `~/.local/share/opencode/opencode.db` | Reads assistant message token rows from SQLite. |
 | **OpenClaw** | `~/.openclaw/agents/**/*.jsonl` | Reads assistant usage records from local agent logs. |
 
