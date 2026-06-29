@@ -50,4 +50,40 @@ final class UsageFormattingBehaviorTests: XCTestCase {
 
         XCTAssertEqual(usage.periodOutputTokensPerSecond, 0)
     }
+
+    func test_modelStatPanelTimeSummaryShowsActiveTimeOnlyForUnpricedModel() {
+        let stat = ModelStat(
+            id: "codex-auto-review",
+            totalTokens: 4_790_000,
+            cost: 0,
+            activeSeconds: TimeInterval((2 * 60 + 5) * 60),
+            sources: ["GJC"],
+            isPriceKnown: false)
+
+        XCTAssertEqual(stat.panelTimeSummary, "2h 5m used")
+    }
+
+    func test_modelStatPanelTimeSummaryShowsZeroWhenNoActiveTime() {
+        let stat = ModelStat(
+            id: "codex-auto-review",
+            totalTokens: 4_790_000,
+            cost: 0,
+            activeSeconds: 0,
+            sources: ["GJC"],
+            isPriceKnown: false)
+
+        XCTAssertEqual(stat.panelTimeSummary, "0s used")
+    }
+
+    func test_modelStatPanelCostSummaryShowsUnpricedForUnknownPrice() {
+        let stat = ModelStat(
+            id: "codex-auto-review",
+            totalTokens: 4_790_000,
+            cost: 0,
+            activeSeconds: TimeInterval((2 * 60 + 5) * 60),
+            sources: ["GJC"],
+            isPriceKnown: false)
+
+        XCTAssertEqual(stat.panelCostSummary, "unpriced")
+    }
 }

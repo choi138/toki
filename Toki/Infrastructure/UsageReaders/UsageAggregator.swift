@@ -35,6 +35,7 @@ final class UsageAggregator {
         CodexReader(),
         CursorReader(),
         GeminiReader(),
+        GJCReader(),
         OpenCodeReader(),
         OpenClawReader(),
     ]
