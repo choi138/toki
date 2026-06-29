@@ -21,8 +21,6 @@ struct ModelStatRowView: View, Equatable {
     let stat: ModelStat
 
     var body: some View {
-        let hasValidCost = stat.isPriceKnown && stat.cost.isFinite && stat.cost > 0
-
         HStack(alignment: .center, spacing: 6) {
             Circle()
                 .fill(panelAccentColor(forModelID: stat.id).opacity(0.5))
@@ -32,7 +30,7 @@ struct ModelStatRowView: View, Equatable {
                     .font(.system(size: 11))
                     .foregroundColor(Color.white.opacity(0.45))
                     .lineLimit(1)
-                Text(timeSummary)
+                Text(stat.panelTimeSummary)
                     .font(.system(size: 10, weight: .medium))
                     .foregroundColor(Color.white.opacity(0.3))
                     .lineLimit(1)
@@ -42,14 +40,15 @@ struct ModelStatRowView: View, Equatable {
                 .font(.system(size: 11, weight: .semibold, design: .rounded))
                 .foregroundColor(Color.white.opacity(0.7))
                 .frame(width: 44, alignment: .trailing)
-            Text(hasValidCost ? stat.cost.formattedCost() : "—")
+            Text(stat.panelCostSummary)
                 .font(.system(size: 11, weight: .semibold, design: .rounded))
                 .foregroundColor(
-                    hasValidCost
+                    stat.hasKnownPanelCost
                         ? Color(red: 0.4, green: 0.9, blue: 0.6)
                         : Color.white.opacity(0.25))
                 .frame(width: 56, alignment: .trailing)
                 .lineLimit(1)
+                .minimumScaleFactor(0.8)
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 7)
@@ -67,15 +66,28 @@ struct ModelStatRowView: View, Equatable {
         let remainder = stat.sources.count - 2
         return remainder > 0 ? "\(head) +\(remainder)" : head
     }
+}
 
-    private var timeSummary: String {
-        if !stat.isPriceKnown, stat.totalTokens > 0 {
+extension ModelStat {
+    var panelTimeSummary: String {
+        if activeSeconds > 0 {
+            return "\(activeSeconds.formattedWorkDuration()) used"
+        }
+        return cost > 0 ? "cost only" : "0s used"
+    }
+
+    var panelCostSummary: String {
+        if hasKnownPanelCost {
+            return cost.formattedCost()
+        }
+        if !isPriceKnown, totalTokens > 0 {
             return "unpriced"
         }
-        if stat.activeSeconds > 0 {
-            return "\(stat.activeSeconds.formattedWorkDuration()) used"
-        }
-        return stat.cost > 0 ? "cost only" : "0s used"
+        return "—"
+    }
+
+    var hasKnownPanelCost: Bool {
+        isPriceKnown && cost.isFinite && cost >= 0
     }
 }
 

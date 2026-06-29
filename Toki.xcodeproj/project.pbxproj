@@ -16,6 +16,7 @@
 		187A94A7422CB21663B9214F /* CodexReaderBehaviorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 744538423BE5FD3B64B2E8A0 /* CodexReaderBehaviorTests.swift */; };
 		19158307E719CB6441DD8841 /* SecurityAuditSQLiteScanner.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4CEBBC19D10BB66820B603F3 /* SecurityAuditSQLiteScanner.swift */; };
 		19402E1978419587580E9C87 /* UsageAggregator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 107B89D8C6829F00817A902B /* UsageAggregator.swift */; };
+		1A89B168AC6C17DAE05BABE9 /* GJCReader.swift in Sources */ = {isa = PBXBuildFile; fileRef = F4BF255526D936567680F57F /* GJCReader.swift */; };
 		1CB6457496EDB42014D2577C /* PanelHourlyUsageView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E7F4D14E84D7569820019419 /* PanelHourlyUsageView.swift */; };
 		1CEB7251F4D5C4E54A0374BC /* ProjectTimelineBreakdown.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A99E233235E7ED7777321F8 /* ProjectTimelineBreakdown.swift */; };
 		2427CB79A2FA6D1E09CC5917 /* UsagePanelRefreshCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1DFAAE90B6B20174754C0B0E /* UsagePanelRefreshCoordinator.swift */; };
@@ -69,6 +70,7 @@
 		B8FE2901E73920CC3A9075BE /* CodexReaderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6D50499C69A39EA845632811 /* CodexReaderTests.swift */; };
 		BA46FB76FAF54F57854094A5 /* CodexRolloutModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = B95B30212F563C087A12624C /* CodexRolloutModels.swift */; };
 		BB013DCF15953C4A1438FAB2 /* SecurityAuditScannerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FC74BF22FDE3F0D4CD8B7A5B /* SecurityAuditScannerTests.swift */; };
+		BBBA1E0981491A3D5D6000B8 /* GJCReaderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 62EA09E68E4376A474428CB6 /* GJCReaderTests.swift */; };
 		BFA649180FEA64FB81ABE332 /* UsageServiceActiveTimeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3971E00801C71BA0662D329 /* UsageServiceActiveTimeTests.swift */; };
 		C17C7313C12364A09D303F7D /* PanelStatComponents.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6BAAA589FDAB3639AB37F055 /* PanelStatComponents.swift */; };
 		C36760D5F31645546E54DD9F /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = E1DA65F57500D6F6BB7793AD /* Assets.xcassets */; };
@@ -135,6 +137,7 @@
 		5C9C1A5B27CF3EDA7779FCB1 /* ModelPricingBehaviorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModelPricingBehaviorTests.swift; sourceTree = "<group>"; };
 		5D1D5079616742DF022CA445 /* SecurityAuditScanner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SecurityAuditScanner.swift; sourceTree = "<group>"; };
 		5F69E6DA1708220925E7E7AC /* CursorReader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CursorReader.swift; sourceTree = "<group>"; };
+		62EA09E68E4376A474428CB6 /* GJCReaderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GJCReaderTests.swift; sourceTree = "<group>"; };
 		6505D569EA8EE2E43BC1107E /* rabbit_run_01.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = rabbit_run_01.png; sourceTree = "<group>"; };
 		68C8E69152F69E73C1E2223B /* SecurityAuditSources.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SecurityAuditSources.swift; sourceTree = "<group>"; };
 		6BAAA589FDAB3639AB37F055 /* PanelStatComponents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PanelStatComponents.swift; sourceTree = "<group>"; };
@@ -183,6 +186,7 @@
 		EC521FA17498DD38DCCE60C3 /* ActivityMonitorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActivityMonitorTests.swift; sourceTree = "<group>"; };
 		F102B29559EAB453723C0253 /* OpenClawReader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OpenClawReader.swift; sourceTree = "<group>"; };
 		F1BA3C46F1641ED01FE347AD /* ActivityMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActivityMonitor.swift; sourceTree = "<group>"; };
+		F4BF255526D936567680F57F /* GJCReader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GJCReader.swift; sourceTree = "<group>"; };
 		F530FE547E52625EFB2B8042 /* rabbit_run_09.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = rabbit_run_09.png; sourceTree = "<group>"; };
 		F867C95AD0DC1B5DED21C8A7 /* UsageFormattingBehaviorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UsageFormattingBehaviorTests.swift; sourceTree = "<group>"; };
 		FAFF55F8B3E56A04BFDB27F6 /* UsagePanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UsagePanelView.swift; sourceTree = "<group>"; };
@@ -271,6 +275,7 @@
 				B3907831981E3F74B11B856F /* CodexSessionDiscovery.swift */,
 				5F69E6DA1708220925E7E7AC /* CursorReader.swift */,
 				A8B8538DFD695A976ED931B3 /* GeminiReader.swift */,
+				F4BF255526D936567680F57F /* GJCReader.swift */,
 				FFA43C912265F10F586C37F1 /* ModelPricing.swift */,
 				F102B29559EAB453723C0253 /* OpenClawReader.swift */,
 				560649C5E2B284FB485FB4FF /* OpenCodeReader.swift */,
@@ -412,6 +417,7 @@
 				744538423BE5FD3B64B2E8A0 /* CodexReaderBehaviorTests.swift */,
 				6D50499C69A39EA845632811 /* CodexReaderTests.swift */,
 				A2648C9A747404CF8E5E81E0 /* CursorReaderTests.swift */,
+				62EA09E68E4376A474428CB6 /* GJCReaderTests.swift */,
 				5C9C1A5B27CF3EDA7779FCB1 /* ModelPricingBehaviorTests.swift */,
 				B60EB0929925CB9634708D25 /* OpenClawReaderTests.swift */,
 				3E3CFF960ADBCDC716F649D6 /* PanelHeroComparisonContentTests.swift */,
@@ -546,6 +552,7 @@
 				33D7F18FF76662BC33C910BE /* CodexRolloutSupport.swift in Sources */,
 				5738E10B3672E7C90CFED932 /* CodexSessionDiscovery.swift in Sources */,
 				406C5DD0F0D7F413FC237797 /* CursorReader.swift in Sources */,
+				1A89B168AC6C17DAE05BABE9 /* GJCReader.swift in Sources */,
 				7611368C2729160ABC15E67F /* GeminiReader.swift in Sources */,
 				A024D1B0143B76AC39A60088 /* ModelPricing.swift in Sources */,
 				536309968251FA35DF319FE7 /* OpenClawReader.swift in Sources */,
@@ -598,6 +605,7 @@
 				187A94A7422CB21663B9214F /* CodexReaderBehaviorTests.swift in Sources */,
 				B8FE2901E73920CC3A9075BE /* CodexReaderTests.swift in Sources */,
 				0F7159AD505B6504367C7BAE /* CursorReaderTests.swift in Sources */,
+				BBBA1E0981491A3D5D6000B8 /* GJCReaderTests.swift in Sources */,
 				473D552178FAD36261BEDE30 /* ModelPricingBehaviorTests.swift in Sources */,
 				9C02E53188EBB7673B1E3539 /* OpenClawReaderTests.swift in Sources */,
 				DC20285289381D0340F0AEEB /* PanelHeroComparisonContentTests.swift in Sources */,
