@@ -7,6 +7,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.2] - 2026-06-29
+
+### Added
+
+- GJC usage reader for local JSONL sessions, including assistant and delegated
+  task token usage plus recorded cost.
+- Output token-per-second tracking across supported agents.
+- Menu bar velocity behavior driven by live token activity.
+- Toki agent configuration.
+- Pricing for zai-org/GLM-5.2 models.
+
+### Changed
+
+- Refreshed README screenshots and supported-agent documentation.
+- Usage panel now surfaces other and untracked project usage.
+- Panel totals include aggregate TPS.
+- Bundle version properties are managed through XcodeGen.
+
+### Fixed
+
+- Cancel in-flight security audit scans before starting a new scan.
+- Prevent persistent menu bar highlight after closing the panel.
+
+## [1.1.1] - 2026-06-04
+
+### Fixed
+
+- Show days with no previous usage as a neutral comparison instead of a
+  misleading negative trend.
+
 ## [1.1.0] - 2026-06-01
 
 ### Added
@@ -34,6 +64,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **macOS 13+ support**: Minimum deployment target macOS 13 Ventura
 - **Dark/Light mode**: Full support for both macOS appearance modes via SwiftUI
 
-[Unreleased]: https://github.com/choi138/toki/compare/v1.1.0...HEAD
+[Unreleased]: https://github.com/choi138/toki/compare/v1.1.2...HEAD
+[1.1.2]: https://github.com/choi138/toki/compare/v1.1.1...v1.1.2
+[1.1.1]: https://github.com/choi138/toki/releases/tag/v1.1.1
 [1.1.0]: https://github.com/choi138/toki/releases/tag/v1.1.0
 [1.0.0]: https://github.com/choi138/toki/releases/tag/v1.0.0

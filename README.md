@@ -140,7 +140,7 @@ CI runs formatting, linting, XcodeGen, build, and test steps on macOS.
 
 Releases are built by the GitHub Actions **Release** workflow. Run it manually
 with `workflow_dispatch` to produce workflow artifacts, or push a version tag
-such as `v1.1.0` to publish a GitHub Release.
+such as `v1.1.2` to publish a GitHub Release.
 
 The workflow regenerates the Xcode project, archives the Release configuration,
 exports `Toki.app`, packages the app and dSYM ZIPs, and can optionally sign and
