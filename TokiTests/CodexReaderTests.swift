@@ -90,6 +90,53 @@ final class CodexReaderTests: XCTestCase {
         XCTAssertEqual(usage.cost, expectedCost ?? 0, accuracy: 0.000001)
     }
 
+    func test_codexReader_prefersLastTokenUsageWhenTotalSnapshotRegresses() {
+        let lines = [
+            tokenCountLine(
+                ts: "2026-04-10T09:00:00Z",
+                input: 1000,
+                cachedInput: 800,
+                output: 100,
+                reasoning: 40,
+                total: 1100,
+                lastUsage: TokenCountLineUsage(
+                    input: 100,
+                    cachedInput: 80,
+                    output: 10,
+                    reasoning: 4)),
+            tokenCountLine(
+                ts: "2026-04-10T09:01:00Z",
+                input: 900,
+                cachedInput: 850,
+                output: 90,
+                reasoning: 30,
+                total: 990,
+                lastUsage: TokenCountLineUsage(
+                    input: 50,
+                    cachedInput: 40,
+                    output: 8,
+                    reasoning: 2)),
+        ]
+
+        let usage = CodexReader.usage(
+            fromRolloutLines: lines,
+            model: "gpt-5.4-mini",
+            from: isoDate("2026-04-10T00:00:00Z"),
+            to: isoDate("2026-04-11T00:00:00Z"),
+            streamID: "rollout-a")
+        let summary = codexRolloutDailySummary(
+            fromSnapshots: codexRolloutSnapshots(fromRolloutLines: lines))
+
+        XCTAssertEqual(usage.inputTokens, 30)
+        XCTAssertEqual(usage.cacheReadTokens, 120)
+        XCTAssertEqual(usage.outputTokens, 12)
+        XCTAssertEqual(usage.reasoningTokens, 6)
+        XCTAssertEqual(usage.totalTokens, 168)
+        XCTAssertEqual(usage.tokenEvents.map(\.totalTokens), [110, 58])
+        XCTAssertEqual(summary.dailyUsage["2026-04-10"]?.totalTokens, 168)
+        XCTAssertEqual(summary.dailyTokenUsageEvents["2026-04-10"]?.map(\.totalTokens), [110, 58])
+    }
+
     func test_codexReaderAttachesSessionAttributionToTokenEvents() {
         let usage = CodexReader.usage(
             fromRolloutLines: [
@@ -281,6 +328,108 @@ final class CodexReaderTests: XCTestCase {
         XCTAssertEqual(skippedPaths, ["/tmp/main-with-model.jsonl"])
     }
 
+    func test_codexReaderUsesDatabaseCwdForProjectAttribution() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let dbURL = directory.appendingPathComponent("state_5.sqlite")
+        let rolloutPath = directory.appendingPathComponent("rollout.jsonl").path
+        try createSecurityAuditSQLiteDB(
+            at: dbURL,
+            statements: [
+                """
+                CREATE TABLE threads (
+                    rollout_path TEXT NOT NULL,
+                    model TEXT,
+                    source TEXT NOT NULL,
+                    cwd TEXT NOT NULL,
+                    created_at INTEGER NOT NULL,
+                    updated_at INTEGER NOT NULL
+                )
+                """,
+                """
+                INSERT INTO threads (
+                    rollout_path,
+                    model,
+                    source,
+                    cwd,
+                    created_at,
+                    updated_at
+                ) VALUES (
+                    '\(rolloutPath)',
+                    'gpt-5.4-mini',
+                    'vscode',
+                    '/Users/example/Desktop/Project/content',
+                    1775779200,
+                    1775782800
+                )
+                """,
+            ])
+
+        let session = try XCTUnwrap(
+            CodexReader(dbPath: dbURL.path)
+                .overlappingSessions(
+                    from: isoDate("2026-04-10T00:00:00Z"),
+                    to: isoDate("2026-04-11T00:00:00Z"))
+                .first { $0.rolloutPath == rolloutPath })
+
+        XCTAssertEqual(session.projectPath, "/Users/example/Desktop/Project/content")
+        XCTAssertEqual(session.projectAttributionQuality, .exact)
+        XCTAssertEqual(session.attribution.projectName, "content")
+    }
+
+    func test_codexReaderKeepsDatabaseSessionsWhenCwdColumnIsMissing() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let dbURL = directory.appendingPathComponent("state_5.sqlite")
+        let rolloutPath = directory.appendingPathComponent("rollout.jsonl").path
+        try createSecurityAuditSQLiteDB(
+            at: dbURL,
+            statements: [
+                """
+                CREATE TABLE threads (
+                    rollout_path TEXT NOT NULL,
+                    model TEXT,
+                    source TEXT NOT NULL,
+                    created_at INTEGER NOT NULL,
+                    updated_at INTEGER NOT NULL
+                )
+                """,
+                """
+                INSERT INTO threads (
+                    rollout_path,
+                    model,
+                    source,
+                    created_at,
+                    updated_at
+                ) VALUES (
+                    '\(rolloutPath)',
+                    'gpt-5.4-mini',
+                    'vscode',
+                    1775779200,
+                    1775782800
+                )
+                """,
+            ])
+
+        let session = try XCTUnwrap(
+            CodexReader(dbPath: dbURL.path)
+                .overlappingSessions(
+                    from: isoDate("2026-04-10T00:00:00Z"),
+                    to: isoDate("2026-04-11T00:00:00Z"))
+                .first { $0.rolloutPath == rolloutPath })
+
+        XCTAssertEqual(session.model, "gpt-5.4-mini")
+        XCTAssertEqual(session.hasSourceAttribution, true)
+        XCTAssertNil(session.projectPath)
+        XCTAssertEqual(session.projectAttributionQuality, .unknown)
+    }
+
     func test_codexReaderMergesJsonlSourceAttributionWhenDatabaseSourceIsMissing() {
         let merged = CodexReader().mergedSessions(
             databaseSessions: [
@@ -310,16 +459,67 @@ final class CodexReaderTests: XCTestCase {
         output: Int,
         reasoning: Int,
         total: Int) -> String {
-        let usage = [
-            "\"input_tokens\":\(input)",
-            "\"cached_input_tokens\":\(cachedInput)",
-            "\"output_tokens\":\(output)",
-            "\"reasoning_output_tokens\":\(reasoning)",
-            "\"total_tokens\":\(total)",
-        ].joined(separator: ",")
+        tokenCountLine(
+            ts: ts,
+            input: input,
+            cachedInput: cachedInput,
+            output: output,
+            reasoning: reasoning,
+            total: total,
+            additionalInfoFields: [])
+    }
+
+    private func tokenCountLine(
+        ts: String,
+        input: Int,
+        cachedInput: Int,
+        output: Int,
+        reasoning: Int,
+        total: Int,
+        lastUsage: TokenCountLineUsage) -> String {
+        tokenCountLine(
+            ts: ts,
+            input: input,
+            cachedInput: cachedInput,
+            output: output,
+            reasoning: reasoning,
+            total: total,
+            additionalInfoFields: [
+                tokenUsageField("last_token_usage", usage: lastUsage),
+            ])
+    }
+
+    private func tokenCountLine(
+        ts: String,
+        input: Int,
+        cachedInput: Int,
+        output: Int,
+        reasoning: Int,
+        total: Int,
+        additionalInfoFields: [String]) -> String {
+        let totalUsage = TokenCountLineUsage(
+            input: input,
+            cachedInput: cachedInput,
+            output: output,
+            reasoning: reasoning,
+            total: total)
+        let infoFields = [
+            tokenUsageField("total_token_usage", usage: totalUsage),
+        ] + additionalInfoFields
+
         return """
         {"timestamp":"\(ts)","type":"event_msg",\
-        "payload":{"type":"token_count","info":{"total_token_usage":{\(usage)}}}}
+        "payload":{"type":"token_count","info":{\(infoFields.joined(separator: ","))}}}
+        """
+    }
+
+    private func tokenUsageField(_ name: String, usage: TokenCountLineUsage) -> String {
+        """
+        "\(name)":{"input_tokens":\(usage.input),\
+        "cached_input_tokens":\(usage.cachedInput),\
+        "output_tokens":\(usage.output),\
+        "reasoning_output_tokens":\(usage.reasoning),\
+        "total_tokens":\(usage.total)}
         """
     }
 
@@ -329,5 +529,39 @@ final class CodexReaderTests: XCTestCase {
             return Date.distantPast
         }
         return date
+    }
+}
+
+private struct TokenCountLineUsage {
+    let input: Int
+    let cachedInput: Int
+    let output: Int
+    let reasoning: Int
+    let total: Int
+
+    init(
+        input: Int,
+        cachedInput: Int,
+        output: Int,
+        reasoning: Int) {
+        self.init(
+            input: input,
+            cachedInput: cachedInput,
+            output: output,
+            reasoning: reasoning,
+            total: input + output)
+    }
+
+    init(
+        input: Int,
+        cachedInput: Int,
+        output: Int,
+        reasoning: Int,
+        total: Int) {
+        self.input = input
+        self.cachedInput = cachedInput
+        self.output = output
+        self.reasoning = reasoning
+        self.total = total
     }
 }

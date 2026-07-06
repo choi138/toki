@@ -164,18 +164,11 @@ struct CodexRolloutEntry: Decodable {
     let type: String?
     let payload: Payload?
 
-    var tokenSnapshot: CodexUsageSnapshot? {
-        guard type == "event_msg",
-              payload?.type == "token_count",
-              let totalUsage = payload?.info?.totalTokenUsage else {
+    var tokenCount: CodexTokenCount? {
+        guard type == "event_msg", payload?.type == "token_count" else {
             return nil
         }
-
-        return CodexUsageSnapshot(
-            inputTokens: totalUsage.inputTokens ?? 0,
-            cachedInputTokens: totalUsage.cachedInputTokens ?? 0,
-            outputTokens: totalUsage.outputTokens ?? 0,
-            reasoningOutputTokens: totalUsage.reasoningOutputTokens ?? 0)
+        return payload?.info?.tokenCount
     }
 
     struct Payload: Decodable {
@@ -183,26 +176,88 @@ struct CodexRolloutEntry: Decodable {
         let info: Info?
 
         struct Info: Decodable {
-            let totalTokenUsage: TotalTokenUsage?
+            let totalTokenUsage: CodexTokenUsageCounters?
+            let lastTokenUsage: CodexTokenUsageCounters?
 
             enum CodingKeys: String, CodingKey {
                 case totalTokenUsage = "total_token_usage"
+                case lastTokenUsage = "last_token_usage"
+            }
+
+            var tokenCount: CodexTokenCount? {
+                CodexTokenCount(
+                    totalUsage: totalTokenUsage,
+                    lastUsage: lastTokenUsage)
             }
         }
     }
 }
 
-struct TotalTokenUsage: Decodable {
-    let inputTokens: Int?
-    let cachedInputTokens: Int?
-    let outputTokens: Int?
-    let reasoningOutputTokens: Int?
+struct CodexTokenCount {
+    let totalSnapshot: CodexUsageSnapshot
+    let delta: CodexTokenDelta
+
+    init?(
+        totalUsage: CodexTokenUsageCounters?,
+        lastUsage: CodexTokenUsageCounters?) {
+        guard let totalUsage else { return nil }
+
+        totalSnapshot = totalUsage.snapshot
+        delta = lastUsage.map { .explicit($0.normalizedUsage) } ?? .cumulative
+    }
+
+    func usage(since previousSnapshot: CodexUsageSnapshot?) -> RawTokenUsage {
+        delta.usage(currentSnapshot: totalSnapshot, previousSnapshot: previousSnapshot)
+    }
+}
+
+enum CodexTokenDelta {
+    case explicit(RawTokenUsage)
+    case cumulative
+
+    func usage(
+        currentSnapshot: CodexUsageSnapshot,
+        previousSnapshot: CodexUsageSnapshot?) -> RawTokenUsage {
+        switch self {
+        case let .explicit(usage):
+            usage
+        case .cumulative:
+            currentSnapshot.delta(since: previousSnapshot).normalizedUsage
+        }
+    }
+}
+
+struct CodexTokenUsageCounters: Decodable {
+    let inputTokens: Int
+    let cachedInputTokens: Int
+    let outputTokens: Int
+    let reasoningOutputTokens: Int
 
     enum CodingKeys: String, CodingKey {
         case inputTokens = "input_tokens"
         case cachedInputTokens = "cached_input_tokens"
         case outputTokens = "output_tokens"
         case reasoningOutputTokens = "reasoning_output_tokens"
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        inputTokens = try container.decodeIfPresent(Int.self, forKey: .inputTokens) ?? 0
+        cachedInputTokens = try container.decodeIfPresent(Int.self, forKey: .cachedInputTokens) ?? 0
+        outputTokens = try container.decodeIfPresent(Int.self, forKey: .outputTokens) ?? 0
+        reasoningOutputTokens = try container.decodeIfPresent(Int.self, forKey: .reasoningOutputTokens) ?? 0
+    }
+
+    var snapshot: CodexUsageSnapshot {
+        CodexUsageSnapshot(
+            inputTokens: inputTokens,
+            cachedInputTokens: cachedInputTokens,
+            outputTokens: outputTokens,
+            reasoningOutputTokens: reasoningOutputTokens)
+    }
+
+    var normalizedUsage: RawTokenUsage {
+        snapshot.normalizedUsage
     }
 }
 
@@ -236,8 +291,16 @@ struct CodexUsageSnapshot {
 
 struct CodexTimedSnapshot {
     let date: Date
-    let snapshot: CodexUsageSnapshot
+    let tokenCount: CodexTokenCount
     let fileOrder: Int
+
+    var snapshot: CodexUsageSnapshot {
+        tokenCount.totalSnapshot
+    }
+
+    func usage(since previousSnapshot: CodexUsageSnapshot?) -> RawTokenUsage {
+        tokenCount.usage(since: previousSnapshot)
+    }
 }
 
 private func firstNonEmpty(_ values: String?...) -> String? {

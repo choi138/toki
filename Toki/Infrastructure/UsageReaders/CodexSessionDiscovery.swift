@@ -137,8 +137,11 @@ extension CodexReader {
 
         let startEpoch = startDate.timeIntervalSince1970
         let endEpoch = endDate.timeIntervalSince1970
+        let projectPathExpression = codexSQLiteTable(database, tableName: "threads", hasColumn: "cwd")
+            ? "COALESCE(cwd, '')"
+            : "''"
         let query = """
-            SELECT DISTINCT rollout_path, COALESCE(model, ''), source
+            SELECT DISTINCT rollout_path, COALESCE(model, ''), COALESCE(source, ''), \(projectPathExpression)
             FROM threads
             WHERE updated_at >= ? AND created_at < ?
         """
@@ -158,16 +161,17 @@ extension CodexReader {
 
             guard let rolloutPathPointer = sqlite3_column_text(statement, 0) else { continue }
             let rolloutPath = String(cString: rolloutPathPointer)
-            let rawModel = sqlite3_column_text(statement, 1).map { String(cString: $0) } ?? ""
-            let rawSource = sqlite3_column_text(statement, 2).map { String(cString: $0) } ?? ""
-            let model = rawModel.isEmpty ? nil : rawModel
-            let source = rawSource.trimmingCharacters(in: .whitespacesAndNewlines)
+            let model = codexSQLiteText(statement, at: 1).trimmedNonEmpty
+            let source = codexSQLiteText(statement, at: 2).trimmedNonEmpty
+            let projectPath = codexSQLiteText(statement, at: 3).trimmedNonEmpty
             sessions.append(
                 CodexSession(
                     rolloutPath: rolloutPath,
                     model: model,
                     agentKind: codexAgentKind(fromSource: source),
-                    hasSourceAttribution: !source.isEmpty))
+                    hasSourceAttribution: source != nil,
+                    projectPath: projectPath,
+                    projectAttributionQuality: .exact))
         }
         return sessions
     }
@@ -348,6 +352,35 @@ extension CodexReader {
             return nil
         }
         return transform(line.trimmingCharacters(in: .whitespaces))
+    }
+}
+
+private func codexSQLiteText(_ statement: OpaquePointer?, at index: Int32) -> String {
+    sqlite3_column_text(statement, index).map { String(cString: $0) } ?? ""
+}
+
+private func codexSQLiteTable(
+    _ database: OpaquePointer?,
+    tableName: String,
+    hasColumn columnName: String) -> Bool {
+    var statement: OpaquePointer?
+    guard sqlite3_prepare_v2(database, "PRAGMA table_info(\(tableName))", -1, &statement, nil) == SQLITE_OK else {
+        return false
+    }
+    defer { sqlite3_finalize(statement) }
+
+    while sqlite3_step(statement) == SQLITE_ROW {
+        guard codexSQLiteText(statement, at: 1) == columnName else { continue }
+        return true
+    }
+
+    return false
+}
+
+private extension String {
+    var trimmedNonEmpty: String? {
+        let trimmed = trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
     }
 }
 

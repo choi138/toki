@@ -20,13 +20,7 @@ actor CodexRolloutUsageCache {
     }
 
     func dailyUsage(for url: URL) async -> [String: CodexCachedDailyUsage]? {
-        await loadIfNeeded()
-
-        guard let fileSignature = codexFileSignature(for: url),
-              let cached = entries[url.path],
-              cached.fileSize == fileSignature.fileSize,
-              cached.modifiedAt == fileSignature.modifiedAt,
-              cached.timeZoneIdentifier == codexCacheTimeZoneIdentifier() else {
+        guard let cached = await cachedEntry(for: url) else {
             return nil
         }
 
@@ -34,13 +28,7 @@ actor CodexRolloutUsageCache {
     }
 
     func dailyActivityTimestamps(for url: URL) async -> [String: [TimeInterval]]? {
-        await loadIfNeeded()
-
-        guard let fileSignature = codexFileSignature(for: url),
-              let cached = entries[url.path],
-              cached.fileSize == fileSignature.fileSize,
-              cached.modifiedAt == fileSignature.modifiedAt,
-              cached.timeZoneIdentifier == codexCacheTimeZoneIdentifier() else {
+        guard let cached = await cachedEntry(for: url) else {
             return nil
         }
 
@@ -53,13 +41,7 @@ actor CodexRolloutUsageCache {
     }
 
     func dailyTokenUsageEvents(for url: URL) async -> [String: [CodexCachedTokenUsageEvent]]? {
-        await loadIfNeeded()
-
-        guard let fileSignature = codexFileSignature(for: url),
-              let cached = entries[url.path],
-              cached.fileSize == fileSignature.fileSize,
-              cached.modifiedAt == fileSignature.modifiedAt,
-              cached.timeZoneIdentifier == codexCacheTimeZoneIdentifier() else {
+        guard let cached = await cachedEntry(for: url) else {
             return nil
         }
 
@@ -105,6 +87,21 @@ actor CodexRolloutUsageCache {
         entries = decoded.entries
     }
 
+    private func cachedEntry(for url: URL) async -> CodexRolloutUsageCacheEntry? {
+        await loadIfNeeded()
+
+        guard let fileSignature = codexFileSignature(for: url),
+              let cached = entries[url.path],
+              cached.isCurrentSchema,
+              cached.fileSize == fileSignature.fileSize,
+              cached.modifiedAt == fileSignature.modifiedAt,
+              cached.timeZoneIdentifier == codexCacheTimeZoneIdentifier() else {
+            return nil
+        }
+
+        return cached
+    }
+
     private func persistIfNeeded() {
         guard hasPendingChanges, batchDepth == 0 else { return }
 
@@ -127,12 +124,19 @@ struct CodexRolloutUsageCacheFile: Codable {
 }
 
 struct CodexRolloutUsageCacheEntry: Codable {
+    static let currentSchemaVersion = 1
+
+    let schemaVersion: Int
     let fileSize: Int
     let modifiedAt: TimeInterval
     let timeZoneIdentifier: String
     let dailyUsage: [String: CodexCachedDailyUsage]
     let dailyActivityTimestamps: [String: [TimeInterval]]
     let dailyTokenUsageEvents: [String: [CodexCachedTokenUsageEvent]]
+
+    var isCurrentSchema: Bool {
+        schemaVersion == Self.currentSchemaVersion
+    }
 
     init(
         fileSize: Int,
@@ -141,6 +145,7 @@ struct CodexRolloutUsageCacheEntry: Codable {
         dailyUsage: [String: CodexCachedDailyUsage],
         dailyActivityTimestamps: [String: [TimeInterval]] = [:],
         dailyTokenUsageEvents: [String: [CodexCachedTokenUsageEvent]] = [:]) {
+        schemaVersion = Self.currentSchemaVersion
         self.fileSize = fileSize
         self.modifiedAt = modifiedAt
         self.timeZoneIdentifier = timeZoneIdentifier
@@ -150,6 +155,7 @@ struct CodexRolloutUsageCacheEntry: Codable {
     }
 
     enum CodingKeys: String, CodingKey {
+        case schemaVersion
         case fileSize
         case modifiedAt
         case timeZoneIdentifier
@@ -160,6 +166,7 @@ struct CodexRolloutUsageCacheEntry: Codable {
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
+        schemaVersion = try container.decodeIfPresent(Int.self, forKey: .schemaVersion) ?? 0
         fileSize = try container.decode(Int.self, forKey: .fileSize)
         modifiedAt = try container.decode(TimeInterval.self, forKey: .modifiedAt)
         timeZoneIdentifier = try container.decode(String.self, forKey: .timeZoneIdentifier)
@@ -311,10 +318,9 @@ func codexRolloutDailySummary(fromSnapshots snapshots: [CodexTimedSnapshot]) -> 
     for entry in snapshots {
         guard !Task.isCancelled else { return CodexRolloutDailySummary() }
 
-        let delta = entry.snapshot.delta(since: previousSnapshot)
+        let usage = entry.usage(since: previousSnapshot)
         previousSnapshot = entry.snapshot
 
-        let usage = delta.normalizedUsage
         guard usage.totalTokens > 0 else { continue }
 
         activityTimestamps.append(entry.date)
@@ -340,13 +346,13 @@ func codexRolloutSnapshots(fromRolloutLines lines: [String]) -> [CodexTimedSnaps
               let entry = try? decoder.decode(CodexRolloutEntry.self, from: data),
               let timestamp = entry.timestamp,
               let date = DateParser.parse(timestamp),
-              let snapshot = entry.tokenSnapshot else {
+              let tokenCount = entry.tokenCount else {
             return nil
         }
 
         return CodexTimedSnapshot(
             date: date,
-            snapshot: snapshot,
+            tokenCount: tokenCount,
             fileOrder: index)
     }.sorted { lhs, rhs in
         if lhs.date == rhs.date {
@@ -365,14 +371,14 @@ func codexRolloutSnapshots(fromRolloutAt url: URL) -> [CodexTimedSnapshot] {
               let entry = try? decoder.decode(CodexRolloutEntry.self, from: data),
               let timestamp = entry.timestamp,
               let date = DateParser.parse(timestamp),
-              let snapshot = entry.tokenSnapshot else {
+              let tokenCount = entry.tokenCount else {
             return
         }
 
         snapshots.append(
             CodexTimedSnapshot(
                 date: date,
-                snapshot: snapshot,
+                tokenCount: tokenCount,
                 fileOrder: index))
     }
 
