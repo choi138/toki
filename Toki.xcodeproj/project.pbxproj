@@ -498,6 +498,7 @@
 				};
 			};
 			buildConfigurationList = BF8894522CD09D5EBB16FFE4 /* Build configuration list for PBXProject "Toki" */;
+			compatibilityVersion = "Xcode 14.0";
 			developmentRegion = en;
 			hasScannedForEncodings = 0;
 			knownRegions = (
@@ -507,7 +508,6 @@
 			mainGroup = F318A0B53D228A28053AC05F;
 			minimizedProjectReferenceProxies = 1;
 			preferredProjectObjectVersion = 77;
-			productRefGroup = D4F7CB66A43B020E76045F98 /* Products */;
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
