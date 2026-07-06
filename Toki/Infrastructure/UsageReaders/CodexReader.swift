@@ -5,9 +5,10 @@ import SQLite3
 /// then reconstructs per-range usage from rollout JSONL token_count snapshots.
 struct CodexReader: TokenReader {
     let name = "Codex"
+    let dbPath: String
 
-    var dbPath: String {
-        homeDir().appendingPathComponent(".codex/state_5.sqlite").path
+    init(dbPath: String = homeDir().appendingPathComponent(".codex/state_5.sqlite").path) {
+        self.dbPath = dbPath
     }
 
     func readUsage(from startDate: Date, to endDate: Date) async throws -> RawTokenUsage {
@@ -167,12 +168,11 @@ extension CodexReader {
         for entry in codexRolloutSnapshots(fromRolloutLines: lines) {
             guard !Task.isCancelled else { return RawTokenUsage() }
 
-            let delta = entry.snapshot.delta(since: previousSnapshot)
+            let usage = entry.usage(since: previousSnapshot)
             previousSnapshot = entry.snapshot
 
             guard entry.date >= startDate, entry.date < endDate else { continue }
 
-            let usage = delta.normalizedUsage
             guard usage.totalTokens > 0 else { continue }
             activityTimestamps.append(entry.date)
 
@@ -432,11 +432,11 @@ extension CodexReader {
         return codexRolloutSnapshots(fromRolloutLines: readJSONLLines(at: url)).compactMap { entry in
             guard !Task.isCancelled else { return nil }
 
-            let delta = entry.snapshot.delta(since: previousSnapshot)
+            let usage = entry.usage(since: previousSnapshot)
             previousSnapshot = entry.snapshot
 
             guard entry.date >= startDate, entry.date < endDate else { return nil }
-            guard delta.normalizedUsage.totalTokens > 0 else { return nil }
+            guard usage.totalTokens > 0 else { return nil }
 
             return ActivityTimeEvent(
                 streamID: url.path,
