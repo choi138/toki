@@ -43,7 +43,7 @@ extension UsageReportBuilder {
         return (eventStats + fallbackStats).sorted(by: modelStatSort)
     }
 
-    static func buildLegacyModelStats(from perModel: [String: PerModelUsage]) -> [ModelStat] {
+    private static func buildLegacyModelStats(from perModel: [String: PerModelUsage]) -> [ModelStat] {
         perModel
             .filter {
                 $0.value.totalTokens > 0
@@ -63,7 +63,7 @@ extension UsageReportBuilder {
             .sorted(by: modelStatSort)
     }
 
-    static func buildModelSourceStats(
+    private static func buildModelSourceStats(
         from events: [TokenUsageEvent],
         calendar: Calendar = .autoupdatingCurrent) -> [ModelStat] {
         var aggregates: [ModelSourceAggregateKey: ModelSourceStatAggregate] = [:]
@@ -96,7 +96,7 @@ extension UsageReportBuilder {
         .sorted(by: modelStatSort)
     }
 
-    static func modelStatSort(_ lhs: ModelStat, _ rhs: ModelStat) -> Bool {
+    private static func modelStatSort(_ lhs: ModelStat, _ rhs: ModelStat) -> Bool {
         if lhs.activeSeconds != rhs.activeSeconds {
             return lhs.activeSeconds > rhs.activeSeconds
         }
@@ -138,11 +138,4 @@ private func modelSourceStreamID(
     let hourStart = calendar.dateInterval(of: .hour, for: event.timestamp)?.start
         ?? event.timestamp
     return "\(event.source)|\(projectKey)|\(Int(hourStart.timeIntervalSince1970))"
-}
-
-private extension String {
-    var trimmedNonEmpty: String? {
-        let trimmed = trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty ? nil : trimmed
-    }
 }

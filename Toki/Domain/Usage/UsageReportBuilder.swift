@@ -498,10 +498,3 @@ private let sessionHourFormatter: DateFormatter = {
     formatter.dateFormat = "HH:mm"
     return formatter
 }()
-
-private extension String {
-    var trimmedNonEmpty: String? {
-        let trimmed = trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty ? nil : trimmed
-    }
-}

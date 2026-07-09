@@ -558,9 +558,4 @@ private extension String {
     var trimmingLeadingHyphens: String {
         String(drop { $0 == "-" })
     }
-
-    var trimmedNonEmpty: String? {
-        let trimmed = trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty ? nil : trimmed
-    }
 }

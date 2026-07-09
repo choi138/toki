@@ -82,6 +82,7 @@
 		CF177959CFC6AFC2D6B57957 /* UsageProjectTimelineReportTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 249A8147031075DB2B206742 /* UsageProjectTimelineReportTests.swift */; };
 		D370E136A34511750F12DF91 /* rabbit_run_05.png in Resources */ = {isa = PBXBuildFile; fileRef = A169A412590D629F7E46349A /* rabbit_run_05.png */; };
 		D44CC205C094FB726AF83048 /* PanelProjectTimelineView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 523E396F351DD1B72E9761FC /* PanelProjectTimelineView.swift */; };
+		D5D091F28FC430384996D430 /* StringTrimming.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1648AAFB6644EF1FB46CB48E /* StringTrimming.swift */; };
 		D6C2498149E0566DC5D7826F /* HermesReader.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1572AEB6852587A43860063 /* HermesReader.swift */; };
 		D723D560281B235B734B80FC /* CodexReader.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9E700FAEF1F9287012F73D94 /* CodexReader.swift */; };
 		D7C4B0711A2EE504535042CA /* SecurityAuditScanner.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5D1D5079616742DF022CA445 /* SecurityAuditScanner.swift */; };
@@ -115,6 +116,7 @@
 		0E640BFCC95D2085AA49840F /* rabbit_run_06.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = rabbit_run_06.png; sourceTree = "<group>"; };
 		107B89D8C6829F00817A902B /* UsageAggregator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UsageAggregator.swift; sourceTree = "<group>"; };
 		128D492BD818BC76538BE7CA /* rabbit_run_02.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = rabbit_run_02.png; sourceTree = "<group>"; };
+		1648AAFB6644EF1FB46CB48E /* StringTrimming.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StringTrimming.swift; sourceTree = "<group>"; };
 		1956F137B4D8CF68B7086735 /* PanelHeaderView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PanelHeaderView.swift; sourceTree = "<group>"; };
 		1B445FAED2BE66679303774D /* SecurityAuditViewModelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SecurityAuditViewModelTests.swift; sourceTree = "<group>"; };
 		1DFAAE90B6B20174754C0B0E /* UsagePanelRefreshCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UsagePanelRefreshCoordinator.swift; sourceTree = "<group>"; };
@@ -297,6 +299,7 @@
 			isa = PBXGroup;
 			children = (
 				9E6E6E92E3F42E0F83E9E0CC /* RawTokenUsage.swift */,
+				1648AAFB6644EF1FB46CB48E /* StringTrimming.swift */,
 				040E22475A3B67ADD7D87172 /* UsageData.swift */,
 				22C432D6251366821B5F63D3 /* UsageFormatting.swift */,
 				72156DB6C230C46DE726889F /* UsageReportBuilder.swift */,
@@ -591,6 +594,7 @@
 				A6C48427C457CFE820BF1F22 /* SecurityAuditSources.swift in Sources */,
 				0095D9DEC8369D39D5EF8149 /* SecurityAuditView.swift in Sources */,
 				C51D063F04218FF9A6A23A0F /* SecurityAuditViewModel.swift in Sources */,
+				D5D091F28FC430384996D430 /* StringTrimming.swift in Sources */,
 				2A7C9CDE7A2948835A29D4D3 /* TokenReader.swift in Sources */,
 				2B6D19495FEB39ABA653D9CD /* TokiApp.swift in Sources */,
 				19402E1978419587580E9C87 /* UsageAggregator.swift in Sources */,

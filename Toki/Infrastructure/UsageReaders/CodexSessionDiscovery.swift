@@ -377,13 +377,6 @@ private func codexSQLiteTable(
     return false
 }
 
-private extension String {
-    var trimmedNonEmpty: String? {
-        let trimmed = trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty ? nil : trimmed
-    }
-}
-
 private func codexProjectQualityRank(_ quality: AttributionQuality) -> Int {
     switch quality {
     case .exact:
