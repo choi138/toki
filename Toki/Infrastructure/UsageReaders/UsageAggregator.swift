@@ -33,6 +33,7 @@ final class UsageAggregator {
     static let defaultReaders: [any TokenReader] = [
         ClaudeCodeReader(),
         CodexReader(),
+        HermesReader(),
         CursorReader(),
         GeminiReader(),
         GJCReader(),

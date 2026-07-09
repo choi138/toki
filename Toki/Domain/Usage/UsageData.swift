@@ -4,11 +4,29 @@ import Foundation
 
 struct ModelStat: Equatable {
     let id: String
+    let modelID: String
     let totalTokens: Int
     let cost: Double
     let activeSeconds: TimeInterval
     let sources: [String]
     let isPriceKnown: Bool
+
+    init(
+        id: String,
+        modelID: String? = nil,
+        totalTokens: Int,
+        cost: Double,
+        activeSeconds: TimeInterval,
+        sources: [String],
+        isPriceKnown: Bool) {
+        self.id = id
+        self.modelID = modelID ?? id
+        self.totalTokens = totalTokens
+        self.cost = cost
+        self.activeSeconds = activeSeconds
+        self.sources = sources
+        self.isPriceKnown = isPriceKnown
+    }
 }
 
 struct SourceStat: Equatable {

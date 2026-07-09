@@ -43,6 +43,13 @@ final class UsagePanelSettingsTests: XCTestCase {
         XCTAssertEqual(settings.refreshIntervalSeconds, 180)
     }
 
+    func test_defaultReaderNamesMatchAggregatorReaders() {
+        let settingsReaderNames = UsagePanelSettings.defaultReaderNames
+        XCTAssertEqual(settingsReaderNames, UsageAggregator.defaultReaders.map(\.name))
+        XCTAssertTrue(settingsReaderNames.contains("GJC"))
+        XCTAssertTrue(settingsReaderNames.contains("Hermes"))
+    }
+
     private func makeDefaults() -> (String, UserDefaults) {
         let suiteName = "UsagePanelSettingsTests.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suiteName)!

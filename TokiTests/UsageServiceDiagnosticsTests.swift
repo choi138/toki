@@ -53,6 +53,53 @@ final class UsageServiceDiagnosticsTests: XCTestCase {
         XCTAssertEqual(service.readerStatuses.map(\.state), [.loaded, .disabled])
     }
 
+    func test_usageReportSplitsModelBreakdownBySource() {
+        let startDate = tokiTestISODate("2026-04-10T00:00:00Z")
+        let endDate = tokiTestISODate("2026-04-11T00:00:00Z")
+        var rawUsage = RawTokenUsage()
+        rawUsage.recordTokenEvent(
+            timestamp: tokiTestISODate("2026-04-10T09:00:00Z"),
+            source: "Codex",
+            model: "gpt-5.5",
+            inputTokens: 100,
+            outputTokens: 10,
+            cost: 1.0,
+            attribution: UsageAttribution(sessionID: "codex-session"))
+        rawUsage.recordTokenEvent(
+            timestamp: tokiTestISODate("2026-04-10T10:00:00Z"),
+            source: "GJC",
+            model: "gpt-5.5",
+            inputTokens: 50,
+            outputTokens: 5,
+            cost: 0.5,
+            attribution: UsageAttribution(sessionID: "gjc-session"))
+        rawUsage.recordTokenEvent(
+            timestamp: tokiTestISODate("2026-04-10T11:00:00Z"),
+            source: "Hermes",
+            model: "gpt-5.5",
+            inputTokens: 200,
+            outputTokens: 20,
+            cost: 2.0,
+            attribution: UsageAttribution(sessionID: "hermes-session"))
+
+        let report = UsageReportBuilder.report(
+            from: rawUsage,
+            date: startDate,
+            endDate: endDate,
+            sourceStats: [])
+        let rowsBySource = Dictionary(
+            uniqueKeysWithValues: report.perModel.compactMap { stat in
+                stat.sources.first.map { ($0, stat) }
+            })
+
+        XCTAssertEqual(report.perModel.count, 3)
+        XCTAssertEqual(Set(report.perModel.map(\.id)).count, 3)
+        XCTAssertEqual(Set(report.perModel.map(\.modelID)), Set(["gpt-5.5"]))
+        XCTAssertEqual(rowsBySource["Codex"]?.totalTokens, 110)
+        XCTAssertEqual(rowsBySource["GJC"]?.totalTokens, 55)
+        XCTAssertEqual(rowsBySource["Hermes"]?.totalTokens, 220)
+    }
+
     func test_usageService_reloadsWhenReaderSettingsChangeDuringSameRangeLoad() async throws {
         let (suiteName, defaults) = makeDefaults()
         defer { defaults.removePersistentDomain(forName: suiteName) }

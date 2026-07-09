@@ -19,7 +19,7 @@ enum UsageReportBuilder {
             cost: usage.cost,
             activeSeconds: usage.activeSeconds,
             workTime: usage.resolvedWorkTime,
-            perModel: buildModelStats(from: usage.perModel),
+            perModel: buildModelStats(from: usage),
             sourceStats: sourceStats,
             timeBuckets: buildTimeBuckets(
                 from: usage.tokenEvents,
@@ -158,25 +158,6 @@ private struct ContextOnlyModelAggregateKey: Hashable {
 }
 
 private extension UsageReportBuilder {
-    static func buildModelStats(from perModel: [String: PerModelUsage]) -> [ModelStat] {
-        perModel
-            .filter {
-                $0.value.totalTokens > 0
-                    || $0.value.activeSeconds > 0
-                    || $0.value.cost > 0
-            }
-            .map {
-                ModelStat(
-                    id: $0.key,
-                    totalTokens: $0.value.totalTokens,
-                    cost: $0.value.cost,
-                    activeSeconds: $0.value.activeSeconds,
-                    sources: $0.value.sources.sorted(),
-                    isPriceKnown: modelPriceLookup(for: $0.key).isPriced)
-            }
-            .sorted(by: modelStatSort)
-    }
-
     static func buildTimeBuckets(
         from events: [TokenUsageEvent],
         startDate: Date,
@@ -509,19 +490,6 @@ private func sessionStatSort(_ lhs: SessionUsageStat, _ rhs: SessionUsageStat) -
         return lhs.lastActivityAt > rhs.lastActivityAt
     }
     return lhs.sessionLabel < rhs.sessionLabel
-}
-
-private func modelStatSort(_ lhs: ModelStat, _ rhs: ModelStat) -> Bool {
-    if lhs.activeSeconds != rhs.activeSeconds {
-        return lhs.activeSeconds > rhs.activeSeconds
-    }
-    if lhs.totalTokens != rhs.totalTokens {
-        return lhs.totalTokens > rhs.totalTokens
-    }
-    if lhs.cost != rhs.cost {
-        return lhs.cost > rhs.cost
-    }
-    return lhs.id < rhs.id
 }
 
 private let sessionHourFormatter: DateFormatter = {
