@@ -19,7 +19,9 @@ enum UsageReportBuilder {
             cost: usage.cost,
             activeSeconds: usage.activeSeconds,
             workTime: usage.resolvedWorkTime,
-            perModel: buildModelStats(from: usage),
+            perModel: buildModelStats(
+                from: usage,
+                endDate: endDate),
             sourceStats: sourceStats,
             timeBuckets: buildTimeBuckets(
                 from: usage.tokenEvents,

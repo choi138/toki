@@ -63,6 +63,11 @@ struct PerModelUsage {
     var sources: Set<String> = []
 }
 
+struct ModelSourceUsageKey: Hashable {
+    let modelID: String
+    let source: String
+}
+
 struct TokenUsageEvent: Equatable, Codable {
     let timestamp: Date
     let source: String
@@ -179,6 +184,7 @@ struct RawTokenUsage {
     var activeSeconds: TimeInterval = 0
     var workTime = WorkTimeMetrics.zero
     var perModel: [String: PerModelUsage] = [:]
+    var perModelBySource: [ModelSourceUsageKey: PerModelUsage] = [:]
     var activityEvents: [ActivityTimeEvent<String>] = []
     var tokenEvents: [TokenUsageEvent] = []
     var fallbackActiveSeconds: TimeInterval = 0
@@ -210,6 +216,7 @@ struct RawTokenUsage {
             || fallbackWorkTime.hasActivity
             || fallbackActiveSeconds > 0
             || !perModel.isEmpty
+            || !perModelBySource.isEmpty
             || !tokenEvents.isEmpty
             || !supplemental.isEmpty
     }
@@ -303,6 +310,13 @@ func += (lhs: inout RawTokenUsage, rhs: RawTokenUsage) {
         lhs.perModel[id, default: PerModelUsage()].cost += usage.cost
         lhs.perModel[id, default: PerModelUsage()].activeSeconds += usage.activeSeconds
         lhs.perModel[id, default: PerModelUsage()].sources.formUnion(usage.sources)
+    }
+
+    for (key, usage) in rhs.perModelBySource {
+        lhs.perModelBySource[key, default: PerModelUsage()].totalTokens += usage.totalTokens
+        lhs.perModelBySource[key, default: PerModelUsage()].cost += usage.cost
+        lhs.perModelBySource[key, default: PerModelUsage()].activeSeconds += usage.activeSeconds
+        lhs.perModelBySource[key, default: PerModelUsage()].sources.formUnion(usage.sources)
     }
 
     for (id, seconds) in rhs.fallbackActiveSecondsByModel {

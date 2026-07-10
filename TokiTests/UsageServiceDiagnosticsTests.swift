@@ -53,53 +53,6 @@ final class UsageServiceDiagnosticsTests: XCTestCase {
         XCTAssertEqual(service.readerStatuses.map(\.state), [.loaded, .disabled])
     }
 
-    func test_usageReportSplitsModelBreakdownBySource() {
-        let startDate = tokiTestISODate("2026-04-10T00:00:00Z")
-        let endDate = tokiTestISODate("2026-04-11T00:00:00Z")
-        var rawUsage = RawTokenUsage()
-        rawUsage.recordTokenEvent(
-            timestamp: tokiTestISODate("2026-04-10T09:00:00Z"),
-            source: "Codex",
-            model: "gpt-5.5",
-            inputTokens: 100,
-            outputTokens: 10,
-            cost: 1.0,
-            attribution: UsageAttribution(sessionID: "codex-session"))
-        rawUsage.recordTokenEvent(
-            timestamp: tokiTestISODate("2026-04-10T10:00:00Z"),
-            source: "GJC",
-            model: "gpt-5.5",
-            inputTokens: 50,
-            outputTokens: 5,
-            cost: 0.5,
-            attribution: UsageAttribution(sessionID: "gjc-session"))
-        rawUsage.recordTokenEvent(
-            timestamp: tokiTestISODate("2026-04-10T11:00:00Z"),
-            source: "Hermes",
-            model: "gpt-5.5",
-            inputTokens: 200,
-            outputTokens: 20,
-            cost: 2.0,
-            attribution: UsageAttribution(sessionID: "hermes-session"))
-
-        let report = UsageReportBuilder.report(
-            from: rawUsage,
-            date: startDate,
-            endDate: endDate,
-            sourceStats: [])
-        let rowsBySource = Dictionary(
-            uniqueKeysWithValues: report.perModel.compactMap { stat in
-                stat.sources.first.map { ($0, stat) }
-            })
-
-        XCTAssertEqual(report.perModel.count, 3)
-        XCTAssertEqual(Set(report.perModel.map(\.id)).count, 3)
-        XCTAssertEqual(Set(report.perModel.map(\.modelID)), Set(["gpt-5.5"]))
-        XCTAssertEqual(rowsBySource["Codex"]?.totalTokens, 110)
-        XCTAssertEqual(rowsBySource["GJC"]?.totalTokens, 55)
-        XCTAssertEqual(rowsBySource["Hermes"]?.totalTokens, 220)
-    }
-
     func test_usageService_reloadsWhenReaderSettingsChangeDuringSameRangeLoad() async throws {
         let (suiteName, defaults) = makeDefaults()
         defer { defaults.removePersistentDomain(forName: suiteName) }
@@ -218,6 +171,205 @@ final class UsageServiceDiagnosticsTests: XCTestCase {
         let suiteName = "UsageServiceDiagnosticsTests.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suiteName)!
         return (suiteName, defaults)
+    }
+}
+
+@MainActor
+final class UsageModelSourceBreakdownTests: XCTestCase {
+    func test_usageReportSplitsModelBreakdownBySource() {
+        let startDate = tokiTestISODate("2026-04-10T00:00:00Z")
+        let endDate = tokiTestISODate("2026-04-11T00:00:00Z")
+        var rawUsage = RawTokenUsage()
+        rawUsage.recordTokenEvent(
+            timestamp: tokiTestISODate("2026-04-10T09:00:00Z"),
+            source: "Codex",
+            model: "gpt-5.5",
+            inputTokens: 100,
+            outputTokens: 10,
+            cost: 1.0,
+            attribution: UsageAttribution(sessionID: "codex-session"))
+        rawUsage.recordTokenEvent(
+            timestamp: tokiTestISODate("2026-04-10T10:00:00Z"),
+            source: "GJC",
+            model: "gpt-5.5",
+            inputTokens: 50,
+            outputTokens: 5,
+            cost: 0.5,
+            attribution: UsageAttribution(sessionID: "gjc-session"))
+        rawUsage.recordTokenEvent(
+            timestamp: tokiTestISODate("2026-04-10T11:00:00Z"),
+            source: "Hermes",
+            model: "gpt-5.5",
+            inputTokens: 200,
+            outputTokens: 20,
+            cost: 2.0,
+            attribution: UsageAttribution(sessionID: "hermes-session"))
+
+        let report = UsageReportBuilder.report(
+            from: rawUsage,
+            date: startDate,
+            endDate: endDate,
+            sourceStats: [])
+        let rowsBySource = Dictionary(
+            uniqueKeysWithValues: report.perModel.compactMap { stat in
+                stat.sources.first.map { ($0, stat) }
+            })
+
+        XCTAssertEqual(report.perModel.count, 3)
+        XCTAssertEqual(Set(report.perModel.map(\.id)).count, 3)
+        XCTAssertEqual(Set(report.perModel.map(\.modelID)), Set(["gpt-5.5"]))
+        XCTAssertEqual(rowsBySource["Codex"]?.totalTokens, 110)
+        XCTAssertEqual(rowsBySource["GJC"]?.totalTokens, 55)
+        XCTAssertEqual(rowsBySource["Hermes"]?.totalTokens, 220)
+    }
+
+    func test_usageReportPreservesSameModelUsageAcrossEventAndFallbackProviders() async {
+        let startDate = tokiTestISODate("2026-04-10T00:00:00Z")
+        let endDate = tokiTestISODate("2026-04-11T00:00:00Z")
+        let eventReader = MockReader(name: "Codex", recorder: MockReaderRecorder()) { _, _ in
+            var usage = RawTokenUsage()
+            usage.inputTokens = 100
+            usage.cost = 1.0
+            usage.perModel["gpt-5.5"] = PerModelUsage(
+                totalTokens: 100,
+                cost: 1.0,
+                sources: ["Codex"])
+            let timestamp = tokiTestISODate("2026-04-10T09:00:00Z")
+            usage.recordTokenEvent(
+                timestamp: timestamp,
+                source: "Codex",
+                model: "gpt-5.5",
+                inputTokens: 100,
+                outputTokens: 0,
+                cost: 1.0,
+                attribution: UsageAttribution(sessionID: "codex-session"))
+            usage.mergeActivityEvents(
+                [ActivityTimeEvent(streamID: "codex-session", timestamp: timestamp, key: "gpt-5.5")],
+                source: "Codex",
+                clippingEndDate: endDate)
+            return usage
+        }
+        let fallbackReader = MockReader(name: "Aggregate", recorder: MockReaderRecorder()) { _, _ in
+            var usage = RawTokenUsage()
+            usage.inputTokens = 50
+            usage.cost = 0.5
+            usage.activeSeconds = 60
+            usage.perModel["gpt-5.5"] = PerModelUsage(
+                totalTokens: 50,
+                cost: 0.5,
+                activeSeconds: 60,
+                sources: ["Aggregate"])
+            return usage
+        }
+        let aggregator = UsageAggregator(readers: [eventReader, fallbackReader])
+
+        let result = await aggregator.aggregateUsage(
+            for: UsageAggregationRequest(
+                start: startDate,
+                end: endDate,
+                enabledReaderNames: [:],
+                includesEmptySourceRows: false))
+        let rowsBySource = Dictionary(
+            uniqueKeysWithValues: result.usageData.perModel.compactMap { stat in
+                stat.sources.first.map { ($0, stat) }
+            })
+
+        XCTAssertEqual(Set(result.usageData.perModel.map(\.id)), ["gpt-5.5|Aggregate", "gpt-5.5|Codex"])
+        XCTAssertEqual(Set(result.usageData.perModel.map(\.modelID)), ["gpt-5.5"])
+        XCTAssertEqual(rowsBySource["Codex"]?.totalTokens, 100)
+        XCTAssertEqual(rowsBySource["Codex"]?.cost ?? 0, 1.0, accuracy: 0.000001)
+        XCTAssertEqual(rowsBySource["Codex"]?.activeSeconds ?? 0, 30, accuracy: 0.001)
+        XCTAssertEqual(rowsBySource["Aggregate"]?.totalTokens, 50)
+        XCTAssertEqual(rowsBySource["Aggregate"]?.cost ?? 0, 0.5, accuracy: 0.000001)
+        XCTAssertEqual(rowsBySource["Aggregate"]?.activeSeconds ?? 0, 60, accuracy: 0.001)
+    }
+
+    func test_usageReportPreservesSameProviderFallbackBeyondTokenEvents() async {
+        let startDate = tokiTestISODate("2026-04-10T00:00:00Z")
+        let endDate = tokiTestISODate("2026-04-11T00:00:00Z")
+        let reader = MockReader(name: "Codex", recorder: MockReaderRecorder()) { _, _ in
+            var usage = RawTokenUsage()
+            usage.inputTokens = 150
+            usage.cost = 1.5
+            usage.activeSeconds = 90
+            usage.perModel["gpt-5.5"] = PerModelUsage(
+                totalTokens: 150,
+                cost: 1.5,
+                activeSeconds: 90,
+                sources: ["Codex"])
+            usage.recordTokenEvent(
+                timestamp: tokiTestISODate("2026-04-10T09:00:00Z"),
+                source: "Codex",
+                model: "gpt-5.5",
+                inputTokens: 100,
+                outputTokens: 0,
+                cost: 1.0,
+                attribution: UsageAttribution(sessionID: "partial-backfill"))
+            return usage
+        }
+        let aggregator = UsageAggregator(readers: [reader])
+
+        let result = await aggregator.aggregateUsage(
+            for: UsageAggregationRequest(
+                start: startDate,
+                end: endDate,
+                enabledReaderNames: [:],
+                includesEmptySourceRows: false))
+        let model = result.usageData.perModel.first
+
+        XCTAssertEqual(result.usageData.perModel.count, 1)
+        XCTAssertEqual(model?.id, "gpt-5.5")
+        XCTAssertEqual(model?.sources, ["Codex"])
+        XCTAssertEqual(model?.totalTokens, 150)
+        XCTAssertEqual(model?.cost ?? 0, 1.5, accuracy: 0.000001)
+        XCTAssertEqual(model?.activeSeconds ?? 0, 90, accuracy: 0.001)
+    }
+
+    func test_usageReportDoesNotDuplicateAuthoritativeMultiSourceModels() async {
+        let startDate = tokiTestISODate("2026-04-10T00:00:00Z")
+        let endDate = tokiTestISODate("2026-04-11T00:00:00Z")
+        let reader = MockReader(name: "Aggregate", recorder: MockReaderRecorder()) { _, _ in
+            var usage = RawTokenUsage()
+            usage.inputTokens = 100
+            usage.cost = 1
+            usage.activeSeconds = 90
+            usage.perModel["gpt-5.5"] = PerModelUsage(
+                totalTokens: 100,
+                cost: 1,
+                activeSeconds: 90,
+                sources: ["Source A", "Source B"])
+            usage.recordTokenEvent(
+                timestamp: tokiTestISODate("2026-04-10T09:00:00Z"),
+                source: "Source A",
+                model: "gpt-5.5",
+                inputTokens: 40,
+                outputTokens: 0,
+                cost: 0.4)
+            usage.recordTokenEvent(
+                timestamp: tokiTestISODate("2026-04-10T10:00:00Z"),
+                source: "Source B",
+                model: "gpt-5.5",
+                inputTokens: 60,
+                outputTokens: 0,
+                cost: 0.6)
+            return usage
+        }
+        let aggregator = UsageAggregator(readers: [reader])
+
+        let result = await aggregator.aggregateUsage(
+            for: UsageAggregationRequest(
+                start: startDate,
+                end: endDate,
+                enabledReaderNames: [:],
+                includesEmptySourceRows: false))
+        let model = result.usageData.perModel.first
+
+        XCTAssertEqual(result.usageData.perModel.count, 1)
+        XCTAssertEqual(model?.id, "gpt-5.5")
+        XCTAssertEqual(model?.totalTokens, 100)
+        XCTAssertEqual(model?.cost ?? 0, 1, accuracy: 0.000001)
+        XCTAssertEqual(model?.activeSeconds ?? 0, 90, accuracy: 0.001)
+        XCTAssertEqual(model?.sources, ["Source A", "Source B"])
     }
 }
 
