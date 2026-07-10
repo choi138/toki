@@ -72,6 +72,10 @@ private let exactPricingTable: [String: ModelPrice] = [
     "claude-haiku-4": price(1.0, 5.0, 0.10, 1.25),
 
     // OpenAI
+    // GPT-5.6 standard short-context pricing.
+    "gpt-5.6-sol": price(5.0, 30.0, 0.50, 6.25),
+    "gpt-5.6-terra": price(2.50, 15.0, 0.25, 3.125),
+    "gpt-5.6-luna": price(1.0, 6.0, 0.10, 1.25),
     "gpt-5.5-pro": price(30.0, 180.0, 0.0),
     "gpt-5.5": price(5.0, 30.0, 0.50),
     "gpt-5.4": price(2.50, 15.0, 0.25),
