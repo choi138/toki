@@ -321,14 +321,16 @@ private func mergePerModelUsage(
             ? usageSources.first ?? fallbackSource
             : fallbackSource
         let key = ModelSourceUsageKey(modelID: modelID, source: source)
-        result[key, default: PerModelUsage()].totalTokens += usage.totalTokens
-        result[key, default: PerModelUsage()].cost += usage.cost
-        result[key, default: PerModelUsage()].activeSeconds += usage.activeSeconds
+        var entry = result[key] ?? PerModelUsage()
+        entry.totalTokens += usage.totalTokens
+        entry.cost += usage.cost
+        entry.activeSeconds += usage.activeSeconds
         if usageSources.isEmpty {
-            result[key, default: PerModelUsage()].sources.insert(source)
+            entry.sources.insert(source)
         } else {
-            result[key, default: PerModelUsage()].sources.formUnion(usageSources)
+            entry.sources.formUnion(usageSources)
         }
+        result[key] = entry
     }
 }
 
