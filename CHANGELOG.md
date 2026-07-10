@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.3] - 2026-07-10
+
+### Added
+
+- Pricing for GPT-5.6 Sol, Terra, and Luna models, including snapshot and
+  cache token cost calculations.
+
 ## [1.1.2] - 2026-06-29
 
 ### Added
@@ -64,7 +71,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **macOS 13+ support**: Minimum deployment target macOS 13 Ventura
 - **Dark/Light mode**: Full support for both macOS appearance modes via SwiftUI
 
-[Unreleased]: https://github.com/choi138/toki/compare/v1.1.2...HEAD
+[Unreleased]: https://github.com/choi138/toki/compare/v1.1.3...HEAD
+[1.1.3]: https://github.com/choi138/toki/compare/v1.1.2...v1.1.3
 [1.1.2]: https://github.com/choi138/toki/compare/v1.1.1...v1.1.2
 [1.1.1]: https://github.com/choi138/toki/releases/tag/v1.1.1
 [1.1.0]: https://github.com/choi138/toki/releases/tag/v1.1.0
