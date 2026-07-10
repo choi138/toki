@@ -33,6 +33,7 @@ final class UsageAggregator {
     static let defaultReaders: [any TokenReader] = [
         ClaudeCodeReader(),
         CodexReader(),
+        HermesReader(),
         CursorReader(),
         GeminiReader(),
         GJCReader(),
@@ -198,9 +199,15 @@ private extension UsageAggregator {
 
         let sortedResults = results.sorted { $0.index < $1.index }
         var combined = RawTokenUsage()
+        var perModelBySource: [ModelSourceUsageKey: PerModelUsage] = [:]
         for result in sortedResults {
+            mergePerModelUsage(
+                result.usage.perModel,
+                source: result.status.name,
+                into: &perModelBySource)
             combined += result.usage
         }
+        combined.perModelBySource = perModelBySource
         combined.recomputeMergedActiveEstimate(clippingEndDate: request.end)
 
         return UsageFetchSummary(
@@ -299,6 +306,32 @@ private func sourceStat(from usage: RawTokenUsage, source: String, includeEmpty:
         reasoningTokens: usage.reasoningTokens,
         cost: usage.cost,
         activeSeconds: usage.activeSeconds)
+}
+
+private func mergePerModelUsage(
+    _ modelUsage: [String: PerModelUsage],
+    source fallbackSource: String,
+    into result: inout [ModelSourceUsageKey: PerModelUsage]) {
+    guard let fallbackSource = fallbackSource.trimmedNonEmpty else { return }
+
+    for (modelID, usage) in modelUsage {
+        guard let modelID = modelID.trimmedNonEmpty else { continue }
+        let usageSources = Set(usage.sources.compactMap(\.trimmedNonEmpty))
+        let source = usageSources.count == 1
+            ? usageSources.first ?? fallbackSource
+            : fallbackSource
+        let key = ModelSourceUsageKey(modelID: modelID, source: source)
+        var entry = result[key] ?? PerModelUsage()
+        entry.totalTokens += usage.totalTokens
+        entry.cost += usage.cost
+        entry.activeSeconds += usage.activeSeconds
+        if usageSources.isEmpty {
+            entry.sources.insert(source)
+        } else {
+            entry.sources.formUnion(usageSources)
+        }
+        result[key] = entry
+    }
 }
 
 private func sourceStatSort(_ lhs: SourceStat, _ rhs: SourceStat) -> Bool {

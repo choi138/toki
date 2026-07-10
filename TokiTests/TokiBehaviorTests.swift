@@ -170,6 +170,7 @@ final class UsageServiceBehaviorTests: XCTestCase {
         XCTAssertEqual(usageData.cost, 0.38, accuracy: 0.000001)
         XCTAssertEqual(usageData.perModel.count, 1)
         XCTAssertEqual(usageData.perModel.first?.id, "claude-4.5-sonnet-thinking")
+        XCTAssertEqual(usageData.perModel.first?.sources, ["Cursor"])
         XCTAssertEqual(usageData.perModel.first?.totalTokens, 0)
         XCTAssertEqual(usageData.perModel.first?.cost ?? 0, 0.38, accuracy: 0.000001)
     }

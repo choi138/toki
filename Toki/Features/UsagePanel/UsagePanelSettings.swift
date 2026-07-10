@@ -8,8 +8,10 @@ final class UsagePanelSettings: ObservableObject {
     nonisolated static let defaultReaderNames = [
         "Claude Code",
         "Codex",
+        "Hermes",
         "Cursor",
         "Gemini CLI",
+        "GJC",
         "OpenCode",
         "OpenClaw",
     ]

@@ -23,7 +23,7 @@ struct ModelStatRowView: View, Equatable {
     var body: some View {
         HStack(alignment: .center, spacing: 6) {
             Circle()
-                .fill(panelAccentColor(forModelID: stat.id).opacity(0.5))
+                .fill(panelAccentColor(forModelID: stat.modelID).opacity(0.5))
                 .frame(width: 5, height: 5)
             VStack(alignment: .leading, spacing: 3) {
                 Text(displayName)
@@ -55,7 +55,7 @@ struct ModelStatRowView: View, Equatable {
     }
 
     private var displayName: String {
-        let baseName = stat.id.hasPrefix("claude-") ? String(stat.id.dropFirst(7)) : stat.id
+        let baseName = stat.modelID.hasPrefix("claude-") ? String(stat.modelID.dropFirst(7)) : stat.modelID
         guard !stat.sources.isEmpty else { return baseName }
         return "\(baseName) · \(sourceLabel)"
     }
