@@ -54,6 +54,69 @@ final class ModelPricingBehaviorTests: XCTestCase {
         XCTAssertEqual(gpt55Pro.cacheReadPerMillion, 0.0, accuracy: 0.0001)
     }
 
+    func test_modelPrice_matchesGpt56Models() throws {
+        let expectedPrices: [String: ModelPrice] = [
+            "gpt-5.6-sol": ModelPrice(
+                inputPerMillion: 5.0,
+                outputPerMillion: 30.0,
+                cacheReadPerMillion: 0.50,
+                cacheWritePerMillion: 6.25),
+            "gpt-5.6-terra": ModelPrice(
+                inputPerMillion: 2.50,
+                outputPerMillion: 15.0,
+                cacheReadPerMillion: 0.25,
+                cacheWritePerMillion: 3.125),
+            "gpt-5.6-luna": ModelPrice(
+                inputPerMillion: 1.0,
+                outputPerMillion: 6.0,
+                cacheReadPerMillion: 0.10,
+                cacheWritePerMillion: 1.25),
+        ]
+
+        for (modelID, expected) in expectedPrices {
+            let price = try XCTUnwrap(modelPrice(for: modelID))
+
+            XCTAssertEqual(price.inputPerMillion, expected.inputPerMillion, accuracy: 0.0001)
+            XCTAssertEqual(price.outputPerMillion, expected.outputPerMillion, accuracy: 0.0001)
+            XCTAssertEqual(price.cacheReadPerMillion, expected.cacheReadPerMillion, accuracy: 0.0001)
+            XCTAssertEqual(price.cacheWritePerMillion, expected.cacheWritePerMillion, accuracy: 0.0001)
+        }
+    }
+
+    func test_modelPriceLookup_matchesGpt56SnapshotPrefixes() {
+        let expectedPrefixes = [
+            "gpt-5.6-sol": "gpt-5.6-sol-2026-07-10",
+            "gpt-5.6-terra": "gpt-5.6-terra-2026-07-10",
+            "gpt-5.6-luna": "gpt-5.6-luna-2026-07-10",
+        ]
+
+        for (prefix, modelID) in expectedPrefixes {
+            let lookup = modelPriceLookup(for: modelID)
+
+            XCTAssertEqual(lookup.match, .prefix(prefix: prefix))
+            XCTAssertTrue(lookup.isPriced)
+        }
+    }
+
+    func test_modelPrice_calculatesGpt56CostWithCacheRates() throws {
+        let expectedCosts: [(modelID: String, cost: Double)] = [
+            ("gpt-5.6-sol", 41.75),
+            ("gpt-5.6-terra", 20.875),
+            ("gpt-5.6-luna", 8.35),
+        ]
+
+        for expected in expectedCosts {
+            let price = try XCTUnwrap(modelPrice(for: expected.modelID))
+            let cost = price.cost(
+                input: 1_000_000,
+                output: 1_000_000,
+                cacheRead: 1_000_000,
+                cacheWrite: 1_000_000)
+
+            XCTAssertEqual(cost, expected.cost, accuracy: 0.0001)
+        }
+    }
+
     func test_modelPrice_matchesNebiusGlm52() throws {
         let glm52 = try XCTUnwrap(modelPrice(for: "zai-org/GLM-5.2"))
         XCTAssertEqual(glm52.inputPerMillion, 1.40, accuracy: 0.0001)
