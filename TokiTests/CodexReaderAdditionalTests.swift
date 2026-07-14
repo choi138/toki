@@ -3,6 +3,29 @@ import XCTest
 
 // swiftlint:disable:next type_body_length
 final class CodexReaderAdditionalTests: XCTestCase {
+    func test_codexUsageSnapshot_doesNotTreatSubsetCounterRewriteAsStaleRegression() {
+        let previous = CodexUsageSnapshot(
+            inputTokens: 700,
+            cachedInputTokens: 0,
+            outputTokens: 300,
+            reasoningOutputTokens: 0,
+            reportedTotalTokens: 1000)
+        let current = CodexUsageSnapshot(
+            inputTokens: 350,
+            cachedInputTokens: 350,
+            outputTokens: 150,
+            reasoningOutputTokens: 150,
+            reportedTotalTokens: 500)
+        let last = CodexUsageSnapshot(
+            inputTokens: 50,
+            cachedInputTokens: 0,
+            outputTokens: 0,
+            reasoningOutputTokens: 0,
+            reportedTotalTokens: 50)
+
+        XCTAssertFalse(current.looksLikeStaleRegression(from: previous, lastSnapshot: last))
+    }
+
     // Raw JSONL and cache-schema fixtures intentionally stay inline and byte-visible.
     // swiftlint:disable line_length
     func test_codexReader_usesReportedTotalToSuppressForkReplayAfterComponentRewrite() {

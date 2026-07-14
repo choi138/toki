@@ -419,7 +419,7 @@ struct CodexUsageSnapshot: Equatable {
     }
 
     private var aggregateCounterTotal: Int {
-        inputTokens + outputTokens + cachedInputTokens + reasoningOutputTokens
+        inputTokens + outputTokens
     }
 
     func delta(since previous: CodexUsageSnapshot?) -> CodexUsageSnapshot {
