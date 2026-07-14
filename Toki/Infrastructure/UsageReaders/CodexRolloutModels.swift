@@ -42,6 +42,7 @@ struct CodexSession {
     let hasSourceAttribution: Bool
     let projectPath: String?
     let projectAttributionQuality: AttributionQuality
+    let upstreamSessionID: String
 
     init(
         rolloutPath: String,
@@ -49,19 +50,21 @@ struct CodexSession {
         agentKind: WorkTimeAgentKind = .main,
         hasSourceAttribution: Bool = true,
         projectPath: String? = nil,
-        projectAttributionQuality: AttributionQuality = .unknown) {
+        projectAttributionQuality: AttributionQuality = .unknown,
+        upstreamSessionID: String? = nil) {
         self.rolloutPath = rolloutPath
         self.model = model
         self.agentKind = agentKind
         self.hasSourceAttribution = hasSourceAttribution
         self.projectPath = projectPath?.trimmedNonEmpty
         self.projectAttributionQuality = self.projectPath == nil ? .unknown : projectAttributionQuality
+        self.upstreamSessionID = upstreamSessionID?.trimmedNonEmpty ?? usageSessionID(fromPath: rolloutPath)
     }
 
     var attribution: UsageAttribution {
         UsageAttribution(
             projectPath: projectPath,
-            sessionID: usageSessionID(fromPath: rolloutPath),
+            sessionID: upstreamSessionID,
             quality: projectAttributionQuality)
     }
 }
@@ -71,6 +74,7 @@ struct CodexSessionAttribution {
     let agentKind: WorkTimeAgentKind
     let hasSourceAttribution: Bool
     let projectPath: String?
+    let upstreamSessionID: String?
 }
 
 func codexAgentKind(fromSource source: String?) -> WorkTimeAgentKind {
@@ -95,6 +99,7 @@ struct CodexSessionMetaEntry: Decodable {
     let payload: Payload?
 
     struct Payload: Decodable {
+        let id: String?
         let source: CodexSourceMarker?
         let cwd: String?
         let workdir: String?
@@ -114,6 +119,7 @@ struct CodexSessionMetaEntry: Decodable {
         }
 
         enum CodingKeys: String, CodingKey {
+            case id
             case source
             case cwd
             case workdir
@@ -172,8 +178,59 @@ struct CodexRolloutEntry: Decodable {
     }
 
     struct Payload: Decodable {
+        let id: String?
+        let forkedFromID: String?
+        let source: ForkSource?
+        let threadSource: String?
         let type: String?
+        let turnID: String?
         let info: Info?
+
+        var forkParentID: String? {
+            forkedFromID?.trimmedNonEmpty ?? source?.subagent?.threadSpawn?.parentThreadID?.trimmedNonEmpty
+        }
+
+        enum CodingKeys: String, CodingKey {
+            case id
+            case forkedFromID = "forked_from_id"
+            case source
+            case threadSource = "thread_source"
+            case type
+            case turnID = "turn_id"
+            case info
+        }
+
+        struct ForkSource: Decodable {
+            let subagent: Subagent?
+
+            enum CodingKeys: String, CodingKey {
+                case subagent
+            }
+
+            init(from decoder: Decoder) throws {
+                guard let container = try? decoder.container(keyedBy: CodingKeys.self) else {
+                    subagent = nil
+                    return
+                }
+                subagent = try? container.decodeIfPresent(Subagent.self, forKey: .subagent)
+            }
+
+            struct Subagent: Decodable {
+                let threadSpawn: ThreadSpawn?
+
+                enum CodingKeys: String, CodingKey {
+                    case threadSpawn = "thread_spawn"
+                }
+
+                struct ThreadSpawn: Decodable {
+                    let parentThreadID: String?
+
+                    enum CodingKeys: String, CodingKey {
+                        case parentThreadID = "parent_thread_id"
+                    }
+                }
+            }
+        }
 
         struct Info: Decodable {
             let totalTokenUsage: CodexTokenUsageCounters?
@@ -203,24 +260,59 @@ struct CodexTokenCount {
         guard let totalUsage else { return nil }
 
         totalSnapshot = totalUsage.snapshot
-        delta = lastUsage.map { .explicit($0.normalizedUsage) } ?? .cumulative
+        delta = lastUsage.map { .explicit($0.snapshot) } ?? .cumulative
     }
 
     func usage(since previousSnapshot: CodexUsageSnapshot?) -> RawTokenUsage {
-        delta.usage(currentSnapshot: totalSnapshot, previousSnapshot: previousSnapshot)
+        // `last_token_usage` is an event increment, but Codex can repeat it beside an
+        // unchanged cumulative total. Use it only for the first row or a genuine reset;
+        // a monotonic cumulative advance always contributes its exact difference once.
+        guard let previousSnapshot else {
+            return delta.usage(currentSnapshot: totalSnapshot, previousSnapshot: nil)
+        }
+        guard totalSnapshot != previousSnapshot else { return RawTokenUsage() }
+        if totalSnapshot.isMonotonicAdvance(from: previousSnapshot) {
+            return totalSnapshot.delta(since: previousSnapshot).normalizedUsage
+        }
+        if isStaleRegression(from: previousSnapshot) {
+            return RawTokenUsage()
+        }
+        if case .cumulative = delta {
+            return RawTokenUsage()
+        }
+        return delta.usage(currentSnapshot: totalSnapshot, previousSnapshot: previousSnapshot)
+    }
+
+    func nextBaseline(after previousSnapshot: CodexUsageSnapshot?) -> CodexUsageSnapshot {
+        guard let previousSnapshot else { return totalSnapshot }
+        guard !totalSnapshot.isZero,
+              !isStaleRegression(from: previousSnapshot) else {
+            return previousSnapshot
+        }
+        return totalSnapshot
+    }
+
+    private func isStaleRegression(from previousSnapshot: CodexUsageSnapshot) -> Bool {
+        guard !totalSnapshot.isMonotonicAdvance(from: previousSnapshot),
+              case let .explicit(lastSnapshot) = delta else {
+            return false
+        }
+        return totalSnapshot.looksLikeStaleRegression(
+            from: previousSnapshot,
+            lastSnapshot: lastSnapshot)
     }
 }
 
 enum CodexTokenDelta {
-    case explicit(RawTokenUsage)
+    case explicit(CodexUsageSnapshot)
     case cumulative
 
     func usage(
         currentSnapshot: CodexUsageSnapshot,
         previousSnapshot: CodexUsageSnapshot?) -> RawTokenUsage {
         switch self {
-        case let .explicit(usage):
-            usage
+        case let .explicit(snapshot):
+            snapshot.normalizedUsage
         case .cumulative:
             currentSnapshot.delta(since: previousSnapshot).normalizedUsage
         }
@@ -232,12 +324,14 @@ struct CodexTokenUsageCounters: Decodable {
     let cachedInputTokens: Int
     let outputTokens: Int
     let reasoningOutputTokens: Int
+    let totalTokens: Int?
 
     enum CodingKeys: String, CodingKey {
         case inputTokens = "input_tokens"
         case cachedInputTokens = "cached_input_tokens"
         case outputTokens = "output_tokens"
         case reasoningOutputTokens = "reasoning_output_tokens"
+        case totalTokens = "total_tokens"
     }
 
     init(from decoder: Decoder) throws {
@@ -246,6 +340,7 @@ struct CodexTokenUsageCounters: Decodable {
         cachedInputTokens = try container.decodeIfPresent(Int.self, forKey: .cachedInputTokens) ?? 0
         outputTokens = try container.decodeIfPresent(Int.self, forKey: .outputTokens) ?? 0
         reasoningOutputTokens = try container.decodeIfPresent(Int.self, forKey: .reasoningOutputTokens) ?? 0
+        totalTokens = try container.decodeIfPresent(Int.self, forKey: .totalTokens)
     }
 
     var snapshot: CodexUsageSnapshot {
@@ -253,7 +348,8 @@ struct CodexTokenUsageCounters: Decodable {
             inputTokens: inputTokens,
             cachedInputTokens: cachedInputTokens,
             outputTokens: outputTokens,
-            reasoningOutputTokens: reasoningOutputTokens)
+            reasoningOutputTokens: reasoningOutputTokens,
+            reportedTotalTokens: totalTokens)
     }
 
     var normalizedUsage: RawTokenUsage {
@@ -261,11 +357,70 @@ struct CodexTokenUsageCounters: Decodable {
     }
 }
 
-struct CodexUsageSnapshot {
+struct CodexUsageSnapshot: Equatable {
     let inputTokens: Int
     let cachedInputTokens: Int
     let outputTokens: Int
     let reasoningOutputTokens: Int
+    let reportedTotalTokens: Int?
+
+    static func == (lhs: CodexUsageSnapshot, rhs: CodexUsageSnapshot) -> Bool {
+        lhs.inputTokens == rhs.inputTokens
+            && lhs.cachedInputTokens == rhs.cachedInputTokens
+            && lhs.outputTokens == rhs.outputTokens
+            && lhs.reasoningOutputTokens == rhs.reasoningOutputTokens
+    }
+
+    var isZero: Bool {
+        inputTokens == 0
+            && cachedInputTokens == 0
+            && outputTokens == 0
+            && reasoningOutputTokens == 0
+    }
+
+    func isInheritedReplay(of baseline: CodexUsageSnapshot) -> Bool {
+        if let reportedTotalTokens,
+           let baselineTotal = baseline.reportedTotalTokens,
+           reportedTotalTokens >= 0,
+           baselineTotal >= 0,
+           reportedTotalTokens <= baselineTotal {
+            return true
+        }
+        return isWithin(baseline)
+    }
+
+    func isWithin(_ baseline: CodexUsageSnapshot) -> Bool {
+        inputTokens <= baseline.inputTokens
+            && cachedInputTokens <= baseline.cachedInputTokens
+            && outputTokens <= baseline.outputTokens
+            && reasoningOutputTokens <= baseline.reasoningOutputTokens
+    }
+
+    func isMonotonicAdvance(from previous: CodexUsageSnapshot) -> Bool {
+        inputTokens >= previous.inputTokens
+            && cachedInputTokens >= previous.cachedInputTokens
+            && outputTokens >= previous.outputTokens
+            && reasoningOutputTokens >= previous.reasoningOutputTokens
+    }
+
+    func looksLikeStaleRegression(
+        from previous: CodexUsageSnapshot,
+        lastSnapshot: CodexUsageSnapshot) -> Bool {
+        let previousTotal = previous.aggregateCounterTotal
+        let currentTotal = aggregateCounterTotal
+        let lastTotal = lastSnapshot.aggregateCounterTotal
+        guard previousTotal > 0, currentTotal > 0, lastTotal > 0 else { return false }
+
+        let previousValue = Double(previousTotal)
+        let currentValue = Double(currentTotal)
+        let lastValue = Double(lastTotal)
+        return currentValue >= previousValue * 0.98
+            || currentValue + lastValue * 2 >= previousValue
+    }
+
+    private var aggregateCounterTotal: Int {
+        inputTokens + outputTokens
+    }
 
     func delta(since previous: CodexUsageSnapshot?) -> CodexUsageSnapshot {
         guard let previous else { return self }
@@ -274,11 +429,14 @@ struct CodexUsageSnapshot {
             inputTokens: max(0, inputTokens - previous.inputTokens),
             cachedInputTokens: max(0, cachedInputTokens - previous.cachedInputTokens),
             outputTokens: max(0, outputTokens - previous.outputTokens),
-            reasoningOutputTokens: max(0, reasoningOutputTokens - previous.reasoningOutputTokens))
+            reasoningOutputTokens: max(0, reasoningOutputTokens - previous.reasoningOutputTokens),
+            reportedTotalTokens: nil)
     }
 
     var normalizedUsage: RawTokenUsage {
         let uncachedInput = max(0, inputTokens - cachedInputTokens)
+        // Codex raw output includes reasoning. Keep Toki's buckets disjoint so
+        // non-reasoning output + reasoning reconstructs the provider output total.
         let nonReasoningOutput = max(0, outputTokens - reasoningOutputTokens)
 
         return RawTokenUsage(

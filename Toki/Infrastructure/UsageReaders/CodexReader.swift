@@ -169,7 +169,7 @@ extension CodexReader {
             guard !Task.isCancelled else { return RawTokenUsage() }
 
             let usage = entry.usage(since: previousSnapshot)
-            previousSnapshot = entry.snapshot
+            previousSnapshot = entry.tokenCount.nextBaseline(after: previousSnapshot)
 
             guard entry.date >= startDate, entry.date < endDate else { continue }
 
@@ -433,7 +433,7 @@ extension CodexReader {
             guard !Task.isCancelled else { return nil }
 
             let usage = entry.usage(since: previousSnapshot)
-            previousSnapshot = entry.snapshot
+            previousSnapshot = entry.tokenCount.nextBaseline(after: previousSnapshot)
 
             guard entry.date >= startDate, entry.date < endDate else { return nil }
             guard usage.totalTokens > 0 else { return nil }

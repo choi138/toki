@@ -24,29 +24,32 @@ extension CodexReader {
     func mergedSessions(
         databaseSessions: [CodexSession],
         jsonlSessions: [CodexSession]) -> [CodexSession] {
-        var sessionsByPath: [String: CodexSession] = [:]
+        // Prefer the in-file session_meta id over a path fingerprint. Archived/current
+        // copies of one session collapse, while unrelated sessions with equal counters do not.
+        var sessionsByIdentity: [String: CodexSession] = [:]
         for session in databaseSessions {
-            mergeSessionPreferringModel(session, into: &sessionsByPath)
+            mergeSessionPreferringModel(session, into: &sessionsByIdentity)
         }
         for session in jsonlSessions {
-            mergeSessionPreferringModel(session, into: &sessionsByPath)
+            mergeSessionPreferringModel(session, into: &sessionsByIdentity)
         }
-        return Array(sessionsByPath.values)
+        return Array(sessionsByIdentity.values)
     }
 
     private func deduplicatedSessionsPreferringModel(_ sessions: [CodexSession]) -> [CodexSession] {
-        var sessionsByPath: [String: CodexSession] = [:]
+        var sessionsByIdentity: [String: CodexSession] = [:]
         for session in sessions {
-            mergeSessionPreferringModel(session, into: &sessionsByPath)
+            mergeSessionPreferringModel(session, into: &sessionsByIdentity)
         }
-        return Array(sessionsByPath.values)
+        return Array(sessionsByIdentity.values)
     }
 
     private func mergeSessionPreferringModel(
         _ session: CodexSession,
-        into sessionsByPath: inout [String: CodexSession]) {
-        guard let existing = sessionsByPath[session.rolloutPath] else {
-            sessionsByPath[session.rolloutPath] = session
+        into sessionsByIdentity: inout [String: CodexSession]) {
+        let identity = session.upstreamSessionID
+        guard let existing = sessionsByIdentity[identity] else {
+            sessionsByIdentity[identity] = session
             return
         }
 
@@ -56,38 +59,51 @@ extension CodexReader {
         let mergedHasSourceAttribution = existing.hasSourceAttribution || session.hasSourceAttribution
         let mergedProjectPath = bestProjectPath(existing: existing, candidate: session)
         let mergedProjectQuality = bestProjectQuality(existing: existing, candidate: session)
+        let preferredRolloutPath = preferredRolloutPath(existing: existing, candidate: session)
 
         guard normalizedModelID(existing.model) == nil,
               let model = normalizedModelID(session.model) else {
             if existing.agentKind != mergedAgentKind
-                || existing.hasSourceAttribution != mergedHasSourceAttribution {
-                sessionsByPath[session.rolloutPath] = CodexSession(
-                    rolloutPath: existing.rolloutPath,
+                || existing.hasSourceAttribution != mergedHasSourceAttribution
+                || existing.projectPath != mergedProjectPath
+                || existing.projectAttributionQuality != mergedProjectQuality
+                || existing.rolloutPath != preferredRolloutPath {
+                sessionsByIdentity[identity] = CodexSession(
+                    rolloutPath: preferredRolloutPath,
                     model: existing.model,
                     agentKind: mergedAgentKind,
                     hasSourceAttribution: mergedHasSourceAttribution,
                     projectPath: mergedProjectPath,
-                    projectAttributionQuality: mergedProjectQuality)
-            } else if existing.projectPath != mergedProjectPath
-                || existing.projectAttributionQuality != mergedProjectQuality {
-                sessionsByPath[session.rolloutPath] = CodexSession(
-                    rolloutPath: existing.rolloutPath,
-                    model: existing.model,
-                    agentKind: existing.agentKind,
-                    hasSourceAttribution: existing.hasSourceAttribution,
-                    projectPath: mergedProjectPath,
-                    projectAttributionQuality: mergedProjectQuality)
+                    projectAttributionQuality: mergedProjectQuality,
+                    upstreamSessionID: identity)
             }
             return
         }
 
-        sessionsByPath[session.rolloutPath] = CodexSession(
-            rolloutPath: existing.rolloutPath,
+        sessionsByIdentity[identity] = CodexSession(
+            rolloutPath: preferredRolloutPath,
             model: model,
             agentKind: mergedAgentKind,
             hasSourceAttribution: mergedHasSourceAttribution,
             projectPath: mergedProjectPath,
-            projectAttributionQuality: mergedProjectQuality)
+            projectAttributionQuality: mergedProjectQuality,
+            upstreamSessionID: identity)
+    }
+
+    private func preferredRolloutPath(existing: CodexSession, candidate: CodexSession) -> String {
+        let keys: Set<URLResourceKey> = [.fileSizeKey, .contentModificationDateKey]
+        let existingValues = try? URL(fileURLWithPath: existing.rolloutPath).resourceValues(forKeys: keys)
+        let candidateValues = try? URL(fileURLWithPath: candidate.rolloutPath).resourceValues(forKeys: keys)
+        let existingSize = existingValues?.fileSize ?? 0
+        let candidateSize = candidateValues?.fileSize ?? 0
+
+        if candidateSize != existingSize {
+            return candidateSize > existingSize ? candidate.rolloutPath : existing.rolloutPath
+        }
+
+        let existingDate = existingValues?.contentModificationDate ?? .distantPast
+        let candidateDate = candidateValues?.contentModificationDate ?? .distantPast
+        return candidateDate > existingDate ? candidate.rolloutPath : existing.rolloutPath
     }
 
     private func bestProjectPath(existing: CodexSession, candidate: CodexSession) -> String? {
@@ -171,7 +187,8 @@ extension CodexReader {
                     agentKind: codexAgentKind(fromSource: source),
                     hasSourceAttribution: source != nil,
                     projectPath: projectPath,
-                    projectAttributionQuality: .exact))
+                    projectAttributionQuality: .exact,
+                    upstreamSessionID: extractSessionID(from: URL(fileURLWithPath: rolloutPath))))
         }
         return sessions
     }
@@ -230,7 +247,8 @@ extension CodexReader {
                         agentKind: attribution.agentKind,
                         hasSourceAttribution: attribution.hasSourceAttribution,
                         projectPath: attribution.projectPath,
-                        projectAttributionQuality: attribution.projectPath == nil ? .unknown : .exact))
+                        projectAttributionQuality: attribution.projectPath == nil ? .unknown : .exact,
+                        upstreamSessionID: attribution.upstreamSessionID))
             }
         }
         return sessions
@@ -242,9 +260,12 @@ extension CodexReader {
         var agentKind = WorkTimeAgentKind.main
         var hasSourceAttribution = false
         var projectPath: String?
+        var upstreamSessionID: String?
 
         forEachJSONLLineUntil(at: url) { line, _ in
-            guard model == nil || !hasSourceAttribution || projectPath == nil else { return false }
+            guard model == nil || !hasSourceAttribution || projectPath == nil || upstreamSessionID == nil else {
+                return false
+            }
             guard let lineData = line.data(using: .utf8) else { return true }
 
             if let entry = try? decoder.decode(CodexModelEntry.self, from: lineData),
@@ -259,28 +280,41 @@ extension CodexReader {
                 }
             }
 
-            if !hasSourceAttribution,
-               let entry = try? decoder.decode(CodexSessionMetaEntry.self, from: lineData),
-               entry.type == "session_meta",
-               let source = entry.payload?.source {
-                agentKind = source.isSubagent ? .subagent : .main
-                hasSourceAttribution = true
-            }
-
-            if projectPath == nil,
-               let entry = try? decoder.decode(CodexSessionMetaEntry.self, from: lineData),
+            if let entry = try? decoder.decode(CodexSessionMetaEntry.self, from: lineData),
                entry.type == "session_meta" {
-                projectPath = entry.payload?.resolvedProjectPath
+                if upstreamSessionID == nil {
+                    upstreamSessionID = entry.payload?.id?.trimmedNonEmpty
+                }
+                if !hasSourceAttribution, let source = entry.payload?.source {
+                    agentKind = source.isSubagent ? .subagent : .main
+                    hasSourceAttribution = true
+                }
+                if projectPath == nil {
+                    projectPath = entry.payload?.resolvedProjectPath
+                }
             }
 
-            return model == nil || !hasSourceAttribution || projectPath == nil
+            return model == nil || !hasSourceAttribution || projectPath == nil || upstreamSessionID == nil
         }
 
         return CodexSessionAttribution(
             model: model,
             agentKind: agentKind,
             hasSourceAttribution: hasSourceAttribution,
-            projectPath: projectPath)
+            projectPath: projectPath,
+            upstreamSessionID: upstreamSessionID)
+    }
+
+    private func extractSessionID(from url: URL) -> String? {
+        let decoder = JSONDecoder()
+        return firstJSONLLine(at: url) { line in
+            guard let lineData = line.data(using: .utf8),
+                  let entry = try? decoder.decode(CodexSessionMetaEntry.self, from: lineData),
+                  entry.type == "session_meta" else {
+                return nil
+            }
+            return entry.payload?.id?.trimmedNonEmpty
+        }
     }
 
     private func extractModel(from url: URL) -> String? {
