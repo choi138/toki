@@ -45,6 +45,39 @@ final class CodexReaderAdditionalTests: XCTestCase {
         XCTAssertEqual(usage.totalTokens, 12)
     }
 
+    func test_codexReader_treatsNonASCIIHexTurnIDAsInvalidAfterForkReplay() {
+        let lines = [
+            #"{"timestamp":"2026-05-05T21:52:10.000Z","type":"session_meta","payload":{"id":"019e5c03-1e99-7000-8000-000000000001","forked_from_id":"019e5b00-0000-7000-8000-000000000001"}}"#,
+            #"{"timestamp":"2026-05-05T21:52:10.001Z","type":"session_meta","payload":{"id":"019e5b00-0000-7000-8000-000000000001"}}"#,
+            tokenCountLine(
+                ts: "2026-05-05T21:52:10.200Z",
+                input: 300,
+                cachedInput: 0,
+                output: 30,
+                reasoning: 0,
+                total: 330),
+            #"{"timestamp":"2026-05-05T21:52:20.100Z","type":"turn_context","payload":{"turn_id":"00000000-000０-7000-8000-000000000001","model":"gpt-5.4-mini"}}"#,
+            tokenCountLine(
+                ts: "2026-05-05T21:52:20.200Z",
+                input: 320,
+                cachedInput: 0,
+                output: 32,
+                reasoning: 0,
+                total: 352,
+                lastUsage: TokenCountLineUsage(input: 20, cachedInput: 0, output: 2, reasoning: 0)),
+        ]
+
+        let usage = CodexReader.usage(
+            fromRolloutLines: lines,
+            model: "gpt-5.4-mini",
+            from: isoDate("2026-05-05T00:00:00Z"),
+            to: isoDate("2026-05-06T00:00:00Z"),
+            streamID: "non-ascii-hex-turn-id-fork")
+
+        XCTAssertEqual(usage.tokenEvents.map(\.totalTokens), [22])
+        XCTAssertEqual(usage.totalTokens, 22)
+    }
+
     func test_codexReader_deduplicatesSameSessionAcrossFilesButKeepsIndependentSessions() {
         let merged = CodexReader().mergedSessions(
             databaseSessions: [

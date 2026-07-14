@@ -459,7 +459,16 @@ private func codexUUIDv7OrderKey(_ id: String) -> String? {
           parts[3].count == 4,
           parts[4].count == 12,
           parts[2].first == "7",
-          parts.allSatisfy({ part in part.allSatisfy(\.isHexDigit) }) else {
+          parts.allSatisfy({ part in
+              part.unicodeScalars.allSatisfy { scalar in
+                  switch scalar.value {
+                  case 48...57, 65...70, 97...102:
+                      true
+                  default:
+                      false
+                  }
+              }
+          }) else {
         return nil
     }
     return parts.joined().lowercased()

@@ -548,7 +548,7 @@ final class CodexReaderTests: XCTestCase {
     }
 
     func test_codexReader_sameMillisecondSubagentReplayWaitsForTaskStartedTurn() {
-        let childTimestampPrefix = "019e5c03-1e99"
+        let childTimestampPrefix = "019E5C03-1E99"
         let lines = [
             #"{"timestamp":"2026-05-05T21:52:10.000Z","type":"session_meta","payload":{"id":"\#(childTimestampPrefix)-7000-8000-0000000000ff","forked_from_id":"019e5b00-0000-7000-8000-000000000001","source":{"subagent":{"thread_spawn":{"parent_thread_id":"019e5b00-0000-7000-8000-000000000001"}}}}}"#,
             #"{"timestamp":"2026-05-05T21:52:10.001Z","type":"session_meta","payload":{"id":"019e5b00-0000-7000-8000-000000000001"}}"#,
