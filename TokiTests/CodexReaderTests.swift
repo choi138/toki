@@ -1,7 +1,7 @@
 import XCTest
 @testable import Toki
+@testable import TokiUsageReaders
 
-// swiftlint:disable:next type_body_length
 final class CodexReaderTests: XCTestCase {
     func test_codexReader_usesBaselineBeforeRangeAndDeduplicatesSnapshots() {
         let lines = [
@@ -166,7 +166,9 @@ final class CodexReaderTests: XCTestCase {
         XCTAssertEqual(usage.outputTokens, 34)
         XCTAssertEqual(usage.reasoningTokens, 8)
     }
+}
 
+extension CodexReaderTests {
     func test_codexReader_suppressesStaleTotalRegression() {
         let lines = [
             tokenCountLine(
@@ -289,7 +291,9 @@ final class CodexReaderTests: XCTestCase {
         XCTAssertEqual(usage.tokenEvents.map(\.totalTokens), [580, 13])
         XCTAssertEqual(usage.totalTokens, 593)
     }
+}
 
+extension CodexReaderTests {
     // Raw JSONL fixtures intentionally stay inline so replay ordering remains auditable.
     // swiftlint:disable line_length
     func test_codexReader_skipsForkedParentReplayBeforeAndAfterTurnContext() {
@@ -474,7 +478,9 @@ final class CodexReaderTests: XCTestCase {
         XCTAssertEqual(usage.tokenEvents.map(\.totalTokens), [22])
         XCTAssertEqual(usage.totalTokens, 22)
     }
+}
 
+extension CodexReaderTests {
     func test_codexReader_acceptsNonV7TurnIDAfterForkReplay() {
         let lines = [
             #"{"timestamp":"2026-05-05T21:52:10.000Z","type":"session_meta","payload":{"id":"019e5c03-1e99-7000-8000-000000000001","forked_from_id":"019e5b00-0000-7000-8000-000000000001"}}"#,

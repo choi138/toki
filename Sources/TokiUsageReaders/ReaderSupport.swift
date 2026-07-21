@@ -1,10 +1,6 @@
 import Foundation
 import TokiUsageCore
 
-func homeDir() -> URL {
-    FileManager.default.homeDirectoryForCurrentUser
-}
-
 func findFiles(in directory: URL, withExtension ext: String, modifiedAfter: Date? = nil) -> [URL] {
     let keys: [URLResourceKey] = modifiedAfter != nil
         ? [.isRegularFileKey, .contentModificationDateKey]
@@ -39,7 +35,7 @@ func readJSONLLines(at url: URL) -> [String] {
         .filter { !$0.isEmpty }
 }
 
-func normalizedModelID(_ value: String?) -> String? {
+public func normalizedModelID(_ value: String?) -> String? {
     guard let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines),
           !trimmed.isEmpty,
           trimmed != "<synthetic>" else {
@@ -48,7 +44,7 @@ func normalizedModelID(_ value: String?) -> String? {
     return trimmed
 }
 
-extension RawTokenUsage {
+public extension RawTokenUsage {
     mutating func mergeActiveEstimate(_ estimate: ActivityTimeEstimate<String>, source: String) {
         activeSeconds += estimate.totalSeconds
         for (modelID, seconds) in estimate.secondsByKey {
@@ -112,19 +108,4 @@ func jsonLineStringValue(_ line: String, forKey key: String) -> String? {
         return nil
     }
     return String(line[start..<end])
-}
-
-enum DateParser {
-    private static let formatters: [ISO8601DateFormatter] = {
-        let withFractionalSeconds = ISO8601DateFormatter()
-        withFractionalSeconds.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-
-        let plain = ISO8601DateFormatter()
-        plain.formatOptions = [.withInternetDateTime]
-        return [withFractionalSeconds, plain]
-    }()
-
-    static func parse(_ string: String) -> Date? {
-        formatters.lazy.compactMap { $0.date(from: string) }.first
-    }
 }

@@ -1,29 +1,39 @@
 import Foundation
 import TokiUsageCore
 
-private let claudeUsageCacheParserVersion = 2
-
 /// Reads ~/.claude/projects/**/*.jsonl
 /// Deduplicates by requestId, keeps max token counts per message
-struct ClaudeCodeReader: TokenReader {
-    let name = "Claude Code"
+public struct ClaudeCodeReader: TokenReader {
+    public let name = "Claude Code"
+    private let projectsURLOverride: URL?
+    private let usageCache: ClaudeUsageCache
 
-    func readUsage(from startDate: Date, to endDate: Date) async throws -> RawTokenUsage {
-        let projectsURL = homeDir().appendingPathComponent(".claude/projects")
+    public init(
+        projectsURLOverride: URL? = nil,
+        usageCache: ClaudeUsageCache = .shared) {
+        self.projectsURLOverride = projectsURLOverride
+        self.usageCache = usageCache
+    }
+
+    private var projectsURL: URL {
+        projectsURLOverride ?? homeDir().appendingPathComponent(".claude/projects")
+    }
+
+    public func readUsage(from startDate: Date, to endDate: Date) async throws -> RawTokenUsage {
         guard FileManager.default.fileExists(atPath: projectsURL.path) else {
             return RawTokenUsage()
         }
 
         let files = findFiles(in: projectsURL, withExtension: "jsonl", modifiedAfter: startDate)
-        await ClaudeUsageCache.shared.beginBatch()
+        await usageCache.beginBatch()
         var sessions: [(streamID: String, records: [ClaudeCachedUsageRecord])] = []
 
         for file in files {
             await sessions.append(
-                (streamID: file.path, records: Self.cachedUsageRecords(at: file)))
+                (streamID: file.path, records: cachedUsageRecords(at: file)))
         }
 
-        await ClaudeUsageCache.shared.endBatch()
+        await usageCache.endBatch()
         return Self.usage(
             fromSessions: sessions,
             from: startDate,
@@ -55,13 +65,13 @@ struct ClaudeCodeReader: TokenReader {
             source: "Claude Code")
     }
 
-    private static func cachedUsageRecords(at url: URL) async -> [ClaudeCachedUsageRecord] {
-        if let cached = await ClaudeUsageCache.shared.records(for: url) {
+    private func cachedUsageRecords(at url: URL) async -> [ClaudeCachedUsageRecord] {
+        if let cached = await usageCache.records(for: url) {
             return cached
         }
 
-        let parsed = parseUsageRecords(at: url)
-        await ClaudeUsageCache.shared.store(records: parsed, for: url)
+        let parsed = Self.parseUsageRecords(at: url)
+        await usageCache.store(records: parsed, for: url)
         return parsed
     }
 
@@ -389,170 +399,6 @@ private struct RawMessage: Decodable {
             }
         }
     }
-}
-
-private actor ClaudeUsageCache {
-    static let shared = ClaudeUsageCache()
-
-    private var isLoaded = false
-    private var entries: [String: ClaudeUsageCacheEntry] = [:]
-    private var batchDepth = 0
-    private var hasPendingChanges = false
-
-    func beginBatch() async {
-        await loadIfNeeded()
-        batchDepth += 1
-    }
-
-    func endBatch() async {
-        await loadIfNeeded()
-        batchDepth = max(0, batchDepth - 1)
-        persistIfNeeded()
-    }
-
-    func records(for url: URL) async -> [ClaudeCachedUsageRecord]? {
-        await loadIfNeeded()
-
-        guard let fileSignature = claudeFileSignature(for: url),
-              let cached = entries[url.path],
-              cached.parserVersion == claudeUsageCacheParserVersion,
-              cached.fileSize == fileSignature.fileSize,
-              cached.modifiedAt == fileSignature.modifiedAt else {
-            return nil
-        }
-
-        return cached.records
-    }
-
-    func store(records: [ClaudeCachedUsageRecord], for url: URL) async {
-        await loadIfNeeded()
-
-        guard let fileSignature = claudeFileSignature(for: url) else { return }
-
-        entries[url.path] = ClaudeUsageCacheEntry(
-            parserVersion: claudeUsageCacheParserVersion,
-            fileSize: fileSignature.fileSize,
-            modifiedAt: fileSignature.modifiedAt,
-            records: records)
-
-        hasPendingChanges = true
-        persistIfNeeded()
-    }
-
-    private func loadIfNeeded() async {
-        guard !isLoaded else { return }
-        isLoaded = true
-
-        guard let data = try? Data(contentsOf: claudeUsageCacheURL()),
-              let decoded = try? JSONDecoder().decode(ClaudeUsageCacheFile.self, from: data) else {
-            entries = [:]
-            return
-        }
-
-        entries = decoded.entries
-    }
-
-    private func persistIfNeeded() {
-        guard hasPendingChanges, batchDepth == 0 else { return }
-
-        let cacheURL = claudeUsageCacheURL()
-        let directory = cacheURL.deletingLastPathComponent()
-        try? FileManager.default.createDirectory(
-            at: directory,
-            withIntermediateDirectories: true,
-            attributes: nil)
-
-        let payload = ClaudeUsageCacheFile(entries: entries)
-        guard let data = try? JSONEncoder().encode(payload) else { return }
-        try? data.write(to: cacheURL, options: [.atomic])
-        hasPendingChanges = false
-    }
-}
-
-private struct ClaudeUsageCacheFile: Codable {
-    let entries: [String: ClaudeUsageCacheEntry]
-}
-
-private struct ClaudeUsageCacheEntry: Codable {
-    let parserVersion: Int?
-    let fileSize: Int
-    let modifiedAt: TimeInterval
-    let records: [ClaudeCachedUsageRecord]
-
-    init(
-        parserVersion: Int? = nil,
-        fileSize: Int,
-        modifiedAt: TimeInterval,
-        records: [ClaudeCachedUsageRecord]) {
-        self.parserVersion = parserVersion
-        self.fileSize = fileSize
-        self.modifiedAt = modifiedAt
-        self.records = records
-    }
-}
-
-private struct ClaudeCachedUsageRecord: Codable {
-    let lineIndex: Int
-    let timestamp: TimeInterval
-    let requestId: String?
-    let sessionID: String?
-    let cwd: String?
-    let messageID: String?
-    let model: String?
-    let input: Int
-    let output: Int
-    let cacheRead: Int
-    let cacheWrite: Int
-
-    init(
-        lineIndex: Int,
-        timestamp: TimeInterval,
-        requestId: String?,
-        sessionID: String? = nil,
-        cwd: String? = nil,
-        messageID: String?,
-        model: String?,
-        input: Int,
-        output: Int,
-        cacheRead: Int,
-        cacheWrite: Int) {
-        self.lineIndex = lineIndex
-        self.timestamp = timestamp
-        self.requestId = requestId
-        self.sessionID = sessionID
-        self.cwd = cwd
-        self.messageID = messageID
-        self.model = model
-        self.input = input
-        self.output = output
-        self.cacheRead = cacheRead
-        self.cacheWrite = cacheWrite
-    }
-}
-
-private struct ClaudeFileSignature {
-    let fileSize: Int
-    let modifiedAt: TimeInterval
-}
-
-private func claudeFileSignature(for url: URL) -> ClaudeFileSignature? {
-    guard let values = try? url.resourceValues(forKeys: [.contentModificationDateKey, .fileSizeKey]),
-          let modifiedAt = values.contentModificationDate,
-          let fileSize = values.fileSize else {
-        return nil
-    }
-
-    return ClaudeFileSignature(
-        fileSize: fileSize,
-        modifiedAt: modifiedAt.timeIntervalSince1970)
-}
-
-private func claudeUsageCacheURL() -> URL {
-    homeDir()
-        .appendingPathComponent("Library")
-        .appendingPathComponent("Application Support")
-        .appendingPathComponent("Toki")
-        .appendingPathComponent("claude-usage-cache.json")
 }
 
 private extension String {

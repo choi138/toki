@@ -1,28 +1,29 @@
 import Foundation
-import SQLite3
 import TokiUsageCore
 
-let sqliteTransient = unsafeBitCast(-1, to: sqlite3_destructor_type.self)
+#if os(Linux)
+    import CSQLite
+#else
+    import SQLite3
+#endif
+
 private let cursorModelLookupIdentifierChunkSize = 250
 
 /// Reads Cursor's global usage state from the app's local SQLite store.
 /// Aggregates one token-bearing assistant response per usage UUID.
-struct CursorReader: TokenReader {
-    let name = "Cursor"
+public struct CursorReader: TokenReader {
+    public let name = "Cursor"
     private let dbPathOverride: String?
 
-    init(dbPathOverride: String? = nil) {
+    public init(dbPathOverride: String? = nil) {
         self.dbPathOverride = dbPathOverride
     }
 
     private var dbPath: String {
-        dbPathOverride
-            ?? homeDir()
-            .appendingPathComponent("Library/Application Support/Cursor/User/globalStorage/state.vscdb")
-            .path
+        dbPathOverride ?? LocalUsageReaderPaths().cursorDatabase.path
     }
 
-    func readUsage(from startDate: Date, to endDate: Date) async throws -> RawTokenUsage {
+    public func readUsage(from startDate: Date, to endDate: Date) async throws -> RawTokenUsage {
         guard !Task.isCancelled,
               FileManager.default.fileExists(atPath: dbPath) else {
             return RawTokenUsage()
@@ -278,11 +279,6 @@ extension CursorReader {
             && startDate <= now
             && endDate > now
     }
-}
-
-enum SQLiteBind {
-    case int64(Int64)
-    case text(String)
 }
 
 private func cursorQueryBubblePayloads(

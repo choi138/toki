@@ -9,6 +9,7 @@ let package = Package(
     ],
     products: [
         .library(name: "TokiUsageCore", targets: ["TokiUsageCore"]),
+        .library(name: "TokiUsageReaders", targets: ["TokiUsageReaders"]),
         .library(name: "TokiSyncProtocol", targets: ["TokiSyncProtocol"]),
         .library(name: "TokiDurableStorage", targets: ["TokiDurableStorage"]),
     ],
@@ -17,11 +18,26 @@ let package = Package(
     ],
     targets: [
         .target(name: "TokiUsageCore"),
+        .systemLibrary(
+            name: "CSQLite",
+            pkgConfig: "sqlite3",
+            providers: [
+                .apt(["libsqlite3-dev"]),
+                .brew(["sqlite3"]),
+            ]),
         .target(name: "TokiDurableStorage"),
         .target(
             name: "TokiSyncProtocol",
             dependencies: [
                 .product(name: "Crypto", package: "swift-crypto"),
+            ]),
+        .target(
+            name: "TokiUsageReaders",
+            dependencies: [
+                .target(name: "CSQLite", condition: .when(platforms: [.linux])),
+                "TokiDurableStorage",
+                "TokiSyncProtocol",
+                "TokiUsageCore",
             ]),
         .testTarget(
             name: "TokiSyncProtocolTests",

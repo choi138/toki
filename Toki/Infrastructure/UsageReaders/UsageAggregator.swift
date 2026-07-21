@@ -1,5 +1,6 @@
 import Foundation
 import TokiUsageCore
+import TokiUsageReaders
 
 struct UsageAggregationRequest: Equatable {
     let dateInterval: DateInterval
@@ -31,16 +32,7 @@ struct UsageAggregationResult: Equatable {
 }
 
 final class UsageAggregator {
-    static let defaultReaders: [any TokenReader] = [
-        ClaudeCodeReader(),
-        CodexReader(),
-        HermesReader(),
-        CursorReader(),
-        GeminiReader(),
-        GJCReader(),
-        OpenCodeReader(),
-        OpenClawReader(),
-    ]
+    static let defaultReaders: [any TokenReader] = LocalUsageReaderRegistry.readers()
 
     private let readers: [any TokenReader]
 

@@ -2,16 +2,21 @@ import Foundation
 import TokiUsageCore
 
 /// Reads ~/.openclaw/agents/**/*.jsonl
-struct OpenClawReader: TokenReader {
-    static let sourceName = "OpenClaw"
+public struct OpenClawReader: TokenReader {
+    public static let sourceName = "OpenClaw"
 
-    let name = Self.sourceName
+    public let name = Self.sourceName
+    private let agentsURLOverride: URL?
 
-    private var agentsURL: URL {
-        homeDir().appendingPathComponent(".openclaw/agents")
+    public init(agentsURLOverride: URL? = nil) {
+        self.agentsURLOverride = agentsURLOverride
     }
 
-    func readUsage(from startDate: Date, to endDate: Date) async throws -> RawTokenUsage {
+    private var agentsURL: URL {
+        agentsURLOverride ?? homeDir().appendingPathComponent(".openclaw/agents")
+    }
+
+    public func readUsage(from startDate: Date, to endDate: Date) async throws -> RawTokenUsage {
         guard FileManager.default.fileExists(atPath: agentsURL.path) else {
             return RawTokenUsage()
         }

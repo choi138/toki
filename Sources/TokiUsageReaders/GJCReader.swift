@@ -2,16 +2,21 @@ import Foundation
 import TokiUsageCore
 
 /// Reads ~/.gjc/agent/sessions/**/*.jsonl
-struct GJCReader: TokenReader {
-    static let sourceName = "GJC"
+public struct GJCReader: TokenReader {
+    public static let sourceName = "GJC"
 
-    let name = Self.sourceName
+    public let name = Self.sourceName
+    private let sessionsURLOverride: URL?
 
-    private var sessionsURL: URL {
-        homeDir().appendingPathComponent(".gjc/agent/sessions")
+    public init(sessionsURLOverride: URL? = nil) {
+        self.sessionsURLOverride = sessionsURLOverride
     }
 
-    func readUsage(from startDate: Date, to endDate: Date) async throws -> RawTokenUsage {
+    private var sessionsURL: URL {
+        sessionsURLOverride ?? homeDir().appendingPathComponent(".gjc/agent/sessions")
+    }
+
+    public func readUsage(from startDate: Date, to endDate: Date) async throws -> RawTokenUsage {
         guard FileManager.default.fileExists(atPath: sessionsURL.path) else {
             return RawTokenUsage()
         }

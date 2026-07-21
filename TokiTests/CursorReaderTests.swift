@@ -2,6 +2,7 @@ import SQLite3
 import TokiUsageCore
 import XCTest
 @testable import Toki
+@testable import TokiUsageReaders
 
 final class CursorReaderUsageTests: XCTestCase {
     func test_cursorReader_aggregatesTokenUsageByUsageUuidAndModel() {

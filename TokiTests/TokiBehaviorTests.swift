@@ -1,6 +1,7 @@
 import TokiUsageCore
 import XCTest
 @testable import Toki
+@testable import TokiUsageReaders
 
 // swiftlint:disable file_length
 final class UsageServiceBehaviorTests: XCTestCase {
