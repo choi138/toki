@@ -1,4 +1,5 @@
 import Foundation
+import TokiUsageCore
 
 /// Reads ~/.gemini/tmp/*/chats/**/*.json
 /// Parses Gemini API usageMetadata from conversation history files

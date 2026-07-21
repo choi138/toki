@@ -1,4 +1,5 @@
 import Foundation
+import TokiUsageCore
 
 private let claudeUsageCacheParserVersion = 2
 

@@ -1,4 +1,5 @@
 import Foundation
+import TokiUsageCore
 
 enum TokenTotalPeriod: String, CaseIterable, Codable, Hashable, Identifiable {
     case last7Days

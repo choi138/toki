@@ -1,5 +1,6 @@
 import Foundation
 import SQLite3
+import TokiUsageCore
 
 extension CodexReader {
     func overlappingSessions(

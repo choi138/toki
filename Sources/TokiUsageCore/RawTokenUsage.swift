@@ -1,31 +1,31 @@
 import Foundation
 
-enum SupplementalUnit: String {
+public enum SupplementalUnit: String {
     case tokens
     case count
     case cents
 }
 
-enum UsageQuality: String {
+public enum UsageQuality: String {
     case exact
     case contextOnly
     case derived
 }
 
-enum AttributionQuality: String, Codable {
+public enum AttributionQuality: String, Codable {
     case exact
     case inferred
     case unknown
 }
 
-struct UsageAttribution: Equatable, Codable {
-    let projectPath: String?
-    let projectName: String?
-    let sessionID: String?
-    let sessionLabel: String?
-    let quality: AttributionQuality
+public struct UsageAttribution: Equatable, Codable {
+    public let projectPath: String?
+    public let projectName: String?
+    public let sessionID: String?
+    public let sessionLabel: String?
+    public let quality: AttributionQuality
 
-    init(
+    public init(
         projectPath: String? = nil,
         projectName: String? = nil,
         sessionID: String? = nil,
@@ -40,47 +40,82 @@ struct UsageAttribution: Equatable, Codable {
         self.quality = normalizedName == nil ? .unknown : quality
     }
 
-    var resolvedProjectName: String {
+    public var resolvedProjectName: String {
         projectName?.nilIfBlank ?? "Unknown Project"
     }
 }
 
-struct SupplementalUsage {
-    let id: String
-    let label: String
-    let value: Int
-    let unit: SupplementalUnit
-    let source: String
-    let model: String?
-    let includedInTotals: Bool
-    let quality: UsageQuality
+public struct SupplementalUsage {
+    public let id: String
+    public let label: String
+    public let value: Int
+    public let unit: SupplementalUnit
+    public let source: String
+    public let model: String?
+    public let includedInTotals: Bool
+    public let quality: UsageQuality
+
+    public init(
+        id: String,
+        label: String,
+        value: Int,
+        unit: SupplementalUnit,
+        source: String,
+        model: String?,
+        includedInTotals: Bool,
+        quality: UsageQuality) {
+        self.id = id
+        self.label = label
+        self.value = value
+        self.unit = unit
+        self.source = source
+        self.model = model
+        self.includedInTotals = includedInTotals
+        self.quality = quality
+    }
 }
 
-struct PerModelUsage {
-    var totalTokens = 0
-    var cost: Double = 0
-    var activeSeconds: TimeInterval = 0
-    var sources: Set<String> = []
+public struct PerModelUsage {
+    public var totalTokens: Int
+    public var cost: Double
+    public var activeSeconds: TimeInterval
+    public var sources: Set<String>
+
+    public init(
+        totalTokens: Int = 0,
+        cost: Double = 0,
+        activeSeconds: TimeInterval = 0,
+        sources: Set<String> = []) {
+        self.totalTokens = totalTokens
+        self.cost = cost
+        self.activeSeconds = activeSeconds
+        self.sources = sources
+    }
 }
 
-struct ModelSourceUsageKey: Hashable {
-    let modelID: String
-    let source: String
+public struct ModelSourceUsageKey: Hashable {
+    public let modelID: String
+    public let source: String
+
+    public init(modelID: String, source: String) {
+        self.modelID = modelID
+        self.source = source
+    }
 }
 
-struct TokenUsageEvent: Equatable, Codable {
-    let timestamp: Date
-    let source: String
-    let model: String?
-    let inputTokens: Int
-    let outputTokens: Int
-    let cacheReadTokens: Int
-    let cacheWriteTokens: Int
-    let reasoningTokens: Int
-    let cost: Double
-    let attribution: UsageAttribution?
+public struct TokenUsageEvent: Equatable, Codable {
+    public let timestamp: Date
+    public let source: String
+    public let model: String?
+    public let inputTokens: Int
+    public let outputTokens: Int
+    public let cacheReadTokens: Int
+    public let cacheWriteTokens: Int
+    public let reasoningTokens: Int
+    public let cost: Double
+    public let attribution: UsageAttribution?
 
-    init(
+    public init(
         timestamp: Date,
         source: String,
         model: String?,
@@ -103,20 +138,20 @@ struct TokenUsageEvent: Equatable, Codable {
         self.attribution = attribution
     }
 
-    var totalTokens: Int {
+    public var totalTokens: Int {
         inputTokens + outputTokens + cacheReadTokens + cacheWriteTokens + reasoningTokens
     }
 }
 
-struct WorkTimeMetrics: Equatable {
-    var agentSeconds: TimeInterval
-    var mainAgentSeconds: TimeInterval
-    var subagentSeconds: TimeInterval
-    var wallClockSeconds: TimeInterval
-    var activeStreamCount: Int
-    var maxConcurrentStreams: Int
+public struct WorkTimeMetrics: Equatable {
+    public var agentSeconds: TimeInterval
+    public var mainAgentSeconds: TimeInterval
+    public var subagentSeconds: TimeInterval
+    public var wallClockSeconds: TimeInterval
+    public var activeStreamCount: Int
+    public var maxConcurrentStreams: Int
 
-    init(
+    public init(
         agentSeconds: TimeInterval = 0,
         wallClockSeconds: TimeInterval = 0,
         activeStreamCount: Int = 0,
@@ -131,9 +166,9 @@ struct WorkTimeMetrics: Equatable {
         self.mainAgentSeconds = max(0, mainAgentSeconds ?? (agentSeconds - self.subagentSeconds))
     }
 
-    static let zero = WorkTimeMetrics()
+    public static let zero = WorkTimeMetrics()
 
-    static func fallback(activeSeconds: TimeInterval) -> WorkTimeMetrics {
+    public static func fallback(activeSeconds: TimeInterval) -> WorkTimeMetrics {
         let streamCount = activeSeconds > 0 ? 1 : 0
         return WorkTimeMetrics(
             agentSeconds: activeSeconds,
@@ -147,7 +182,7 @@ struct WorkTimeMetrics: Equatable {
     /// duration and stream counts, but keeps peak concurrency to observed peaks.
     /// If the inputs really overlap, wallClockSeconds is overestimated and
     /// parallelMultiplier moves closer to 1.
-    func mergedConservatively(with other: WorkTimeMetrics) -> WorkTimeMetrics {
+    public func mergedConservatively(with other: WorkTimeMetrics) -> WorkTimeMetrics {
         if !hasActivity { return other }
         if !other.hasActivity { return self }
         return WorkTimeMetrics(
@@ -159,12 +194,12 @@ struct WorkTimeMetrics: Equatable {
             subagentSeconds: subagentSeconds + other.subagentSeconds)
     }
 
-    var parallelMultiplier: Double {
+    public var parallelMultiplier: Double {
         guard wallClockSeconds > 0 else { return 0 }
         return agentSeconds / wallClockSeconds
     }
 
-    var hasActivity: Bool {
+    public var hasActivity: Bool {
         agentSeconds > 0
             || mainAgentSeconds > 0
             || subagentSeconds > 0
@@ -174,41 +209,76 @@ struct WorkTimeMetrics: Equatable {
     }
 }
 
-struct RawTokenUsage {
-    var inputTokens = 0
-    var outputTokens = 0
-    var cacheReadTokens = 0
-    var cacheWriteTokens = 0
-    var reasoningTokens = 0
-    var cost: Double = 0
-    var activeSeconds: TimeInterval = 0
-    var workTime = WorkTimeMetrics.zero
-    var perModel: [String: PerModelUsage] = [:]
-    var perModelBySource: [ModelSourceUsageKey: PerModelUsage] = [:]
-    var activityEvents: [ActivityTimeEvent<String>] = []
-    var tokenEvents: [TokenUsageEvent] = []
-    var fallbackActiveSeconds: TimeInterval = 0
-    var fallbackActiveSecondsByModel: [String: TimeInterval] = [:]
-    var fallbackWorkTime = WorkTimeMetrics.zero
-    var supplemental: [SupplementalUsage] = []
+public struct RawTokenUsage {
+    public var inputTokens: Int
+    public var outputTokens: Int
+    public var cacheReadTokens: Int
+    public var cacheWriteTokens: Int
+    public var reasoningTokens: Int
+    public var cost: Double
+    public var activeSeconds: TimeInterval
+    public var workTime: WorkTimeMetrics
+    public var perModel: [String: PerModelUsage]
+    public var perModelBySource: [ModelSourceUsageKey: PerModelUsage]
+    public var activityEvents: [ActivityTimeEvent<String>]
+    public var tokenEvents: [TokenUsageEvent]
+    public var fallbackActiveSeconds: TimeInterval
+    public var fallbackActiveSecondsByModel: [String: TimeInterval]
+    public var fallbackWorkTime: WorkTimeMetrics
+    public var supplemental: [SupplementalUsage]
 
-    var totalTokens: Int {
+    public init(
+        inputTokens: Int = 0,
+        outputTokens: Int = 0,
+        cacheReadTokens: Int = 0,
+        cacheWriteTokens: Int = 0,
+        reasoningTokens: Int = 0,
+        cost: Double = 0,
+        activeSeconds: TimeInterval = 0,
+        workTime: WorkTimeMetrics = .zero,
+        perModel: [String: PerModelUsage] = [:],
+        perModelBySource: [ModelSourceUsageKey: PerModelUsage] = [:],
+        activityEvents: [ActivityTimeEvent<String>] = [],
+        tokenEvents: [TokenUsageEvent] = [],
+        fallbackActiveSeconds: TimeInterval = 0,
+        fallbackActiveSecondsByModel: [String: TimeInterval] = [:],
+        fallbackWorkTime: WorkTimeMetrics = .zero,
+        supplemental: [SupplementalUsage] = []) {
+        self.inputTokens = inputTokens
+        self.outputTokens = outputTokens
+        self.cacheReadTokens = cacheReadTokens
+        self.cacheWriteTokens = cacheWriteTokens
+        self.reasoningTokens = reasoningTokens
+        self.cost = cost
+        self.activeSeconds = activeSeconds
+        self.workTime = workTime
+        self.perModel = perModel
+        self.perModelBySource = perModelBySource
+        self.activityEvents = activityEvents
+        self.tokenEvents = tokenEvents
+        self.fallbackActiveSeconds = fallbackActiveSeconds
+        self.fallbackActiveSecondsByModel = fallbackActiveSecondsByModel
+        self.fallbackWorkTime = fallbackWorkTime
+        self.supplemental = supplemental
+    }
+
+    public var totalTokens: Int {
         inputTokens + outputTokens + cacheReadTokens + cacheWriteTokens + reasoningTokens
     }
 
-    var resolvedWorkTime: WorkTimeMetrics {
+    public var resolvedWorkTime: WorkTimeMetrics {
         if workTime.hasActivity { return workTime }
         return .fallback(activeSeconds: activeSeconds)
     }
 
-    var resolvedFallbackWorkTime: WorkTimeMetrics {
+    public var resolvedFallbackWorkTime: WorkTimeMetrics {
         if fallbackWorkTime.hasActivity { return fallbackWorkTime }
         if fallbackActiveSeconds > 0 { return .fallback(activeSeconds: fallbackActiveSeconds) }
         if activityEvents.isEmpty { return resolvedWorkTime }
         return .zero
     }
 
-    var hasReportableData: Bool {
+    public var hasReportableData: Bool {
         totalTokens > 0
             || cost > 0
             || activeSeconds > 0
@@ -221,7 +291,7 @@ struct RawTokenUsage {
             || !supplemental.isEmpty
     }
 
-    mutating func recordTokenEvent(
+    public mutating func recordTokenEvent(
         timestamp: Date,
         source: String,
         model: String?,
@@ -248,11 +318,11 @@ struct RawTokenUsage {
     }
 }
 
-func usageSessionID(fromPath path: String) -> String {
+public func usageSessionID(fromPath path: String) -> String {
     URL(fileURLWithPath: path).deletingPathExtension().lastPathComponent
 }
 
-func bestUsageAttribution(_ lhs: UsageAttribution?, _ rhs: UsageAttribution?) -> UsageAttribution? {
+public func bestUsageAttribution(_ lhs: UsageAttribution?, _ rhs: UsageAttribution?) -> UsageAttribution? {
     guard let lhs else { return rhs }
     guard let rhs else { return lhs }
     return usageAttributionRank(rhs) > usageAttributionRank(lhs) ? rhs : lhs
@@ -284,7 +354,7 @@ private extension String {
     }
 }
 
-func += (lhs: inout RawTokenUsage, rhs: RawTokenUsage) {
+public func += (lhs: inout RawTokenUsage, rhs: RawTokenUsage) {
     let lhsWorkTime = lhs.resolvedWorkTime
     let rhsWorkTime = rhs.resolvedWorkTime
     let lhsFallbackWorkTime = lhs.resolvedFallbackWorkTime

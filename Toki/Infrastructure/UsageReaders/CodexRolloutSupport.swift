@@ -1,4 +1,5 @@
 import Foundation
+import TokiUsageCore
 
 actor CodexRolloutUsageCache {
     static let shared = CodexRolloutUsageCache()

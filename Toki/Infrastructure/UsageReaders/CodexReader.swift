@@ -1,5 +1,6 @@
 import Foundation
 import SQLite3
+import TokiUsageCore
 
 /// Reads ~/.codex/state_5.sqlite to discover active rollouts,
 /// then reconstructs per-range usage from rollout JSONL token_count snapshots.
@@ -566,7 +567,6 @@ extension CodexReader {
                     contentsOf: events.compactMap { event in
                         let timestamp = Date(timeIntervalSince1970: event.timestamp)
                         guard timestamp >= startDate, timestamp < endDate else { return nil }
-
                         let eventCost: Double = if let normalizedModel, let price = modelPrice(for: normalizedModel) {
                             price.cost(
                                 input: event.inputTokens,

@@ -8,6 +8,7 @@ let package = Package(
         .macOS(.v13),
     ],
     products: [
+        .library(name: "TokiUsageCore", targets: ["TokiUsageCore"]),
         .library(name: "TokiSyncProtocol", targets: ["TokiSyncProtocol"]),
         .library(name: "TokiDurableStorage", targets: ["TokiDurableStorage"]),
     ],
@@ -15,6 +16,7 @@ let package = Package(
         .package(url: "https://github.com/apple/swift-crypto.git", from: "3.12.5"),
     ],
     targets: [
+        .target(name: "TokiUsageCore"),
         .target(name: "TokiDurableStorage"),
         .target(
             name: "TokiSyncProtocol",

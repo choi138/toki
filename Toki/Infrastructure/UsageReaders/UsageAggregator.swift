@@ -1,4 +1,5 @@
 import Foundation
+import TokiUsageCore
 
 struct UsageAggregationRequest: Equatable {
     let dateInterval: DateInterval

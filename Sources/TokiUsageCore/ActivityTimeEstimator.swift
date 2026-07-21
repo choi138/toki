@@ -1,17 +1,17 @@
 import Foundation
 
-enum WorkTimeAgentKind: Hashable {
+public enum WorkTimeAgentKind: Hashable {
     case main
     case subagent
 }
 
-struct ActivityTimeEvent<Key: Hashable> {
-    let streamID: String
-    let timestamp: Date
-    let key: Key?
-    let agentKind: WorkTimeAgentKind
+public struct ActivityTimeEvent<Key: Hashable> {
+    public let streamID: String
+    public let timestamp: Date
+    public let key: Key?
+    public let agentKind: WorkTimeAgentKind
 
-    init(
+    public init(
         streamID: String,
         timestamp: Date,
         key: Key?,
@@ -23,16 +23,16 @@ struct ActivityTimeEvent<Key: Hashable> {
     }
 }
 
-struct ActivityTimeEstimate<Key: Hashable> {
-    let totalSeconds: TimeInterval
-    let mainAgentSeconds: TimeInterval
-    let subagentSeconds: TimeInterval
-    let wallClockSeconds: TimeInterval
-    let activeStreamCount: Int
-    let maxConcurrentStreams: Int
-    let secondsByKey: [Key: TimeInterval]
+public struct ActivityTimeEstimate<Key: Hashable> {
+    public let totalSeconds: TimeInterval
+    public let mainAgentSeconds: TimeInterval
+    public let subagentSeconds: TimeInterval
+    public let wallClockSeconds: TimeInterval
+    public let activeStreamCount: Int
+    public let maxConcurrentStreams: Int
+    public let secondsByKey: [Key: TimeInterval]
 
-    static var zero: Self {
+    public static var zero: Self {
         ActivityTimeEstimate(
             totalSeconds: 0,
             mainAgentSeconds: 0,
@@ -52,11 +52,11 @@ private struct ActivityInterval<Key: Hashable> {
     let agentKind: WorkTimeAgentKind
 }
 
-enum ActivityTimeEstimator {
-    static let defaultMaximumGap: TimeInterval = 300
-    static let defaultMinimumSlice: TimeInterval = 30
+public enum ActivityTimeEstimator {
+    public static let defaultMaximumGap: TimeInterval = 300
+    public static let defaultMinimumSlice: TimeInterval = 30
 
-    static func estimate<Key: Hashable>(
+    public static func estimate<Key: Hashable>(
         events: [ActivityTimeEvent<Key>],
         maximumGap: TimeInterval = defaultMaximumGap,
         minimumSlice: TimeInterval = defaultMinimumSlice,

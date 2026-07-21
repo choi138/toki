@@ -1,5 +1,6 @@
 import Foundation
 import SQLite3
+import TokiUsageCore
 
 /// Reads ~/.local/share/opencode/opencode.db (SQLite)
 /// Queries assistant messages with token data
