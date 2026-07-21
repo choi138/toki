@@ -1,14 +1,9 @@
 import Foundation
 
-// swiftlint:disable file_length
-
 final class SecurityAuditScanner: SecurityAuditScanning {
-    private let sources: [SecurityAuditFileSource]
-    private let rules: [SecurityAuditRule]
-    private let fileManager: FileManager
+    private let fileDiscovery: SecurityAuditFileDiscovery
+    private let fileScanner: SecurityAuditFileScanner
     private let maxConcurrentFileScans: Int
-    private let cacheStore: (any SecurityAuditCacheStoring)?
-    private let ruleSetIdentifier: String
 
     init(
         sources: [SecurityAuditFileSource] = SecurityAuditScanner.defaultSources(),
@@ -16,676 +11,135 @@ final class SecurityAuditScanner: SecurityAuditScanning {
         fileManager: FileManager = .default,
         maxConcurrentFileScans: Int = min(max(ProcessInfo.processInfo.activeProcessorCount, 1), 8),
         cacheStore: (any SecurityAuditCacheStoring)? = SecurityAuditCacheStore()) {
-        self.sources = sources
-        self.rules = rules
-        self.fileManager = fileManager
+        fileDiscovery = SecurityAuditFileDiscovery(sources: sources, fileManager: fileManager)
+        fileScanner = SecurityAuditFileScanner(
+            rules: rules,
+            fileManager: fileManager,
+            cacheStore: cacheStore)
         self.maxConcurrentFileScans = max(maxConcurrentFileScans, 1)
-        self.cacheStore = cacheStore
-        ruleSetIdentifier = SecurityAuditRules.cacheIdentifier(for: rules)
     }
 
     func scan(
         request: SecurityAuditRequest = SecurityAuditRequest(),
         progress: SecurityAuditProgressHandler? = nil) async -> SecurityAuditResult {
         let scannedAt = Date()
-        var scannedFileCount = 0
-        var scannedLineCount = 0
-        var findings: [SecurityFinding] = []
-        var seenFindingIDs = Set<String>()
-        var completedFileCount = 0
-        var cache = cacheStore?.load() ?? SecurityAuditCache(ruleSetIdentifier: ruleSetIdentifier)
-        if cache.ruleSetIdentifier != ruleSetIdentifier {
-            cache = SecurityAuditCache(ruleSetIdentifier: ruleSetIdentifier)
-        } else {
-            cache.ruleSetIdentifier = ruleSetIdentifier
-        }
-        let planSummary = makeScanPlanSummary(request: request, progress: progress)
-        let totalFileCount = planSummary.totalFileCount
-        var lastScanProgressReport = Date.distantPast
+        let planSummary = fileDiscovery.makeScanPlanSummary(request: request, progress: progress)
+        let progressReporter = SecurityAuditProgressReporter(
+            totalFileCount: planSummary.totalFileCount,
+            progress: progress)
+        var accumulator = SecurityAuditScanAccumulator()
+        var cache = fileScanner.loadCache()
 
-        func report(
-            phase: SecurityAuditProgress.Phase,
-            sourceName: String? = nil,
-            fileURL: URL? = nil,
-            force: Bool = false) {
-            if !force, phase == .scanning, totalFileCount > 50 {
-                let now = Date()
-                guard now.timeIntervalSince(lastScanProgressReport) >= 0.12 else { return }
-                lastScanProgressReport = now
-            }
-
-            progress?(SecurityAuditProgress(
-                phase: phase,
-                currentSourceName: sourceName,
-                currentFileName: fileURL?.lastPathComponent,
-                completedFileCount: completedFileCount,
-                totalFileCount: totalFileCount,
-                scannedLineCount: scannedLineCount,
-                findingCount: findings.count))
-        }
-
-        report(phase: .scanning)
+        progressReporter.report(phase: .scanning, accumulator: accumulator)
 
         for plan in planSummary.scanPlans {
             guard !Task.isCancelled else { break }
 
-            let source = plan.source
-            let fileURLs = plan.fileURLs
-            for batchStart in stride(from: 0, to: fileURLs.count, by: maxConcurrentFileScans) {
+            for batchStart in stride(from: 0, to: plan.fileURLs.count, by: maxConcurrentFileScans) {
                 guard !Task.isCancelled else { break }
 
-                let batchEnd = min(batchStart + maxConcurrentFileScans, fileURLs.count)
-                let batch = Array(fileURLs[batchStart..<batchEnd])
-
-                _ = await scanFilesUsingCache(
+                let batchEnd = min(batchStart + maxConcurrentFileScans, plan.fileURLs.count)
+                let batch = Array(plan.fileURLs[batchStart..<batchEnd])
+                _ = await fileScanner.scanFilesUsingCache(
                     batch,
-                    source: source,
+                    source: plan.source,
                     scannedAt: scannedAt,
                     cache: &cache,
                     onFileStarted: { sourceName, fileURL in
-                        report(phase: .scanning, sourceName: sourceName, fileURL: fileURL)
+                        progressReporter.report(
+                            phase: .scanning,
+                            sourceName: sourceName,
+                            fileURL: fileURL,
+                            accumulator: accumulator)
                     },
                     onFileCompleted: { sourceName, fileURL, fileResult in
-                        completedFileCount += 1
-                        scannedFileCount += 1
-                        scannedLineCount += fileResult.lineCount
-
-                        for finding in fileResult.findings where !seenFindingIDs.contains(finding.id) {
-                            seenFindingIDs.insert(finding.id)
-                            findings.append(finding)
-                        }
-
-                        report(phase: .scanning, sourceName: sourceName, fileURL: fileURL)
+                        accumulator.record(fileResult)
+                        progressReporter.report(
+                            phase: .scanning,
+                            sourceName: sourceName,
+                            fileURL: fileURL,
+                            accumulator: accumulator)
                     })
             }
         }
 
         if request.modifiedAfter == nil {
-            reconcileDeletedFiles(
+            fileScanner.reconcileDeletedFiles(
                 cache: &cache,
                 visiblePathsByEnabledSource: planSummary.visiblePathsByEnabledSource)
         }
-        cacheStore?.save(cache)
-        report(phase: .finished, force: true)
+        fileScanner.saveCache(cache)
+        progressReporter.report(phase: .finished, accumulator: accumulator, force: true)
 
         return SecurityAuditResult(
             scannedAt: scannedAt,
             scannedSourceCount: planSummary.scanPlans.count,
-            scannedFileCount: scannedFileCount,
-            scannedLineCount: scannedLineCount,
+            scannedFileCount: accumulator.scannedFileCount,
+            scannedLineCount: accumulator.scannedLineCount,
             skippedSourceNames: planSummary.skippedSourceNames,
-            findings: findings.sorted(by: sortFindings))
-    }
-}
-
-private struct SecurityAuditSourceScanPlan {
-    let source: SecurityAuditFileSource
-    let fileURLs: [URL]
-}
-
-private struct SecurityAuditScanPlanSummary {
-    let scanPlans: [SecurityAuditSourceScanPlan]
-    let skippedSourceNames: [String]
-    let visiblePathsByEnabledSource: [String: Set<String>]
-    let totalFileCount: Int
-}
-
-private struct SecurityIndexedFileScanResult {
-    let index: Int
-    let fileURL: URL
-    let result: SecurityFileScanResult
-}
-
-private extension SecurityAuditScanner {
-    func makeScanPlanSummary(
-        request: SecurityAuditRequest,
-        progress: SecurityAuditProgressHandler?) -> SecurityAuditScanPlanSummary {
-        progress?(SecurityAuditProgress.idle)
-
-        var skippedSourceNames: [String] = []
-        var visiblePathsByEnabledSource: [String: Set<String>] = [:]
-        var scanPlans: [SecurityAuditSourceScanPlan] = []
-        var totalFileCount = 0
-
-        for source in sources {
-            guard !Task.isCancelled else { break }
-
-            guard request.isSourceEnabled(source.name) else {
-                skippedSourceNames.append(source.name)
-                continue
-            }
-
-            reportDiscoveryProgress(progress, sourceName: source.name, totalFileCount: totalFileCount)
-            let fileURLs = discoverFiles(for: source, modifiedAfter: request.modifiedAfter)
-            scanPlans.append(SecurityAuditSourceScanPlan(source: source, fileURLs: fileURLs))
-            totalFileCount += fileURLs.count
-            visiblePathsByEnabledSource[source.name, default: []].formUnion(
-                fileURLs.map(\.standardizedFileURL.path))
-            reportDiscoveryProgress(progress, sourceName: source.name, totalFileCount: totalFileCount)
-        }
-
-        return SecurityAuditScanPlanSummary(
-            scanPlans: scanPlans,
-            skippedSourceNames: skippedSourceNames,
-            visiblePathsByEnabledSource: visiblePathsByEnabledSource,
-            totalFileCount: totalFileCount)
+            findings: accumulator.findings.sorted(by: fileScanner.sortFindings))
     }
 
-    func reportDiscoveryProgress(
-        _ progress: SecurityAuditProgressHandler?,
-        sourceName: String,
-        totalFileCount: Int) {
-        progress?(SecurityAuditProgress(
-            phase: .discovering,
-            currentSourceName: sourceName,
-            currentFileName: nil,
-            completedFileCount: 0,
-            totalFileCount: totalFileCount,
-            scannedLineCount: 0,
-            findingCount: 0))
-    }
-
-    func discoverFiles(for source: SecurityAuditFileSource, modifiedAfter: Date?) -> [URL] {
-        let keys: [URLResourceKey] = [.isRegularFileKey, .contentModificationDateKey]
-        guard fileManager.fileExists(atPath: source.rootURL.path),
-              let enumerator = fileManager.enumerator(
-                  at: source.rootURL,
-                  includingPropertiesForKeys: keys,
-                  options: [.skipsPackageDescendants]) else {
-            return []
-        }
-
-        return enumerator.compactMap { item -> URL? in
-            guard let url = item as? URL,
-                  source.allowedExtensions.contains(url.pathExtension.lowercased()),
-                  (try? url.resourceValues(forKeys: [.isRegularFileKey]))?.isRegularFile == true else {
-                return nil
-            }
-
-            if let modifiedAfter {
-                let modifiedDate = (try? url.resourceValues(forKeys: [.contentModificationDateKey]))?
-                    .contentModificationDate
-                let sqliteWALModifiedDate = sqliteWALModificationDate(
-                    for: source,
-                    fileURL: url,
-                    fileManager: fileManager)
-                guard modifiedDate.map({ $0 >= modifiedAfter }) == true
-                    || sqliteWALModifiedDate.map({ $0 >= modifiedAfter }) == true else {
-                    return nil
-                }
-            }
-
-            return url
-        }
-        .sorted { $0.path < $1.path }
-    }
-
-    func modificationDate(for fileURL: URL) -> Date? {
-        (try? fileURL.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate
-    }
-
-    func scanFiles(
-        _ fileURLs: [URL],
-        source: SecurityAuditFileSource,
-        onFileStarted: ((String, URL) -> Void)? = nil,
-        onFileCompleted: ((String, URL, SecurityFileScanResult) -> Void)? = nil)
-        async -> [(URL, SecurityFileScanResult)] {
-        await withTaskGroup(of: SecurityIndexedFileScanResult.self) { group in
-            for (index, fileURL) in fileURLs.enumerated() {
-                guard !Task.isCancelled else { break }
-
-                onFileStarted?(source.name, fileURL)
-                group.addTask {
-                    guard !Task.isCancelled else {
-                        let result = SecurityFileScanResult(
-                            findings: [],
-                            lineCount: 0,
-                            isCacheable: false)
-                        return SecurityIndexedFileScanResult(index: index, fileURL: fileURL, result: result)
-                    }
-
-                    let fileModificationDate = self.modificationDate(for: fileURL)
-                    let result = await self.scanFile(
-                        fileURL,
-                        source: source,
-                        fallbackDetectedAt: fileModificationDate)
-                    return SecurityIndexedFileScanResult(index: index, fileURL: fileURL, result: result)
-                }
-            }
-
-            var results: [SecurityIndexedFileScanResult] = []
-            for await fileResult in group {
-                results.append(fileResult)
-                onFileCompleted?(source.name, fileResult.fileURL, fileResult.result)
-            }
-            return results
-                .sorted { $0.index < $1.index }
-                .map { ($0.fileURL, $0.result) }
-        }
-    }
-
-    func scanFilesUsingCache(
-        _ fileURLs: [URL],
-        source: SecurityAuditFileSource,
-        scannedAt: Date,
-        cache: inout SecurityAuditCache,
-        onFileStarted: ((String, URL) -> Void)? = nil,
-        onFileCompleted: ((String, URL, SecurityFileScanResult) -> Void)? = nil) async -> [SecurityFileScanResult] {
-        let sourceName = source.name
-        var resultsByPath: [String: SecurityFileScanResult] = [:]
-        var filesToScanFully: [URL] = []
-
-        for fileURL in fileURLs {
-            guard !Task.isCancelled else { break }
-
-            onFileStarted?(sourceName, fileURL)
-            let path = fileURL.standardizedFileURL.path
-            guard let attributes = try? fileManager.attributesOfItem(atPath: path) else {
-                let result = SecurityFileScanResult(findings: [], lineCount: 0)
-                cache.entriesByPath.removeValue(forKey: path)
-                resultsByPath[path] = result
-                onFileCompleted?(sourceName, fileURL, result)
-                continue
-            }
-
-            let fileSize = (attributes[.size] as? NSNumber)?.int64Value ?? 0
-            let modificationDate = attributes[.modificationDate] as? Date ?? modificationDate(for: fileURL)
-            let sqliteWALSignature = sqliteWALSignature(
-                for: source,
-                fileURL: fileURL,
-                fileManager: fileManager)
-
-            if let result = cachedResultIfAvailable(
-                cache: &cache,
-                sourceName: sourceName,
-                path: path,
-                fileURL: fileURL,
-                fileSize: fileSize,
-                modificationDate: modificationDate,
-                sqliteWALSignature: sqliteWALSignature,
-                scannedAt: scannedAt) {
-                resultsByPath[path] = result
-                onFileCompleted?(sourceName, fileURL, result)
-                continue
-            }
-
-            if let result = appendedResultIfAvailable(
-                cache: &cache,
-                sourceName: sourceName,
-                path: path,
-                fileURL: fileURL,
-                fileSize: fileSize,
-                modificationDate: modificationDate,
-                sqliteWALSignature: sqliteWALSignature,
-                scannedAt: scannedAt) {
-                resultsByPath[path] = result
-                onFileCompleted?(sourceName, fileURL, result)
-                continue
-            }
-
-            filesToScanFully.append(fileURL)
-        }
-
-        await scanAndCacheFullFiles(
-            filesToScanFully,
-            source: source,
-            scannedAt: scannedAt,
-            cache: &cache,
-            resultsByPath: &resultsByPath,
-            onFileCompleted: onFileCompleted)
-
-        return fileURLs.map {
-            resultsByPath[$0.standardizedFileURL.path] ?? SecurityFileScanResult(findings: [], lineCount: 0)
-        }
-    }
-
-    func cachedResultIfAvailable(
-        cache: inout SecurityAuditCache,
-        sourceName: String,
-        path: String,
-        fileURL: URL,
-        fileSize: Int64,
-        modificationDate: Date?,
-        sqliteWALSignature: SecurityAuditSQLiteWALSignature?,
-        scannedAt: Date) -> SecurityFileScanResult? {
-        guard let cached = cache.entriesByPath[path],
-              cached.ruleSetIdentifier == ruleSetIdentifier,
-              cached.sourceName == sourceName,
-              cached.path == path,
-              cached.fileSize == fileSize,
-              cached.modificationDate == modificationDate,
-              cached.sqliteWALSignature == sqliteWALSignature,
-              cached.byteOffset == fileSize,
-              SecurityAuditCacheSignature.matches(
-                  cached.signature,
-                  fileURL: fileURL,
-                  byteOffset: fileSize) else {
-            return nil
-        }
-
-        let findings = cached.findings.map(\.finding)
-        return SecurityFileScanResult(findings: findings, lineCount: cached.lineCount)
-    }
-
-    func appendedResultIfAvailable(
-        cache: inout SecurityAuditCache,
-        sourceName: String,
-        path: String,
-        fileURL: URL,
-        fileSize: Int64,
-        modificationDate: Date?,
-        sqliteWALSignature: SecurityAuditSQLiteWALSignature?,
-        scannedAt: Date) -> SecurityFileScanResult? {
-        guard let cached = cache.entriesByPath[path],
-              cached.ruleSetIdentifier == ruleSetIdentifier,
-              cached.sourceName == sourceName,
-              shouldScanAppend(fileURL: fileURL, cached: cached, fileSize: fileSize) else {
-            return nil
-        }
-
-        let appendedResult = scanAppendedBytes(
-            fileURL,
-            sourceName: sourceName,
-            startOffset: cached.byteOffset,
-            startingLineNumber: cached.lineCount,
-            fallbackDetectedAt: modificationDate)
-        let mergedFindings = cached.findings.map(\.finding) + appendedResult.findings
-        let lineCount = cached.lineCount + appendedResult.lineCount
-        guard appendedResult.isCacheable else {
-            return SecurityFileScanResult(
-                findings: mergedFindings,
-                lineCount: lineCount,
-                isCacheable: false)
-        }
-
-        updateCache(
-            &cache,
-            sourceName: sourceName,
-            path: path,
-            fileURL: fileURL,
-            fileSize: fileSize,
-            modificationDate: modificationDate,
-            sqliteWALSignature: sqliteWALSignature,
-            lineCount: lineCount,
-            findings: mergedFindings,
-            scannedAt: scannedAt)
-        return SecurityFileScanResult(findings: mergedFindings, lineCount: lineCount)
-    }
-
-    func scanAndCacheFullFiles(
-        _ fileURLs: [URL],
-        source: SecurityAuditFileSource,
-        scannedAt: Date,
-        cache: inout SecurityAuditCache,
-        resultsByPath: inout [String: SecurityFileScanResult],
-        onFileCompleted: ((String, URL, SecurityFileScanResult) -> Void)?) async {
-        let sourceName = source.name
-        let fullScanResults = await scanFiles(
-            fileURLs,
-            source: source,
-            onFileStarted: nil,
-            onFileCompleted: onFileCompleted)
-        for (fileURL, fileResult) in fullScanResults {
-            let path = fileURL.standardizedFileURL.path
-            let attributes = try? fileManager.attributesOfItem(atPath: path)
-            let fileSize = (attributes?[.size] as? NSNumber)?.int64Value ?? 0
-            let modificationDate = attributes?[.modificationDate] as? Date ?? modificationDate(for: fileURL)
-            if fileResult.isCacheable {
-                updateCache(
-                    &cache,
-                    sourceName: sourceName,
-                    path: path,
-                    fileURL: fileURL,
-                    fileSize: fileSize,
-                    modificationDate: modificationDate,
-                    sqliteWALSignature: sqliteWALSignature(
-                        for: source,
-                        fileURL: fileURL,
-                        fileManager: fileManager),
-                    lineCount: fileResult.lineCount,
-                    findings: fileResult.findings,
-                    scannedAt: scannedAt)
-            } else {
-                cache.entriesByPath.removeValue(forKey: path)
-            }
-            resultsByPath[path] = fileResult
-        }
-    }
-
-    func shouldScanAppend(fileURL: URL, cached: SecurityAuditCachedFile, fileSize: Int64) -> Bool {
-        fileURL.pathExtension.lowercased() == "jsonl"
-            && fileSize > cached.byteOffset
-            && cached.byteOffset >= 0
-            && cached.byteOffset <= fileSize
-            && cached.signature.endedWithNewline
-            && SecurityAuditCacheSignature.matches(
-                cached.signature,
-                fileURL: fileURL,
-                byteOffset: cached.byteOffset)
-    }
-
-    func scanAppendedBytes(
-        _ fileURL: URL,
-        sourceName: String,
-        startOffset: Int64,
-        startingLineNumber: Int,
-        fallbackDetectedAt: Date?) -> SecurityFileScanResult {
-        guard let handle = try? FileHandle(forReadingFrom: fileURL) else {
-            return SecurityFileScanResult(findings: [], lineCount: 0)
-        }
-        defer { try? handle.close() }
-
-        do {
-            try handle.seek(toOffset: UInt64(startOffset))
-            let data = try handle.readToEnd() ?? Data()
-            guard !Task.isCancelled else {
-                return SecurityFileScanResult(findings: [], lineCount: 0, isCacheable: false)
-            }
-            guard let text = String(data: data, encoding: .utf8) else {
-                return SecurityFileScanResult(findings: [], lineCount: 0)
-            }
-
-            let lines = appendedLines(from: text)
-            var findings: [SecurityFinding] = []
-            for (index, line) in lines.enumerated() {
-                guard !Task.isCancelled else {
-                    return SecurityFileScanResult(
-                        findings: findings,
-                        lineCount: index,
-                        isCacheable: false)
-                }
-
-                findings.append(contentsOf: scanLine(
-                    line,
-                    sourceName: sourceName,
-                    fileURL: fileURL,
-                    lineNumber: startingLineNumber + index + 1,
-                    fallbackDetectedAt: fallbackDetectedAt))
-            }
-            return SecurityFileScanResult(findings: findings, lineCount: lines.count)
-        } catch {
-            return SecurityFileScanResult(findings: [], lineCount: 0)
-        }
-    }
-
-    func appendedLines(from text: String) -> [String] {
-        var lines = text.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
-        if text.hasSuffix("\n") {
-            lines.removeLast()
-        }
-        return lines
-    }
-
-    func updateCache(
-        _ cache: inout SecurityAuditCache,
-        sourceName: String,
-        path: String,
-        fileURL: URL,
-        fileSize: Int64,
-        modificationDate: Date?,
-        sqliteWALSignature: SecurityAuditSQLiteWALSignature?,
-        lineCount: Int,
-        findings: [SecurityFinding],
-        scannedAt: Date) {
-        guard let signature = SecurityAuditCacheSignature.signature(for: fileURL, byteOffset: fileSize) else {
-            cache.entriesByPath.removeValue(forKey: path)
-            return
-        }
-
-        cache.entriesByPath[path] = SecurityAuditCachedFile(
-            ruleSetIdentifier: ruleSetIdentifier,
-            sourceName: sourceName,
-            path: path,
-            fileSize: fileSize,
-            modificationDate: modificationDate,
-            sqliteWALSignature: sqliteWALSignature,
-            lineCount: lineCount,
-            findings: findings.map(SecurityAuditCachedFinding.init),
-            lastScannedAt: scannedAt,
-            byteOffset: fileSize,
-            signature: signature)
-    }
-
-    func reconcileDeletedFiles(
-        cache: inout SecurityAuditCache,
-        visiblePathsByEnabledSource: [String: Set<String>]) {
-        cache.entriesByPath = cache.entriesByPath.filter { _, entry in
-            guard let visiblePaths = visiblePathsByEnabledSource[entry.sourceName] else { return true }
-            return visiblePaths.contains(entry.path)
-        }
-    }
-
-    func scanFile(
-        _ fileURL: URL,
-        source: SecurityAuditFileSource,
-        fallbackDetectedAt: Date?) async -> SecurityFileScanResult {
-        if !source.sqliteTextQueries.isEmpty {
-            return scanSQLiteFile(
-                fileURL,
-                sourceName: source.name,
-                queries: source.sqliteTextQueries,
-                fallbackDetectedAt: fallbackDetectedAt)
-        }
-
-        var findings: [SecurityFinding] = []
-        var lineNumber = 0
-
-        do {
-            for try await line in fileURL.lines {
-                guard !Task.isCancelled else {
-                    return SecurityFileScanResult(
-                        findings: findings,
-                        lineCount: lineNumber,
-                        isCacheable: false)
-                }
-                lineNumber += 1
-                findings.append(
-                    contentsOf: scanLine(
-                        line,
-                        sourceName: source.name,
-                        fileURL: fileURL,
-                        lineNumber: lineNumber,
-                        fallbackDetectedAt: fallbackDetectedAt))
-            }
-        } catch {
-            if Task.isCancelled {
-                return SecurityFileScanResult(
-                    findings: findings,
-                    lineCount: lineNumber,
-                    isCacheable: false)
-            }
-            return SecurityFileScanResult(findings: findings, lineCount: lineNumber)
-        }
-
-        return SecurityFileScanResult(findings: findings, lineCount: lineNumber)
-    }
-
-    func scanLine(
-        _ line: String,
-        sourceName: String,
-        fileURL: URL,
-        lineNumber: Int,
-        fallbackDetectedAt: Date?)
-        -> [SecurityFinding] {
-        let range = NSRange(line.startIndex..<line.endIndex, in: line)
-        guard range.length > 0 else { return [] }
-
-        var hasResolvedDetectedAt = false
-        var resolvedDetectedAt: Date?
-        func detectedAt() -> Date? {
-            if !hasResolvedDetectedAt {
-                resolvedDetectedAt = SecurityAuditTimestampExtractor.date(from: line) ?? fallbackDetectedAt
-                hasResolvedDetectedAt = true
-            }
-            return resolvedDetectedAt
-        }
-
-        return rules.flatMap { rule -> [SecurityFinding] in
-            guard rule.prefilter(line) else { return [] }
-
-            return rule.pattern.matches(in: line, range: range).compactMap { match -> SecurityFinding? in
-                guard let evidence = evidenceText(from: match, in: line, captureGroup: rule.captureGroup),
-                      !evidence.isEmpty,
-                      rule.validator(evidence) else {
-                    return nil
-                }
-
-                return SecurityFinding(
-                    sourceName: sourceName,
-                    severity: rule.severity,
-                    category: rule.category,
-                    ruleName: rule.name,
-                    maskedEvidence: SecurityEvidenceMasker.mask(evidence),
-                    location: SecurityFindingLocation(
-                        filePath: fileURL.standardizedFileURL.path,
-                        lineNumber: lineNumber),
-                    detectedAt: detectedAt())
-            }
-        }
-    }
-
-    func evidenceText(from match: NSTextCheckingResult, in line: String, captureGroup: Int?) -> String? {
-        if let captureGroup {
-            return text(in: match.range(at: captureGroup), line: line)
-        }
-
-        return text(in: match.range, line: line)
-    }
-
-    func text(in range: NSRange, line: String) -> String? {
-        guard range.location != NSNotFound,
-              let swiftRange = Range(range, in: line) else {
-            return nil
-        }
-        return String(line[swiftRange])
-    }
-
-    func sortFindings(_ lhs: SecurityFinding, _ rhs: SecurityFinding) -> Bool {
-        if lhs.severity != rhs.severity {
-            return lhs.severity < rhs.severity
-        }
-        if lhs.sourceName != rhs.sourceName {
-            return lhs.sourceName < rhs.sourceName
-        }
-        if lhs.location.filePath != rhs.location.filePath {
-            return lhs.location.filePath < rhs.location.filePath
-        }
-        return lhs.location.lineNumber < rhs.location.lineNumber
-    }
-}
-
-extension SecurityAuditScanner {
     func scanTextLine(
         _ line: String,
         sourceName: String,
         fileURL: URL,
         lineNumber: Int,
         fallbackDetectedAt: Date?) -> [SecurityFinding] {
-        scanLine(
+        fileScanner.scanTextLine(
             line,
             sourceName: sourceName,
             fileURL: fileURL,
             lineNumber: lineNumber,
             fallbackDetectedAt: fallbackDetectedAt)
+    }
+}
+
+private struct SecurityAuditScanAccumulator {
+    private(set) var scannedFileCount = 0
+    private(set) var scannedLineCount = 0
+    private(set) var findings: [SecurityFinding] = []
+    private var seenFindingIDs = Set<String>()
+
+    mutating func record(_ result: SecurityFileScanResult) {
+        scannedFileCount += 1
+        scannedLineCount += result.lineCount
+
+        for finding in result.findings where seenFindingIDs.insert(finding.id).inserted {
+            findings.append(finding)
+        }
+    }
+}
+
+private final class SecurityAuditProgressReporter {
+    private let totalFileCount: Int
+    private let progress: SecurityAuditProgressHandler?
+    private var lastScanProgressReport = Date.distantPast
+
+    init(totalFileCount: Int, progress: SecurityAuditProgressHandler?) {
+        self.totalFileCount = totalFileCount
+        self.progress = progress
+    }
+
+    func report(
+        phase: SecurityAuditProgress.Phase,
+        sourceName: String? = nil,
+        fileURL: URL? = nil,
+        accumulator: SecurityAuditScanAccumulator,
+        force: Bool = false) {
+        if !force, phase == .scanning, totalFileCount > 50 {
+            let now = Date()
+            guard now.timeIntervalSince(lastScanProgressReport) >= 0.12 else { return }
+            lastScanProgressReport = now
+        }
+
+        progress?(SecurityAuditProgress(
+            phase: phase,
+            currentSourceName: sourceName,
+            currentFileName: fileURL?.lastPathComponent,
+            completedFileCount: accumulator.scannedFileCount,
+            totalFileCount: totalFileCount,
+            scannedLineCount: accumulator.scannedLineCount,
+            findingCount: accumulator.findings.count))
     }
 }

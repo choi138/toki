@@ -1,3 +1,4 @@
+import TokiUsageCore
 import XCTest
 @testable import Toki
 

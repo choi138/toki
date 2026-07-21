@@ -1,5 +1,6 @@
 import XCTest
 @testable import Toki
+@testable import TokiUsageReaders
 
 final class GJCReaderTests: XCTestCase {
     func test_gjcReader_countsAssistantAndTaskUsageInsideRange() {

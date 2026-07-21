@@ -13,6 +13,7 @@ DerivedData/
 
 # Build artifacts
 build/
+.build/
 *.ipa
 *.dSYM.zip
 *.dSYM

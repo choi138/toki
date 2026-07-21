@@ -1,7 +1,8 @@
+import TokiUsageCore
 import XCTest
 @testable import Toki
+@testable import TokiUsageReaders
 
-// swiftlint:disable:next type_body_length
 final class CodexReaderBehaviorTests: XCTestCase {
     func test_codexReader_keepsRolloutStreamsSeparatedWhenMergingActivity() {
         let first = CodexReader.usage(
@@ -138,7 +139,9 @@ final class CodexReaderBehaviorTests: XCTestCase {
 
         XCTAssertEqual(skippedPaths, ["/tmp/main-with-model.jsonl", "/tmp/subagent-with-model.jsonl"])
     }
+}
 
+extension CodexReaderBehaviorTests {
     func test_codexReader_mergesJsonlSourceAttributionWhenDatabaseSourceIsMissing() {
         let merged = CodexReader().mergedSessions(
             databaseSessions: [

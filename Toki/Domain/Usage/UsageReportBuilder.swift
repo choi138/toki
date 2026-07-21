@@ -1,4 +1,5 @@
 import Foundation
+import TokiUsageCore
 
 enum UsageReportBuilder {
     private static let maximumHourlyBucketCount = 48
