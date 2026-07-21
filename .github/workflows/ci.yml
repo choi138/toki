@@ -29,6 +29,9 @@ jobs:
       - name: SwiftLint
         run: swiftlint lint --strict --quiet
 
+      - name: Run sync foundation tests
+        run: swift test
+
       - name: Generate Xcode project
         run: xcodegen generate
 

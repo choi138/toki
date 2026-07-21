@@ -49,6 +49,8 @@ excluded:
   - build
 
 included:
+  - Sources
+  - Tests
   - Toki
   - TokiTests
 
