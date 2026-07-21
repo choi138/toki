@@ -1,7 +1,8 @@
 import Foundation
 import TokiUsageCore
 
-let hermesUsageLedgerSchemaVersion = 2
+let hermesUsageLedgerSchemaVersion = 3
+let hermesUsageLedgerPreviousSchemaVersion = 2
 let hermesUsageLedgerLegacySchemaVersion = 1
 let hermesUsageLedgerMaximumBytes = 16 * 1024 * 1024
 let hermesUsageLedgerMaximumBaselines = 50000
@@ -177,6 +178,96 @@ struct HermesUsageLedgerDocument: Codable, Equatable {
     var events: [HermesUsageLedgerEvent]
 }
 
+struct HermesUsageLedgerPrivateDocument: Codable, Equatable {
+    let schemaVersion: Int
+    let accurateSince: Date?
+    var lastSuccessfulObservationAt: Date?
+    var baselines: [String: HermesUsageLedgerPrivateBaseline]
+    var unattributed: [String: HermesUsageLedgerCarryover]
+    var events: [HermesUsageLedgerPrivateEvent]
+
+    init(_ document: HermesUsageLedgerDocument) {
+        schemaVersion = document.schemaVersion
+        accurateSince = document.accurateSince
+        lastSuccessfulObservationAt = document.lastSuccessfulObservationAt
+        baselines = document.baselines.mapValues(HermesUsageLedgerPrivateBaseline.init)
+        unattributed = document.unattributed
+        events = document.events.map(HermesUsageLedgerPrivateEvent.init)
+    }
+
+    func document(identifierKey: String) -> HermesUsageLedgerDocument {
+        HermesUsageLedgerDocument(
+            schemaVersion: schemaVersion,
+            identifierKey: identifierKey,
+            accurateSince: accurateSince,
+            lastSuccessfulObservationAt: lastSuccessfulObservationAt,
+            baselines: baselines.mapValues { $0.baseline },
+            unattributed: unattributed,
+            events: events.map(\.event))
+    }
+}
+
+struct HermesUsageLedgerPrivateBaseline: Codable, Equatable {
+    let startedAt: Date
+    let lastActivityAt: Date
+    let lastObservedAt: Date
+    let model: String?
+    let counters: HermesTokenCounters
+    let cost: Double
+    let attributionQuality: AttributionQuality
+
+    init(_ baseline: HermesUsageLedgerBaseline) {
+        startedAt = baseline.startedAt
+        lastActivityAt = baseline.lastActivityAt
+        lastObservedAt = baseline.lastObservedAt
+        model = baseline.model
+        counters = baseline.counters
+        cost = baseline.cost
+        attributionQuality = baseline.attributionQuality
+    }
+
+    var baseline: HermesUsageLedgerBaseline {
+        HermesUsageLedgerBaseline(
+            startedAt: startedAt,
+            lastActivityAt: lastActivityAt,
+            lastObservedAt: lastObservedAt,
+            model: model,
+            counters: counters,
+            cost: cost,
+            projectName: nil,
+            attributionQuality: attributionQuality)
+    }
+}
+
+struct HermesUsageLedgerPrivateEvent: Codable, Equatable {
+    let sessionIdentifier: String
+    let timestamp: Date
+    let model: String?
+    let counters: HermesTokenCounters
+    let cost: Double
+    let attributionQuality: AttributionQuality
+
+    init(_ event: HermesUsageLedgerEvent) {
+        sessionIdentifier = event.sessionIdentifier
+        timestamp = event.timestamp
+        model = event.model
+        counters = event.counters
+        cost = event.cost
+        attributionQuality = event.attributionQuality
+    }
+
+    var event: HermesUsageLedgerEvent {
+        HermesUsageLedgerEvent(
+            sessionIdentifier: sessionIdentifier,
+            timestamp: timestamp,
+            model: model,
+            counters: counters,
+            cost: cost,
+            projectName: nil,
+            attributionQuality: attributionQuality)
+    }
+}
+
 struct HermesUsageLedgerVersionProbe: Decodable {
     let schemaVersion: Int
 }
@@ -240,6 +331,7 @@ public enum HermesUsageLedgerError: LocalizedError {
     case ledgerTooLarge
     case couldNotPersist
     case durabilityNotConfirmed
+    case migrationRequired
 
     public var errorDescription: String? {
         switch self {
@@ -253,6 +345,8 @@ public enum HermesUsageLedgerError: LocalizedError {
             "The Hermes usage ledger could not be stored safely."
         case .durabilityNotConfirmed:
             "The Hermes usage ledger was replaced, but storage durability could not be confirmed."
+        case .migrationRequired:
+            "The Hermes usage ledger requires migration. Run `toki-agent migrate-hermes-ledger` first."
         }
     }
 }

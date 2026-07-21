@@ -380,6 +380,12 @@ extension HermesUsageLedgerTests {
                 projectName: nil,
                 attributionQuality: .unknown)])
         try writePrivateHermesTestData(JSONEncoder().encode(legacy), to: ledgerURL)
+        XCTAssertEqual(
+            try HermesUsageLedgerMigrator.migrate(fileURL: ledgerURL),
+            .migrationRequired)
+        XCTAssertEqual(
+            try HermesUsageLedgerMigrator.migrate(fileURL: ledgerURL, mode: .apply),
+            .migrated)
         let ledger = HermesUsageLedger(fileURL: ledgerURL)
 
         let migratedEvents = try await ledger.events(
@@ -403,7 +409,7 @@ extension HermesUsageLedgerTests {
         XCTAssertEqual(events.map(\.counters.inputTokens), [25])
         let persisted = try XCTUnwrap(
             try JSONSerialization.jsonObject(with: Data(contentsOf: ledgerURL)) as? [String: Any])
-        XCTAssertEqual(persisted["schemaVersion"] as? Int, 2)
+        XCTAssertEqual(persisted["schemaVersion"] as? Int, 3)
     }
 
     func test_hermesUsageLedger_rejectsCorruptOversizedAndSymbolicLinkFiles() async throws {
