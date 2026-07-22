@@ -122,12 +122,14 @@ private extension HermesUsageLedgerMigrator {
 
     static func migrateLegacy(_ legacy: HermesUsageLedgerV1Document) -> HermesUsageLedgerDocument {
         let accurateSince = legacy.baselines.values.map(\.lastObservedAt).max()
-        let unattributed = Dictionary(uniqueKeysWithValues: legacy.baselines.map { identifier, baseline in
-            (identifier, HermesUsageLedgerCarryover(
-                counters: baseline.counters,
-                cost: baseline.cost,
-                firstObservedAt: baseline.lastObservedAt))
-        })
+        let unattributed = legacy.baselines.reduce(
+            into: [String: HermesUsageLedgerCarryover]()) { result, element in
+                guard element.value.counters.totalTokens > 0 else { return }
+                result[element.key] = HermesUsageLedgerCarryover(
+                    counters: element.value.counters,
+                    cost: element.value.cost,
+                    firstObservedAt: element.value.lastObservedAt)
+            }
         return HermesUsageLedgerDocument(
             schemaVersion: hermesUsageLedgerSchemaVersion,
             identifierKey: legacy.identifierKey,
@@ -208,7 +210,7 @@ private extension HermesUsageLedgerMigrator {
     }
 
     static func writeIdentifierKeyIfNeeded(_ key: String, ledgerURL: URL) throws {
-        let keyURL = identifierKeyURL(for: ledgerURL)
+        let keyURL = hermesUsageLedgerIdentifierKeyURL(for: ledgerURL)
         do {
             if let existing = try DurableFileIO.readPrivate(from: keyURL, maximumByteCount: 4096) {
                 guard String(data: existing, encoding: .utf8) == key else {
@@ -227,7 +229,7 @@ private extension HermesUsageLedgerMigrator {
     static func readIdentifierKey(ledgerURL: URL) throws -> String {
         do {
             guard let data = try DurableFileIO.readPrivate(
-                from: identifierKeyURL(for: ledgerURL),
+                from: hermesUsageLedgerIdentifierKeyURL(for: ledgerURL),
                 maximumByteCount: 4096),
                 let key = String(data: data, encoding: .utf8),
                 (try? SnapshotCipher.makeOpaqueIdentifierHasher(key: key)) != nil else {
@@ -239,10 +241,6 @@ private extension HermesUsageLedgerMigrator {
         } catch {
             throw HermesUsageLedgerError.invalidLedger
         }
-    }
-
-    static func identifierKeyURL(for ledgerURL: URL) -> URL {
-        ledgerURL.deletingPathExtension().appendingPathExtension("key")
     }
 
     static func removeLegacyBackups(ledgerURL: URL) throws {

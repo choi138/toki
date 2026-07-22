@@ -356,6 +356,10 @@ public func hermesUsageLedgerURL(
     paths.cacheDirectory(for: scope).appendingPathComponent("hermes-usage-ledger.json")
 }
 
+public func hermesUsageLedgerIdentifierKeyURL(for ledgerURL: URL) -> URL {
+    ledgerURL.deletingPathExtension().appendingPathExtension("key")
+}
+
 func validLatestActivity(
     _ latestActivityAt: Date?,
     startedAt: Date,

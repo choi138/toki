@@ -290,6 +290,29 @@ extension HermesUsageLedgerPrivacyTests {
             .notRequired)
     }
 
+    func test_v1MigrationSkipsZeroTokenCarryovers() throws {
+        let fixture = try HermesPrivacyFixture()
+        defer { fixture.remove() }
+        let identifier = String(repeating: "e", count: 32)
+        let original = try makeV1LedgerData(
+            identifierKey: SnapshotCipher.generateKey(),
+            identifier: identifier,
+            timestamp: Date(timeIntervalSince1970: 1_780_000_000),
+            sentinel: "TOKI_ZERO_BASELINE_SENTINEL",
+            zeroTokenBaseline: true)
+        try writePrivateTestData(original, to: fixture.ledgerURL)
+
+        XCTAssertEqual(
+            try HermesUsageLedgerMigrator.migrate(fileURL: fixture.ledgerURL, mode: .apply),
+            .migrated)
+
+        let migrated = try JSONDecoder().decode(
+            HermesUsageLedgerPrivateDocument.self,
+            from: Data(contentsOf: fixture.ledgerURL))
+        XCTAssertEqual(migrated.baselines[identifier]?.counters, .zero)
+        XCTAssertTrue(migrated.unattributed.isEmpty)
+    }
+
     func test_agentMigrationCommandUsesDryRunUnlessApplyIsExplicit() async throws {
         let fixture = try HermesPrivacyFixture()
         defer { fixture.remove() }
@@ -329,6 +352,56 @@ extension HermesUsageLedgerPrivacyTests {
             XCTAssertFalse(
                 AgentCommandError.invalidMigrationArguments.localizedDescription.contains("TOKI_SECRET_ARGUMENT"))
         }
+    }
+
+    func test_agentSyncMigratesLegacyLedgerBeforeHeartbeatFastPath() async throws {
+        let fixture = try AgentSyncFixture()
+        defer { fixture.remove() }
+        let environment = [
+            "XDG_CONFIG_HOME": fixture.root.appendingPathComponent("config").path,
+            "XDG_STATE_HOME": fixture.root.appendingPathComponent("state").path,
+            "XDG_DATA_HOME": fixture.root.appendingPathComponent("data").path,
+        ]
+        let readerPaths = LocalUsageReaderPaths(
+            homeDirectory: fixture.root,
+            environment: environment)
+        let ledgerURL = hermesUsageLedgerURL(paths: readerPaths, scope: .agent)
+        let identifierKey = SnapshotCipher.generateKey()
+        let original = try makeV2LedgerData(
+            identifierKey: identifierKey,
+            identifier: String(repeating: "f", count: 32),
+            timestamp: Date(timeIntervalSince1970: 1_780_000_000),
+            sentinel: "TOKI_AGENT_FAST_PATH_SENTINEL")
+        try AgentConfigurationStore(paths: fixture.paths).save(fixture.configuration)
+        try writePrivateTestData(original, to: ledgerURL)
+        let snapshotBuilder = AgentSnapshotBuilder(
+            home: fixture.root,
+            environment: environment)
+        let optionalSourceSignature = try await snapshotBuilder.sourceSignature(
+            configuration: fixture.configuration,
+            now: Date(timeIntervalSince1970: 1_780_000_000))
+        let sourceSignature = try XCTUnwrap(optionalSourceSignature)
+        try AgentStateStore(paths: fixture.paths).save(AgentRuntimeState(
+            latestSequence: 1,
+            lastUploadedContentDigest: SnapshotCipher.digest("pre-migration-snapshot"),
+            lastSourceSignature: sourceSignature))
+        let hubClient = FailFirstHeartbeatAgentHubClient()
+        let service = AgentSyncService(
+            paths: fixture.paths,
+            hubClient: hubClient,
+            snapshotBuilder: snapshotBuilder)
+
+        try await service.syncOnce(now: Date(timeIntervalSince1970: 1_780_000_000))
+
+        XCTAssertEqual(hubClient.uploadedSequences, [2])
+        XCTAssertTrue(hubClient.heartbeatAttempts.isEmpty)
+        let migrated = try JSONDecoder().decode(
+            HermesUsageLedgerPrivateDocument.self,
+            from: Data(contentsOf: ledgerURL))
+        XCTAssertEqual(migrated.schemaVersion, 3)
+        XCTAssertEqual(
+            try Data(contentsOf: hermesUsageLedgerIdentifierKeyURL(for: ledgerURL)),
+            Data(identifierKey.utf8))
     }
 }
 
@@ -410,18 +483,32 @@ private func makeV1LedgerData(
     identifierKey: String,
     identifier: String,
     timestamp: Date,
-    sentinel: String) throws -> Data {
+    sentinel: String,
+    zeroTokenBaseline: Bool = false) throws -> Data {
     let v2 = try XCTUnwrap(
         JSONSerialization.jsonObject(with: makeV2LedgerData(
             identifierKey: identifierKey,
             identifier: identifier,
             timestamp: timestamp,
             sentinel: sentinel)) as? [String: Any])
+    var baselines = try XCTUnwrap(v2["baselines"] as? [String: Any])
+    if zeroTokenBaseline {
+        var baseline = try XCTUnwrap(baselines[identifier] as? [String: Any])
+        baseline["counters"] = [
+            "inputTokens": 0,
+            "outputTokens": 0,
+            "cacheReadTokens": 0,
+            "cacheWriteTokens": 0,
+            "reasoningTokens": 0,
+        ]
+        baseline["cost"] = 0
+        baselines[identifier] = baseline
+    }
     return try JSONSerialization.data(
         withJSONObject: [
             "schemaVersion": 1,
             "identifierKey": identifierKey,
-            "baselines": v2["baselines"] as Any,
+            "baselines": baselines,
             "events": v2["events"] as Any,
         ],
         options: [.sortedKeys])
