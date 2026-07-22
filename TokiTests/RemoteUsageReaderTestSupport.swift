@@ -225,13 +225,16 @@ final class InMemoryRemoteSnapshotCache: RemoteSnapshotCaching {
 
 final class InMemoryRemoteSnapshotAnchorStore: RemoteSnapshotAnchorStoring {
     private var anchorsByOrigin: [String: [String: RemoteSnapshotAnchor]] = [:]
+    private let clearError: Error?
     private(set) var removedDeviceIDs: [String] = []
     private(set) var removedOriginIdentifiers: [String] = []
     private(set) var clearCallCount = 0
 
     init(
         envelopes: [EncryptedUsageEnvelope] = [],
-        originIdentifier: String? = nil) {
+        originIdentifier: String? = nil,
+        clearError: Error? = nil) {
+        self.clearError = clearError
         guard let originIdentifier, !envelopes.isEmpty else { return }
         anchorsByOrigin[originIdentifier] = (try? RemoteSnapshotProgress.anchors(for: envelopes)) ?? [:]
     }
@@ -246,6 +249,25 @@ final class InMemoryRemoteSnapshotAnchorStore: RemoteSnapshotAnchorStoring {
         anchorsByOrigin[originIdentifier] = anchors
     }
 
+    func copyAnchors(
+        from sourceOriginIdentifier: String,
+        to destinationOriginIdentifier: String) throws {
+        var destinationAnchors = anchorsByOrigin[destinationOriginIdentifier] ?? [:]
+        for (deviceID, sourceAnchor) in anchorsByOrigin[sourceOriginIdentifier] ?? [:] {
+            guard let destinationAnchor = destinationAnchors[deviceID] else {
+                destinationAnchors[deviceID] = sourceAnchor
+                continue
+            }
+            if sourceAnchor.sequence > destinationAnchor.sequence {
+                destinationAnchors[deviceID] = sourceAnchor
+            } else if sourceAnchor.sequence == destinationAnchor.sequence,
+                      sourceAnchor.envelopeDigest != destinationAnchor.envelopeDigest {
+                throw RemoteUsageReaderError.conflictingSnapshots
+            }
+        }
+        anchorsByOrigin[destinationOriginIdentifier] = destinationAnchors
+    }
+
     func remove(deviceID: String, originIdentifier: String) throws {
         removedDeviceIDs.append(deviceID)
         removedOriginIdentifiers.append(originIdentifier)
@@ -256,6 +278,7 @@ final class InMemoryRemoteSnapshotAnchorStore: RemoteSnapshotAnchorStoring {
 
     func clear() throws {
         clearCallCount += 1
+        if let clearError { throw clearError }
         anchorsByOrigin = [:]
     }
 }

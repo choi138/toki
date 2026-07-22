@@ -4,6 +4,7 @@ public enum RemoteUsageSnapshotValidator {
     public static let maximumTokenEventCount = 200_000
     public static let maximumActivityEventCount = 200_000
     public static let maximumTokenCountPerBucket = 1_000_000_000
+    public static let maximumModelLength = 200
 
     public static func validate(_ snapshot: RemoteUsageSnapshot, now: Date = Date()) throws {
         guard snapshot.schemaVersion == TokiSyncProtocolVersion.current else {
@@ -35,7 +36,7 @@ public enum RemoteUsageSnapshotValidator {
             guard event.timestamp >= snapshot.coveredFrom,
                   event.timestamp < snapshot.coveredTo,
                   TokiSyncValidation.isSafeDisplayText(event.source, maximumLength: 40),
-                  isOptionalBoundedText(event.model, maximumLength: 200),
+                  isOptionalBoundedText(event.model, maximumLength: maximumModelLength),
                   validTokenCount(event.inputTokens),
                   validTokenCount(event.outputTokens),
                   validTokenCount(event.cacheReadTokens),
@@ -49,7 +50,7 @@ public enum RemoteUsageSnapshotValidator {
             guard event.timestamp >= snapshot.coveredFrom,
                   event.timestamp < snapshot.coveredTo,
                   TokiSyncValidation.isSafeDisplayText(event.source, maximumLength: 40),
-                  isOptionalBoundedText(event.model, maximumLength: 200),
+                  isOptionalBoundedText(event.model, maximumLength: maximumModelLength),
                   TokiSyncValidation.isSafeDisplayText(event.streamID, maximumLength: 128) else {
                 throw RemoteUsageSnapshotValidationError.invalidActivityEvent
             }
