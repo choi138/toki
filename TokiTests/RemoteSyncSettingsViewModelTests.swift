@@ -1,5 +1,6 @@
 import AppKit
 import Foundation
+import TokiSyncProtocol
 import XCTest
 @testable import Toki
 
