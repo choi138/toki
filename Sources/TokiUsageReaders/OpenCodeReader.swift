@@ -1,22 +1,27 @@
 import Foundation
-import SQLite3
 import TokiUsageCore
+
+#if os(Linux)
+    import CSQLite
+#else
+    import SQLite3
+#endif
 
 /// Reads ~/.local/share/opencode/opencode.db (SQLite)
 /// Queries assistant messages with token data
-struct OpenCodeReader: TokenReader {
-    let name = "OpenCode"
+public struct OpenCodeReader: TokenReader {
+    public let name = "OpenCode"
     private let dbPathOverride: String?
 
-    init(dbPathOverride: String? = nil) {
+    public init(dbPathOverride: String? = nil) {
         self.dbPathOverride = dbPathOverride
     }
 
     private var dbPath: String {
-        dbPathOverride ?? homeDir().appendingPathComponent(".local/share/opencode/opencode.db").path
+        dbPathOverride ?? LocalUsageReaderPaths().openCodeDatabase.path
     }
 
-    func readUsage(from startDate: Date, to endDate: Date) async throws -> RawTokenUsage {
+    public func readUsage(from startDate: Date, to endDate: Date) async throws -> RawTokenUsage {
         guard let database = try openDatabase() else {
             return RawTokenUsage()
         }

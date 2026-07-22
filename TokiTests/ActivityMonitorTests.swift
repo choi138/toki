@@ -1,8 +1,64 @@
 import SQLite3
 import XCTest
 @testable import Toki
+@testable import TokiUsageReaders
 
 final class ActivityMonitorTests: XCTestCase {
+    func test_activityMonitor_detectsRecentOpenCodeActivityAtInjectedPath() throws {
+        let recentDate = Date()
+        let dbPath = try makeOpenCodeActivityDatabase(
+            createdAt: Int64(recentDate.timeIntervalSince1970 * 1000))
+        let directoryURL = URL(fileURLWithPath: dbPath).deletingLastPathComponent()
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+        XCTAssertTrue(ActivityMonitor.isOpenCodeActive(
+            dbPath: dbPath,
+            since: recentDate.addingTimeInterval(-30)))
+    }
+
+    func test_activityMonitor_detectsRecentArchivedCodexRollout() throws {
+        let now = Date()
+        let codexHome = FileManager.default.temporaryDirectory
+            .appendingPathComponent("toki-codex-activity-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: codexHome) }
+        let archiveURL = codexHome.appendingPathComponent("archived_sessions", isDirectory: true)
+        let rolloutURL = archiveURL.appendingPathComponent("recent.jsonl")
+        try FileManager.default.createDirectory(
+            at: archiveURL,
+            withIntermediateDirectories: true)
+        try Data("{}\n".utf8).write(to: rolloutURL)
+        try FileManager.default.setAttributes(
+            [.modificationDate: now],
+            ofItemAtPath: archiveURL.path)
+
+        XCTAssertTrue(ActivityMonitor.hasRecentCodexRollout(
+            codexHomeURL: codexHome,
+            since: now.addingTimeInterval(-30),
+            now: now))
+    }
+
+    func test_activityMonitor_doesNotScanFilesInStaleCodexArchive() throws {
+        let now = Date()
+        let codexHome = FileManager.default.temporaryDirectory
+            .appendingPathComponent("toki-codex-activity-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: codexHome) }
+        let archiveURL = codexHome.appendingPathComponent("archived_sessions", isDirectory: true)
+        let rolloutURL = archiveURL.appendingPathComponent("recent.jsonl")
+        try FileManager.default.createDirectory(at: archiveURL, withIntermediateDirectories: true)
+        try Data("{}\n".utf8).write(to: rolloutURL)
+        try FileManager.default.setAttributes(
+            [.modificationDate: now],
+            ofItemAtPath: rolloutURL.path)
+        try FileManager.default.setAttributes(
+            [.modificationDate: now.addingTimeInterval(-180)],
+            ofItemAtPath: archiveURL.path)
+
+        XCTAssertFalse(ActivityMonitor.hasRecentCodexRollout(
+            codexHomeURL: codexHome,
+            since: now.addingTimeInterval(-30),
+            now: now))
+    }
+
     func test_activityMonitor_detectsRecentCursorComposerActivity() throws {
         let dbPath = try makeCursorActivityDatabase(
             lastUpdatedAt: Int64(Date().timeIntervalSince1970 * 1000),
@@ -122,6 +178,37 @@ final class ActivityMonitorTests: XCTestCase {
                 SQLITE_OK)
             XCTAssertEqual(sqlite3_step(bubbleStatement), SQLITE_DONE)
         }
+
+        return dbURL.path
+    }
+
+    private func makeOpenCodeActivityDatabase(createdAt: Int64) throws -> String {
+        let directoryURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: directoryURL,
+            withIntermediateDirectories: true)
+        let dbURL = directoryURL.appendingPathComponent("opencode.db")
+
+        var db: OpaquePointer?
+        XCTAssertEqual(sqlite3_open(dbURL.path, &db), SQLITE_OK)
+        defer { sqlite3_close(db) }
+        XCTAssertEqual(
+            sqlite3_exec(
+                db,
+                "CREATE TABLE message (time_created INTEGER);",
+                nil,
+                nil,
+                nil),
+            SQLITE_OK)
+        XCTAssertEqual(
+            sqlite3_exec(
+                db,
+                "INSERT INTO message(time_created) VALUES (\(createdAt));",
+                nil,
+                nil,
+                nil),
+            SQLITE_OK)
 
         return dbURL.path
     }

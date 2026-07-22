@@ -154,15 +154,47 @@ final class SecurityAuditScannerTests: XCTestCase {
     }
 
     func testDefaultSourcesIncludeAllUsageReaders() {
-        let sourceNames = SecurityAuditScanner.defaultSources(homeDirectory: tempRoot).map(\.name)
+        let sourceNames = SecurityAuditScanner.defaultSources(
+            homeDirectory: tempRoot,
+            environment: [:])
+            .map(\.name)
 
         XCTAssertEqual(
             sourceNames,
             ["Claude Code", "Codex", "Cursor", "Gemini CLI", "OpenCode", "OpenClaw"])
     }
 
+    func testDefaultSourcesUseInjectedOpenCodeDataDirectory() throws {
+        let xdgDataDirectory = tempRoot.appendingPathComponent("xdg-data", isDirectory: true)
+        let source = try XCTUnwrap(
+            SecurityAuditScanner.defaultSources(
+                homeDirectory: tempRoot,
+                environment: ["XDG_DATA_HOME": xdgDataDirectory.path])
+                .first { $0.name == "OpenCode" })
+
+        XCTAssertEqual(
+            source.rootURL.standardizedFileURL.path,
+            xdgDataDirectory.appendingPathComponent("opencode").standardizedFileURL.path)
+    }
+
+    func testScannerReadsActiveAndArchivedCodexSessions() async throws {
+        _ = try writeFixture(
+            sourceName: "Codex",
+            relativePath: "sessions/2026/05/12/active.jsonl",
+            lines: [#"{"text":"\#(SecurityAuditTestSecret.githubToken)"}"#])
+        _ = try writeFixture(
+            sourceName: "Codex",
+            relativePath: "archived_sessions/archived.jsonl",
+            lines: [#"{"text":"\#(SecurityAuditTestSecret.npmToken)"}"#])
+
+        let result = await scanner(for: ["Codex"]).scan()
+
+        XCTAssertEqual(result.scannedFileCount, 2)
+        XCTAssertEqual(Set(result.findings.map(\.ruleName)), ["GitHub token", "npm token"])
+    }
+
     func testScannerReadsCursorAndOpenCodeSQLiteTextRows() async throws {
-        let sources = SecurityAuditScanner.defaultSources(homeDirectory: tempRoot)
+        let sources = SecurityAuditScanner.defaultSources(homeDirectory: tempRoot, environment: [:])
         let cursorRoot = try XCTUnwrap(sources.first { $0.name == "Cursor" }).rootURL
         let openCodeRoot = try XCTUnwrap(sources.first { $0.name == "OpenCode" }).rootURL
         try FileManager.default.createDirectory(at: cursorRoot, withIntermediateDirectories: true)
@@ -199,7 +231,7 @@ final class SecurityAuditScannerTests: XCTestCase {
     func testScannerInvalidatesSQLiteCacheWhenWriteAheadLogChanges() async throws {
         let counter = SecurityAuditValidatorCounter()
         let cursorRoot = try XCTUnwrap(
-            SecurityAuditScanner.defaultSources(homeDirectory: tempRoot)
+            SecurityAuditScanner.defaultSources(homeDirectory: tempRoot, environment: [:])
                 .first { $0.name == "Cursor" }?
                 .rootURL)
         try FileManager.default.createDirectory(at: cursorRoot, withIntermediateDirectories: true)
@@ -540,7 +572,7 @@ final class SecurityAuditScannerTests: XCTestCase {
     }
 
     private func sourceDefinitions(for sourceNames: [String]) -> [SecurityAuditFileSource] {
-        SecurityAuditScanner.defaultSources(homeDirectory: tempRoot)
+        SecurityAuditScanner.defaultSources(homeDirectory: tempRoot, environment: [:])
             .filter { sourceNames.contains($0.name) }
     }
 
@@ -549,7 +581,7 @@ final class SecurityAuditScannerTests: XCTestCase {
         sourceName: String,
         relativePath: String,
         lines: [String]) throws -> URL {
-        let root = SecurityAuditScanner.defaultSources(homeDirectory: tempRoot)
+        let root = SecurityAuditScanner.defaultSources(homeDirectory: tempRoot, environment: [:])
             .first { $0.name == sourceName }!
             .rootURL
         let url = root.appendingPathComponent(relativePath)

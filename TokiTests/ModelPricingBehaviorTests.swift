@@ -1,5 +1,6 @@
 import XCTest
 @testable import Toki
+@testable import TokiUsageReaders
 
 final class ModelPricingBehaviorTests: XCTestCase {
     func test_modelPriceLookup_reportsExactMatch() throws {

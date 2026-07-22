@@ -1,5 +1,7 @@
 import Foundation
 import SQLite3
+import TokiUsageCore
+import TokiUsageReaders
 
 // Detects whether any AI coding tool is currently active.
 
@@ -77,42 +79,6 @@ enum ActivityMonitor {
         return hasRecentCodexRollout(since: threshold)
     }
 
-    private static func hasRecentCodexRollout(since threshold: Date) -> Bool {
-        let cal = Calendar.current
-        let today = cal.startOfDay(for: Date())
-        let yesterday = cal.date(byAdding: .day, value: -1, to: today) ?? today
-        let candidateDays = [yesterday, cal.startOfDay(for: threshold), today]
-
-        let sessionDirs = Set(candidateDays.map { day in
-            let comps = cal.dateComponents([.year, .month, .day], from: day)
-            return homeDir()
-                .appendingPathComponent(".codex/sessions")
-                .appendingPathComponent(String(format: "%04d", comps.year ?? 0))
-                .appendingPathComponent(String(format: "%02d", comps.month ?? 0))
-                .appendingPathComponent(String(format: "%02d", comps.day ?? 0))
-                .path
-        })
-
-        for dirPath in sessionDirs {
-            let dirURL = URL(fileURLWithPath: dirPath)
-            guard FileManager.default.fileExists(atPath: dirURL.path),
-                  let enumerator = FileManager.default.enumerator(
-                      at: dirURL,
-                      includingPropertiesForKeys: [.contentModificationDateKey],
-                      options: [.skipsHiddenFiles]) else { continue }
-
-            for case let url as URL in enumerator {
-                guard url.pathExtension == "jsonl",
-                      let mod = (try? url.resourceValues(forKeys: [.contentModificationDateKey]))?
-                      .contentModificationDate,
-                      mod >= threshold else { continue }
-                return true
-            }
-        }
-
-        return false
-    }
-
     // MARK: - Cursor
 
     /// Cursor agent/composer activity updates the mutable composerData snapshot.
@@ -163,8 +129,9 @@ enum ActivityMonitor {
 
     /// Queries the indexed message timestamp (milliseconds) — only true
     /// when a message was created recently (active session).
-    private static func isOpenCodeActive(since threshold: Date) -> Bool {
-        let dbPath = homeDir().appendingPathComponent(".local/share/opencode/opencode.db").path
+    static func isOpenCodeActive(
+        dbPath: String = LocalUsageReaderPaths().openCodeDatabase.path,
+        since threshold: Date) -> Bool {
         let epochMs = Int64(threshold.timeIntervalSince1970 * 1000)
         return queryCount(
             db: dbPath,
@@ -270,6 +237,63 @@ enum ActivityMonitor {
         sqlite3_bind_int64(stmt, 1, param)
         guard sqlite3_step(stmt) == SQLITE_ROW else { return 0 }
         return Int(sqlite3_column_int64(stmt, 0))
+    }
+}
+
+extension ActivityMonitor {
+    static func hasRecentCodexRollout(
+        codexHomeURL: URL = homeDir().appendingPathComponent(".codex"),
+        since threshold: Date,
+        now: Date = Date()) -> Bool {
+        let cal = Calendar.current
+        let today = cal.startOfDay(for: now)
+        let yesterday = cal.date(byAdding: .day, value: -1, to: today) ?? today
+        let candidateDays = [yesterday, cal.startOfDay(for: threshold), today]
+
+        let rolloutDirectories = Set(candidateDays.map { day in
+            let comps = cal.dateComponents([.year, .month, .day], from: day)
+            return codexHomeURL
+                .appendingPathComponent("sessions")
+                .appendingPathComponent(String(format: "%04d", comps.year ?? 0))
+                .appendingPathComponent(String(format: "%02d", comps.month ?? 0))
+                .appendingPathComponent(String(format: "%02d", comps.day ?? 0))
+                .path
+        })
+
+        // Archived rollouts are immutable after being moved here. A move updates
+        // the directory metadata, so avoid enumerating an unbounded archive on
+        // every activity poll and inspect only the directory itself.
+        let archiveURL = codexHomeURL.appendingPathComponent("archived_sessions", isDirectory: true)
+        if let values = try? archiveURL.resourceValues(forKeys: [
+            .contentModificationDateKey,
+            .isDirectoryKey,
+            .isSymbolicLinkKey,
+        ]),
+            values.isDirectory == true,
+            values.isSymbolicLink != true,
+            let modifiedDate = values.contentModificationDate,
+            modifiedDate >= threshold {
+            return true
+        }
+
+        for dirPath in rolloutDirectories {
+            let dirURL = URL(fileURLWithPath: dirPath)
+            guard FileManager.default.fileExists(atPath: dirURL.path),
+                  let enumerator = FileManager.default.enumerator(
+                      at: dirURL,
+                      includingPropertiesForKeys: [.contentModificationDateKey],
+                      options: [.skipsHiddenFiles]) else { continue }
+
+            for case let url as URL in enumerator {
+                guard url.pathExtension == "jsonl",
+                      let mod = (try? url.resourceValues(forKeys: [.contentModificationDateKey]))?
+                      .contentModificationDate,
+                      mod >= threshold else { continue }
+                return true
+            }
+        }
+
+        return false
     }
 }
 
@@ -403,11 +427,13 @@ private func queryExists(db path: String, sql: String, bind: SQLiteBind) -> Bool
     case let .int64(value):
         sqlite3_bind_int64(statement, 1, value)
     case let .text(value):
-        sqlite3_bind_text(statement, 1, value, -1, sqliteTransient)
+        sqlite3_bind_text(statement, 1, value, -1, activitySQLiteTransient)
     }
     guard bindStatus == SQLITE_OK else { return false }
     return sqlite3_step(statement) == SQLITE_ROW
 }
+
+private let activitySQLiteTransient = unsafeBitCast(-1, to: sqlite3_destructor_type.self)
 
 // MARK: - Claude Code JSONL entry
 

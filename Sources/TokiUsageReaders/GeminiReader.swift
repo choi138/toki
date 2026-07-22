@@ -3,14 +3,19 @@ import TokiUsageCore
 
 /// Reads ~/.gemini/tmp/*/chats/**/*.json
 /// Parses Gemini API usageMetadata from conversation history files
-struct GeminiReader: TokenReader {
-    let name = "Gemini CLI"
+public struct GeminiReader: TokenReader {
+    public let name = "Gemini CLI"
+    private let chatsBaseURLOverride: URL?
 
-    private var chatsBaseURL: URL {
-        homeDir().appendingPathComponent(".gemini/tmp")
+    public init(chatsBaseURLOverride: URL? = nil) {
+        self.chatsBaseURLOverride = chatsBaseURLOverride
     }
 
-    func readUsage(from startDate: Date, to endDate: Date) async throws -> RawTokenUsage {
+    private var chatsBaseURL: URL {
+        chatsBaseURLOverride ?? homeDir().appendingPathComponent(".gemini/tmp")
+    }
+
+    public func readUsage(from startDate: Date, to endDate: Date) async throws -> RawTokenUsage {
         guard FileManager.default.fileExists(atPath: chatsBaseURL.path) else {
             return RawTokenUsage()
         }

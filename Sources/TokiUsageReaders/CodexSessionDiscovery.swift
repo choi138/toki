@@ -1,8 +1,17 @@
 import Foundation
-import SQLite3
 import TokiUsageCore
 
+#if os(Linux)
+    import CSQLite
+#else
+    import SQLite3
+#endif
+
 extension CodexReader {
+    public func databaseRolloutPaths(from startDate: Date, to endDate: Date) -> [String] {
+        Array(Set(overlappingSessionsFromDB(from: startDate, to: endDate).map(\.rolloutPath))).sorted()
+    }
+
     func overlappingSessions(
         from startDate: Date,
         to endDate: Date,
@@ -177,7 +186,9 @@ extension CodexReader {
             guard !Task.isCancelled else { return sessions }
 
             guard let rolloutPathPointer = sqlite3_column_text(statement, 0) else { continue }
-            let rolloutPath = String(cString: rolloutPathPointer)
+            let rolloutURL = canonicalCodexRolloutURL(
+                URL(fileURLWithPath: String(cString: rolloutPathPointer)))
+            let rolloutPath = rolloutURL.path
             let model = codexSQLiteText(statement, at: 1).trimmedNonEmpty
             let source = codexSQLiteText(statement, at: 2).trimmedNonEmpty
             let projectPath = codexSQLiteText(statement, at: 3).trimmedNonEmpty
@@ -189,7 +200,7 @@ extension CodexReader {
                     hasSourceAttribution: source != nil,
                     projectPath: projectPath,
                     projectAttributionQuality: .exact,
-                    upstreamSessionID: extractSessionID(from: URL(fileURLWithPath: rolloutPath))))
+                    upstreamSessionID: extractSessionID(from: rolloutURL)))
         }
         return sessions
     }
@@ -199,22 +210,27 @@ extension CodexReader {
         to endDate: Date,
         pathsWithCompleteDatabaseAttribution: Set<String>) -> [CodexSession] {
         let calendar = Calendar.autoupdatingCurrent
+        let codexHomeURL = URL(fileURLWithPath: dbPath)
+            .deletingLastPathComponent()
+            .standardizedFileURL
+            .resolvingSymlinksInPath()
         let startDay = calendar.startOfDay(for: startDate)
         let endDay = calendar.startOfDay(for: endDate)
         let numberOfDays = calendar.dateComponents([.day], from: startDay, to: endDay).day ?? 0
         let lookback = [-3, -2, -1]
-        let directoryURLs = (lookback + (0...max(0, numberOfDays)).map { $0 })
+        let activeDirectoryURLs = (lookback + (0...max(0, numberOfDays)).map { $0 })
             .compactMap { offset in
                 calendar.date(byAdding: .day, value: offset, to: startDay)
             }
             .map { day -> URL in
                 let components = calendar.dateComponents([.year, .month, .day], from: day)
-                return homeDir()
-                    .appendingPathComponent(".codex/sessions")
+                return codexHomeURL
+                    .appendingPathComponent("sessions")
                     .appendingPathComponent(String(format: "%04d", components.year ?? 0))
                     .appendingPathComponent(String(format: "%02d", components.month ?? 0))
                     .appendingPathComponent(String(format: "%02d", components.day ?? 0))
             }
+        let directoryURLs = activeDirectoryURLs + [codexHomeURL.appendingPathComponent("archived_sessions")]
 
         var sessions: [CodexSession] = []
         for directoryURL in directoryURLs {
@@ -227,7 +243,7 @@ extension CodexReader {
                 continue
             }
 
-            for fileURL in contents {
+            for fileURL in contents.sorted(by: { $0.path < $1.path }) {
                 guard !Task.isCancelled else { break }
                 guard fileURL.pathExtension == "jsonl",
                       let modifiedDate = (try? fileURL.resourceValues(forKeys: [.contentModificationDateKey]))?
@@ -236,14 +252,15 @@ extension CodexReader {
                     continue
                 }
 
-                guard !pathsWithCompleteDatabaseAttribution.contains(fileURL.path) else {
+                let rolloutURL = canonicalCodexRolloutURL(fileURL)
+                guard !pathsWithCompleteDatabaseAttribution.contains(rolloutURL.path) else {
                     continue
                 }
 
-                let attribution = extractAttribution(from: fileURL)
+                let attribution = extractAttribution(from: rolloutURL)
                 sessions.append(
                     CodexSession(
-                        rolloutPath: fileURL.path,
+                        rolloutPath: rolloutURL.path,
                         model: attribution.model,
                         agentKind: attribution.agentKind,
                         hasSourceAttribution: attribution.hasSourceAttribution,
@@ -388,6 +405,10 @@ extension CodexReader {
         }
         return transform(line.trimmingCharacters(in: .whitespaces))
     }
+}
+
+private func canonicalCodexRolloutURL(_ url: URL) -> URL {
+    url.standardizedFileURL.resolvingSymlinksInPath()
 }
 
 private func codexSQLiteText(_ statement: OpaquePointer?, at index: Int32) -> String {

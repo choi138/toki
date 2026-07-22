@@ -1,22 +1,46 @@
 import Foundation
+import TokiDurableStorage
 import TokiUsageCore
 
-actor CodexRolloutUsageCache {
-    static let shared = CodexRolloutUsageCache()
+public let maximumCodexRolloutUsageCacheBytes = 64 * 1024 * 1024
 
+public actor CodexRolloutUsageCache {
+    public static let shared = CodexRolloutUsageCache()
+
+    let cacheURL: URL
+    private let maximumBytes: Int
+    private let maximumEntryBytes: Int
     private var isLoaded = false
     private var entries: [String: CodexRolloutUsageCacheEntry] = [:]
-    private var batchDepth = 0
+    private var entryByteCounts: [String: Int] = [:]
+    private var totalEntryBytes = 0
+    private var accessOrder: [String: UInt64] = [:]
+    private var accessCounter: UInt64 = 0
+    private var activeBatches: [UUID: Set<String>] = [:]
     private var hasPendingChanges = false
 
-    func beginBatch() async {
-        await loadIfNeeded()
-        batchDepth += 1
+    public init(
+        cacheURL: URL = codexRolloutUsageCacheURL(),
+        maximumBytes: Int = maximumCodexRolloutUsageCacheBytes) {
+        precondition(maximumBytes >= 0)
+        self.cacheURL = cacheURL
+        self.maximumBytes = maximumBytes
+        maximumEntryBytes = max(0, maximumBytes - min(1024, maximumBytes))
     }
 
-    func endBatch() async {
+    func beginBatch(retaining paths: [String]) async -> UUID {
         await loadIfNeeded()
-        batchDepth = max(0, batchDepth - 1)
+        let token = UUID()
+        activeBatches[token] = Set(paths)
+        prune(retaining: activeBatches.values.reduce(into: Set<String>()) { $0.formUnion($1) })
+        return token
+    }
+
+    func endBatch(_ token: UUID) async {
+        await loadIfNeeded()
+        guard let completedPaths = activeBatches.removeValue(forKey: token) else { return }
+        let retainedPaths = activeBatches.values.reduce(into: completedPaths) { $0.formUnion($1) }
+        prune(retaining: retainedPaths)
         persistIfNeeded()
     }
 
@@ -63,14 +87,26 @@ actor CodexRolloutUsageCache {
 
         guard let fileSignature = codexFileSignature(for: url) else { return }
 
-        entries[url.path] = CodexRolloutUsageCacheEntry(
+        let entry = CodexRolloutUsageCacheEntry(
             fileSize: fileSignature.fileSize,
             modifiedAt: fileSignature.modifiedAt,
             timeZoneIdentifier: codexCacheTimeZoneIdentifier(),
             dailyUsage: dailyUsage,
             dailyActivityTimestamps: dailyActivityTimestamps,
             dailyTokenUsageEvents: dailyTokenUsageEvents)
+        guard let entryByteCount = encodedByteCount(path: url.path, entry: entry),
+              entryByteCount <= maximumEntryBytes else {
+            removeEntry(path: url.path)
+            persistIfNeeded()
+            return
+        }
 
+        totalEntryBytes -= entryByteCounts[url.path] ?? 0
+        entries[url.path] = entry
+        entryByteCounts[url.path] = entryByteCount
+        totalEntryBytes += entryByteCount
+        touch(url.path)
+        enforceMemoryLimit()
         hasPendingChanges = true
         persistIfNeeded()
     }
@@ -79,44 +115,123 @@ actor CodexRolloutUsageCache {
         guard !isLoaded else { return }
         isLoaded = true
 
-        guard let data = try? Data(contentsOf: codexRolloutUsageCacheURL()),
-              let decoded = try? JSONDecoder().decode(CodexRolloutUsageCacheFile.self, from: data) else {
+        guard FileManager.default.fileExists(atPath: cacheURL.path)
+            || (try? FileManager.default.destinationOfSymbolicLink(atPath: cacheURL.path)) != nil else { return }
+        guard let values = try? cacheURL.resourceValues(
+            forKeys: [.fileSizeKey, .isRegularFileKey, .isSymbolicLinkKey]),
+            values.isRegularFile == true,
+            values.isSymbolicLink != true,
+            let fileSize = values.fileSize,
+            fileSize <= maximumBytes,
+            let data = try? Data(contentsOf: cacheURL),
+            data.count <= maximumBytes,
+            let decoded = try? JSONDecoder().decode(CodexRolloutUsageCacheFile.self, from: data) else {
             entries = [:]
+            hasPendingChanges = true
+            persistIfNeeded()
             return
         }
 
-        entries = decoded.entries
+        for path in decoded.entries.keys.sorted() {
+            guard let entry = decoded.entries[path],
+                  let byteCount = encodedByteCount(path: path, entry: entry),
+                  byteCount <= maximumEntryBytes else {
+                hasPendingChanges = true
+                continue
+            }
+            entries[path] = entry
+            entryByteCounts[path] = byteCount
+            totalEntryBytes += byteCount
+            touch(path)
+            enforceMemoryLimit()
+        }
     }
 
     private func cachedEntry(for url: URL) async -> CodexRolloutUsageCacheEntry? {
         await loadIfNeeded()
 
         guard let fileSignature = codexFileSignature(for: url),
-              let cached = entries[url.path],
-              cached.isCurrentSchema,
+              let cached = entries[url.path] else {
+            return nil
+        }
+        guard cached.isCurrentSchema,
               cached.fileSize == fileSignature.fileSize,
               cached.modifiedAt == fileSignature.modifiedAt,
               cached.timeZoneIdentifier == codexCacheTimeZoneIdentifier() else {
+            removeEntry(path: url.path)
+            persistIfNeeded()
             return nil
         }
 
+        touch(url.path)
         return cached
     }
 
     private func persistIfNeeded() {
-        guard hasPendingChanges, batchDepth == 0 else { return }
+        guard hasPendingChanges, activeBatches.isEmpty else { return }
 
-        let cacheURL = codexRolloutUsageCacheURL()
-        let directory = cacheURL.deletingLastPathComponent()
-        try? FileManager.default.createDirectory(
-            at: directory,
-            withIntermediateDirectories: true,
-            attributes: nil)
+        guard !entries.isEmpty else {
+            do {
+                try DurableFileIO.removeIfPresent(cacheURL)
+                hasPendingChanges = false
+            } catch {}
+            return
+        }
+        guard let data = encodedCacheFile(), data.count <= maximumBytes else { return }
+        do {
+            try writeCodexRolloutUsageCache(data, to: cacheURL)
+            hasPendingChanges = false
+        } catch {}
+    }
 
-        let payload = CodexRolloutUsageCacheFile(entries: entries)
-        guard let data = try? JSONEncoder().encode(payload) else { return }
-        try? data.write(to: cacheURL, options: [.atomic])
+    private func prune(retaining paths: Set<String>) {
+        let removedPaths = Set(entries.keys).subtracting(paths)
+        guard !removedPaths.isEmpty else { return }
+        for path in removedPaths {
+            removeEntry(path: path)
+        }
+    }
+
+    private func enforceMemoryLimit() {
+        while totalEntryBytes > maximumEntryBytes,
+              let path = accessOrder.min(by: { $0.value < $1.value })?.key {
+            removeEntry(path: path)
+        }
+    }
+
+    private func removeEntry(path: String) {
+        guard entries.removeValue(forKey: path) != nil else { return }
+        totalEntryBytes -= entryByteCounts.removeValue(forKey: path) ?? 0
+        accessOrder.removeValue(forKey: path)
+        hasPendingChanges = true
+    }
+
+    private func touch(_ path: String) {
+        accessCounter &+= 1
+        accessOrder[path] = accessCounter
+    }
+
+    private func encodedByteCount(path: String, entry: CodexRolloutUsageCacheEntry) -> Int? {
+        try? JSONEncoder().encode(CodexRolloutUsageCacheFile(entries: [path: entry])).count
+    }
+
+    private func encodedCacheFile() -> Data? {
+        try? JSONEncoder().encode(CodexRolloutUsageCacheFile(entries: entries))
+    }
+}
+
+public extension CodexRolloutUsageCache {
+    func reset() throws {
+        isLoaded = true
+        entries = [:]
+        entryByteCounts = [:]
+        totalEntryBytes = 0
+        accessOrder = [:]
+        accessCounter = 0
+        activeBatches = [:]
         hasPendingChanges = false
+
+        try DurableFileIO.removeIfPresent(cacheURL)
     }
 }
 
@@ -251,12 +366,23 @@ func codexFileSignature(for url: URL) -> CodexFileSignature? {
         modifiedAt: modifiedAt.timeIntervalSince1970)
 }
 
-func codexRolloutUsageCacheURL() -> URL {
-    homeDir()
-        .appendingPathComponent("Library")
-        .appendingPathComponent("Application Support")
-        .appendingPathComponent("Toki")
-        .appendingPathComponent("codex-rollout-cache.json")
+public func codexRolloutUsageCacheURL(
+    paths: LocalUsageReaderPaths = LocalUsageReaderPaths(),
+    scope: LocalUsageCacheScope = .application) -> URL {
+    paths.cacheDirectory(for: scope).appendingPathComponent("codex-rollout-cache.json")
+}
+
+func writeCodexRolloutUsageCache(_ data: Data, to url: URL) throws {
+    guard data.count <= maximumCodexRolloutUsageCacheBytes else {
+        throw CodexRolloutUsageCacheError.tooLarge
+    }
+    let directory = url.deletingLastPathComponent()
+    try DurableFileIO.preparePrivateDirectory(directory)
+    try DurableFileIO.writePrivate(data, to: url)
+}
+
+enum CodexRolloutUsageCacheError: Error {
+    case tooLarge
 }
 
 func codexDayKey(for date: Date, timeZone: TimeZone) -> String {
@@ -337,218 +463,4 @@ func codexRolloutDailySummary(fromSnapshots snapshots: [CodexTimedSnapshot]) -> 
     }
 
     return summary
-}
-
-func codexRolloutSnapshots(fromRolloutLines lines: [String]) -> [CodexTimedSnapshot] {
-    var selector = CodexRolloutSnapshotSelector()
-    return lines.enumerated().compactMap { index, line in
-        selector.snapshot(from: line, fileOrder: index)
-    }.sorted(by: codexSnapshotOrder)
-}
-
-func codexRolloutSnapshots(fromRolloutAt url: URL) -> [CodexTimedSnapshot] {
-    var selector = CodexRolloutSnapshotSelector()
-    var snapshots: [CodexTimedSnapshot] = []
-
-    forEachJSONLLine(at: url) { line, index in
-        if let snapshot = selector.snapshot(from: line, fileOrder: index) {
-            snapshots.append(snapshot)
-        }
-    }
-
-    return snapshots.sorted(by: codexSnapshotOrder)
-}
-
-private struct CodexRolloutSnapshotSelector {
-    private let decoder = JSONDecoder()
-    private var waitingForForkTurnContext = false
-    private var inheritedForkBaseline: CodexUsageSnapshot?
-    private var forkChildSessionID: String?
-    private var replaySessionID: String?
-    private var taskStartedTurnIDs: Set<String> = []
-    private var forkChildIsUserFork = false
-
-    mutating func snapshot(from line: String, fileOrder: Int) -> CodexTimedSnapshot? {
-        guard let data = line.data(using: .utf8),
-              let entry = try? decoder.decode(CodexRolloutEntry.self, from: data) else {
-            return nil
-        }
-
-        if waitingForForkTurnContext {
-            if entry.type == "turn_context" {
-                guard isForkChildTurn(entry.payload?.turnID) else { return nil }
-                waitingForForkTurnContext = false
-                replaySessionID = nil
-                taskStartedTurnIDs.removeAll(keepingCapacity: true)
-                forkChildIsUserFork = false
-                return nil
-            }
-
-            if entry.type == "event_msg", entry.payload?.type == "task_started",
-               let turnID = entry.payload?.turnID?.trimmedNonEmpty {
-                taskStartedTurnIDs.insert(turnID)
-                return nil
-            }
-
-            if entry.type == "session_meta" {
-                if let sessionID = entry.payload?.id?.trimmedNonEmpty,
-                   sessionID != forkChildSessionID {
-                    replaySessionID = sessionID
-                }
-                return nil
-            }
-        }
-
-        if entry.type == "session_meta", entry.payload?.forkParentID != nil {
-            let childSessionID = entry.payload?.id?.trimmedNonEmpty
-            let repeatedActiveChildMetadata = childSessionID != nil
-                && forkChildSessionID == childSessionID
-            forkChildSessionID = childSessionID
-            if !repeatedActiveChildMetadata {
-                waitingForForkTurnContext = true
-                inheritedForkBaseline = nil
-                replaySessionID = nil
-                taskStartedTurnIDs.removeAll(keepingCapacity: true)
-                forkChildIsUserFork = entry.payload?.threadSource == "user"
-            }
-            return nil
-        }
-
-        guard let timestamp = entry.timestamp,
-              let date = DateParser.parse(timestamp),
-              let tokenCount = entry.tokenCount else {
-            return nil
-        }
-
-        if waitingForForkTurnContext {
-            inheritedForkBaseline = tokenCount.totalSnapshot
-            return nil
-        }
-
-        if let baseline = inheritedForkBaseline {
-            // Fork logs replay parent snapshots with child-local timestamps. Keep
-            // suppressing them until both reported totals and component counters advance.
-            guard !tokenCount.totalSnapshot.isInheritedReplay(of: baseline) else { return nil }
-            inheritedForkBaseline = nil
-        }
-
-        return CodexTimedSnapshot(date: date, tokenCount: tokenCount, fileOrder: fileOrder)
-    }
-
-    private func isForkChildTurn(_ turnID: String?) -> Bool {
-        guard replaySessionID != nil else { return true }
-        guard let turnID = turnID?.trimmedNonEmpty else { return true }
-        guard let childID = forkChildSessionID,
-              let turnKey = codexUUIDv7OrderKey(turnID),
-              let childKey = codexUUIDv7OrderKey(childID) else {
-            return true
-        }
-        let turnTimestamp = turnKey.prefix(12)
-        let childTimestamp = childKey.prefix(12)
-        if turnTimestamp > childTimestamp { return true }
-        if turnTimestamp < childTimestamp { return false }
-        return forkChildIsUserFork || taskStartedTurnIDs.contains(turnID)
-    }
-}
-
-private func codexUUIDv7OrderKey(_ id: String) -> String? {
-    let parts = id.split(separator: "-", omittingEmptySubsequences: false)
-    guard parts.count == 5,
-          parts[0].count == 8,
-          parts[1].count == 4,
-          parts[2].count == 4,
-          parts[3].count == 4,
-          parts[4].count == 12,
-          parts[2].first == "7",
-          parts.allSatisfy({ part in
-              part.unicodeScalars.allSatisfy { scalar in
-                  switch scalar.value {
-                  case 48...57, 65...70, 97...102:
-                      true
-                  default:
-                      false
-                  }
-              }
-          }) else {
-        return nil
-    }
-    return parts.joined().lowercased()
-}
-
-private func codexSnapshotOrder(_ lhs: CodexTimedSnapshot, _ rhs: CodexTimedSnapshot) -> Bool {
-    if lhs.date == rhs.date {
-        return lhs.fileOrder < rhs.fileOrder
-    }
-    return lhs.date < rhs.date
-}
-
-func forEachJSONLLine(at url: URL, _ body: (String, Int) -> Void) {
-    forEachJSONLLineUntil(at: url) { line, index in
-        body(line, index)
-        return true
-    }
-}
-
-func forEachJSONLLineUntil(at url: URL, _ body: (String, Int) -> Bool) {
-    guard let handle = try? FileHandle(forReadingFrom: url) else { return }
-    defer { try? handle.close() }
-
-    var lineIndex = 0
-    var pending = Data()
-
-    while true {
-        guard !Task.isCancelled else { return }
-
-        let chunk: Data
-        do {
-            guard let data = try handle.read(upToCount: 64 * 1024),
-                  !data.isEmpty else {
-                break
-            }
-            chunk = data
-        } catch {
-            break
-        }
-
-        pending.append(chunk)
-        while let newlineIndex = pending.firstIndex(of: 0x0A) {
-            guard !Task.isCancelled else { return }
-
-            let lineData = pending.subdata(in: pending.startIndex..<newlineIndex)
-            pending.removeSubrange(pending.startIndex...newlineIndex)
-            if let line = jsonlLineString(from: lineData) {
-                guard body(line, lineIndex) else { return }
-                lineIndex += 1
-            }
-        }
-    }
-
-    if let line = jsonlLineString(from: pending) {
-        _ = body(line, lineIndex)
-    }
-}
-
-private func jsonlLineString(from data: Data) -> String? {
-    let trimmedData = data.trimmingCarriageReturn()
-    guard !trimmedData.isEmpty,
-          let line = String(data: trimmedData, encoding: .utf8) else {
-        return nil
-    }
-
-    let trimmedLine = line.trimmingCharacters(in: .whitespaces)
-    return trimmedLine.isEmpty ? nil : trimmedLine
-}
-
-private extension Data {
-    func trimmingCarriageReturn() -> Data {
-        guard last == 0x0D else { return self }
-        return Data(dropLast())
-    }
-}
-
-func codexIsWholeDayAlignedRange(from startDate: Date, to endDate: Date) -> Bool {
-    let calendar = Calendar.current
-    return startDate == calendar.startOfDay(for: startDate)
-        && endDate == calendar.startOfDay(for: endDate)
-        && startDate < endDate
 }

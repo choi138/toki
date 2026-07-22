@@ -2,13 +2,13 @@ import Foundation
 
 // MARK: - Model Price
 
-struct ModelPrice {
-    let inputPerMillion: Double
-    let outputPerMillion: Double
-    let cacheReadPerMillion: Double
-    let cacheWritePerMillion: Double
+public struct ModelPrice {
+    public let inputPerMillion: Double
+    public let outputPerMillion: Double
+    public let cacheReadPerMillion: Double
+    public let cacheWritePerMillion: Double
 
-    func cost(
+    public func cost(
         input: Int,
         output: Int,
         cacheRead: Int,
@@ -24,18 +24,18 @@ struct ModelPrice {
 
 // MARK: - Model Price Lookup
 
-struct ModelPriceLookup {
-    enum Match: Equatable {
+public struct ModelPriceLookup {
+    public enum Match: Equatable {
         case exact(modelId: String)
         case prefix(prefix: String)
         case missing
     }
 
-    let modelId: String
-    let price: ModelPrice?
-    let match: Match
+    public let modelId: String
+    public let price: ModelPrice?
+    public let match: Match
 
-    var isPriced: Bool {
+    public var isPriced: Bool {
         price != nil
     }
 }
@@ -133,7 +133,7 @@ private let prefixPricingTable: [String: ModelPrice] = exactPricingTable.filter 
 private let sortedPrefixPricingKeys: [(key: String, value: ModelPrice)] =
     prefixPricingTable.sorted { $0.key.count > $1.key.count }
 
-func modelPriceLookup(for modelId: String) -> ModelPriceLookup {
+public func modelPriceLookup(for modelId: String) -> ModelPriceLookup {
     if let price = exactPricingTable[modelId] {
         return ModelPriceLookup(
             modelId: modelId,
@@ -154,6 +154,6 @@ func modelPriceLookup(for modelId: String) -> ModelPriceLookup {
         match: .missing)
 }
 
-func modelPrice(for modelId: String) -> ModelPrice? {
+public func modelPrice(for modelId: String) -> ModelPrice? {
     modelPriceLookup(for: modelId).price
 }

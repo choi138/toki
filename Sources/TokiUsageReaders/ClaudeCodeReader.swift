@@ -1,67 +1,87 @@
 import Foundation
 import TokiUsageCore
 
-private let claudeUsageCacheParserVersion = 2
-
 /// Reads ~/.claude/projects/**/*.jsonl
 /// Deduplicates by requestId, keeps max token counts per message
-struct ClaudeCodeReader: TokenReader {
-    let name = "Claude Code"
+public struct ClaudeCodeReader: TokenReader {
+    public let name = "Claude Code"
+    private let projectsURLOverride: URL?
+    private let usageCache: ClaudeUsageCache
+    private let attributionHomeDirectory: URL
 
-    func readUsage(from startDate: Date, to endDate: Date) async throws -> RawTokenUsage {
-        let projectsURL = homeDir().appendingPathComponent(".claude/projects")
+    public init(
+        projectsURLOverride: URL? = nil,
+        usageCache: ClaudeUsageCache = .shared) {
+        self.projectsURLOverride = projectsURLOverride
+        self.usageCache = usageCache
+        attributionHomeDirectory = Self.resolveAttributionHomeDirectory(
+            projectsURLOverride: projectsURLOverride)
+    }
+
+    private var projectsURL: URL {
+        projectsURLOverride ?? homeDir().appendingPathComponent(".claude/projects")
+    }
+
+    public func readUsage(from startDate: Date, to endDate: Date) async throws -> RawTokenUsage {
         guard FileManager.default.fileExists(atPath: projectsURL.path) else {
             return RawTokenUsage()
         }
 
         let files = findFiles(in: projectsURL, withExtension: "jsonl", modifiedAfter: startDate)
-        await ClaudeUsageCache.shared.beginBatch()
+        await usageCache.beginBatch()
         var sessions: [(streamID: String, records: [ClaudeCachedUsageRecord])] = []
 
         for file in files {
             await sessions.append(
-                (streamID: file.path, records: Self.cachedUsageRecords(at: file)))
+                (streamID: file.path, records: cachedUsageRecords(at: file)))
         }
 
-        await ClaudeUsageCache.shared.endBatch()
+        await usageCache.endBatch()
         return Self.usage(
             fromSessions: sessions,
             from: startDate,
             to: endDate,
-            source: name)
+            source: name,
+            attributionHomeDirectory: attributionHomeDirectory)
     }
+}
 
+extension ClaudeCodeReader {
     static func usage(
         fromJSONLLines lines: [String],
         streamID: String,
         from startDate: Date,
-        to endDate: Date) -> RawTokenUsage {
+        to endDate: Date,
+        attributionHomeDirectory: URL = homeDir()) -> RawTokenUsage {
         usage(
             fromJSONLSessions: [(streamID: streamID, lines: lines)],
             from: startDate,
-            to: endDate)
+            to: endDate,
+            attributionHomeDirectory: attributionHomeDirectory)
     }
 
     static func usage(
         fromJSONLSessions sessions: [(streamID: String, lines: [String])],
         from startDate: Date,
-        to endDate: Date) -> RawTokenUsage {
+        to endDate: Date,
+        attributionHomeDirectory: URL = homeDir()) -> RawTokenUsage {
         usage(
             fromSessions: sessions.map { session in
                 (streamID: session.streamID, records: parseUsageRecords(from: session.lines))
             },
             from: startDate,
             to: endDate,
-            source: "Claude Code")
+            source: "Claude Code",
+            attributionHomeDirectory: attributionHomeDirectory)
     }
 
-    private static func cachedUsageRecords(at url: URL) async -> [ClaudeCachedUsageRecord] {
-        if let cached = await ClaudeUsageCache.shared.records(for: url) {
+    private func cachedUsageRecords(at url: URL) async -> [ClaudeCachedUsageRecord] {
+        if let cached = await usageCache.records(for: url) {
             return cached
         }
 
-        let parsed = parseUsageRecords(at: url)
-        await ClaudeUsageCache.shared.store(records: parsed, for: url)
+        let parsed = Self.parseUsageRecords(at: url)
+        await usageCache.store(records: parsed, for: url)
         return parsed
     }
 
@@ -71,7 +91,8 @@ struct ClaudeCodeReader: TokenReader {
         from startDate: Date,
         to endDate: Date,
         dedup: inout [String: Entry],
-        activityByKey: inout [String: ActivitySeries]) {
+        activityByKey: inout [String: ActivitySeries],
+        attributionHomeDirectory: URL) {
         for record in records {
             let date = Date(timeIntervalSince1970: record.timestamp)
             guard date >= startDate, date < endDate else { continue }
@@ -87,7 +108,10 @@ struct ClaudeCodeReader: TokenReader {
                 output: record.output,
                 cacheRead: record.cacheRead,
                 cacheWrite: record.cacheWrite,
-                attribution: attribution(for: record, streamID: streamID))
+                attribution: attribution(
+                    for: record,
+                    streamID: streamID,
+                    homeDirectory: attributionHomeDirectory))
 
             if let existing = dedup[key] {
                 dedup[key] = existing.mergedMax(with: entry)
@@ -113,7 +137,8 @@ struct ClaudeCodeReader: TokenReader {
         fromSessions sessions: [(streamID: String, records: [ClaudeCachedUsageRecord])],
         from startDate: Date,
         to endDate: Date,
-        source: String) -> RawTokenUsage {
+        source: String,
+        attributionHomeDirectory: URL) -> RawTokenUsage {
         var dedup: [String: Entry] = [:]
         var activityByKey: [String: ActivitySeries] = [:]
 
@@ -124,7 +149,8 @@ struct ClaudeCodeReader: TokenReader {
                 from: startDate,
                 to: endDate,
                 dedup: &dedup,
-                activityByKey: &activityByKey)
+                activityByKey: &activityByKey,
+                attributionHomeDirectory: attributionHomeDirectory)
         }
 
         return usage(
@@ -217,6 +243,18 @@ struct ClaudeCodeReader: TokenReader {
                 cacheWrite: usage.cacheCreationInputTokens ?? 0)
         }
     }
+
+    private static func resolveAttributionHomeDirectory(projectsURLOverride: URL?) -> URL {
+        guard let projectsURLOverride,
+              projectsURLOverride.lastPathComponent == "projects" else {
+            return homeDir()
+        }
+        let claudeDirectory = projectsURLOverride.deletingLastPathComponent()
+        guard claudeDirectory.lastPathComponent == ".claude" else {
+            return homeDir()
+        }
+        return claudeDirectory.deletingLastPathComponent()
+    }
 }
 
 // MARK: - Private Types
@@ -284,7 +322,10 @@ private struct ActivitySeries {
     }
 }
 
-private func attribution(for record: ClaudeCachedUsageRecord, streamID: String) -> UsageAttribution {
+private func attribution(
+    for record: ClaudeCachedUsageRecord,
+    streamID: String,
+    homeDirectory: URL) -> UsageAttribution {
     let sessionID = record.sessionID
         ?? usageSessionID(fromPath: streamID).trimmedNonEmpty
         ?? record.requestId
@@ -296,7 +337,10 @@ private func attribution(for record: ClaudeCachedUsageRecord, streamID: String) 
             quality: .exact)
     }
 
-    if let attribution = inferredAttributionFromClaudeStreamID(streamID, sessionID: sessionID) {
+    if let attribution = inferredAttributionFromClaudeStreamID(
+        streamID,
+        sessionID: sessionID,
+        homeDirectory: homeDirectory) {
         return attribution
     }
 
@@ -305,7 +349,10 @@ private func attribution(for record: ClaudeCachedUsageRecord, streamID: String) 
         quality: .unknown)
 }
 
-private func inferredAttributionFromClaudeStreamID(_ streamID: String, sessionID: String?) -> UsageAttribution? {
+private func inferredAttributionFromClaudeStreamID(
+    _ streamID: String,
+    sessionID: String?,
+    homeDirectory: URL) -> UsageAttribution? {
     guard streamID.contains("/") else {
         guard let projectName = streamID.trimmedNonEmpty else { return nil }
         return UsageAttribution(
@@ -321,7 +368,11 @@ private func inferredAttributionFromClaudeStreamID(_ streamID: String, sessionID
     }
 
     if parentName.hasPrefix("-") {
-        guard let projectName = projectNameFromClaudeEncodedFolder(parentName) else { return nil }
+        guard let projectName = projectNameFromClaudeEncodedFolder(
+            parentName,
+            homeDirectory: homeDirectory) else {
+            return nil
+        }
         return UsageAttribution(
             projectName: projectName,
             sessionID: sessionID,
@@ -335,8 +386,10 @@ private func inferredAttributionFromClaudeStreamID(_ streamID: String, sessionID
         quality: .inferred)
 }
 
-private func projectNameFromClaudeEncodedFolder(_ parentName: String) -> String? {
-    let encodedHomePath = homeDir().path.replacingOccurrences(of: "/", with: "-")
+private func projectNameFromClaudeEncodedFolder(
+    _ parentName: String,
+    homeDirectory: URL) -> String? {
+    let encodedHomePath = homeDirectory.path.replacingOccurrences(of: "/", with: "-")
     if parentName.hasPrefix(encodedHomePath) {
         let suffix = parentName.dropFirst(encodedHomePath.count)
         if let projectName = String(suffix).trimmingLeadingHyphens.trimmedNonEmpty {
@@ -389,170 +442,6 @@ private struct RawMessage: Decodable {
             }
         }
     }
-}
-
-private actor ClaudeUsageCache {
-    static let shared = ClaudeUsageCache()
-
-    private var isLoaded = false
-    private var entries: [String: ClaudeUsageCacheEntry] = [:]
-    private var batchDepth = 0
-    private var hasPendingChanges = false
-
-    func beginBatch() async {
-        await loadIfNeeded()
-        batchDepth += 1
-    }
-
-    func endBatch() async {
-        await loadIfNeeded()
-        batchDepth = max(0, batchDepth - 1)
-        persistIfNeeded()
-    }
-
-    func records(for url: URL) async -> [ClaudeCachedUsageRecord]? {
-        await loadIfNeeded()
-
-        guard let fileSignature = claudeFileSignature(for: url),
-              let cached = entries[url.path],
-              cached.parserVersion == claudeUsageCacheParserVersion,
-              cached.fileSize == fileSignature.fileSize,
-              cached.modifiedAt == fileSignature.modifiedAt else {
-            return nil
-        }
-
-        return cached.records
-    }
-
-    func store(records: [ClaudeCachedUsageRecord], for url: URL) async {
-        await loadIfNeeded()
-
-        guard let fileSignature = claudeFileSignature(for: url) else { return }
-
-        entries[url.path] = ClaudeUsageCacheEntry(
-            parserVersion: claudeUsageCacheParserVersion,
-            fileSize: fileSignature.fileSize,
-            modifiedAt: fileSignature.modifiedAt,
-            records: records)
-
-        hasPendingChanges = true
-        persistIfNeeded()
-    }
-
-    private func loadIfNeeded() async {
-        guard !isLoaded else { return }
-        isLoaded = true
-
-        guard let data = try? Data(contentsOf: claudeUsageCacheURL()),
-              let decoded = try? JSONDecoder().decode(ClaudeUsageCacheFile.self, from: data) else {
-            entries = [:]
-            return
-        }
-
-        entries = decoded.entries
-    }
-
-    private func persistIfNeeded() {
-        guard hasPendingChanges, batchDepth == 0 else { return }
-
-        let cacheURL = claudeUsageCacheURL()
-        let directory = cacheURL.deletingLastPathComponent()
-        try? FileManager.default.createDirectory(
-            at: directory,
-            withIntermediateDirectories: true,
-            attributes: nil)
-
-        let payload = ClaudeUsageCacheFile(entries: entries)
-        guard let data = try? JSONEncoder().encode(payload) else { return }
-        try? data.write(to: cacheURL, options: [.atomic])
-        hasPendingChanges = false
-    }
-}
-
-private struct ClaudeUsageCacheFile: Codable {
-    let entries: [String: ClaudeUsageCacheEntry]
-}
-
-private struct ClaudeUsageCacheEntry: Codable {
-    let parserVersion: Int?
-    let fileSize: Int
-    let modifiedAt: TimeInterval
-    let records: [ClaudeCachedUsageRecord]
-
-    init(
-        parserVersion: Int? = nil,
-        fileSize: Int,
-        modifiedAt: TimeInterval,
-        records: [ClaudeCachedUsageRecord]) {
-        self.parserVersion = parserVersion
-        self.fileSize = fileSize
-        self.modifiedAt = modifiedAt
-        self.records = records
-    }
-}
-
-private struct ClaudeCachedUsageRecord: Codable {
-    let lineIndex: Int
-    let timestamp: TimeInterval
-    let requestId: String?
-    let sessionID: String?
-    let cwd: String?
-    let messageID: String?
-    let model: String?
-    let input: Int
-    let output: Int
-    let cacheRead: Int
-    let cacheWrite: Int
-
-    init(
-        lineIndex: Int,
-        timestamp: TimeInterval,
-        requestId: String?,
-        sessionID: String? = nil,
-        cwd: String? = nil,
-        messageID: String?,
-        model: String?,
-        input: Int,
-        output: Int,
-        cacheRead: Int,
-        cacheWrite: Int) {
-        self.lineIndex = lineIndex
-        self.timestamp = timestamp
-        self.requestId = requestId
-        self.sessionID = sessionID
-        self.cwd = cwd
-        self.messageID = messageID
-        self.model = model
-        self.input = input
-        self.output = output
-        self.cacheRead = cacheRead
-        self.cacheWrite = cacheWrite
-    }
-}
-
-private struct ClaudeFileSignature {
-    let fileSize: Int
-    let modifiedAt: TimeInterval
-}
-
-private func claudeFileSignature(for url: URL) -> ClaudeFileSignature? {
-    guard let values = try? url.resourceValues(forKeys: [.contentModificationDateKey, .fileSizeKey]),
-          let modifiedAt = values.contentModificationDate,
-          let fileSize = values.fileSize else {
-        return nil
-    }
-
-    return ClaudeFileSignature(
-        fileSize: fileSize,
-        modifiedAt: modifiedAt.timeIntervalSince1970)
-}
-
-private func claudeUsageCacheURL() -> URL {
-    homeDir()
-        .appendingPathComponent("Library")
-        .appendingPathComponent("Application Support")
-        .appendingPathComponent("Toki")
-        .appendingPathComponent("claude-usage-cache.json")
 }
 
 private extension String {
