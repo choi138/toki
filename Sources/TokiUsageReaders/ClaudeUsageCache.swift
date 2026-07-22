@@ -1,4 +1,5 @@
 import Foundation
+import TokiDurableStorage
 
 private let claudeUsageCacheParserVersion = 2
 
@@ -89,15 +90,13 @@ public actor ClaudeUsageCache {
     private func persistIfNeeded() {
         guard hasPendingChanges, batchDepth == 0 else { return }
 
-        let directory = cacheURL.deletingLastPathComponent()
-        try? FileManager.default.createDirectory(
-            at: directory,
-            withIntermediateDirectories: true,
-            attributes: nil)
-
         let payload = ClaudeUsageCacheFile(entries: entries)
         guard let data = try? JSONEncoder().encode(payload) else { return }
-        try? data.write(to: cacheURL, options: [.atomic])
+        do {
+            try DurableFileIO.writePrivate(data, to: cacheURL)
+        } catch {
+            return
+        }
         hasPendingChanges = false
     }
 }
