@@ -104,6 +104,29 @@ final class HermesUsageLedgerPrivacyTests: XCTestCase {
         XCTAssertEqual(try Data(contentsOf: fixture.ledgerURL), beforeSecondApply)
     }
 
+    func test_currentLedgerRejectsMismatchedKeySidecar() async throws {
+        let fixture = try HermesPrivacyFixture()
+        defer { fixture.remove() }
+        let identifierKey = SnapshotCipher.generateKey()
+        let original = try makeV2LedgerData(
+            identifierKey: identifierKey,
+            identifier: String(repeating: "f", count: 32),
+            timestamp: Date(timeIntervalSince1970: 1_780_000_000),
+            sentinel: "TOKI_KEY_MISMATCH_SENTINEL")
+        try writePrivateTestData(original, to: fixture.ledgerURL)
+        XCTAssertEqual(
+            try HermesUsageLedgerMigrator.migrate(fileURL: fixture.ledgerURL, mode: .apply),
+            .migrated)
+        let replacementKey = SnapshotCipher.generateKey()
+        XCTAssertNotEqual(replacementKey, identifierKey)
+        try writePrivateTestData(Data(replacementKey.utf8), to: fixture.keyURL)
+
+        do {
+            _ = try await HermesUsageLedger(fileURL: fixture.ledgerURL).status()
+            XCTFail("A mismatched key sidecar must be rejected")
+        } catch HermesUsageLedgerError.invalidLedger {}
+    }
+
     func test_mergeAndReplayPreserveAccountingWithoutPersistingSensitiveMetadata() async throws {
         let fixture = try HermesPrivacyFixture()
         defer { fixture.remove() }
@@ -559,23 +582,6 @@ private func createHermesPrivacyDatabase(at url: URL, sentinel: String) throws {
 private enum HermesPrivacyDatabaseError: Error {
     case open
     case statement
-}
-
-private final class CommittedKeyFailureWriter {
-    private let keyURL: URL
-    private var shouldFailKeyWrite = true
-
-    init(keyURL: URL) {
-        self.keyURL = keyURL
-    }
-
-    func write(_ data: Data, _ url: URL) throws {
-        try DurableFileIO.writePrivate(data, to: url)
-        if url == keyURL, shouldFailKeyWrite {
-            shouldFailKeyWrite = false
-            throw DurableFileIOError.replacementCommittedDirectorySyncFailed
-        }
-    }
 }
 
 private func writePrivateTestData(_ data: Data, to url: URL) throws {
