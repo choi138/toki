@@ -2,15 +2,23 @@ import Foundation
 import TokiDurableStorage
 import TokiSyncProtocol
 
+typealias HubPrivateFileWriter = @Sendable (Data, URL) throws -> Void
+
 actor HubStore {
     private let registryURL: URL
     private let snapshotsDirectory: URL
     private let storageLock: HubStorageLock
+    private let registryWriter: HubPrivateFileWriter
     private var registry: HubRegistry
 
-    init(directory: URL) throws {
+    init(
+        directory: URL,
+        registryWriter: @escaping HubPrivateFileWriter = { data, url in
+            try DurableFileIO.writePrivate(data, to: url)
+        }) throws {
         registryURL = directory.appendingPathComponent("devices.json")
         snapshotsDirectory = directory.appendingPathComponent("snapshots")
+        self.registryWriter = registryWriter
 
         try Self.createPrivateDirectory(directory)
         try Self.createPrivateDirectory(snapshotsDirectory)
@@ -43,7 +51,10 @@ actor HubStore {
                 snapshotsDirectory: snapshotsDirectory)
             registry = recovery.registry
             if recovery.changed || decoded.devices.count != originalDeviceCount {
-                let registryOutcome = try Self.writeRegistry(registry, to: registryURL)
+                let registryOutcome = try Self.writeRegistry(
+                    registry,
+                    to: registryURL,
+                    writer: registryWriter)
                 try Self.requireSynchronized(registryOutcome)
             }
         } else {
@@ -89,14 +100,15 @@ extension HubStore {
             latestSequence: nil,
             syncIntervalSeconds: syncIntervalSeconds)
         registry.devices[deviceID] = record
-        let registryOutcome: HubFileMutationOutcome
         do {
-            registryOutcome = try persistRegistry()
+            // A committed replacement already contains this device. Return the
+            // only plaintext upload token even when directory durability could
+            // not be confirmed, instead of orphaning an unusable record.
+            _ = try persistRegistry()
         } catch {
             registry.devices.removeValue(forKey: deviceID)
             throw error
         }
-        try Self.requireSynchronized(registryOutcome)
         return CreateRemoteDeviceResponse(
             deviceID: deviceID,
             deviceName: normalizedName,
@@ -378,25 +390,28 @@ extension HubStore {
     }
 
     private func persistRegistry() throws -> HubFileMutationOutcome {
-        try Self.writeRegistry(registry, to: registryURL)
+        try Self.writeRegistry(registry, to: registryURL, writer: registryWriter)
     }
 
     @discardableResult
     private static func writeRegistry(
         _ registry: HubRegistry,
-        to registryURL: URL) throws -> HubFileMutationOutcome {
+        to registryURL: URL,
+        writer: HubPrivateFileWriter = { data, url in
+            try DurableFileIO.writePrivate(data, to: url)
+        }) throws -> HubFileMutationOutcome {
         let data = try TokiSyncCoding.makeEncoder().encode(registry)
         guard data.count <= TokiSyncLimits.maximumRegistryBytes else {
             throw HubStoreError.corruptedStorage
         }
-        return try Self.writePrivate(data, to: registryURL)
+        return try Self.writePrivate(data, to: registryURL, writer: writer)
     }
 
     @discardableResult
     static func writePrivate(
         _ data: Data,
         to url: URL,
-        writer: (Data, URL) throws -> Void = { data, url in
+        writer: HubPrivateFileWriter = { data, url in
             try DurableFileIO.writePrivate(data, to: url)
         }) throws -> HubFileMutationOutcome {
         do {

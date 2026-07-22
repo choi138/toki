@@ -31,7 +31,11 @@ public enum TokiSyncValidation {
         "\u{061C}\u{200E}\u{200F}\u{202A}\u{202B}\u{202C}\u{202D}\u{202E}\u{2066}\u{2067}\u{2068}\u{2069}")
 
     public static func isAllowedHubURL(_ url: URL) -> Bool {
-        let hasValidPort = url.port.map { (1...65535).contains($0) } ?? true
+        guard let components = URLComponents(url: url, resolvingAgainstBaseURL: false) else {
+            return false
+        }
+        let hasValidPort = components.rangeOfPort == nil
+            || url.port.map { (1...65535).contains($0) } == true
         guard url.absoluteString.utf8.count <= TokiSyncLimits.maximumHubURLBytes,
               url.user == nil,
               url.password == nil,
