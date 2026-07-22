@@ -1,6 +1,5 @@
 import XCTest
 @testable import Toki
-@testable import TokiUsageReaders
 
 final class OpenClawReaderTests: XCTestCase {
     func test_openClawReader_requiresTimestampInsideRangeForUsageRows() {
