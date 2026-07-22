@@ -202,7 +202,9 @@ package enum TokiAgentCommand {
         }
         return lines
     }
+}
 
+extension TokiAgentCommand {
     private static func snapshotVerificationStatus(_ state: AgentRuntimeState) -> String {
         state.lastUploadedContentDigest != nil && state.lastSourceSignature != nil
             ? "stable"
@@ -227,9 +229,7 @@ package enum TokiAgentCommand {
       run          Run continuously without opening an inbound port
       version      Show the sync protocol version
     """
-}
 
-extension TokiAgentCommand {
     static func migrateHermesLedger(
         arguments: [String],
         paths: AgentPaths = AgentPaths()) throws -> HermesUsageLedgerMigrationResult {
