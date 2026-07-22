@@ -166,9 +166,16 @@ private extension RemoteSnapshotLoader {
         }
         guard let entry else { return nil }
         guard entry.snapshotCacheIdentifier == configuration.snapshotCacheIdentifier else {
+            let cachedOriginIdentifier = entry.snapshotCacheIdentifier
+                ?? configuration.snapshotCacheIdentifier
             try lifecycleCoordinator.commit(lifecycleTicket) {
                 guard try configurationProvider.load() == configuration else {
                     throw RemoteSyncLifecycleError.stateChanged
+                }
+                if !entry.envelopes.isEmpty {
+                    try anchorStore.validateAndSave(
+                        entry.envelopes,
+                        originIdentifier: cachedOriginIdentifier)
                 }
                 try cache.clear()
             }
