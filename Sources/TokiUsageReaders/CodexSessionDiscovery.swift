@@ -238,17 +238,27 @@ extension CodexReader {
             guard FileManager.default.fileExists(atPath: directoryURL.path),
                   let contents = try? FileManager.default.contentsOfDirectory(
                       at: directoryURL,
-                      includingPropertiesForKeys: [.contentModificationDateKey],
+                      includingPropertiesForKeys: [
+                          .contentModificationDateKey,
+                          .isRegularFileKey,
+                          .isSymbolicLinkKey,
+                      ],
                       options: [.skipsHiddenFiles]) else {
                 continue
             }
 
             for fileURL in contents.sorted(by: { $0.path < $1.path }) {
                 guard !Task.isCancelled else { break }
-                guard fileURL.pathExtension == "jsonl",
-                      let modifiedDate = (try? fileURL.resourceValues(forKeys: [.contentModificationDateKey]))?
-                      .contentModificationDate,
-                      modifiedDate >= startDate else {
+                guard let values = try? fileURL.resourceValues(forKeys: [
+                    .contentModificationDateKey,
+                    .isRegularFileKey,
+                    .isSymbolicLinkKey,
+                ]),
+                    values.isRegularFile == true,
+                    values.isSymbolicLink != true,
+                    fileURL.pathExtension == "jsonl",
+                    let modifiedDate = values.contentModificationDate,
+                    modifiedDate >= startDate else {
                     continue
                 }
 

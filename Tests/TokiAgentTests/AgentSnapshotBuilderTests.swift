@@ -231,6 +231,28 @@ final class AgentSnapshotBuilderTests: XCTestCase {
 }
 
 extension AgentSnapshotBuilderTests {
+    func test_sourceSignatureIgnoresSymlinkedCodexRollouts() async throws {
+        let fixture = try AgentSnapshotFixture()
+        defer { fixture.remove() }
+        let archiveDirectory = fixture.root.appendingPathComponent(".codex/archived_sessions")
+        try FileManager.default.createDirectory(at: archiveDirectory, withIntermediateDirectories: true)
+        let targetURL = fixture.root.appendingPathComponent("outside-rollout.jsonl")
+        let linkURL = archiveDirectory.appendingPathComponent("linked-rollout.jsonl")
+        try Data("{\"value\":1}\n".utf8).write(to: targetURL)
+        try FileManager.default.createSymbolicLink(at: linkURL, withDestinationURL: targetURL)
+        let builder = AgentSnapshotBuilder(home: fixture.root)
+
+        let before = try await builder.sourceSignature(
+            configuration: fixture.configuration,
+            now: fixture.now)
+        try Data("{\"value\":2}\n".utf8).write(to: targetURL)
+        let after = try await builder.sourceSignature(
+            configuration: fixture.configuration,
+            now: fixture.now)
+
+        XCTAssertEqual(before, after)
+    }
+
     func test_sharedReaderFileDiscoverySkipsSymbolicLinks() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("toki-reader-symlink-\(UUID().uuidString)", isDirectory: true)
