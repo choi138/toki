@@ -39,21 +39,16 @@ struct AgentSyncService {
 
         do {
             try await snapshotBuilder.prepareForSync()
-            for pending in try spool.pendingEnvelopes() {
-                guard pending.envelope.deviceID == configuration.deviceID else {
-                    throw AgentSyncError.pendingDeviceMismatch
-                }
-                let pendingSnapshot = try SnapshotCipher.open(
-                    pending.envelope,
-                    key: configuration.encryptionKey)
-                try await hubClient.upload(pending.envelope, configuration: configuration)
-                state.latestSequence = max(state.latestSequence, pending.envelope.sequence)
-                state.lastUploadedContentDigest = try snapshotBuilder.contentDigest(pendingSnapshot)
-                state.lastSourceSignature = nil
-                try stateStore.save(state)
-                try spool.remove(pending.url)
-            }
-            let sourceSignature = try await snapshotBuilder.sourceSignature(configuration: configuration, now: now)
+            try await processPendingEnvelopes(
+                configuration: configuration,
+                now: now,
+                stateStore: stateStore,
+                spool: spool,
+                state: &state)
+
+            let sourceSignature = try await snapshotBuilder.sourceSignature(
+                configuration: configuration,
+                now: now)
             if !forceSnapshotBuild,
                let sourceSignature,
                state.lastSourceSignature == sourceSignature,
@@ -207,6 +202,37 @@ struct AgentSyncService {
 }
 
 private extension AgentSyncService {
+    func processPendingEnvelopes(
+        configuration: AgentConfiguration,
+        now: Date,
+        stateStore: AgentStateStore,
+        spool: AgentSpool,
+        state: inout AgentRuntimeState) async throws {
+        for pending in try spool.pendingEnvelopes() {
+            guard pending.envelope.deviceID == configuration.deviceID else {
+                throw AgentSyncError.pendingDeviceMismatch
+            }
+            guard TokiSyncValidation.isAcceptableEnvelopeTimestamp(
+                pending.envelope.generatedAt,
+                now: now) else {
+                state.lastUploadedContentDigest = nil
+                state.lastSourceSignature = nil
+                try stateStore.save(state)
+                try spool.remove(pending.url)
+                continue
+            }
+            let pendingSnapshot = try SnapshotCipher.open(
+                pending.envelope,
+                key: configuration.encryptionKey)
+            try await hubClient.upload(pending.envelope, configuration: configuration)
+            state.latestSequence = max(state.latestSequence, pending.envelope.sequence)
+            state.lastUploadedContentDigest = try snapshotBuilder.contentDigest(pendingSnapshot)
+            state.lastSourceSignature = nil
+            try stateStore.save(state)
+            try spool.remove(pending.url)
+        }
+    }
+
     func heartbeatAccepted(
         configuration: AgentConfiguration,
         latestSequence: UInt64) async throws -> Bool {

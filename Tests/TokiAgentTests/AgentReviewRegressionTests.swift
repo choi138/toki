@@ -53,6 +53,53 @@ final class AgentReviewRegressionTests: XCTestCase {
         XCTAssertEqual(try AgentStateStore(paths: fixture.paths).load().latestSequence, 0)
     }
 
+    func test_futureDatedPendingSnapshotDoesNotAdvanceFromUnauthenticatedSequence() async throws {
+        let fixture = try AgentSyncFixture()
+        defer { fixture.remove() }
+        try AgentConfigurationStore(paths: fixture.paths).save(fixture.configuration)
+        let hubClient = ReviewHubClient()
+        let snapshotBuilder = ReviewFixedBuilder()
+        let service = AgentSyncService(
+            paths: fixture.paths,
+            hubClient: hubClient,
+            snapshotBuilder: snapshotBuilder)
+        let now = Date().addingTimeInterval(-2 * 86400)
+        let currentSnapshot = try await snapshotBuilder.build(
+            configuration: fixture.configuration,
+            now: now)
+        let stableSourceSignature = try await snapshotBuilder.sourceSignature(
+            configuration: fixture.configuration,
+            now: now)
+        let stableContentDigest = try snapshotBuilder.contentDigest(currentSnapshot)
+        try AgentStateStore(paths: fixture.paths).save(AgentRuntimeState(
+            latestSequence: 1,
+            lastUploadedContentDigest: stableContentDigest,
+            lastSourceSignature: stableSourceSignature))
+        let futureSnapshot = try await snapshotBuilder.build(
+            configuration: fixture.configuration,
+            now: now.addingTimeInterval(86401))
+        let signedEnvelope = try SnapshotCipher.seal(
+            futureSnapshot,
+            sequence: 1,
+            key: fixture.configuration.encryptionKey)
+        let pendingEnvelope = EncryptedUsageEnvelope(
+            deviceID: signedEnvelope.deviceID,
+            sequence: UInt64.max,
+            generatedAt: signedEnvelope.generatedAt,
+            payload: signedEnvelope.payload)
+        _ = try AgentSpool(paths: fixture.paths).enqueue(pendingEnvelope)
+
+        try await service.syncOnce(now: now)
+
+        XCTAssertEqual(hubClient.uploadedSequences, [2])
+        XCTAssertTrue(hubClient.heartbeatSequences.isEmpty)
+        XCTAssertTrue(try AgentSpool(paths: fixture.paths).pendingEnvelopes().isEmpty)
+        let state = try AgentStateStore(paths: fixture.paths).load()
+        XCTAssertEqual(state.latestSequence, 2)
+        XCTAssertNotNil(state.lastUploadedContentDigest)
+        XCTAssertNil(state.lastSourceSignature)
+    }
+
     func test_recoveryErrorsDirectOperatorsThroughUnpair() throws {
         for error in [AgentSyncError.pendingDeviceMismatch, .sequenceExhausted] {
             let description = try XCTUnwrap(error.errorDescription)
