@@ -4,6 +4,16 @@ import TokiSyncProtocol
 
 typealias HubPrivateFileWriter = @Sendable (Data, URL) throws -> Void
 
+struct HubManifestRepresentation {
+    let versionTag: String
+    let devices: [RemoteDeviceSummary]
+}
+
+struct HubSnapshotListRepresentation {
+    let versionTag: String
+    let snapshots: [EncryptedUsageEnvelope]
+}
+
 actor HubStore {
     private let registryURL: URL
     private let snapshotsDirectory: URL
@@ -240,12 +250,20 @@ extension HubStore {
             .sorted { $0.deviceID < $1.deviceID }
     }
 
+    func snapshotListRepresentation() throws -> HubSnapshotListRepresentation {
+        try HubSnapshotListRepresentation(
+            versionTag: snapshotVersionTag(),
+            snapshots: snapshots())
+    }
+
     func snapshot(deviceID: String) throws -> EncryptedUsageEnvelope {
         guard TokiSyncValidation.isSafeDeviceID(deviceID),
               let device = registry.devices[deviceID],
-              device.latestSequence != nil,
-              let envelope = try existingEnvelope(for: device) else {
+              device.latestSequence != nil else {
             throw HubStoreError.deviceNotFound
+        }
+        guard let envelope = try existingEnvelope(for: device) else {
+            throw HubStoreError.corruptedStorage
         }
         return envelope
     }
@@ -262,6 +280,12 @@ extension HubStore {
                     syncIntervalSeconds: device.syncIntervalSeconds)
             }
             .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+    }
+
+    func manifestRepresentation() -> HubManifestRepresentation {
+        HubManifestRepresentation(
+            versionTag: manifestVersionTag(),
+            devices: devices())
     }
 
     func snapshotVersionTag() -> String {
