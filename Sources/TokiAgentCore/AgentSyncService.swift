@@ -214,7 +214,6 @@ private extension AgentSyncService {
             guard TokiSyncValidation.isAcceptableEnvelopeTimestamp(
                 pending.envelope.generatedAt,
                 now: now) else {
-                state.latestSequence = max(state.latestSequence, pending.envelope.sequence)
                 state.lastUploadedContentDigest = nil
                 state.lastSourceSignature = nil
                 try stateStore.save(state)

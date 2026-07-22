@@ -53,7 +53,7 @@ final class AgentReviewRegressionTests: XCTestCase {
         XCTAssertEqual(try AgentStateStore(paths: fixture.paths).load().latestSequence, 0)
     }
 
-    func test_futureDatedPendingSnapshotIsDiscardedAndRebuiltAfterClockRepair() async throws {
+    func test_futureDatedPendingSnapshotDoesNotAdvanceFromUnauthenticatedSequence() async throws {
         let fixture = try AgentSyncFixture()
         defer { fixture.remove() }
         try AgentConfigurationStore(paths: fixture.paths).save(fixture.configuration)
@@ -78,10 +78,15 @@ final class AgentReviewRegressionTests: XCTestCase {
         let futureSnapshot = try await snapshotBuilder.build(
             configuration: fixture.configuration,
             now: now.addingTimeInterval(86401))
-        let pendingEnvelope = try SnapshotCipher.seal(
+        let signedEnvelope = try SnapshotCipher.seal(
             futureSnapshot,
             sequence: 1,
             key: fixture.configuration.encryptionKey)
+        let pendingEnvelope = EncryptedUsageEnvelope(
+            deviceID: signedEnvelope.deviceID,
+            sequence: UInt64.max,
+            generatedAt: signedEnvelope.generatedAt,
+            payload: signedEnvelope.payload)
         _ = try AgentSpool(paths: fixture.paths).enqueue(pendingEnvelope)
 
         try await service.syncOnce(now: now)
