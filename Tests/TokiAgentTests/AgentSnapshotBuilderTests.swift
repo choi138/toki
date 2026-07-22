@@ -197,9 +197,59 @@ final class AgentSnapshotBuilderTests: XCTestCase {
 
         XCTAssertNotEqual(missingLedgerSignature, createdLedgerSignature)
     }
+
+    func test_retentionWindowCoversExactlyConfiguredCalendarDays() async throws {
+        let fixture = try AgentSnapshotFixture()
+        defer { fixture.remove() }
+        let retentionDays = 7
+        let hubURL = try XCTUnwrap(URL(string: "https://hub.example.test"))
+        let configuration = try AgentConfiguration(bundle: AgentPairingBundle(
+            hubURL: hubURL,
+            deviceID: "retention-device",
+            deviceName: "ubuntu",
+            uploadToken: SnapshotCipher.randomToken(),
+            encryptionKey: SnapshotCipher.generateKey(),
+            retentionDays: retentionDays,
+            syncIntervalSeconds: 900))
+        let timeZone = TimeZone(secondsFromGMT: 0) ?? .current
+        let builder = AgentSnapshotBuilder(
+            home: fixture.root,
+            readerDescriptors: [],
+            retentionTimeZone: timeZone)
+
+        let snapshot = try await builder.build(configuration: configuration, now: fixture.now)
+
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = timeZone
+        XCTAssertEqual(
+            calendar.dateComponents(
+                [.day],
+                from: snapshot.coveredFrom,
+                to: snapshot.coveredTo).day,
+            retentionDays)
+    }
 }
 
 extension AgentSnapshotBuilderTests {
+    func test_sharedReaderFileDiscoverySkipsSymbolicLinks() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("toki-reader-symlink-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let logsDirectory = root.appendingPathComponent("logs", isDirectory: true)
+        try FileManager.default.createDirectory(at: logsDirectory, withIntermediateDirectories: true)
+        let target = root.appendingPathComponent("target.jsonl")
+        try Data("{}\n".utf8).write(to: target)
+        let link = logsDirectory.appendingPathComponent("session.jsonl")
+        try FileManager.default.createSymbolicLink(at: link, withDestinationURL: target)
+
+        let files = findFiles(
+            in: logsDirectory,
+            withExtension: "jsonl",
+            modifiedAfter: Date.distantPast)
+
+        XCTAssertTrue(files.isEmpty)
+    }
+
     func test_sourceSignatureIgnoresGenericLogsOutsideRetentionWindow() async throws {
         let fixture = try AgentSnapshotFixture()
         defer { fixture.remove() }

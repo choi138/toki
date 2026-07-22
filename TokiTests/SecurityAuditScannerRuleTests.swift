@@ -160,6 +160,22 @@ final class SecurityAuditScannerRuleTests: SecurityAuditScannerTestCase {
             xdgDataDirectory.appendingPathComponent("opencode").standardizedFileURL.path)
     }
 
+    func testScannerReadsActiveAndArchivedCodexSessions() async throws {
+        _ = try writeFixture(
+            sourceName: "Codex",
+            relativePath: "sessions/2026/05/12/active.jsonl",
+            lines: [#"{"text":"\#(SecurityAuditTestSecret.githubToken)"}"#])
+        _ = try writeFixture(
+            sourceName: "Codex",
+            relativePath: "archived_sessions/archived.jsonl",
+            lines: [#"{"text":"\#(SecurityAuditTestSecret.npmToken)"}"#])
+
+        let result = await scanner(for: ["Codex"]).scan()
+
+        XCTAssertEqual(result.scannedFileCount, 2)
+        XCTAssertEqual(Set(result.findings.map(\.ruleName)), ["GitHub token", "npm token"])
+    }
+
     func testScannerReportsFileProgress() async throws {
         _ = try writeFixture(
             sourceName: "Codex",
