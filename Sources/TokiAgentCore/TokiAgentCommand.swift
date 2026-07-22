@@ -240,24 +240,38 @@ extension TokiAgentCommand {
         var hasReadableLocation = false
         var hasError = false
 
-        for location in locations {
+        func inspect(_ url: URL, expectsDirectory: Bool, countsAsReadable: Bool) {
             var isDirectory: ObjCBool = false
-            guard fileManager.fileExists(atPath: location.url.path, isDirectory: &isDirectory) else {
-                continue
+            guard fileManager.fileExists(atPath: url.path, isDirectory: &isDirectory) else {
+                return
             }
-
-            let hasExpectedType = switch location {
-            case .file:
-                !isDirectory.boolValue
-            case .directory:
-                isDirectory.boolValue
-            }
-            guard hasExpectedType,
-                  fileManager.isReadableFile(atPath: location.url.path) else {
+            guard isDirectory.boolValue == expectsDirectory,
+                  fileManager.isReadableFile(atPath: url.path) else {
                 hasError = true
-                continue
+                return
             }
-            hasReadableLocation = true
+            if countsAsReadable {
+                hasReadableLocation = true
+            }
+        }
+
+        for location in locations {
+            switch location {
+            case let .file(url, includesSQLiteSidecars):
+                inspect(url, expectsDirectory: false, countsAsReadable: true)
+                if includesSQLiteSidecars {
+                    inspect(
+                        URL(fileURLWithPath: url.path + "-wal"),
+                        expectsDirectory: false,
+                        countsAsReadable: false)
+                    inspect(
+                        URL(fileURLWithPath: url.path + "-shm"),
+                        expectsDirectory: false,
+                        countsAsReadable: false)
+                }
+            case let .directory(url, _):
+                inspect(url, expectsDirectory: true, countsAsReadable: true)
+            }
         }
 
         if hasError { return .error }
