@@ -76,6 +76,9 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Snapshot package lockfile
+        run: cp Package.resolved "$RUNNER_TEMP/toki-agent-Package.resolved"
+
       - name: Install SQLite development headers
         run: |
           apt-get update
@@ -93,7 +96,7 @@ jobs:
         run: swift build -c release --product toki-agent
 
       - name: Verify package lockfiles are unchanged
-        run: git -c safe.directory="$GITHUB_WORKSPACE" -C "$GITHUB_WORKSPACE" diff --exit-code -- Package.resolved
+        run: diff -u "$RUNNER_TEMP/toki-agent-Package.resolved" Package.resolved
 
   remote-linux-hub:
     name: Linux Hub (Swift 5.9.2)
@@ -104,6 +107,9 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Snapshot package lockfile
+        run: cp TokiHub/Package.resolved "$RUNNER_TEMP/toki-hub-Package.resolved"
 
       - name: Verify Swift version
         run: |
@@ -117,4 +123,4 @@ jobs:
         run: swift build --package-path TokiHub -c release --product toki-hub
 
       - name: Verify package lockfiles are unchanged
-        run: git -c safe.directory="$GITHUB_WORKSPACE" -C "$GITHUB_WORKSPACE" diff --exit-code -- TokiHub/Package.resolved
+        run: diff -u "$RUNNER_TEMP/toki-hub-Package.resolved" TokiHub/Package.resolved
