@@ -3,12 +3,8 @@ import SwiftUI
 
 struct PanelSourceView: View {
     let usage: UsageData
-    let originReports: [UsageOriginReport]
-    let selectedScope: UsageScope
-    let scopeTitle: String
     let readerStatuses: [ReaderStatus]
     let isLoading: Bool
-    let onSelectOrigin: (UsageOriginID) -> Void
 
     @State private var copiedFormat: UsageExportFormat?
 
@@ -24,12 +20,6 @@ struct PanelSourceView: View {
             } else {
                 exportControls
 
-                if selectedScope == .all, originReports.count > 1 {
-                    PanelDeviceBreakdownView(
-                        reports: originReports,
-                        onSelect: onSelectOrigin)
-                }
-
                 if usage.sourceStats.isEmpty {
                     Text("No source data")
                         .font(.system(size: 12))
@@ -37,14 +27,14 @@ struct PanelSourceView: View {
                         .frame(maxWidth: .infinity, alignment: .center)
                         .padding(.vertical, 18)
                 } else {
-                    PanelSectionCaption(title: "By Tool")
+                    PanelSectionCaption(title: "By Source")
                     ForEach(usage.sourceStats, id: \.id) { source in
                         SourceStatRowView(stat: source)
                             .equatable()
                     }
                 }
 
-                if selectedScope == .all, !readerStatuses.isEmpty {
+                if !readerStatuses.isEmpty {
                     PanelSectionCaption(title: "Reader Status")
                     ForEach(readerStatuses) { status in
                         ReaderStatusRowView(status: status)
@@ -57,35 +47,28 @@ struct PanelSourceView: View {
     }
 
     private var exportControls: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text("EXPORT CURRENT VIEW · \(scopeTitle)")
-                .font(.system(size: 9, weight: .semibold))
-                .foregroundColor(Color.white.opacity(0.28))
-                .lineLimit(1)
-
-            HStack(spacing: 8) {
-                ForEach(UsageExportFormat.allCases, id: \.self) { format in
-                    Button {
-                        copyUsageExport(usage, format: format)
-                        copiedFormat = format
-                        Task { @MainActor in
-                            try? await Task.sleep(for: .seconds(2))
-                            if copiedFormat == format {
-                                copiedFormat = nil
-                            }
+        HStack(spacing: 8) {
+            ForEach(UsageExportFormat.allCases, id: \.self) { format in
+                Button {
+                    copyUsageExport(usage, format: format)
+                    copiedFormat = format
+                    Task { @MainActor in
+                        try? await Task.sleep(for: .seconds(2))
+                        if copiedFormat == format {
+                            copiedFormat = nil
                         }
-                    } label: {
-                        Text(copiedFormat == format ? "Copied" : format.rawValue)
-                            .font(.system(size: 10, weight: .semibold))
-                            .foregroundColor(.white.opacity(0.72))
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 6)
-                            .background(Color.white.opacity(copiedFormat == format ? 0.12 : 0.07))
-                            .clipShape(RoundedRectangle(cornerRadius: 5, style: .continuous))
                     }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel(Text("Copy \(scopeTitle) as \(format.rawValue)"))
+                } label: {
+                    Text(copiedFormat == format ? "Copied" : format.rawValue)
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundColor(.white.opacity(0.72))
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 6)
+                        .background(Color.white.opacity(copiedFormat == format ? 0.12 : 0.07))
+                        .clipShape(RoundedRectangle(cornerRadius: 5, style: .continuous))
                 }
+                .buttonStyle(.plain)
+                .accessibilityLabel(Text("Copy \(format.rawValue)"))
             }
         }
         .padding(.horizontal, 16)
@@ -105,96 +88,6 @@ struct PanelSourceView: View {
         .padding(.horizontal, 16)
         .padding(.vertical, 7)
     }
-}
-
-struct PanelDeviceBreakdownView: View {
-    let reports: [UsageOriginReport]
-    let onSelect: (UsageOriginID) -> Void
-
-    var body: some View {
-        VStack(spacing: 0) {
-            PanelSectionCaption(title: "By Device")
-            ForEach(reports) { report in
-                PanelDeviceUsageRow(report: report) {
-                    onSelect(report.id)
-                }
-            }
-        }
-    }
-}
-
-private struct PanelDeviceUsageRow: View {
-    let report: UsageOriginReport
-    let onSelect: () -> Void
-
-    var body: some View {
-        Button(action: onSelect) {
-            HStack(alignment: .center, spacing: 8) {
-                Image(systemName: panelDeviceSystemImage(for: report.origin))
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundColor(deviceColor.opacity(0.72))
-                    .frame(width: 16)
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(report.origin.name)
-                        .font(.system(size: 11, weight: .medium))
-                        .foregroundColor(Color.white.opacity(0.62))
-                        .lineLimit(1)
-                    Text(statusText)
-                        .font(.system(size: 9, weight: .medium))
-                        .foregroundColor(Color.white.opacity(0.3))
-                        .lineLimit(1)
-                }
-                Spacer(minLength: 4)
-                Text(report.usageData.totalTokens.formattedTokens())
-                    .font(.system(size: 11, weight: .semibold, design: .rounded))
-                    .foregroundColor(Color.white.opacity(0.7))
-                    .frame(width: 44, alignment: .trailing)
-                Text(report.usageData.cost > 0 ? report.usageData.cost.formattedCost() : "—")
-                    .font(.system(size: 11, weight: .semibold, design: .rounded))
-                    .foregroundColor(
-                        report.usageData.cost > 0
-                            ? Color(red: 0.4, green: 0.9, blue: 0.6)
-                            : Color.white.opacity(0.25))
-                    .frame(width: 56, alignment: .trailing)
-                    .lineLimit(1)
-            }
-            .contentShape(Rectangle())
-            .padding(.horizontal, 16)
-            .padding(.vertical, 7)
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel(Text(accessibilityLabel))
-        .accessibilityHint(Text("Show usage from this device"))
-    }
-
-    private var statusText: String {
-        let platform = panelDevicePlatformLabel(for: report.origin)
-        guard let updatedAt = report.origin.lastUpdatedAt else { return platform }
-        let now = Date()
-        let safeUpdatedAt = min(updatedAt, now)
-        let relative = Self.relativeDateFormatter.localizedString(
-            for: safeUpdatedAt,
-            relativeTo: now)
-        let verb = panelDeviceUpdateLabel(for: report.origin)
-        return "\(platform) · \(verb) \(relative)"
-    }
-
-    private var deviceColor: Color {
-        report.origin.kind == .remote
-            ? Color(red: 0.7, green: 0.62, blue: 1.0)
-            : Color(red: 0.4, green: 0.75, blue: 1.0)
-    }
-
-    private var accessibilityLabel: String {
-        "\(report.origin.name), \(panelDevicePlatformLabel(for: report.origin)), "
-            + "\(report.usageData.totalTokens) tokens, \(report.usageData.cost.formattedCost())"
-    }
-
-    private static let relativeDateFormatter: RelativeDateTimeFormatter = {
-        let formatter = RelativeDateTimeFormatter()
-        formatter.unitsStyle = .abbreviated
-        return formatter
-    }()
 }
 
 private func copyUsageExport(_ usage: UsageData, format: UsageExportFormat) {
@@ -305,4 +198,23 @@ private struct ReaderStatusRowView: View, Equatable {
         formatter.dateFormat = "HH:mm:ss"
         return formatter
     }()
+}
+
+func panelAccentColor(forSource source: String) -> Color {
+    switch source {
+    case "Claude Code":
+        Color(red: 0.55, green: 0.45, blue: 1.0)
+    case "Codex":
+        Color(red: 0.4, green: 0.9, blue: 0.5)
+    case "Cursor":
+        Color(red: 0.45, green: 0.75, blue: 1.0)
+    case "Gemini CLI":
+        Color(red: 0.3, green: 0.7, blue: 1.0)
+    case "OpenCode":
+        Color(red: 1.0, green: 0.72, blue: 0.35)
+    case "OpenClaw":
+        Color(red: 0.85, green: 0.68, blue: 1.0)
+    default:
+        Color.white.opacity(0.5)
+    }
 }

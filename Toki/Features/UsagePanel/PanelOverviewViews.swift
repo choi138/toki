@@ -75,19 +75,18 @@ struct PanelHeroView: View {
 
 struct PanelTokenBreakdownView: View {
     let usage: UsageData
-    let liveTokensPerSecond: Double?
-    let liveTokenLabel: String
+    let liveTokensPerSecond: Double
     let isLoading: Bool
 
     var body: some View {
         VStack(spacing: 0) {
             StatRowView(
-                label: liveTokenLabel,
-                value: liveTokensPerSecond?.formattedTokensPerSecond() ?? "—",
+                label: "Live TPS",
+                value: liveTokensPerSecond.formattedTokensPerSecond(),
                 accent: Color(red: 0.55, green: 0.45, blue: 1.0),
                 isLoading: isLoading)
-                .help(liveTokenHelp)
-                .accessibilityHint(Text(liveTokenHelp))
+                .help("Live TPS is sampled from the active tools monitor and may differ from filtered usage totals.")
+                .accessibilityHint(Text("Live TPS is sampled from the active tools monitor."))
             StatRowView(
                 label: "AI Work Time",
                 value: usage.workTime.wallClockSeconds.formattedWorkDuration(),
@@ -155,13 +154,6 @@ struct PanelTokenBreakdownView: View {
         case .cents:
             Color(red: 0.45, green: 0.9, blue: 0.7)
         }
-    }
-
-    private var liveTokenHelp: String {
-        if liveTokensPerSecond == nil {
-            return "Live TPS is available only for This Mac."
-        }
-        return "Live TPS is sampled from This Mac and may differ from filtered usage totals."
     }
 }
 

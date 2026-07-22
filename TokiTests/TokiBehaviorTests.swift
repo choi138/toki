@@ -1,6 +1,577 @@
 import XCTest
 @testable import Toki
-@testable import TokiUsageReaders
+
+// swiftlint:disable file_length
+final class UsageServiceBehaviorTests: XCTestCase {
+    func test_usageService_skipsYesterdayFetchForPastSingleDay() async throws {
+        let recorder = MockReaderRecorder()
+        let today = Calendar.current.startOfDay(for: Date())
+        let pastDay = try XCTUnwrap(Calendar.current.date(byAdding: .day, value: -7, to: today))
+        let reader = MockReader(name: "Mock", recorder: recorder) { startDate, _ in
+            mockUsage(totalTokens: startDate == pastDay ? 42 : 7)
+        }
+
+        let service = await MainActor.run { UsageService(readers: [reader]) }
+        await MainActor.run { service.selectDay(pastDay) }
+        await service.refresh()
+
+        let calls = await recorder.snapshot()
+        let yesterdayTotal = await MainActor.run { service.yesterdayTotalTokens }
+        XCTAssertEqual(calls.count, 1)
+        XCTAssertEqual(calls.first?.start, pastDay)
+        XCTAssertNil(yesterdayTotal)
+    }
+
+    func test_usageService_retriesRefreshAfterRangeChangesDuringLoad() async throws {
+        let gate = BlockingReaderGate()
+        let today = Calendar.current.startOfDay(for: Date())
+        let firstDay = try XCTUnwrap(Calendar.current.date(byAdding: .day, value: -2, to: today))
+        let secondDay = try XCTUnwrap(Calendar.current.date(byAdding: .day, value: -1, to: today))
+        let reader = BlockingMockReader(name: "Mock", gate: gate) { startDate, _ in
+            mockUsage(totalTokens: startDate == firstDay ? 100 : 200)
+        }
+
+        let service = await MainActor.run { UsageService(readers: [reader]) }
+        await MainActor.run { service.selectDay(firstDay) }
+        let initialRefresh = Task { await service.refresh() }
+
+        await gate.waitForFirstRequest()
+        await MainActor.run { service.selectDay(secondDay) }
+        await service.refresh()
+        await gate.release()
+        await initialRefresh.value
+        await gate.waitForRequestCount(2)
+
+        var totalTokens = await MainActor.run { service.usageData.totalTokens }
+        var date = await MainActor.run { service.usageData.date }
+
+        for _ in 0..<20 where totalTokens != 200 {
+            try? await Task.sleep(for: .milliseconds(10))
+            totalTokens = await MainActor.run { service.usageData.totalTokens }
+            date = await MainActor.run { service.usageData.date }
+        }
+
+        XCTAssertEqual(totalTokens, 200)
+        XCTAssertEqual(date, secondDay)
+    }
+
+    func test_usageService_sortsModelsByActiveTime() async {
+        let recorder = MockReaderRecorder()
+        let reader = MockReader(name: "Mock", recorder: recorder) { _, _ in
+            var usage = RawTokenUsage()
+            usage.inputTokens = 300
+            usage.activeSeconds = 540
+            usage.perModel["gpt-5.4"] = PerModelUsage(
+                totalTokens: 120,
+                cost: 1.2,
+                activeSeconds: 180,
+                sources: ["Mock"])
+            usage.perModel["claude-sonnet-4-6"] = PerModelUsage(
+                totalTokens: 90,
+                cost: 0.8,
+                activeSeconds: 360,
+                sources: ["Mock"])
+            return usage
+        }
+
+        let service = await MainActor.run { UsageService(readers: [reader]) }
+        await service.refresh()
+
+        let models = await MainActor.run { service.usageData.perModel }
+        let activeSeconds = await MainActor.run { service.usageData.activeSeconds }
+
+        XCTAssertEqual(models.map(\.id), ["claude-sonnet-4-6", "gpt-5.4"])
+        XCTAssertEqual(models.first?.activeSeconds ?? 0, 360, accuracy: 0.001)
+        XCTAssertEqual(models.last?.activeSeconds ?? 0, 180, accuracy: 0.001)
+        XCTAssertEqual(activeSeconds, 540, accuracy: 0.001)
+    }
+
+    func test_usageService_keepsContextOnlyMetricsOutOfTotalTokens() async {
+        let recorder = MockReaderRecorder()
+        let reader = MockReader(name: "Mock", recorder: recorder) { _, _ in
+            var usage = RawTokenUsage()
+            usage.inputTokens = 100
+            usage.supplemental = [
+                SupplementalUsage(
+                    id: "cursor-context-a",
+                    label: "Cursor Context",
+                    value: 3000,
+                    unit: .tokens,
+                    source: "Cursor",
+                    model: "gpt-5.4-xhigh",
+                    includedInTotals: false,
+                    quality: .contextOnly),
+                SupplementalUsage(
+                    id: "cursor-context-b",
+                    label: "Cursor Context",
+                    value: 2000,
+                    unit: .tokens,
+                    source: "Cursor",
+                    model: "gpt-5.4-medium",
+                    includedInTotals: false,
+                    quality: .contextOnly),
+                SupplementalUsage(
+                    id: "cursor-session-a",
+                    label: "Cursor Sessions",
+                    value: 1,
+                    unit: .count,
+                    source: "Cursor",
+                    model: nil,
+                    includedInTotals: false,
+                    quality: .contextOnly),
+                SupplementalUsage(
+                    id: "cursor-session-b",
+                    label: "Cursor Sessions",
+                    value: 1,
+                    unit: .count,
+                    source: "Cursor",
+                    model: nil,
+                    includedInTotals: false,
+                    quality: .contextOnly),
+            ]
+            return usage
+        }
+
+        let service = await MainActor.run { UsageService(readers: [reader]) }
+        await service.refresh()
+
+        let usageData = await MainActor.run { service.usageData }
+
+        XCTAssertEqual(usageData.totalTokens, 100)
+        XCTAssertEqual(
+            usageData.supplementalStats.first(where: { $0.label == "Cursor Context" })?.value,
+            5000)
+        XCTAssertEqual(
+            usageData.supplementalStats.first(where: { $0.label == "Cursor Sessions" })?.value,
+            2)
+        XCTAssertEqual(usageData.contextOnlyModels.count, 2)
+        XCTAssertEqual(usageData.contextOnlyModels.first?.model, "gpt-5.4-xhigh")
+        XCTAssertTrue(usageData.hasExcludedSupplementalStats)
+    }
+
+    func test_usageService_keepsCostOnlyModelsInByModelBreakdown() async {
+        let recorder = MockReaderRecorder()
+        let reader = MockReader(name: "Mock", recorder: recorder) { _, _ in
+            var usage = RawTokenUsage()
+            usage.cost = 0.38
+            usage.perModel["claude-4.5-sonnet-thinking"] = PerModelUsage(
+                totalTokens: 0,
+                cost: 0.38,
+                activeSeconds: 0,
+                sources: ["Cursor"])
+            return usage
+        }
+
+        let service = await MainActor.run { UsageService(readers: [reader]) }
+        await service.refresh()
+
+        let usageData = await MainActor.run { service.usageData }
+
+        XCTAssertEqual(usageData.cost, 0.38, accuracy: 0.000001)
+        XCTAssertEqual(usageData.perModel.count, 1)
+        XCTAssertEqual(usageData.perModel.first?.id, "claude-4.5-sonnet-thinking")
+        XCTAssertEqual(usageData.perModel.first?.sources, ["Cursor"])
+        XCTAssertEqual(usageData.perModel.first?.totalTokens, 0)
+        XCTAssertEqual(usageData.perModel.first?.cost ?? 0, 0.38, accuracy: 0.000001)
+    }
+
+    func test_usageService_selectRangeEnd_movesStartWhenEndWouldPrecedeIt() async {
+        let service = await MainActor.run { UsageService(readers: []) }
+
+        await MainActor.run {
+            service.selectRange(
+                from: behaviorTestISODate("2026-04-10T12:00:00Z"),
+                to: behaviorTestISODate("2026-04-12T12:00:00Z"))
+            service.selectRangeEnd(behaviorTestISODate("2026-04-08T12:00:00Z"))
+        }
+
+        let startDate = await MainActor.run { service.startDate }
+        let endDate = await MainActor.run { service.endDate }
+
+        XCTAssertEqual(startDate, behaviorLocalStartOfDay("2026-04-08T12:00:00Z"))
+        XCTAssertEqual(endDate, behaviorLocalExclusiveEnd("2026-04-08T12:00:00Z"))
+    }
+
+    func test_usageService_selectRange_normalizesReversedDates() async {
+        let service = await MainActor.run { UsageService(readers: []) }
+
+        await MainActor.run {
+            service.selectRange(
+                from: behaviorTestISODate("2026-04-12T18:00:00Z"),
+                to: behaviorTestISODate("2026-04-10T09:00:00Z"))
+        }
+
+        let startDate = await MainActor.run { service.startDate }
+        let endDate = await MainActor.run { service.endDate }
+
+        XCTAssertEqual(startDate, behaviorLocalStartOfDay("2026-04-10T09:00:00Z"))
+        XCTAssertEqual(endDate, behaviorLocalExclusiveEnd("2026-04-12T18:00:00Z"))
+    }
+}
+
+// swiftlint:disable:next type_body_length
+final class UsageServiceRefreshReentryTests: XCTestCase {
+    func test_usageAggregator_totalTokensMatchesFullUsageTotalsWithMockReaders() async {
+        let firstRecorder = MockReaderRecorder()
+        let secondRecorder = MockReaderRecorder()
+        let start = Calendar.current.startOfDay(for: Date())
+        let end = Calendar.current.date(byAdding: .day, value: 1, to: start) ?? Date()
+        let request = UsageAggregationRequest(
+            start: start,
+            end: end,
+            enabledReaderNames: [:],
+            includesEmptySourceRows: false)
+        let aggregator = UsageAggregator(readers: [
+            MockReader(name: "First", recorder: firstRecorder) { _, _ in
+                mockUsage(totalTokens: 40)
+            },
+            MockReader(name: "Second", recorder: secondRecorder) { _, _ in
+                mockUsage(totalTokens: 85)
+            },
+        ])
+
+        let fullTotalTokens = await aggregator.aggregateUsage(for: request).usageData.totalTokens
+        let lightweightTotalTokens = await aggregator.aggregateTotalTokens(for: request)
+
+        XCTAssertEqual(lightweightTotalTokens, fullTotalTokens)
+        XCTAssertEqual(lightweightTotalTokens, 125)
+    }
+
+    func test_usageAggregator_totalTokensSkipsDisabledReaders() async {
+        let enabledRecorder = LightweightUsageRecorder()
+        let disabledRecorder = LightweightUsageRecorder()
+        let start = Calendar.current.startOfDay(for: Date())
+        let end = Calendar.current.date(byAdding: .day, value: 1, to: start) ?? Date()
+        let request = UsageAggregationRequest(
+            start: start,
+            end: end,
+            enabledReaderNames: [
+                "Enabled": true,
+                "Disabled": false,
+            ],
+            includesEmptySourceRows: false)
+        let aggregator = UsageAggregator(readers: [
+            RecordingTotalReader(name: "Enabled", totalTokens: 40, recorder: enabledRecorder),
+            RecordingTotalReader(name: "Disabled", totalTokens: 999, recorder: disabledRecorder),
+        ])
+
+        let lightweightTotalTokens = await aggregator.aggregateTotalTokens(for: request)
+
+        let enabledSnapshot = await enabledRecorder.snapshot()
+        let disabledSnapshot = await disabledRecorder.snapshot()
+        XCTAssertEqual(lightweightTotalTokens, 40)
+        XCTAssertEqual(enabledSnapshot.totalStarts, [start])
+        XCTAssertTrue(enabledSnapshot.usageStarts.isEmpty)
+        XCTAssertTrue(disabledSnapshot.totalStarts.isEmpty)
+        XCTAssertTrue(disabledSnapshot.usageStarts.isEmpty)
+    }
+
+    func test_usageAggregator_outputTokensMatchesFullUsageOutputTokensWithMockReaders() async {
+        let firstRecorder = MockReaderRecorder()
+        let secondRecorder = MockReaderRecorder()
+        let start = Calendar.current.startOfDay(for: Date())
+        let end = Calendar.current.date(byAdding: .day, value: 1, to: start) ?? Date()
+        let request = UsageAggregationRequest(
+            start: start,
+            end: end,
+            enabledReaderNames: [:],
+            includesEmptySourceRows: false)
+        let aggregator = UsageAggregator(readers: [
+            MockReader(name: "First", recorder: firstRecorder) { _, _ in
+                mockOutputUsage(outputTokens: 40)
+            },
+            MockReader(name: "Second", recorder: secondRecorder) { _, _ in
+                mockOutputUsage(outputTokens: 85)
+            },
+        ])
+
+        let fullOutputTokens = await aggregator.aggregateUsage(for: request).usageData.outputTokens
+        let lightweightOutputTokens = await aggregator.aggregateOutputTokens(for: request)
+
+        XCTAssertEqual(lightweightOutputTokens, fullOutputTokens)
+        XCTAssertEqual(lightweightOutputTokens, 125)
+    }
+
+    func test_usageAggregator_outputTokensSkipsDisabledReaders() async {
+        let enabledRecorder = LightweightUsageRecorder()
+        let disabledRecorder = LightweightUsageRecorder()
+        let start = Calendar.current.startOfDay(for: Date())
+        let end = Calendar.current.date(byAdding: .day, value: 1, to: start) ?? Date()
+        let request = UsageAggregationRequest(
+            start: start,
+            end: end,
+            enabledReaderNames: [
+                "Enabled": true,
+                "Disabled": false,
+            ],
+            includesEmptySourceRows: false)
+        let aggregator = UsageAggregator(readers: [
+            RecordingOutputReader(name: "Enabled", outputTokens: 40, recorder: enabledRecorder),
+            RecordingOutputReader(name: "Disabled", outputTokens: 999, recorder: disabledRecorder),
+        ])
+
+        let lightweightOutputTokens = await aggregator.aggregateOutputTokens(for: request)
+
+        let enabledSnapshot = await enabledRecorder.snapshot()
+        let disabledSnapshot = await disabledRecorder.snapshot()
+        XCTAssertEqual(lightweightOutputTokens, 40)
+        XCTAssertEqual(enabledSnapshot.outputStarts, [start])
+        XCTAssertTrue(enabledSnapshot.usageStarts.isEmpty)
+        XCTAssertTrue(enabledSnapshot.totalStarts.isEmpty)
+        XCTAssertTrue(disabledSnapshot.outputStarts.isEmpty)
+        XCTAssertTrue(disabledSnapshot.usageStarts.isEmpty)
+        XCTAssertTrue(disabledSnapshot.totalStarts.isEmpty)
+    }
+
+    func test_usageService_yesterdayComparisonUsesLightweightTotalTokenPath() async throws {
+        let recorder = LightweightUsageRecorder()
+        let today = Calendar.current.startOfDay(for: Date())
+        let yesterday = try XCTUnwrap(Calendar.current.date(byAdding: .day, value: -1, to: today))
+        let reader = LightweightComparisonReader(
+            today: today,
+            yesterday: yesterday,
+            recorder: recorder)
+
+        let service = await MainActor.run { UsageService(readers: [reader]) }
+        await service.refresh()
+
+        var snapshot = await recorder.snapshot()
+        var yesterdayTotal = await MainActor.run { service.yesterdayTotalTokens }
+        for _ in 0..<20 where yesterdayTotal != 77 {
+            try? await Task.sleep(for: .milliseconds(10))
+            snapshot = await recorder.snapshot()
+            yesterdayTotal = await MainActor.run { service.yesterdayTotalTokens }
+        }
+
+        let usageData = await MainActor.run { service.usageData }
+        XCTAssertEqual(usageData.totalTokens, 120)
+        XCTAssertEqual(yesterdayTotal, 77)
+        XCTAssertEqual(snapshot.usageStarts, [today])
+        XCTAssertEqual(snapshot.totalStarts, [yesterday])
+    }
+
+    func test_usageService_preservesZeroYesterdayTotalForTodayComparison() async throws {
+        let recorder = MockReaderRecorder()
+        let today = Calendar.current.startOfDay(for: Date())
+        let yesterday = try XCTUnwrap(Calendar.current.date(byAdding: .day, value: -1, to: today))
+        let reader = MockReader(name: "Mock", recorder: recorder) { startDate, _ in
+            switch startDate {
+            case today:
+                mockUsage(totalTokens: 120)
+            case yesterday:
+                mockUsage(totalTokens: 0)
+            default:
+                mockUsage(totalTokens: 5)
+            }
+        }
+
+        let service = await MainActor.run { UsageService(readers: [reader]) }
+        await service.refresh()
+
+        var calls = await recorder.snapshot()
+        var yesterdayTotal = await MainActor.run { service.yesterdayTotalTokens }
+        for _ in 0..<20 where calls.count < 2 || yesterdayTotal == nil {
+            try? await Task.sleep(for: .milliseconds(10))
+            calls = await recorder.snapshot()
+            yesterdayTotal = await MainActor.run { service.yesterdayTotalTokens }
+        }
+        let shouldCompare = await MainActor.run { service.shouldCompareAgainstYesterday }
+        XCTAssertEqual(calls.count, 2)
+        XCTAssertEqual(calls.first?.start, today)
+        XCTAssertEqual(calls.last?.start, yesterday)
+        XCTAssertEqual(yesterdayTotal, 0)
+        XCTAssertTrue(shouldCompare)
+    }
+
+    func test_usageService_preservesYesterdayTotalDuringSameRangeRefresh() async throws {
+        let tracker = YesterdayRequestTracker()
+        let today = Calendar.current.startOfDay(for: Date())
+        let yesterday = try XCTUnwrap(Calendar.current.date(byAdding: .day, value: -1, to: today))
+        let reader = DelayedSecondYesterdayReader(
+            today: today,
+            yesterday: yesterday,
+            tracker: tracker)
+
+        let service = await MainActor.run { UsageService(readers: [reader]) }
+        await service.refresh()
+
+        var yesterdayTotal = await MainActor.run { service.yesterdayTotalTokens }
+        for _ in 0..<20 where yesterdayTotal != 1 {
+            try? await Task.sleep(for: .milliseconds(10))
+            yesterdayTotal = await MainActor.run { service.yesterdayTotalTokens }
+        }
+
+        let refreshTask = Task { await service.refresh() }
+        var yesterdayRequestCount = await tracker.snapshot()
+        for _ in 0..<20 where yesterdayRequestCount < 2 {
+            try? await Task.sleep(for: .milliseconds(10))
+            yesterdayRequestCount = await tracker.snapshot()
+        }
+
+        let preservedTotal = await MainActor.run { service.yesterdayTotalTokens }
+        XCTAssertEqual(yesterdayRequestCount, 2)
+        XCTAssertEqual(preservedTotal, 1)
+
+        await refreshTask.value
+    }
+
+    func test_usageService_ignoresCanceledYesterdayComparisonAfterSelectionChanges() async throws {
+        let gate = BlockingReaderGate()
+        let today = Calendar.current.startOfDay(for: Date())
+        let yesterday = try XCTUnwrap(Calendar.current.date(byAdding: .day, value: -1, to: today))
+        let pastDay = try XCTUnwrap(Calendar.current.date(byAdding: .day, value: -2, to: today))
+        let reader = ConditionalBlockingMockReader(
+            name: "Mock",
+            blockedStart: yesterday,
+            gate: gate) { startDate, _ in
+                switch startDate {
+                case today:
+                    mockUsage(totalTokens: 120)
+                case yesterday:
+                    mockUsage(totalTokens: 77)
+                case pastDay:
+                    mockUsage(totalTokens: 42)
+                default:
+                    mockUsage(totalTokens: 5)
+                }
+            }
+
+        let service = await MainActor.run { UsageService(readers: [reader]) }
+        await service.refresh()
+        await gate.waitForFirstRequest()
+
+        await MainActor.run { service.selectDay(pastDay) }
+        await gate.release()
+        try? await Task.sleep(for: .milliseconds(20))
+
+        let yesterdayTotal = await MainActor.run { service.yesterdayTotalTokens }
+        let selectedStart = await MainActor.run { service.startDate }
+        XCTAssertNil(yesterdayTotal)
+        XCTAssertEqual(selectedStart, pastDay)
+    }
+
+    func test_usageService_ignoresDuplicateRefreshForSameRangeDuringLoad() async throws {
+        let gate = BlockingReaderGate()
+        let today = Calendar.current.startOfDay(for: Date())
+        let pastDay = try XCTUnwrap(Calendar.current.date(byAdding: .day, value: -3, to: today))
+        let reader = BlockingMockReader(name: "Mock", gate: gate) { _, _ in
+            mockUsage(totalTokens: 100)
+        }
+
+        let service = await MainActor.run { UsageService(readers: [reader]) }
+        await MainActor.run { service.selectDay(pastDay) }
+        let initialRefresh = Task { await service.refresh() }
+
+        await gate.waitForFirstRequest()
+        await service.refresh()
+        await gate.release()
+        await initialRefresh.value
+        try? await Task.sleep(for: .milliseconds(20))
+
+        let calls = await gate.requestCountSnapshot()
+        let totalTokens = await MainActor.run { service.usageData.totalTokens }
+
+        XCTAssertEqual(calls, 1)
+        XCTAssertEqual(totalTokens, 100)
+    }
+
+    func test_usageService_clearsPendingRefreshWhenSelectionReturnsToActiveRange() async throws {
+        let gate = BlockingReaderGate()
+        let today = Calendar.current.startOfDay(for: Date())
+        let firstDay = try XCTUnwrap(Calendar.current.date(byAdding: .day, value: -3, to: today))
+        let secondDay = try XCTUnwrap(Calendar.current.date(byAdding: .day, value: -2, to: today))
+        let reader = BlockingMockReader(name: "Mock", gate: gate) { startDate, _ in
+            mockUsage(totalTokens: startDate == firstDay ? 100 : 200)
+        }
+
+        let service = await MainActor.run { UsageService(readers: [reader]) }
+        await MainActor.run { service.selectDay(firstDay) }
+        let initialRefresh = Task { await service.refresh() }
+
+        await gate.waitForFirstRequest()
+        await MainActor.run { service.selectDay(secondDay) }
+        await service.refresh()
+        await MainActor.run { service.selectDay(firstDay) }
+        await service.refresh()
+        await gate.release()
+        await initialRefresh.value
+        try? await Task.sleep(for: .milliseconds(20))
+
+        let calls = await gate.requestCountSnapshot()
+        let totalTokens = await MainActor.run { service.usageData.totalTokens }
+        let selectedStart = await MainActor.run { service.startDate }
+
+        XCTAssertEqual(calls, 1)
+        XCTAssertEqual(totalTokens, 100)
+        XCTAssertEqual(selectedStart, firstDay)
+    }
+}
+
+final class UsageServiceDateSyncBehaviorTests: XCTestCase {
+    func test_usageService_refresh_keepsRangeModeWhenEnteringFromToday() async {
+        let service = await MainActor.run { UsageService(readers: []) }
+        let initialStart = await MainActor.run { service.startDate }
+        let initialEnd = await MainActor.run { service.endDate }
+
+        await MainActor.run {
+            service.isRangeMode = true
+        }
+        await service.refresh()
+
+        let isRangeMode = await MainActor.run { service.isRangeMode }
+        let startDate = await MainActor.run { service.startDate }
+        let endDate = await MainActor.run { service.endDate }
+
+        XCTAssertTrue(isRangeMode)
+        XCTAssertEqual(startDate, initialStart)
+        XCTAssertEqual(endDate, initialEnd)
+    }
+
+    func test_usageService_syncSelectionWithTodayIfNeeded_advancesPinnedTodaySelection() async throws {
+        let calendar = Calendar.current
+        let service = await MainActor.run { UsageService(readers: []) }
+        let initialToday = await MainActor.run { service.startDate }
+        let nextDay = try XCTUnwrap(calendar.date(byAdding: .day, value: 1, to: initialToday))
+        let nextDayNoon = try XCTUnwrap(calendar.date(byAdding: .hour, value: 12, to: nextDay))
+        let followingDay = try XCTUnwrap(calendar.date(byAdding: .day, value: 1, to: nextDay))
+
+        let changed = await MainActor.run {
+            service.syncSelectionWithTodayIfNeeded(now: nextDayNoon)
+        }
+
+        let startDate = await MainActor.run { service.startDate }
+        let endDate = await MainActor.run { service.endDate }
+
+        XCTAssertTrue(changed)
+        XCTAssertEqual(startDate, nextDay)
+        XCTAssertEqual(endDate, followingDay)
+    }
+
+    func test_usageService_syncSelectionWithTodayIfNeeded_preservesManualPastSelection() async throws {
+        let calendar = Calendar.current
+        let service = await MainActor.run { UsageService(readers: []) }
+        let initialToday = await MainActor.run { service.startDate }
+        let yesterday = try XCTUnwrap(calendar.date(byAdding: .day, value: -1, to: initialToday))
+        let nextDay = try XCTUnwrap(calendar.date(byAdding: .day, value: 1, to: initialToday))
+        let nextDayNoon = try XCTUnwrap(calendar.date(byAdding: .hour, value: 12, to: nextDay))
+        let expectedEnd = try XCTUnwrap(calendar.date(byAdding: .day, value: 1, to: yesterday))
+
+        await MainActor.run {
+            service.selectDay(yesterday)
+        }
+
+        let changed = await MainActor.run {
+            service.syncSelectionWithTodayIfNeeded(now: nextDayNoon)
+        }
+
+        let startDate = await MainActor.run { service.startDate }
+        let endDate = await MainActor.run { service.endDate }
+
+        XCTAssertFalse(changed)
+        XCTAssertEqual(startDate, yesterday)
+        XCTAssertEqual(endDate, expectedEnd)
+    }
+}
 
 final class TokiBehaviorTests: XCTestCase {
     func test_blockingReaderGate_resumesAllFirstRequestWaiters() async {
@@ -58,4 +629,155 @@ final class TokiBehaviorTests: XCTestCase {
         XCTAssertEqual(codexDayKey(for: date, timeZone: utc), "2026-04-01")
         XCTAssertEqual(codexDayKey(for: date, timeZone: seoul), "2026-04-02")
     }
+}
+
+private func behaviorTestISODate(_ value: String) -> Date {
+    guard let date = DateParser.parse(value) else {
+        XCTFail("Failed to parse ISO date: \(value)")
+        return Date.distantPast
+    }
+    return date
+}
+
+private func behaviorLocalStartOfDay(_ value: String) -> Date {
+    Calendar.current.startOfDay(for: behaviorTestISODate(value))
+}
+
+private func behaviorLocalExclusiveEnd(_ value: String) -> Date {
+    Calendar.current.date(byAdding: .day, value: 1, to: behaviorLocalStartOfDay(value)) ?? Date.distantPast
+}
+
+private struct ConditionalBlockingMockReader: TokenReader {
+    let name: String
+    let blockedStart: Date
+    let gate: BlockingReaderGate
+    let handler: @Sendable (Date, Date) -> RawTokenUsage
+
+    func readUsage(from startDate: Date, to endDate: Date) async throws -> RawTokenUsage {
+        if startDate == blockedStart {
+            await gate.enter()
+        }
+        return handler(startDate, endDate)
+    }
+}
+
+private actor YesterdayRequestTracker {
+    private var requestCount = 0
+
+    func record() -> Int {
+        requestCount += 1
+        return requestCount
+    }
+
+    func snapshot() -> Int {
+        requestCount
+    }
+}
+
+private struct DelayedSecondYesterdayReader: TokenReader {
+    let name = "Mock"
+    let today: Date
+    let yesterday: Date
+    let tracker: YesterdayRequestTracker
+
+    func readUsage(from startDate: Date, to endDate: Date) async throws -> RawTokenUsage {
+        switch startDate {
+        case today:
+            return mockUsage(totalTokens: 120)
+        case yesterday:
+            let requestCount = await tracker.record()
+            if requestCount == 2 {
+                try? await Task.sleep(for: .milliseconds(100))
+            }
+            return mockUsage(totalTokens: requestCount)
+        default:
+            return mockUsage(totalTokens: 5)
+        }
+    }
+}
+
+private struct LightweightUsageSnapshot {
+    let usageStarts: [Date]
+    let totalStarts: [Date]
+    let outputStarts: [Date]
+}
+
+private actor LightweightUsageRecorder {
+    private var usageStarts: [Date] = []
+    private var totalStarts: [Date] = []
+    private var outputStarts: [Date] = []
+
+    func recordUsage(start: Date) {
+        usageStarts.append(start)
+    }
+
+    func recordTotal(start: Date) {
+        totalStarts.append(start)
+    }
+
+    func recordOutput(start: Date) {
+        outputStarts.append(start)
+    }
+
+    func snapshot() -> LightweightUsageSnapshot {
+        LightweightUsageSnapshot(
+            usageStarts: usageStarts,
+            totalStarts: totalStarts,
+            outputStarts: outputStarts)
+    }
+}
+
+private struct LightweightComparisonReader: TokenReader {
+    let name = "Mock"
+    let today: Date
+    let yesterday: Date
+    let recorder: LightweightUsageRecorder
+
+    func readUsage(from startDate: Date, to endDate: Date) async throws -> RawTokenUsage {
+        await recorder.recordUsage(start: startDate)
+        return mockUsage(totalTokens: startDate == today ? 120 : 999)
+    }
+
+    func readTotalTokens(from startDate: Date, to endDate: Date) async throws -> Int {
+        await recorder.recordTotal(start: startDate)
+        return startDate == yesterday ? 77 : 999
+    }
+}
+
+private struct RecordingTotalReader: TokenReader {
+    let name: String
+    let totalTokens: Int
+    let recorder: LightweightUsageRecorder
+
+    func readUsage(from startDate: Date, to endDate: Date) async throws -> RawTokenUsage {
+        await recorder.recordUsage(start: startDate)
+        return mockUsage(totalTokens: 999)
+    }
+
+    func readTotalTokens(from startDate: Date, to endDate: Date) async throws -> Int {
+        await recorder.recordTotal(start: startDate)
+        return totalTokens
+    }
+}
+
+private struct RecordingOutputReader: TokenReader {
+    let name: String
+    let outputTokens: Int
+    let recorder: LightweightUsageRecorder
+
+    func readUsage(from startDate: Date, to endDate: Date) async throws -> RawTokenUsage {
+        await recorder.recordUsage(start: startDate)
+        return mockOutputUsage(outputTokens: 999)
+    }
+
+    func readOutputTokens(from startDate: Date, to endDate: Date) async throws -> Int {
+        await recorder.recordOutput(start: startDate)
+        return outputTokens
+    }
+}
+
+private func mockOutputUsage(outputTokens: Int) -> RawTokenUsage {
+    var usage = RawTokenUsage()
+    usage.outputTokens = outputTokens
+    return usage
 }

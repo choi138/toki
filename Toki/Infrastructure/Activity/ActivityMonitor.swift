@@ -1,7 +1,5 @@
 import Foundation
 import SQLite3
-import TokiUsageCore
-import TokiUsageReaders
 
 // Detects whether any AI coding tool is currently active.
 
@@ -405,13 +403,11 @@ private func queryExists(db path: String, sql: String, bind: SQLiteBind) -> Bool
     case let .int64(value):
         sqlite3_bind_int64(statement, 1, value)
     case let .text(value):
-        sqlite3_bind_text(statement, 1, value, -1, activitySQLiteTransient)
+        sqlite3_bind_text(statement, 1, value, -1, sqliteTransient)
     }
     guard bindStatus == SQLITE_OK else { return false }
     return sqlite3_step(statement) == SQLITE_ROW
 }
-
-private let activitySQLiteTransient = unsafeBitCast(-1, to: sqlite3_destructor_type.self)
 
 // MARK: - Claude Code JSONL entry
 

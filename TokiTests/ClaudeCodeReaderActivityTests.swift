@@ -1,7 +1,5 @@
-import TokiUsageCore
 import XCTest
 @testable import Toki
-@testable import TokiUsageReaders
 
 final class ClaudeCodeReaderActivityTests: XCTestCase {
     func test_claudeCodeReader_deduplicatesActivityAcrossLogsForSameRequest() {

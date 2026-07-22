@@ -1,5 +1,4 @@
 import Foundation
-import TokiUsageCore
 
 extension SecurityAuditScanner {
     static func defaultSources(homeDirectory: URL = homeDir()) -> [SecurityAuditFileSource] {

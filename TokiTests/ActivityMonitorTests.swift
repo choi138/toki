@@ -1,7 +1,6 @@
 import SQLite3
 import XCTest
 @testable import Toki
-@testable import TokiUsageReaders
 
 final class ActivityMonitorTests: XCTestCase {
     func test_activityMonitor_detectsRecentCursorComposerActivity() throws {
