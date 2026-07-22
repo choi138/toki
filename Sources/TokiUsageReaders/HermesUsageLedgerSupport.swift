@@ -1,4 +1,5 @@
 import Foundation
+import TokiSyncProtocol
 import TokiUsageCore
 
 let hermesUsageLedgerSchemaVersion = 3
@@ -180,6 +181,7 @@ struct HermesUsageLedgerDocument: Codable, Equatable {
 
 struct HermesUsageLedgerPrivateDocument: Codable, Equatable {
     let schemaVersion: Int
+    let keyFingerprint: String
     let accurateSince: Date?
     var lastSuccessfulObservationAt: Date?
     var baselines: [String: HermesUsageLedgerPrivateBaseline]
@@ -188,6 +190,7 @@ struct HermesUsageLedgerPrivateDocument: Codable, Equatable {
 
     init(_ document: HermesUsageLedgerDocument) {
         schemaVersion = document.schemaVersion
+        keyFingerprint = hermesUsageLedgerKeyFingerprint(document.identifierKey)
         accurateSince = document.accurateSince
         lastSuccessfulObservationAt = document.lastSuccessfulObservationAt
         baselines = document.baselines.mapValues(HermesUsageLedgerPrivateBaseline.init)
@@ -195,8 +198,14 @@ struct HermesUsageLedgerPrivateDocument: Codable, Equatable {
         events = document.events.map(HermesUsageLedgerPrivateEvent.init)
     }
 
-    func document(identifierKey: String) -> HermesUsageLedgerDocument {
-        HermesUsageLedgerDocument(
+    func document(identifierKey: String) throws -> HermesUsageLedgerDocument {
+        guard SnapshotCipher.isSHA256Digest(keyFingerprint),
+              SnapshotCipher.constantTimeEqual(
+                  keyFingerprint,
+                  hermesUsageLedgerKeyFingerprint(identifierKey)) else {
+            throw HermesUsageLedgerError.invalidLedger
+        }
+        return HermesUsageLedgerDocument(
             schemaVersion: schemaVersion,
             identifierKey: identifierKey,
             accurateSince: accurateSince,
@@ -205,6 +214,10 @@ struct HermesUsageLedgerPrivateDocument: Codable, Equatable {
             unattributed: unattributed,
             events: events.map(\.event))
     }
+}
+
+private func hermesUsageLedgerKeyFingerprint(_ key: String) -> String {
+    SnapshotCipher.digest("toki.hermes-ledger.identifier-key.v1:\(key)")
 }
 
 struct HermesUsageLedgerPrivateBaseline: Codable, Equatable {

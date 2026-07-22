@@ -38,6 +38,7 @@ struct AgentSyncService {
         state.lastAttemptAt = now
 
         do {
+            try await snapshotBuilder.prepareForSync()
             try await processPendingEnvelopes(
                 configuration: configuration,
                 now: now,
@@ -45,7 +46,7 @@ struct AgentSyncService {
                 spool: spool,
                 state: &state)
 
-            let sourceSignature = try await preparedSourceSignature(
+            let sourceSignature = try await snapshotBuilder.sourceSignature(
                 configuration: configuration,
                 now: now)
             if !forceSnapshotBuild,
@@ -107,15 +108,6 @@ struct AgentSyncService {
             try? stateStore.save(state)
             throw error
         }
-    }
-
-    private func preparedSourceSignature(
-        configuration: AgentConfiguration,
-        now: Date) async throws -> String? {
-        try await snapshotBuilder.prepareForSync()
-        return try await snapshotBuilder.sourceSignature(
-            configuration: configuration,
-            now: now)
     }
 
     func run() async throws -> Never {
