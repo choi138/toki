@@ -46,12 +46,14 @@ file_length:
 excluded:
   - DerivedData
   - .build
+  - TokiHub/.build
   - build
 
 included:
   - Sources
   - Tests
   - Toki
+  - TokiHub
   - TokiTests
 
 reporter: xcode
