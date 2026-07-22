@@ -34,6 +34,29 @@ final class AgentStateStoreTests: XCTestCase {
         XCTAssertEqual(try filePermissions(at: fixture.paths.configurationURL), 0o600)
     }
 
+    func test_configurationStoreRejectsGroupReadableCredentials() throws {
+        let fixture = makeAgentStateFixture()
+        defer { fixture.remove() }
+        let bundle = try AgentPairingBundle(
+            hubURL: XCTUnwrap(URL(string: "https://hub.example.test")),
+            deviceID: "device-1",
+            deviceName: "ubuntu",
+            uploadToken: SnapshotCipher.randomToken(),
+            encryptionKey: SnapshotCipher.generateKey())
+        let store = AgentConfigurationStore(paths: fixture.paths)
+        try store.save(AgentConfiguration(bundle: bundle))
+        try FileManager.default.setAttributes(
+            [.posixPermissions: NSNumber(value: 0o640)],
+            ofItemAtPath: fixture.paths.configurationURL.path)
+
+        XCTAssertThrowsError(try store.load()) { error in
+            guard let configurationError = error as? AgentConfigurationError,
+                  case .invalidConfigurationFile = configurationError else {
+                return XCTFail("Expected invalidConfigurationFile, got \(error)")
+            }
+        }
+    }
+
     func test_stateStoreRejectsUploadedDigestWithoutSequence() {
         let fixture = makeAgentStateFixture()
         defer { fixture.remove() }
@@ -79,6 +102,30 @@ final class AgentStateStoreTests: XCTestCase {
                 return XCTFail("Expected invalidEnvelope, got \(error)")
             }
         }
+    }
+
+    func test_spoolRejectsFifthEnvelopeWithoutPoisoningExistingQueue() throws {
+        let fixture = makeAgentStateFixture()
+        defer { fixture.remove() }
+        let spool = AgentSpool(paths: fixture.paths)
+
+        for sequence in UInt64(1)...UInt64(4) {
+            _ = try spool.enqueue(makeEncryptedEnvelope(sequence: sequence))
+        }
+
+        XCTAssertThrowsError(try spool.enqueue(makeEncryptedEnvelope(sequence: 5))) { error in
+            guard let spoolError = error as? AgentSpoolError,
+                  case .tooManyPendingEnvelopes = spoolError else {
+                return XCTFail("Expected tooManyPendingEnvelopes, got \(error)")
+            }
+        }
+        XCTAssertNoThrow(try spool.enqueue(makeEncryptedEnvelope(sequence: 4, payload: "replacement")))
+
+        let pending = try spool.pendingEnvelopes()
+        XCTAssertEqual(pending.map(\.envelope.sequence), [1, 2, 3, 4])
+        XCTAssertEqual(
+            pending.last?.envelope.payload,
+            Data("replacement".utf8).base64EncodedString())
     }
 
     func test_configurationRejectsRemotePlainHTTP() throws {
@@ -139,6 +186,16 @@ private func makeAgentStateFixture() -> AgentStateFixture {
 private func filePermissions(at url: URL) throws -> Int? {
     let attributes = try FileManager.default.attributesOfItem(atPath: url.path)
     return (attributes[.posixPermissions] as? NSNumber)?.intValue
+}
+
+private func makeEncryptedEnvelope(
+    sequence: UInt64,
+    payload: String = "ciphertext") -> EncryptedUsageEnvelope {
+    EncryptedUsageEnvelope(
+        deviceID: "device-1",
+        sequence: sequence,
+        generatedAt: Date(timeIntervalSince1970: 1_750_000_000),
+        payload: Data(payload.utf8).base64EncodedString())
 }
 
 private struct AgentStateFixture {
