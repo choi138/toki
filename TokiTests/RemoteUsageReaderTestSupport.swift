@@ -226,6 +226,7 @@ final class InMemoryRemoteSnapshotCache: RemoteSnapshotCaching {
 final class InMemoryRemoteSnapshotAnchorStore: RemoteSnapshotAnchorStoring {
     private var anchorsByOrigin: [String: [String: RemoteSnapshotAnchor]] = [:]
     private(set) var removedDeviceIDs: [String] = []
+    private(set) var removedOriginIdentifiers: [String] = []
     private(set) var clearCallCount = 0
 
     init(
@@ -247,6 +248,7 @@ final class InMemoryRemoteSnapshotAnchorStore: RemoteSnapshotAnchorStoring {
 
     func remove(deviceID: String, originIdentifier: String) throws {
         removedDeviceIDs.append(deviceID)
+        removedOriginIdentifiers.append(originIdentifier)
         var anchors = anchorsByOrigin[originIdentifier] ?? [:]
         anchors.removeValue(forKey: deviceID)
         anchorsByOrigin[originIdentifier] = anchors.isEmpty ? nil : anchors

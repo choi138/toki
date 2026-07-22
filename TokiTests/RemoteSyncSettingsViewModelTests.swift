@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import XCTest
 @testable import Toki
@@ -174,6 +175,9 @@ extension RemoteUsageReaderTests {
         await viewModel.revoke(device)
 
         XCTAssertEqual(anchorStore.removedDeviceIDs, [device.id])
+        XCTAssertEqual(
+            anchorStore.removedOriginIdentifiers,
+            [fixture.configuration.snapshotCacheIdentifier])
         XCTAssertEqual(client.revokedDeviceIDs, [device.id])
         XCTAssertFalse(store.hasEncryptionKey(for: device.id))
         XCTAssertFalse(viewModel.hasError)
@@ -238,5 +242,54 @@ extension RemoteUsageReaderTests {
         XCTAssertFalse(viewModel.needsLocalCredentialRecovery)
         XCTAssertFalse(viewModel.hasError)
         XCTAssertEqual(remoteSyncChangeCount, 1)
+    }
+
+    @MainActor
+    func test_localDisconnectRemainsAvailableWhenHubIsOffline() async throws {
+        let fixture = try makeFixture()
+        let store = InMemoryRemoteSyncConfigurationStore(configuration: fixture.configuration)
+        try store.saveEncryptionKey(fixture.encryptionKey, for: fixture.envelope.deviceID)
+        let cache = InMemoryRemoteSnapshotCache(entry: fixture.cacheEntry())
+        let anchorStore = InMemoryRemoteSnapshotAnchorStore(
+            envelopes: [fixture.envelope],
+            originIdentifier: fixture.configuration.snapshotCacheIdentifier)
+        var remoteSyncChangeCount = 0
+        let viewModel = RemoteSyncSettingsViewModel(
+            store: store,
+            client: StubRemoteHubClient(devicesResult: .failure(URLError(.notConnectedToInternet))),
+            cache: cache,
+            anchorStore: anchorStore,
+            onRemoteSyncChange: { remoteSyncChangeCount += 1 })
+
+        await viewModel.disconnect()
+
+        XCTAssertTrue(viewModel.isConnected)
+        XCTAssertTrue(viewModel.hasError)
+        XCTAssertEqual(store.clearCallCount, 0)
+
+        await viewModel.disconnectLocally()
+
+        XCTAssertNil(try store.load())
+        XCTAssertNil(try cache.load())
+        XCTAssertEqual(anchorStore.clearCallCount, 1)
+        XCTAssertFalse(viewModel.isConnected)
+        XCTAssertFalse(viewModel.hasError)
+        XCTAssertEqual(remoteSyncChangeCount, 1)
+    }
+
+    @MainActor
+    func test_pairingClipboardCleanupOutlivesItsOwner() async throws {
+        let pasteboard = NSPasteboard(name: .init("com.toki.tests.\(UUID().uuidString)"))
+        defer { pasteboard.clearContents() }
+        var clipboard: PairingBundleClipboard? = PairingBundleClipboard(
+            pasteboard: pasteboard,
+            retentionNanoseconds: 10_000_000)
+
+        try clipboard?.copy("temporary-pairing-bundle")
+        clipboard = nil
+
+        XCTAssertEqual(pasteboard.string(forType: .string), "temporary-pairing-bundle")
+        try await Task.sleep(nanoseconds: 50_000_000)
+        XCTAssertNil(pasteboard.string(forType: .string))
     }
 }

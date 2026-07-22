@@ -24,9 +24,8 @@ final class RemoteSyncSettingsViewModel: ObservableObject {
     private let cache: any RemoteSnapshotCaching
     private let anchorStore: any RemoteSnapshotAnchorStoring
     private let lifecycleCoordinator: RemoteSyncLifecycleCoordinator
+    private let pairingBundleClipboard: PairingBundleClipboard
     private let onRemoteSyncChange: () -> Void
-    private var clipboardClearTask: Task<Void, Never>?
-    private var pairingBundlePasteboardChangeCount: Int?
 
     init(
         store: any RemoteSyncConfigurationStoring = RemoteSyncConfigurationStore(),
@@ -34,25 +33,16 @@ final class RemoteSyncSettingsViewModel: ObservableObject {
         cache: any RemoteSnapshotCaching = RemoteSnapshotCache(),
         anchorStore: any RemoteSnapshotAnchorStoring = RemoteSnapshotAnchorStore(),
         lifecycleCoordinator: RemoteSyncLifecycleCoordinator = .shared,
+        pairingBundleClipboard: PairingBundleClipboard? = nil,
         onRemoteSyncChange: @escaping () -> Void = {}) {
         self.store = store
         self.client = client
         self.cache = cache
         self.anchorStore = anchorStore
         self.lifecycleCoordinator = lifecycleCoordinator
+        self.pairingBundleClipboard = pairingBundleClipboard ?? PairingBundleClipboard()
         self.onRemoteSyncChange = onRemoteSyncChange
         reload()
-    }
-
-    deinit {
-        clipboardClearTask?.cancel()
-        if let expectedChangeCount = pairingBundlePasteboardChangeCount {
-            Task { @MainActor in
-                let pasteboard = NSPasteboard.general
-                guard pasteboard.changeCount == expectedChangeCount else { return }
-                pasteboard.clearContents()
-            }
-        }
     }
 
     func reload() {
@@ -156,12 +146,14 @@ extension RemoteSyncSettingsViewModel {
                     encryptionKey: encryptionKey,
                     retentionDays: retentionDays,
                     syncIntervalSeconds: syncIntervalSeconds)
-                try copyPairingBundle(TokiSyncCoding.encodeBundle(bundle))
+                try pairingBundleClipboard.copy(TokiSyncCoding.encodeBundle(bundle))
             } catch let pairingError {
                 do {
                     try await revokeRemotelyIfPresent(deviceID: device.deviceID, configuration: configuration)
                     try lifecycleCoordinator.mutate {
-                        try anchorStore.remove(deviceID: device.deviceID)
+                        try anchorStore.remove(
+                            deviceID: device.deviceID,
+                            originIdentifier: configuration.snapshotCacheIdentifier)
                         try cache.remove(deviceID: device.deviceID)
                         try store.deleteEncryptionKey(for: device.deviceID)
                     }
@@ -238,7 +230,9 @@ extension RemoteSyncSettingsViewModel {
             }
             try await client.revokeDevice(id: device.id, configuration: configuration)
             try lifecycleCoordinator.mutate {
-                try anchorStore.remove(deviceID: device.id)
+                try anchorStore.remove(
+                    deviceID: device.id,
+                    originIdentifier: configuration.snapshotCacheIdentifier)
                 try cache.remove(deviceID: device.id)
                 try store.deleteEncryptionKey(for: device.id)
             }
@@ -273,16 +267,32 @@ extension RemoteSyncSettingsViewModel {
             guard fetchedDevices.isEmpty else {
                 throw RemoteSyncSettingsError.revokeDevicesBeforeDisconnect
             }
-            try lifecycleCoordinator.mutate {
-                try store.clear()
-                try cache.clear()
-                try anchorStore.clear()
-            }
+            try clearLocalState()
             resetConnectionState()
             needsLocalCredentialRecovery = false
             ownerToken = ""
             onRemoteSyncChange()
             publish(message: "Disconnected and removed local remote-sync credentials.")
+        } catch {
+            reload()
+            publish(error)
+        }
+    }
+
+    func disconnectLocally() async {
+        guard isConnected, !isBusy else { return }
+        isBusy = true
+        defer { isBusy = false }
+        clearStatus()
+
+        do {
+            try clearLocalState()
+            resetConnectionState()
+            needsLocalCredentialRecovery = false
+            hubURLText = ""
+            ownerToken = ""
+            onRemoteSyncChange()
+            publish(message: "Removed local remote-sync credentials. Remote Hub devices were not revoked.")
         } catch {
             reload()
             publish(error)
@@ -296,11 +306,7 @@ extension RemoteSyncSettingsViewModel {
         clearStatus()
 
         do {
-            try lifecycleCoordinator.mutate {
-                try store.clear()
-                try cache.clear()
-                try anchorStore.clear()
-            }
+            try clearLocalState()
             resetConnectionState()
             needsLocalCredentialRecovery = false
             hubURLText = ""
@@ -356,30 +362,12 @@ private extension RemoteSyncSettingsViewModel {
         try await client.revokeDevice(id: deviceID, configuration: configuration)
     }
 
-    func copyPairingBundle(_ bundle: String) throws {
-        clipboardClearTask?.cancel()
-        clearPairingBundleFromClipboardIfUnchanged()
-        let pasteboard = NSPasteboard.general
-        pasteboard.declareTypes([.string, .tokiConcealed, .tokiTransient], owner: nil)
-        guard pasteboard.setString(bundle, forType: .string) else {
-            throw RemoteSyncSettingsError.clipboardWriteFailed
+    func clearLocalState() throws {
+        try lifecycleCoordinator.mutate {
+            try store.clear()
+            try cache.clear()
+            try anchorStore.clear()
         }
-        _ = pasteboard.setData(Data(), forType: .tokiConcealed)
-        _ = pasteboard.setData(Data(), forType: .tokiTransient)
-        pairingBundlePasteboardChangeCount = pasteboard.changeCount
-        clipboardClearTask = Task { @MainActor [weak self] in
-            try? await Task.sleep(nanoseconds: 60 * 1_000_000_000)
-            guard !Task.isCancelled else { return }
-            self?.clearPairingBundleFromClipboardIfUnchanged()
-        }
-    }
-
-    func clearPairingBundleFromClipboardIfUnchanged() {
-        defer { pairingBundlePasteboardChangeCount = nil }
-        guard let expectedChangeCount = pairingBundlePasteboardChangeCount else { return }
-        let pasteboard = NSPasteboard.general
-        guard pasteboard.changeCount == expectedChangeCount else { return }
-        pasteboard.clearContents()
     }
 
     func clearStatus() {
@@ -395,6 +383,52 @@ private extension RemoteSyncSettingsViewModel {
     func publish(_ error: Error) {
         statusMessage = (error as? LocalizedError)?.errorDescription ?? "Remote sync failed."
         hasError = true
+    }
+}
+
+@MainActor
+final class PairingBundleClipboard {
+    private let pasteboard: NSPasteboard
+    private let retentionNanoseconds: UInt64
+    private var clearTask: Task<Void, Never>?
+    private var copiedPasteboardChangeCount: Int?
+
+    init(
+        pasteboard: NSPasteboard = .general,
+        retentionNanoseconds: UInt64 = 60 * 1_000_000_000) {
+        self.pasteboard = pasteboard
+        self.retentionNanoseconds = retentionNanoseconds
+    }
+
+    func copy(_ bundle: String) throws {
+        clearTask?.cancel()
+        clearIfUnchanged()
+        pasteboard.declareTypes([.string, .tokiConcealed, .tokiTransient], owner: nil)
+        guard pasteboard.setString(bundle, forType: .string) else {
+            throw RemoteSyncSettingsError.clipboardWriteFailed
+        }
+        _ = pasteboard.setData(Data(), forType: .tokiConcealed)
+        _ = pasteboard.setData(Data(), forType: .tokiTransient)
+        let expectedChangeCount = pasteboard.changeCount
+        copiedPasteboardChangeCount = expectedChangeCount
+        let pasteboard = pasteboard
+        let retentionNanoseconds = retentionNanoseconds
+        clearTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: retentionNanoseconds)
+            guard !Task.isCancelled else { return }
+            self?.copiedPasteboardChangeCount = nil
+            guard pasteboard.changeCount == expectedChangeCount else { return }
+            pasteboard.clearContents()
+        }
+    }
+
+    private func clearIfUnchanged() {
+        defer { copiedPasteboardChangeCount = nil }
+        guard let expectedChangeCount = copiedPasteboardChangeCount,
+              pasteboard.changeCount == expectedChangeCount else {
+            return
+        }
+        pasteboard.clearContents()
     }
 }
 
