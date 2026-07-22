@@ -78,6 +78,42 @@ final class AgentReviewRegressionTests: XCTestCase {
 
         XCTAssertEqual(diagnostics.first(where: { $0.name == "Hermes" })?.status, .error)
     }
+
+    func test_heartbeatSequenceConflictFallsBackToSnapshotUpload() async throws {
+        let fixture = try AgentSyncFixture()
+        defer { fixture.remove() }
+        try AgentConfigurationStore(paths: fixture.paths).save(fixture.configuration)
+        let hubClient = SequenceConflictHubClient()
+        let service = AgentSyncService(
+            paths: fixture.paths,
+            hubClient: hubClient,
+            snapshotBuilder: ReviewFixedBuilder())
+        let now = Date(timeIntervalSince1970: 1_780_000_000)
+
+        try await service.syncOnce(now: now)
+        try await service.syncOnce(now: now)
+        hubClient.rejectNextHeartbeat()
+        try await service.syncOnce(now: now)
+        try await service.syncOnce(now: now)
+
+        XCTAssertEqual(hubClient.uploadedSequences, [1, 2])
+        XCTAssertEqual(hubClient.heartbeatSequences, [1, 1, 2])
+        let state = try AgentStateStore(paths: fixture.paths).load()
+        XCTAssertEqual(state.latestSequence, 2)
+        XCTAssertNotNil(state.lastUploadedContentDigest)
+        XCTAssertNotNil(state.lastSourceSignature)
+    }
+
+    func test_commandRejectsTrailingArgumentsBeforeDispatch() async throws {
+        do {
+            try await TokiAgentCommand.execute(arguments: ["version", "--unexpected"])
+            XCTFail("Expected trailing arguments to be rejected")
+        } catch let error as AgentCommandError {
+            guard case .unexpectedArguments = error else {
+                return XCTFail("Expected unexpectedArguments, got \(error)")
+            }
+        }
+    }
 }
 
 private final class ReviewHubClient: AgentHubClientProtocol {
@@ -99,6 +135,40 @@ private final class ReviewHubClient: AgentHubClientProtocol {
 
     func heartbeat(configuration _: AgentConfiguration, latestSequence: UInt64) async throws {
         lock.withLock { heartbeats.append(latestSequence) }
+    }
+}
+
+private final class SequenceConflictHubClient: AgentHubClientProtocol {
+    private let lock = NSLock()
+    private var uploads: [UInt64] = []
+    private var heartbeats: [UInt64] = []
+    private var shouldRejectNextHeartbeat = false
+
+    var uploadedSequences: [UInt64] {
+        lock.withLock { uploads }
+    }
+
+    var heartbeatSequences: [UInt64] {
+        lock.withLock { heartbeats }
+    }
+
+    func rejectNextHeartbeat() {
+        lock.withLock { shouldRejectNextHeartbeat = true }
+    }
+
+    func upload(_ envelope: EncryptedUsageEnvelope, configuration _: AgentConfiguration) async throws {
+        lock.withLock { uploads.append(envelope.sequence) }
+    }
+
+    func heartbeat(configuration _: AgentConfiguration, latestSequence: UInt64) async throws {
+        let shouldReject = lock.withLock {
+            heartbeats.append(latestSequence)
+            defer { shouldRejectNextHeartbeat = false }
+            return shouldRejectNextHeartbeat
+        }
+        if shouldReject {
+            throw AgentHubClientError.httpStatus(409)
+        }
     }
 }
 
