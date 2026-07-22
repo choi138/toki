@@ -13,6 +13,9 @@ final class AgentSystemdServiceTests: XCTestCase {
         XCTAssertTrue(service.contains("ProtectHome=tmpfs"))
         XCTAssertTrue(service.contains("PrivateUsers=true"))
         XCTAssertFalse(service.contains("ProtectControlGroups="))
+        XCTAssertFalse(service.contains("ProtectKernelLogs="))
+        XCTAssertFalse(service.contains("ProtectKernelModules="))
+        XCTAssertFalse(service.contains("ProtectKernelTunables="))
         XCTAssertTrue(service.contains("ExecStartPre=/usr/local/bin/toki-agent doctor"))
         let expectedReadOnlyPaths = [
             "%h/.claude/projects",
