@@ -2,6 +2,9 @@ import Foundation
 import TokiDurableStorage
 import TokiSyncProtocol
 
+typealias HermesUsageLedgerMigrationHandler =
+    (URL, HermesUsageLedgerMigrationMode) throws -> HermesUsageLedgerMigrationResult
+
 public actor HermesUsageLedger {
     public static let shared = HermesUsageLedger(
         fileURL: hermesUsageLedgerURL(),
@@ -10,6 +13,7 @@ public actor HermesUsageLedger {
     private let fileURL: URL
     private let automaticallyMigrateLegacy: Bool
     private let privateFileWriter: (Data, URL) throws -> Void
+    private let legacyMigrationHandler: HermesUsageLedgerMigrationHandler
     private var document: HermesUsageLedgerDocument?
     private var isLoaded = false
 
@@ -19,15 +23,22 @@ public actor HermesUsageLedger {
         privateFileWriter = { data, url in
             try DurableFileIO.writePrivate(data, to: url)
         }
+        legacyMigrationHandler = { fileURL, mode in
+            try HermesUsageLedgerMigrator.migrate(fileURL: fileURL, mode: mode)
+        }
     }
 
     init(
         fileURL: URL,
         automaticallyMigrateLegacy: Bool = false,
-        privateFileWriter: @escaping (Data, URL) throws -> Void) {
+        privateFileWriter: @escaping (Data, URL) throws -> Void,
+        legacyMigrationHandler: @escaping HermesUsageLedgerMigrationHandler = { fileURL, mode in
+            try HermesUsageLedgerMigrator.migrate(fileURL: fileURL, mode: mode)
+        }) {
         self.fileURL = fileURL
         self.automaticallyMigrateLegacy = automaticallyMigrateLegacy
         self.privateFileWriter = privateFileWriter
+        self.legacyMigrationHandler = legacyMigrationHandler
     }
 
     func refresh(
@@ -227,7 +238,8 @@ private extension HermesUsageLedger {
             guard automaticallyMigrateLegacy else {
                 throw HermesUsageLedgerError.migrationRequired
             }
-            guard try HermesUsageLedgerMigrator.migrate(fileURL: fileURL, mode: .apply) == .migrated else {
+            let result = try legacyMigrationHandler(fileURL, .apply)
+            guard result == .migrated || result == .notRequired else {
                 throw HermesUsageLedgerError.invalidLedger
             }
             try loadIfNeeded()

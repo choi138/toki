@@ -358,7 +358,7 @@ public enum HermesUsageLedgerError: LocalizedError {
         case .durabilityNotConfirmed:
             "The Hermes usage ledger was replaced, but storage durability could not be confirmed."
         case .migrationRequired:
-            "The Hermes usage ledger requires migration. Run `toki-agent migrate-hermes-ledger` first."
+            "The Hermes usage ledger requires migration. Run `toki-agent migrate-hermes-ledger --apply` first."
         }
     }
 }
