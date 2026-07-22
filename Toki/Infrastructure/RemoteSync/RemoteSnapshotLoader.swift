@@ -66,6 +66,12 @@ private extension RemoteSnapshotLoader {
         var snapshots: [RemoteUsageSnapshot] {
             snapshotsByDevice.values.sorted { $0.device.id < $1.device.id }
         }
+
+        var isComplete: Bool {
+            let envelopeDeviceIDs = Set(entry.envelopes.map(\.deviceID))
+            return Set(snapshotsByDevice.keys) == envelopeDeviceIDs
+                && Set(encryptionKeysByDevice.keys) == envelopeDeviceIDs
+        }
     }
 
     private func performLoad(
@@ -92,6 +98,7 @@ private extension RemoteSnapshotLoader {
             loadedState = cachedState
         }
         if let cachedState,
+           cachedState.isComplete,
            now.timeIntervalSince(cachedState.entry.fetchedAt) >= 0,
            now.timeIntervalSince(cachedState.entry.fetchedAt) <= Self.cacheFreshness {
             try RemoteDeviceFreshness.validate(cachedState.entry.manifest, now: now)
@@ -116,10 +123,9 @@ private extension RemoteSnapshotLoader {
             loadedState = refreshed
             return refreshed.snapshots
         } catch let error where Self.allowsCachedFallback(error) {
-            if let cachedState {
+            if let cachedState, cachedState.isComplete {
                 let age = now.timeIntervalSince(cachedState.entry.fetchedAt)
                 if age >= 0, age <= Self.offlineCacheMaximumAge {
-                    try RemoteDeviceFreshness.validate(cachedState.entry.manifest, now: now)
                     let fallback = LoadedRemoteSnapshotState(
                         entry: cachedState.entry,
                         snapshotsByDevice: cachedState.snapshotsByDevice,
@@ -137,11 +143,13 @@ private extension RemoteSnapshotLoader {
     }
 
     private func canReuse(_ state: LoadedRemoteSnapshotState, now: Date) throws -> Bool {
+        guard state.isComplete else { return false }
         let checkedAge = now.timeIntervalSince(state.lastCheckedAt)
         guard checkedAge >= 0, checkedAge <= Self.cacheFreshness else { return false }
         if state.usedOfflineFallback {
             let cacheAge = now.timeIntervalSince(state.entry.fetchedAt)
             guard cacheAge >= 0, cacheAge <= Self.offlineCacheMaximumAge else { return false }
+            return true
         }
         try RemoteDeviceFreshness.validate(state.entry.manifest, now: now)
         return true
@@ -166,15 +174,19 @@ private extension RemoteSnapshotLoader {
             }
             return nil
         }
-        let authenticated = try authenticate(entry.envelopes)
+        let authenticated = try authenticate(entry.envelopes, skippingMissingKeys: true)
+        let authenticatedDeviceIDs = Set(authenticated.encryptionKeysByDevice.keys)
+        let authenticatedEnvelopes = entry.envelopes.filter {
+            authenticatedDeviceIDs.contains($0.deviceID)
+        }
         do {
             try lifecycleCoordinator.commit(lifecycleTicket) {
                 try validateCommitState(
                     configuration: configuration,
                     encryptionKeysByDevice: authenticated.encryptionKeysByDevice,
-                    envelopeDeviceIDs: Set(entry.envelopes.map(\.deviceID)))
-                if !entry.envelopes.isEmpty {
-                    try anchorStore.validateAndSave(entry.envelopes)
+                    envelopeDeviceIDs: authenticatedDeviceIDs)
+                if !authenticatedEnvelopes.isEmpty {
+                    try anchorStore.validateAndSave(authenticatedEnvelopes)
                 }
             }
         } catch RemoteUsageReaderError.staleSnapshot {
@@ -235,18 +247,13 @@ private extension RemoteSnapshotLoader {
             changedDeviceIDs: changedDeviceIDs,
             maximumPayloadBytes: retainedPayloadBudget.remainingBytes)
 
-        let fetchedSequences = Dictionary(uniqueKeysWithValues: fetchedEnvelopes.map {
-            ($0.deviceID, $0.sequence)
-        })
+        let fetchedSequences = Dictionary(uniqueKeysWithValues: fetchedEnvelopes.map { ($0.deviceID, $0.sequence) })
         let reconciliation = reconcileManifest(manifest, fetchedSequences: fetchedSequences)
 
-        var envelopesByDevice = cachedEnvelopes
-        for deviceID in removedDeviceIDs {
-            envelopesByDevice.removeValue(forKey: deviceID)
-        }
-        for envelope in fetchedEnvelopes {
-            envelopesByDevice[envelope.deviceID] = envelope
-        }
+        let envelopesByDevice = reconcileEnvelopes(
+            cachedEnvelopes: cachedEnvelopes,
+            removedDeviceIDs: removedDeviceIDs,
+            fetchedEnvelopes: fetchedEnvelopes)
         let entry = try RemoteSnapshotCacheValidation.validated(RemoteSnapshotCacheEntry(
             envelopes: Array(envelopesByDevice.values),
             manifest: reconciliation.manifest,
@@ -261,11 +268,15 @@ private extension RemoteSnapshotLoader {
             encryptionKeysByDevice.removeValue(forKey: deviceID)
         }
         encryptionKeysByDevice.merge(authenticatedChanges.encryptionKeysByDevice) { _, changed in changed }
+        let envelopeDeviceIDs = Set(entry.envelopes.map(\.deviceID))
+        guard Set(encryptionKeysByDevice.keys) == envelopeDeviceIDs else {
+            throw RemoteUsageReaderError.missingDeviceKey
+        }
         try lifecycleCoordinator.commit(lifecycleTicket) {
             try validateCommitState(
                 configuration: configuration,
                 encryptionKeysByDevice: encryptionKeysByDevice,
-                envelopeDeviceIDs: Set(entry.envelopes.map(\.deviceID)))
+                envelopeDeviceIDs: envelopeDeviceIDs)
             if !fetchedEnvelopes.isEmpty {
                 try anchorStore.validateAndSave(fetchedEnvelopes)
             }
@@ -289,6 +300,20 @@ private extension RemoteSnapshotLoader {
             lastCheckedAt: now,
             usedOfflineFallback: false,
             lifecycleTicket: lifecycleTicket)
+    }
+
+    private func reconcileEnvelopes(
+        cachedEnvelopes: [String: EncryptedUsageEnvelope],
+        removedDeviceIDs: Set<String>,
+        fetchedEnvelopes: [EncryptedUsageEnvelope]) -> [String: EncryptedUsageEnvelope] {
+        var envelopesByDevice = cachedEnvelopes
+        for deviceID in removedDeviceIDs {
+            envelopesByDevice.removeValue(forKey: deviceID)
+        }
+        for envelope in fetchedEnvelopes {
+            envelopesByDevice[envelope.deviceID] = envelope
+        }
+        return envelopesByDevice
     }
 
     private func reconcileManifest(
@@ -376,14 +401,18 @@ private extension RemoteSnapshotLoader {
         return validated
     }
 
-    private func authenticate(_ envelopes: [EncryptedUsageEnvelope]) throws -> AuthenticatedRemoteSnapshots {
+    private func authenticate(
+        _ envelopes: [EncryptedUsageEnvelope],
+        skippingMissingKeys: Bool = false) throws -> AuthenticatedRemoteSnapshots {
         var encryptionKeysByDevice: [String: String] = [:]
-        let snapshots = try RemoteSnapshotProgress.validated(envelopes).map { envelope in
+        var snapshots: [RemoteUsageSnapshot] = []
+        for envelope in try RemoteSnapshotProgress.validated(envelopes) {
             guard let encryptionKey = try configurationProvider.encryptionKey(for: envelope.deviceID) else {
+                if skippingMissingKeys { continue }
                 throw RemoteUsageReaderError.missingDeviceKey
             }
             encryptionKeysByDevice[envelope.deviceID] = encryptionKey
-            return try SnapshotCipher.open(envelope, key: encryptionKey)
+            try snapshots.append(SnapshotCipher.open(envelope, key: encryptionKey))
         }
         return AuthenticatedRemoteSnapshots(
             snapshots: snapshots,
