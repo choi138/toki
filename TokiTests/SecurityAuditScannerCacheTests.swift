@@ -118,6 +118,34 @@ final class SecurityAuditScannerCacheTests: SecurityAuditScannerTestCase {
         XCTAssertEqual(counter.count, 2)
     }
 
+    func testScannerDoesNotAdvanceCacheForInvalidUTF8Append() async throws {
+        let file = try writeFixture(
+            sourceName: "Codex",
+            relativePath: "2026/05/12/session.jsonl",
+            lines: [#"{"text":"cache-secret-ABCDEFGHIJKLMNOP"}"#])
+        try append("\n", to: file)
+        let cacheStore = cache()
+        let scanner = scanner(
+            for: ["Codex"],
+            rules: [countingRule(counter: SecurityAuditValidatorCounter())],
+            cacheStore: cacheStore)
+
+        let firstResult = await scanner.scan()
+        let path = file.standardizedFileURL.path
+        let initialOffset = try XCTUnwrap(cacheStore.load().entriesByPath[path]?.byteOffset)
+        let handle = try FileHandle(forWritingTo: file)
+        try handle.seekToEnd()
+        try handle.write(contentsOf: Data([0xFF]))
+        try handle.close()
+
+        let secondResult = await scanner.scan()
+        let offsetAfterFailedAppend = try XCTUnwrap(cacheStore.load().entriesByPath[path]?.byteOffset)
+
+        XCTAssertEqual(firstResult.findings.count, 1)
+        XCTAssertEqual(secondResult.findings, firstResult.findings)
+        XCTAssertEqual(offsetAfterFailedAppend, initialOffset)
+    }
+
     func testScannerFullyRescansAppendedFileWhenCachedPrefixChanged() async throws {
         let counter = SecurityAuditValidatorCounter()
         let benignMiddle = #"{"text":"cache-public-ABCDEFGHIJKLMNOP"}"#

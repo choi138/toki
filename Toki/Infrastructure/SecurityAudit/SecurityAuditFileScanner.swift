@@ -295,7 +295,7 @@ private extension SecurityAuditFileScanner {
         startingLineNumber: Int,
         fallbackDetectedAt: Date?) -> SecurityFileScanResult {
         guard let handle = try? FileHandle(forReadingFrom: fileURL) else {
-            return SecurityFileScanResult(findings: [], lineCount: 0)
+            return SecurityFileScanResult(findings: [], lineCount: 0, isCacheable: false)
         }
         defer { try? handle.close() }
 
@@ -306,7 +306,7 @@ private extension SecurityAuditFileScanner {
                 return SecurityFileScanResult(findings: [], lineCount: 0, isCacheable: false)
             }
             guard let text = String(data: data, encoding: .utf8) else {
-                return SecurityFileScanResult(findings: [], lineCount: 0)
+                return SecurityFileScanResult(findings: [], lineCount: 0, isCacheable: false)
             }
 
             let lines = appendedLines(from: text)
@@ -328,7 +328,7 @@ private extension SecurityAuditFileScanner {
             }
             return SecurityFileScanResult(findings: findings, lineCount: lines.count)
         } catch {
-            return SecurityFileScanResult(findings: [], lineCount: 0)
+            return SecurityFileScanResult(findings: [], lineCount: 0, isCacheable: false)
         }
     }
 
@@ -411,7 +411,10 @@ private extension SecurityAuditFileScanner {
                     lineCount: lineNumber,
                     isCacheable: false)
             }
-            return SecurityFileScanResult(findings: findings, lineCount: lineNumber)
+            return SecurityFileScanResult(
+                findings: findings,
+                lineCount: lineNumber,
+                isCacheable: false)
         }
 
         return SecurityFileScanResult(findings: findings, lineCount: lineNumber)
