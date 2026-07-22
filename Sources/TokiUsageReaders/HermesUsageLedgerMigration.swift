@@ -40,14 +40,15 @@ public enum HermesUsageLedgerMigrator {
         }
         if schemaVersion == hermesUsageLedgerSchemaVersion {
             try validateCurrentLedger(source, fileURL: fileURL)
+            if mode == .apply {
+                try removeLegacyBackups(ledgerURL: fileURL)
+            }
             return .notRequired
         }
 
         let migration = try migration(source: source, schemaVersion: schemaVersion)
         guard mode == .apply else { return .migrationRequired }
 
-        let backupURL = fileURL.appendingPathExtension("v\(schemaVersion).backup")
-        try writeBackupIfNeeded(source, to: backupURL)
         try writeIdentifierKeyIfNeeded(migration.identifierKey, ledgerURL: fileURL)
         do {
             try DurableFileIO.writePrivate(migration.ledger, to: fileURL)
@@ -56,6 +57,7 @@ public enum HermesUsageLedgerMigrator {
         } catch {
             throw HermesUsageLedgerError.couldNotPersist
         }
+        try removeLegacyBackups(ledgerURL: fileURL)
         return .migrated
     }
 }
@@ -205,22 +207,6 @@ private extension HermesUsageLedgerMigrator {
         }
     }
 
-    static func writeBackupIfNeeded(_ data: Data, to backupURL: URL) throws {
-        do {
-            if let existing = try DurableFileIO.readPrivate(
-                from: backupURL,
-                maximumByteCount: hermesUsageLedgerMaximumBytes) {
-                guard existing == data else { throw HermesUsageLedgerError.invalidLedger }
-                return
-            }
-            try DurableFileIO.writePrivate(data, to: backupURL)
-        } catch let error as HermesUsageLedgerError {
-            throw error
-        } catch {
-            throw HermesUsageLedgerError.couldNotPersist
-        }
-    }
-
     static func writeIdentifierKeyIfNeeded(_ key: String, ledgerURL: URL) throws {
         let keyURL = identifierKeyURL(for: ledgerURL)
         do {
@@ -257,5 +243,18 @@ private extension HermesUsageLedgerMigrator {
 
     static func identifierKeyURL(for ledgerURL: URL) -> URL {
         ledgerURL.deletingPathExtension().appendingPathExtension("key")
+    }
+
+    static func removeLegacyBackups(ledgerURL: URL) throws {
+        for schemaVersion in [hermesUsageLedgerLegacySchemaVersion, hermesUsageLedgerPreviousSchemaVersion] {
+            let backupURL = ledgerURL.appendingPathExtension("v\(schemaVersion).backup")
+            do {
+                try DurableFileIO.removeIfPresent(backupURL)
+            } catch DurableFileIOError.removalCommittedDirectorySyncFailed {
+                throw HermesUsageLedgerError.durabilityNotConfirmed
+            } catch {
+                throw HermesUsageLedgerError.couldNotPersist
+            }
+        }
     }
 }

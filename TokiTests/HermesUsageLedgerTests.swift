@@ -345,7 +345,7 @@ extension HermesUsageLedgerTests {
 }
 
 extension HermesUsageLedgerTests {
-    func test_hermesUsageLedger_migratesV1InitialEventToUnattributedBaseline() async throws {
+    func test_hermesUsageLedger_automaticallyMigratesV1InitialEventToUnattributedBaseline() async throws {
         let tempDir = try makeHermesTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: tempDir) }
         let ledgerURL = tempDir.appendingPathComponent("hermes-usage-ledger.json")
@@ -380,13 +380,9 @@ extension HermesUsageLedgerTests {
                 projectName: nil,
                 attributionQuality: .unknown)])
         try writePrivateHermesTestData(JSONEncoder().encode(legacy), to: ledgerURL)
-        XCTAssertEqual(
-            try HermesUsageLedgerMigrator.migrate(fileURL: ledgerURL),
-            .migrationRequired)
-        XCTAssertEqual(
-            try HermesUsageLedgerMigrator.migrate(fileURL: ledgerURL, mode: .apply),
-            .migrated)
-        let ledger = HermesUsageLedger(fileURL: ledgerURL)
+        let ledger = HermesUsageLedger(
+            fileURL: ledgerURL,
+            automaticallyMigrateLegacy: true)
 
         let migratedEvents = try await ledger.events(
             from: tokiTestISODate("2026-04-09T00:00:00Z"),
@@ -410,6 +406,7 @@ extension HermesUsageLedgerTests {
         let persisted = try XCTUnwrap(
             try JSONSerialization.jsonObject(with: Data(contentsOf: ledgerURL)) as? [String: Any])
         XCTAssertEqual(persisted["schemaVersion"] as? Int, 3)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: ledgerURL.appendingPathExtension("v1.backup").path))
     }
 
     func test_hermesUsageLedger_rejectsCorruptOversizedAndSymbolicLinkFiles() async throws {

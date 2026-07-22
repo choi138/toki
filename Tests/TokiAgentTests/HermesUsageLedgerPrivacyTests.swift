@@ -1,4 +1,5 @@
 import Foundation
+import TokiDurableStorage
 import TokiSyncProtocol
 import XCTest
 #if os(Linux)
@@ -77,9 +78,9 @@ final class HermesUsageLedgerPrivacyTests: XCTestCase {
         XCTAssertFalse(serialized.contains(identifierKey))
         XCTAssertFalse(serialized.contains("projectName"))
         XCTAssertFalse(serialized.contains("identifierKey"))
-        XCTAssertEqual(try Data(contentsOf: fixture.backupURL), original)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: fixture.backupURL.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: fixture.v1BackupURL.path))
         XCTAssertEqual(try Data(contentsOf: fixture.keyURL), Data(identifierKey.utf8))
-        XCTAssertEqual(try permissions(at: fixture.backupURL), 0o600)
         XCTAssertEqual(try permissions(at: fixture.keyURL), 0o600)
         XCTAssertEqual(try permissions(at: fixture.ledgerURL), 0o600)
 
@@ -174,6 +175,78 @@ final class HermesUsageLedgerPrivacyTests: XCTestCase {
 }
 
 extension HermesUsageLedgerPrivacyTests {
+    func test_applicationLedgerAutomaticallyMigratesV2AndRemovesLegacyBackups() async throws {
+        let fixture = try HermesPrivacyFixture()
+        defer { fixture.remove() }
+        let sentinel = "TOKI_AUTOMATIC_MIGRATION_SENTINEL"
+        let identifierKey = SnapshotCipher.generateKey()
+        let timestamp = Date(timeIntervalSince1970: 1_780_000_000)
+        let original = try makeV2LedgerData(
+            identifierKey: identifierKey,
+            identifier: String(repeating: "d", count: 32),
+            timestamp: timestamp,
+            sentinel: sentinel)
+        try writePrivateTestData(original, to: fixture.ledgerURL)
+        try writePrivateTestData(original, to: fixture.backupURL)
+        try writePrivateTestData(original, to: fixture.v1BackupURL)
+        let ledger = HermesUsageLedger(
+            fileURL: fixture.ledgerURL,
+            automaticallyMigrateLegacy: true)
+
+        let status = try await ledger.status()
+
+        XCTAssertEqual(status.accurateSince, timestamp)
+        try assertSerializedLedgerIsPrivate(
+            Data(contentsOf: fixture.ledgerURL),
+            forbidden: [sentinel, identifierKey, "projectName", "identifierKey"])
+        XCTAssertEqual(try Data(contentsOf: fixture.keyURL), Data(identifierKey.utf8))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: fixture.backupURL.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: fixture.v1BackupURL.path))
+    }
+
+    func test_keyDurabilityFailureDoesNotAdoptUnwrittenLedger() async throws {
+        let fixture = try HermesPrivacyFixture()
+        defer { fixture.remove() }
+        let writer = CommittedKeyFailureWriter(keyURL: fixture.keyURL)
+        let ledger = HermesUsageLedger(
+            fileURL: fixture.ledgerURL,
+            privateFileWriter: writer.write)
+        let timestamp = Date(timeIntervalSince1970: 1_780_000_000)
+        let observation = HermesSessionObservation(
+            sessionID: "key-failure-session",
+            startedAt: timestamp,
+            earliestActivityAt: timestamp,
+            latestActivityAt: timestamp,
+            model: "gpt-test",
+            counters: HermesTokenCounters(
+                inputTokens: 10,
+                outputTokens: 0,
+                cacheReadTokens: 0,
+                cacheWriteTokens: 0,
+                reasoningTokens: 0),
+            cost: 0,
+            projectName: nil,
+            attributionQuality: .unknown)
+
+        do {
+            try await ledger.refresh(observations: [observation], observedAt: timestamp)
+            XCTFail("Committed key durability failure must be reported")
+        } catch HermesUsageLedgerError.durabilityNotConfirmed {}
+
+        XCTAssertTrue(FileManager.default.fileExists(atPath: fixture.keyURL.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: fixture.ledgerURL.path))
+        let statusAfterFailure = try await ledger.status()
+        XCTAssertNil(statusAfterFailure.accurateSince)
+
+        try await ledger.refresh(observations: [observation], observedAt: timestamp)
+
+        XCTAssertTrue(FileManager.default.fileExists(atPath: fixture.ledgerURL.path))
+        let persisted = try JSONDecoder().decode(
+            HermesUsageLedgerPrivateDocument.self,
+            from: Data(contentsOf: fixture.ledgerURL))
+        XCTAssertEqual(persisted.schemaVersion, 3)
+    }
+
     func test_v1MigrationPreservesAccountingAsUnattributedAndRemovesSensitiveMetadata() async throws {
         let fixture = try HermesPrivacyFixture()
         defer { fixture.remove() }
@@ -198,8 +271,8 @@ extension HermesUsageLedgerPrivacyTests {
         assertSerializedLedgerIsPrivate(
             migrated,
             forbidden: [sentinel, identifierKey, "projectName", "identifierKey"])
-        XCTAssertEqual(try Data(contentsOf: fixture.v1BackupURL), original)
-        XCTAssertEqual(try permissions(at: fixture.v1BackupURL), 0o600)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: fixture.v1BackupURL.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: fixture.backupURL.path))
         let ledger = HermesUsageLedger(fileURL: fixture.ledgerURL)
         let status = try await ledger.status()
         let events = try await ledger.events(
@@ -390,6 +463,23 @@ private func createHermesPrivacyDatabase(at url: URL, sentinel: String) throws {
 private enum HermesPrivacyDatabaseError: Error {
     case open
     case statement
+}
+
+private final class CommittedKeyFailureWriter {
+    private let keyURL: URL
+    private var shouldFailKeyWrite = true
+
+    init(keyURL: URL) {
+        self.keyURL = keyURL
+    }
+
+    func write(_ data: Data, _ url: URL) throws {
+        try DurableFileIO.writePrivate(data, to: url)
+        if url == keyURL, shouldFailKeyWrite {
+            shouldFailKeyWrite = false
+            throw DurableFileIOError.replacementCommittedDirectorySyncFailed
+        }
+    }
 }
 
 private func writePrivateTestData(_ data: Data, to url: URL) throws {

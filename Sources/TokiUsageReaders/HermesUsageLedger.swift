@@ -3,14 +3,31 @@ import TokiDurableStorage
 import TokiSyncProtocol
 
 public actor HermesUsageLedger {
-    public static let shared = HermesUsageLedger(fileURL: hermesUsageLedgerURL())
+    public static let shared = HermesUsageLedger(
+        fileURL: hermesUsageLedgerURL(),
+        automaticallyMigrateLegacy: true)
 
     private let fileURL: URL
+    private let automaticallyMigrateLegacy: Bool
+    private let privateFileWriter: (Data, URL) throws -> Void
     private var document: HermesUsageLedgerDocument?
     private var isLoaded = false
 
-    public init(fileURL: URL) {
+    public init(fileURL: URL, automaticallyMigrateLegacy: Bool = false) {
         self.fileURL = fileURL
+        self.automaticallyMigrateLegacy = automaticallyMigrateLegacy
+        privateFileWriter = { data, url in
+            try DurableFileIO.writePrivate(data, to: url)
+        }
+    }
+
+    init(
+        fileURL: URL,
+        automaticallyMigrateLegacy: Bool = false,
+        privateFileWriter: @escaping (Data, URL) throws -> Void) {
+        self.fileURL = fileURL
+        self.automaticallyMigrateLegacy = automaticallyMigrateLegacy
+        self.privateFileWriter = privateFileWriter
     }
 
     func refresh(
@@ -202,9 +219,19 @@ private extension HermesUsageLedger {
             }
             let current = try decoded.document(identifierKey: loadIdentifierKey())
             try validate(current)
+            if automaticallyMigrateLegacy {
+                _ = try HermesUsageLedgerMigrator.migrate(fileURL: fileURL, mode: .apply)
+            }
             document = current
         case hermesUsageLedgerPreviousSchemaVersion, hermesUsageLedgerLegacySchemaVersion:
-            throw HermesUsageLedgerError.migrationRequired
+            guard automaticallyMigrateLegacy else {
+                throw HermesUsageLedgerError.migrationRequired
+            }
+            guard try HermesUsageLedgerMigrator.migrate(fileURL: fileURL, mode: .apply) == .migrated else {
+                throw HermesUsageLedgerError.invalidLedger
+            }
+            try loadIfNeeded()
+            return
         default:
             throw HermesUsageLedgerError.invalidLedger
         }
@@ -226,8 +253,20 @@ private extension HermesUsageLedger {
 
         do {
             try DurableFileIO.preparePrivateDirectory(fileURL.deletingLastPathComponent())
+        } catch {
+            throw HermesUsageLedgerError.couldNotPersist
+        }
+
+        do {
             try persistIdentifierKeyIfNeeded(candidate.identifierKey)
-            try DurableFileIO.writePrivate(data, to: fileURL)
+        } catch DurableFileIOError.replacementCommittedDirectorySyncFailed {
+            throw HermesUsageLedgerError.durabilityNotConfirmed
+        } catch {
+            throw HermesUsageLedgerError.couldNotPersist
+        }
+
+        do {
+            try privateFileWriter(data, fileURL)
             document = candidate
             isLoaded = true
         } catch DurableFileIOError.replacementCommittedDirectorySyncFailed {
@@ -247,9 +286,7 @@ private extension HermesUsageLedger {
         if let data = try DurableFileIO.readPrivate(from: identifierKeyURL, maximumByteCount: 4096) {
             return try decodeIdentifierKey(data)
         }
-        let key = SnapshotCipher.generateKey()
-        try persistIdentifierKeyIfNeeded(key)
-        return key
+        return SnapshotCipher.generateKey()
     }
 
     private func loadIdentifierKey() throws -> String {
@@ -274,7 +311,7 @@ private extension HermesUsageLedger {
             }
             return
         }
-        try DurableFileIO.writePrivate(Data(key.utf8), to: identifierKeyURL)
+        try privateFileWriter(Data(key.utf8), identifierKeyURL)
     }
 
     private func baseline(
