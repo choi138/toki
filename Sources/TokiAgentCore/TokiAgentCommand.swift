@@ -24,6 +24,9 @@ package enum TokiAgentCommand {
             AgentConsole.write(usage)
             return
         }
+        guard arguments.dropFirst().isEmpty else {
+            throw AgentCommandError.unexpectedArguments
+        }
 
         switch command {
         case "doctor":
@@ -281,6 +284,7 @@ extension TokiAgentCommand {
 
 enum AgentCommandError: LocalizedError {
     case unknownCommand
+    case unexpectedArguments
     case missingPairingBundle
     case pairingBundleTooLarge
     case terminalEchoControlFailed
@@ -292,6 +296,8 @@ enum AgentCommandError: LocalizedError {
         switch self {
         case .unknownCommand:
             "Unknown command. Run `toki-agent help`."
+        case .unexpectedArguments:
+            "Unexpected arguments. Run `toki-agent help`."
         case .missingPairingBundle:
             "No pairing bundle was received on standard input."
         case .pairingBundleTooLarge:

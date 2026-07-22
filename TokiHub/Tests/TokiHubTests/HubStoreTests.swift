@@ -168,6 +168,28 @@ final class HubStoreTests: XCTestCase {
             XCTAssertTrue(snapshots.isEmpty)
         }
     }
+
+    func test_snapshotReportsCorruptionWhenRegisteredEnvelopeIsMissing() async throws {
+        let fixture = makeHubFixture()
+        defer { fixture.remove() }
+        let store = try HubStore(directory: fixture.root)
+        let device = try await store.createDevice(name: "ubuntu")
+        let snapshot = makeHubEnvelope(deviceID: device.deviceID, sequence: 1, payload: "ciphertext")
+        try await store.store(snapshot, deviceID: device.deviceID, uploadToken: device.uploadToken)
+        try FileManager.default.removeItem(at: fixture.root
+            .appendingPathComponent("snapshots")
+            .appendingPathComponent("\(device.deviceID).json"))
+
+        do {
+            _ = try await store.snapshot(deviceID: device.deviceID)
+            XCTFail("Expected snapshot lookup to report corrupted storage")
+        } catch {
+            guard let storeError = error as? HubStoreError,
+                  case .corruptedStorage = storeError else {
+                return XCTFail("Expected corruptedStorage, got \(error)")
+            }
+        }
+    }
 }
 
 final class HubStorePersistenceTests: XCTestCase {
