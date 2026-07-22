@@ -60,4 +60,16 @@ final class LocalUsageReaderRegistryTests: XCTestCase {
             hermesUsageLedgerURL(paths: paths, scope: .agent).path,
             "/tmp/toki-xdg-state/toki-agent/hermes-usage-ledger.json")
     }
+
+    func test_applicationCodexCacheUsesInjectedHome() async throws {
+        let home = URL(fileURLWithPath: "/tmp/toki-injected-reader-home")
+        let readers = LocalUsageReaderRegistry.readers(home: home, environment: [:])
+        let reader = try XCTUnwrap(readers.first { $0.name == "Codex" } as? CodexReader)
+        let paths = LocalUsageReaderPaths(homeDirectory: home, environment: [:])
+        let expectedCacheURL = codexRolloutUsageCacheURL(paths: paths, scope: .application)
+
+        let cacheURL = await reader.rolloutUsageCache.cacheURL
+
+        XCTAssertEqual(cacheURL, expectedCacheURL)
+    }
 }

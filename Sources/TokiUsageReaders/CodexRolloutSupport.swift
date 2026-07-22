@@ -7,7 +7,7 @@ public let maximumCodexRolloutUsageCacheBytes = 64 * 1024 * 1024
 public actor CodexRolloutUsageCache {
     public static let shared = CodexRolloutUsageCache()
 
-    private let cacheURL: URL
+    let cacheURL: URL
     private let maximumBytes: Int
     private let maximumEntryBytes: Int
     private var isLoaded = false
