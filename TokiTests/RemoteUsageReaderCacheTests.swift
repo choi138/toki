@@ -189,6 +189,24 @@ extension RemoteUsageReaderTests {
         }
     }
 
+    func test_remoteReaderDoesNotUseCacheForMalformedHubResponse() async throws {
+        let fixture = try makeFixture()
+        let cache = InMemoryRemoteSnapshotCache(
+            entry: fixture.cacheEntry(fetchedAt: Date().addingTimeInterval(-60)))
+        let client = StubRemoteHubClient(
+            manifestResult: .failure(RemoteHubClientError.invalidResponse))
+        let reader = fixture.makeReader(client: client, cache: cache)
+
+        do {
+            _ = try await reader.readUsage(from: fixture.start, to: fixture.end)
+            XCTFail("Expected the malformed response to bypass cached fallback")
+        } catch let error as RemoteHubClientError {
+            guard case .invalidResponse = error else {
+                return XCTFail("Expected invalidResponse, got \(error)")
+            }
+        }
+    }
+
     func test_remoteReaderDoesNotOverwriteCacheWithTamperedResponse() async throws {
         let fixture = try makeFixture()
         let tampered = EncryptedUsageEnvelope(
