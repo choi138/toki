@@ -123,6 +123,40 @@ extension RemoteUsageReaderTests {
             }
     }
 
+    func test_originMismatchMigratesLegacyCacheAnchorBeforeClearing() async throws {
+        let fixture = try makeFixture()
+        let snapshot = try SnapshotCipher.open(fixture.envelope, key: fixture.encryptionKey)
+        let newerEnvelope = try SnapshotCipher.seal(snapshot, sequence: 2, key: fixture.encryptionKey)
+        let root = makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let cacheURL = root.appendingPathComponent("snapshots.json")
+        let anchorURL = root.appendingPathComponent("anchors.json")
+        let cache = RemoteSnapshotCache(url: cacheURL)
+        try cache.save(RemoteSnapshotCacheEntry(
+            envelopes: [newerEnvelope],
+            manifest: [fixture.device(sequence: newerEnvelope.sequence)],
+            fetchedAt: Date(),
+            snapshotCacheIdentifier: nil))
+        let anchorStore = RemoteSnapshotAnchorStore(
+            url: anchorURL,
+            legacyCacheURL: cacheURL)
+        let reader = fixture.makeReader(
+            client: fixture.makeClient(),
+            cache: cache,
+            anchorStore: anchorStore)
+
+        do {
+            _ = try await reader.readUsage(from: fixture.start, to: fixture.end)
+            XCTFail("Expected the migrated anchor to reject the older snapshot")
+        } catch let error as RemoteUsageReaderError {
+            guard case .staleSnapshot = error else {
+                return XCTFail("Expected staleSnapshot, got \(error)")
+            }
+        }
+        XCTAssertTrue(FileManager.default.fileExists(atPath: anchorURL.path))
+        XCTAssertNil(try cache.load())
+    }
+
     func test_corruptedLegacyCacheWithoutAnchorFailsClosed() throws {
         let fixture = try makeFixture()
         let root = makeTemporaryDirectory()
@@ -276,6 +310,36 @@ extension RemoteUsageReaderTests {
                 return XCTFail("Expected staleSnapshot, got \(error)")
             }
         }
+    }
+
+    func test_replayAnchorsCopyAcrossCredentialRotation() throws {
+        let fixture = try makeFixture()
+        let snapshot = try SnapshotCipher.open(fixture.envelope, key: fixture.encryptionKey)
+        let newerEnvelope = try SnapshotCipher.seal(snapshot, sequence: 2, key: fixture.encryptionKey)
+        let updatedConfiguration = try RemoteHubConfiguration(
+            hubURL: fixture.configuration.hubURL,
+            ownerToken: String(repeating: "n", count: 32))
+        let root = makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let anchorStore = RemoteSnapshotAnchorStore(
+            url: root.appendingPathComponent("anchors.json"),
+            legacyCacheURL: root.appendingPathComponent("missing-cache.json"))
+        try anchorStore.validateAndSave(
+            [newerEnvelope],
+            originIdentifier: fixture.configuration.snapshotCacheIdentifier)
+
+        try anchorStore.copyAnchors(
+            from: fixture.configuration.snapshotCacheIdentifier,
+            to: updatedConfiguration.snapshotCacheIdentifier)
+
+        XCTAssertThrowsError(try anchorStore.validateAndSave(
+            [fixture.envelope],
+            originIdentifier: updatedConfiguration.snapshotCacheIdentifier)) { error in
+                guard let readerError = error as? RemoteUsageReaderError,
+                      case .staleSnapshot = readerError else {
+                    return XCTFail("Expected staleSnapshot, got \(error)")
+                }
+            }
     }
 
     func test_corruptedReplayAnchorFailsClosed() async throws {

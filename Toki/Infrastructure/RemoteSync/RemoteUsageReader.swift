@@ -4,7 +4,7 @@ struct RemoteUsageReader: OriginPartitionedTokenReader {
     let name = "Remote Devices"
     private let configurationProvider: any RemoteSyncConfigurationProviding
     private let snapshotLoader: RemoteSnapshotLoader
-    private let usageMapper = RemoteUsageMapper(readerName: "Remote Devices")
+    private let usageMapper = RemoteUsageMapper()
 
     init(
         configurationProvider: any RemoteSyncConfigurationProviding = RemoteSyncConfigurationStore(),

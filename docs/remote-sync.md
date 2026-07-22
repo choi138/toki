@@ -68,9 +68,10 @@ that an Agent is currently online.
   The disk cache keeps small mutable manifest metadata separate from immutable,
   sequence-addressed envelope files, so a heartbeat does not rewrite ciphertext.
 - A device is stale when its last successful upload or heartbeat is older than
-  four times its configured interval. Stale data fails visibly. For ordinary
-  transport failures, the 48-hour encrypted-cache limit is only an upper bound
-  for offline fallback; it never extends the stale-device window.
+  four times its configured interval. A reachable Hub that reports stale device
+  metadata fails visibly. During ordinary transport failures, Toki may show its
+  last validated encrypted cache for up to 48 hours even after that freshness
+  window passes; treat offline fallback as last-known usage.
 
 Use 5–15 minutes for ordinary servers and 15–30 minutes for large log histories.
 One-minute sync is supported, but usually adds filesystem and network work
@@ -291,8 +292,9 @@ credentials and pending ciphertext but never changes source logs or databases.
   can restore the retained window as long as the source usage data still exists.
 - Hub outage: Agent retries with exponential backoff and retains encrypted
   pending data. Toki may use a validated encrypted cache no older than 48 hours
-  for ordinary network outages or server 5xx responses, but only while every
-  cached device remains inside its four-interval freshness window.
+  for ordinary network outages or server 5xx responses. That fallback can
+  outlive a cached device's four-interval freshness window and represents
+  last-known usage, not proof that the Agent remains online.
 - TLS/auth/integrity failure: Toki fails closed. Certificate failures, redirects,
   401/403, oversized responses, conflicting snapshots, missing device keys, and
   AES-GCM authentication failures are not hidden by cached data.
@@ -300,8 +302,9 @@ credentials and pending ciphertext but never changes source logs or databases.
   ciphertext digest separately from its 48-hour encrypted response cache. An
   older sequence or different ciphertext for an accepted sequence fails closed,
   including after an app restart, cache corruption, cache eviction, or temporary
-  Keychain failure. Replay anchors are removed only after explicit device
-  revocation or a confirmed disconnect.
+  Keychain failure. Updating only the Hub owner token copies existing anchors to
+  the new credential scope. Replay anchors are removed only after explicit
+  device revocation or a confirmed disconnect.
 - Backup: Hub storage contains ciphertext plus plaintext device metadata and
   credential digests. Back it up only while `toki-hub` is stopped, or use a
   filesystem snapshot that is atomic across the entire storage directory. A
