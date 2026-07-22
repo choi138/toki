@@ -62,6 +62,13 @@ struct RemoteSyncSettingsSection: View {
             }
             .buttonStyle(.borderless)
             .foregroundColor(Color.accentColor)
+            if viewModel.needsLocalCredentialRecovery {
+                Button("Clear Invalid Local Credentials", role: .destructive) {
+                    Task { await viewModel.clearInvalidLocalState() }
+                }
+                .buttonStyle(.borderless)
+                .font(.system(size: 10))
+            }
         }
         .padding(.vertical, 8)
     }

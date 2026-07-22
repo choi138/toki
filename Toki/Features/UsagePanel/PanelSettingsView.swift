@@ -3,14 +3,19 @@ import SwiftUI
 struct PanelSettingsView: View {
     @Environment(\.dismiss) private var dismiss
     @ObservedObject var settings: UsagePanelSettings
-    @StateObject private var remoteSyncSettings = RemoteSyncSettingsViewModel()
+    @StateObject private var remoteSyncSettings: RemoteSyncSettingsViewModel
     @StateObject private var launchAtLogin = LaunchAtLoginViewModel()
 
     private let readerNames: [String]
 
-    init(settings: UsagePanelSettings, readerNames: [String] = UsagePanelSettings.defaultReaderNames) {
+    init(
+        settings: UsagePanelSettings,
+        readerNames: [String] = UsagePanelSettings.defaultReaderNames,
+        onRemoteSyncChange: @escaping () -> Void = {}) {
         self.settings = settings
         self.readerNames = readerNames
+        _remoteSyncSettings = StateObject(wrappedValue: RemoteSyncSettingsViewModel(
+            onRemoteSyncChange: onRemoteSyncChange))
     }
 
     var body: some View {
