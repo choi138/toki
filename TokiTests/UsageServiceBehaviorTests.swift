@@ -55,6 +55,26 @@ final class UsageServiceBehaviorTests: XCTestCase {
         XCTAssertEqual(date, secondDay)
     }
 
+    func test_usageService_queuesRemoteSyncRefreshDuringIdenticalActiveLoad() async {
+        let gate = BlockingReaderGate()
+        let reader = BlockingMockReader(name: "Mock", gate: gate) { _, _ in
+            mockUsage(totalTokens: 100)
+        }
+        let service = await MainActor.run { UsageService(readers: [reader]) }
+        let initialRefresh = Task { await service.refresh() }
+
+        await gate.waitForFirstRequest()
+        await service.refreshAfterRemoteSyncChange()
+        let requestCountDuringLoad = await gate.requestCountSnapshot()
+        await gate.release()
+        await initialRefresh.value
+        await gate.waitForRequestCount(2)
+        let finalRequestCount = await gate.requestCountSnapshot()
+
+        XCTAssertEqual(requestCountDuringLoad, 1)
+        XCTAssertGreaterThanOrEqual(finalRequestCount, 2)
+    }
+
     func test_usageService_sortsModelsByActiveTime() async {
         let recorder = MockReaderRecorder()
         let reader = MockReader(name: "Mock", recorder: recorder) { _, _ in

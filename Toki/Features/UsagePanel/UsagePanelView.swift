@@ -132,7 +132,7 @@ struct UsagePanelView: View {
             PanelSettingsView(
                 settings: viewModel.settings,
                 readerNames: viewModel.readerNames,
-                onRemoteSyncChange: refresh)
+                onRemoteSyncChange: handleRemoteSyncChange)
         }
         .sheet(isPresented: $isShowingSecurityAudit) {
             SecurityAuditView()
@@ -228,6 +228,10 @@ struct UsagePanelView: View {
 
     private func refresh() {
         Task { await refreshVisibleData() }
+    }
+
+    private func handleRemoteSyncChange() {
+        Task { await viewModel.refreshAfterRemoteSyncChange() }
     }
 
     private func selectDay(_ date: Date) {

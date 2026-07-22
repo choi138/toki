@@ -5,6 +5,7 @@ import TokiSyncProtocol
 struct RemoteSyncSettingsSection: View {
     @ObservedObject var viewModel: RemoteSyncSettingsViewModel
     @State private var pendingRevocation: RemoteDeviceSummary?
+    @State private var isConfirmingLocalDisconnect = false
     private static let relativeDateFormatter: RelativeDateTimeFormatter = {
         let formatter = RelativeDateTimeFormatter()
         formatter.unitsStyle = .abbreviated
@@ -45,6 +46,15 @@ struct RemoteSyncSettingsSection: View {
                 }
         } message: { device in
             Text("This stops future uploads from \(device.name) and removes its key from this Mac.")
+        }
+        .alert("Remove local remote-sync connection?", isPresented: $isConfirmingLocalDisconnect) {
+            Button("Remove Local Connection", role: .destructive) {
+                Task { await viewModel.disconnectLocally() }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text(
+                "This does not contact the Hub. Remote devices may keep uploading and must be revoked separately.")
         }
         .task {
             await viewModel.refreshDevices()
@@ -96,6 +106,16 @@ struct RemoteSyncSettingsSection: View {
             }
             .padding(.horizontal, 10)
             .padding(.vertical, 8)
+
+            Button("Remove Local Connection…", role: .destructive) {
+                isConfirmingLocalDisconnect = true
+            }
+            .buttonStyle(.borderless)
+            .font(.system(size: 9))
+            .foregroundColor(Color.red.opacity(0.8))
+            .frame(maxWidth: .infinity, alignment: .trailing)
+            .padding(.trailing, 10)
+            .padding(.bottom, 6)
 
             Divider().overlay(Color.white.opacity(0.06))
 

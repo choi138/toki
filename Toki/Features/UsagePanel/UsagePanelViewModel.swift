@@ -49,6 +49,8 @@ final class UsagePanelViewModel: ObservableObject {
     private let aggregator: UsageAggregator
     private let periodTokenTotalsCache: PeriodTokenTotalsCache
     private var needsRefreshAfterCurrentLoad = false
+    private var needsRemoteSyncRefreshAfterCurrentLoad = false
+    private var needsTotalsRefreshAfterCurrentLoad = false
     private var followsCurrentDaySelection = true
     private var calendarDayObserver: NSObjectProtocol?
     private var yesterdayComparisonTask: Task<Void, Never>?
@@ -175,9 +177,18 @@ final class UsagePanelViewModel: ObservableObject {
                 updateSnapshot { $0.isLoading = false }
             }
 
-            if needsRefreshAfterCurrentLoad {
+            if needsRefreshAfterCurrentLoad || needsRemoteSyncRefreshAfterCurrentLoad {
+                let refreshesPeriodTokenTotals = needsTotalsRefreshAfterCurrentLoad
                 needsRefreshAfterCurrentLoad = false
-                Task { await refresh() }
+                needsRemoteSyncRefreshAfterCurrentLoad = false
+                needsTotalsRefreshAfterCurrentLoad = false
+                Task { [weak self] in
+                    guard let self else { return }
+                    await refresh()
+                    if refreshesPeriodTokenTotals {
+                        await refreshPeriodTokenTotalsIfNeeded()
+                    }
+                }
             }
         }
 
@@ -210,6 +221,17 @@ final class UsagePanelViewModel: ObservableObject {
                 await self?.refreshPeriodTokenTotalsIfNeeded()
             }
         }
+    }
+
+    func refreshAfterRemoteSyncChange() async {
+        invalidatePeriodTokenTotals()
+        if snapshot.isLoading {
+            needsRemoteSyncRefreshAfterCurrentLoad = true
+            needsTotalsRefreshAfterCurrentLoad = true
+            return
+        }
+        await refresh()
+        await refreshPeriodTokenTotalsIfNeeded()
     }
 }
 
