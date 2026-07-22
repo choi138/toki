@@ -79,7 +79,7 @@ final class SecurityAuditSQLiteScannerTests: XCTestCase {
 
     private func cursorSource() throws -> SecurityAuditFileSource {
         try XCTUnwrap(
-            SecurityAuditScanner.defaultSources(homeDirectory: tempRoot)
+            SecurityAuditScanner.defaultSources(homeDirectory: tempRoot, environment: [:])
                 .first { $0.name == "Cursor" })
     }
 

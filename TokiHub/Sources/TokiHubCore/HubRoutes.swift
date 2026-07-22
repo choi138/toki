@@ -1,4 +1,5 @@
 import Foundation
+import TokiDurableStorage
 import TokiSyncProtocol
 import Vapor
 
@@ -172,7 +173,7 @@ private func registerSnapshotRoutes(
     }
 }
 
-private func prepareSocketDirectory(for socketURL: URL) throws {
+func prepareSocketDirectory(for socketURL: URL) throws {
     let directory = socketURL.deletingLastPathComponent()
     try FileManager.default.createDirectory(
         at: directory,
@@ -181,8 +182,27 @@ private func prepareSocketDirectory(for socketURL: URL) throws {
     let attributes = try FileManager.default.attributesOfItem(atPath: directory.path)
     guard attributes[.type] as? FileAttributeType == .typeDirectory,
           let permissions = attributes[.posixPermissions] as? NSNumber,
-          permissions.intValue & 0o022 == 0,
-          !FileManager.default.fileExists(atPath: socketURL.path) else {
+          permissions.intValue & 0o022 == 0 else {
+        throw HubConfigurationError.invalidSocketPath
+    }
+
+    let socketPathExists = FileManager.default.fileExists(atPath: socketURL.path)
+        || (try? FileManager.default.destinationOfSymbolicLink(atPath: socketURL.path)) != nil
+    guard socketPathExists else { return }
+
+    do {
+        let values = try socketURL.resourceValues(forKeys: [.isSymbolicLinkKey])
+        let socketAttributes = try FileManager.default.attributesOfItem(atPath: socketURL.path)
+        guard values.isSymbolicLink != true,
+              socketAttributes[.type] as? FileAttributeType == .typeSocket else {
+            throw HubConfigurationError.invalidSocketPath
+        }
+        // HubStore acquired the storage lock before this point, so a socket
+        // left by the same configured Hub cannot still have a live owner.
+        try DurableFileIO.removeIfPresent(socketURL)
+    } catch let error as HubConfigurationError {
+        throw error
+    } catch {
         throw HubConfigurationError.invalidSocketPath
     }
 }

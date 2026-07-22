@@ -81,7 +81,7 @@ final class HermesUsageLedgerTests: XCTestCase {
             databaseURL: dbURL,
             id: "reset-session",
             model: "gpt-5.5",
-            inputTokens: 10)
+            inputTokens: 0)
         let resetReader = HermesReader(
             dbPathOverride: dbURL.path,
             usageLedger: ledger,
@@ -103,8 +103,8 @@ final class HermesUsageLedgerTests: XCTestCase {
         let resumedUsage = try await resumedReader.readUsage(
             from: tokiTestISODate("2026-04-10T00:00:00Z"),
             to: tokiTestISODate("2026-04-11T00:00:00Z"))
-        XCTAssertEqual(resumedUsage.inputTokens, 15)
-        XCTAssertEqual(resumedUsage.totalTokens, 15)
+        XCTAssertEqual(resumedUsage.inputTokens, 25)
+        XCTAssertEqual(resumedUsage.totalTokens, 25)
     }
 
     func test_hermesReader_recordsOnlyModelUsageIncrementAfterRestart() async throws {
