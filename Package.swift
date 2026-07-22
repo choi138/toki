@@ -39,7 +39,25 @@ let package = Package(
                 "TokiSyncProtocol",
                 "TokiUsageCore",
             ]),
+        .target(
+            name: "TokiAgentCore",
+            dependencies: [
+                "TokiDurableStorage",
+                "TokiSyncProtocol",
+                "TokiUsageCore",
+                "TokiUsageReaders",
+            ]),
         .testTarget(
             name: "TokiSyncProtocolTests",
             dependencies: ["TokiSyncProtocol"]),
+        .testTarget(
+            name: "TokiAgentTests",
+            dependencies: [
+                .target(name: "CSQLite", condition: .when(platforms: [.linux])),
+                "TokiAgentCore",
+                "TokiDurableStorage",
+                "TokiSyncProtocol",
+                "TokiUsageCore",
+                "TokiUsageReaders",
+            ]),
     ])
