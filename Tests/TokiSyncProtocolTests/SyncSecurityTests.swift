@@ -3,6 +3,22 @@ import XCTest
 @testable import TokiSyncProtocol
 
 final class SyncSecurityTests: XCTestCase {
+    func test_envelopeTimestampMatchesHubAcceptanceWindow() {
+        let now = Date(timeIntervalSince1970: 1_750_000_000)
+        let earliest = Date(timeIntervalSince1970: 946_684_800)
+
+        XCTAssertTrue(TokiSyncValidation.isAcceptableEnvelopeTimestamp(earliest, now: now))
+        XCTAssertFalse(TokiSyncValidation.isAcceptableEnvelopeTimestamp(
+            earliest.addingTimeInterval(-0.001),
+            now: now))
+        XCTAssertTrue(TokiSyncValidation.isAcceptableEnvelopeTimestamp(
+            now.addingTimeInterval(86400),
+            now: now))
+        XCTAssertFalse(TokiSyncValidation.isAcceptableEnvelopeTimestamp(
+            now.addingTimeInterval(86400.001),
+            now: now))
+    }
+
     func test_hubURLRequiresHTTPSExceptForLoopback() throws {
         XCTAssertTrue(try TokiSyncValidation.isAllowedHubURL(XCTUnwrap(URL(string: "https://hub.example.test"))))
         XCTAssertTrue(try TokiSyncValidation.isAllowedHubURL(XCTUnwrap(URL(string: "http://127.0.0.1:8080"))))

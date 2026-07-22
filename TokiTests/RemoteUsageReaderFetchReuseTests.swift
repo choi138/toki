@@ -154,6 +154,33 @@ extension RemoteUsageReaderTests {
         XCTAssertEqual(cache.savedChangedDeviceIDs, [[revokedEnvelope.deviceID]])
     }
 
+    func test_restoredDeviceKeyReauthenticatesIncompleteCachedState() async throws {
+        let fixture = try makeFixture()
+        let manifestTag = entityTag("a")
+        let cache = InMemoryRemoteSnapshotCache(entry: fixture.cacheEntry(
+            fetchedAt: Date().addingTimeInterval(-60),
+            manifestEntityTag: manifestTag))
+        let provider = InMemoryRemoteSyncConfigurationStore(configuration: fixture.configuration)
+        let client = StubRemoteHubClient(
+            manifestResult: .success(.notModified(entityTag: manifestTag)))
+        let reader = RemoteUsageReader(
+            configurationProvider: provider,
+            client: client,
+            cache: cache,
+            anchorStore: InMemoryRemoteSnapshotAnchorStore())
+
+        await XCTAssertThrowsErrorAsync {
+            _ = try await reader.readUsage(from: fixture.start, to: fixture.end)
+        }
+        try provider.saveEncryptionKey(fixture.encryptionKey, for: fixture.envelope.deviceID)
+
+        let usage = try await reader.readUsage(from: fixture.start, to: fixture.end)
+
+        XCTAssertEqual(usage.totalTokens, 16)
+        XCTAssertEqual(cache.loadCallCount, 2)
+        XCTAssertEqual(client.fetchManifestCallCount, 2)
+    }
+
     func test_remoteReaderRejectsDeviceThatMissedFreshnessWindow() async throws {
         let fixture = try makeFixture()
         let interval = TokiSyncLimits.minimumSyncIntervalSeconds
