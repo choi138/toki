@@ -83,6 +83,20 @@ final class AgentStateStoreTests: XCTestCase {
         XCTAssertNoThrow(try AgentProcessLock.acquire(paths: fixture.paths))
     }
 
+    func test_processLockRemovesStaleClaudeUsageCacheTemporaryFile() throws {
+        let fixture = makeAgentStateFixture()
+        defer { fixture.remove() }
+        try fixture.paths.prepare()
+        let temporaryURL = fixture.paths.stateDirectory.appendingPathComponent(
+            ".claude-usage-cache.json.\(UUID().uuidString).tmp")
+        try Data("stale cache".utf8).write(to: temporaryURL)
+
+        let processLock = try AgentProcessLock.acquire(paths: fixture.paths)
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: temporaryURL.path))
+        withExtendedLifetime(processLock) {}
+    }
+
     func test_spoolRejectsEnvelopeWhoseSequenceDoesNotMatchFilename() throws {
         let fixture = makeAgentStateFixture()
         defer { fixture.remove() }
