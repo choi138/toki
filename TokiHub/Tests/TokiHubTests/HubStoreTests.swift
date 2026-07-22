@@ -47,17 +47,20 @@ final class HubStoreTests: XCTestCase {
         ]))
     }
 
-    func test_socketPreparationRemovesStaleSocketButPreservesUnexpectedFiles() throws {
+    func test_socketPreparationRejectsExistingSocketAndPreservesUnexpectedFiles() throws {
         let fixture = HubTestFixture(root: URL(fileURLWithPath:
             "/tmp/toki-hub-socket-\(UUID().uuidString.prefix(8))"))
         defer { fixture.remove() }
         let socketURL = fixture.root.appendingPathComponent("run/toki-hub.sock")
         try createStaleUnixSocket(at: socketURL)
 
-        try prepareSocketDirectory(for: socketURL)
+        XCTAssertThrowsError(try prepareSocketDirectory(for: socketURL))
 
-        XCTAssertFalse(FileManager.default.fileExists(atPath: socketURL.path))
+        XCTAssertEqual(
+            try FileManager.default.attributesOfItem(atPath: socketURL.path)[.type] as? FileAttributeType,
+            .typeSocket)
         let unexpected = Data("keep".utf8)
+        try FileManager.default.removeItem(at: socketURL)
         try unexpected.write(to: socketURL)
         XCTAssertThrowsError(try prepareSocketDirectory(for: socketURL))
         XCTAssertEqual(try Data(contentsOf: socketURL), unexpected)
