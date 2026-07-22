@@ -69,13 +69,7 @@ struct AgentSpool {
     let paths: AgentPaths
 
     func pendingEnvelopes() throws -> [(url: URL, envelope: EncryptedUsageEnvelope)] {
-        try paths.prepare()
-        let urls = try FileManager.default.contentsOfDirectory(
-            at: paths.spoolDirectory,
-            includingPropertiesForKeys: [.fileSizeKey, .isRegularFileKey, .isSymbolicLinkKey],
-            options: [.skipsHiddenFiles])
-            .filter { $0.pathExtension == "json" }
-            .sorted { $0.lastPathComponent < $1.lastPathComponent }
+        let urls = try pendingEnvelopeURLs()
         guard urls.count <= Self.maximumPendingEnvelopes else {
             throw AgentSpoolError.tooManyPendingEnvelopes
         }
@@ -115,6 +109,13 @@ struct AgentSpool {
         }
         let name = String(format: "%020llu.json", envelope.sequence)
         let url = paths.spoolDirectory.appendingPathComponent(name)
+        let pendingURLs = try pendingEnvelopeURLs()
+        let replacesExistingEnvelope = pendingURLs.contains {
+            $0.standardizedFileURL == url.standardizedFileURL
+        }
+        guard replacesExistingEnvelope || pendingURLs.count < Self.maximumPendingEnvelopes else {
+            throw AgentSpoolError.tooManyPendingEnvelopes
+        }
         try paths.writePrivate(data, to: url)
         return url
     }
@@ -143,6 +144,16 @@ struct AgentSpool {
         for url in urls {
             try remove(url)
         }
+    }
+
+    private func pendingEnvelopeURLs() throws -> [URL] {
+        try paths.prepare()
+        return try FileManager.default.contentsOfDirectory(
+            at: paths.spoolDirectory,
+            includingPropertiesForKeys: [.fileSizeKey, .isRegularFileKey, .isSymbolicLinkKey],
+            options: [.skipsHiddenFiles])
+            .filter { $0.pathExtension == "json" }
+            .sorted { $0.lastPathComponent < $1.lastPathComponent }
     }
 }
 

@@ -95,6 +95,7 @@ private extension HermesUsageLedger {
             previous: previous)
 
         guard let previous else {
+            guard observation.counters.totalTokens > 0 else { return false }
             candidate.baselines[identifier] = currentBaseline
             if initialUsageIsDated(
                 observation,

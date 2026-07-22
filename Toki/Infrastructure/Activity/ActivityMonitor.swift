@@ -165,8 +165,9 @@ enum ActivityMonitor {
 
     /// Queries the indexed message timestamp (milliseconds) — only true
     /// when a message was created recently (active session).
-    private static func isOpenCodeActive(since threshold: Date) -> Bool {
-        let dbPath = homeDir().appendingPathComponent(".local/share/opencode/opencode.db").path
+    static func isOpenCodeActive(
+        dbPath: String = LocalUsageReaderPaths().openCodeDatabase.path,
+        since threshold: Date) -> Bool {
         let epochMs = Int64(threshold.timeIntervalSince1970 * 1000)
         return queryCount(
             db: dbPath,

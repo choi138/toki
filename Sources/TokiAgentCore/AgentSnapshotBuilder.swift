@@ -39,18 +39,33 @@ struct AgentSnapshotBuilder: AgentSnapshotBuilding {
                 cacheURL: paths.agentCacheDirectory.appendingPathComponent("codex-rollout-cache.json"))
         let resolvedClaudeUsageCache = claudeUsageCache
             ?? ClaudeUsageCache(cacheURL: claudeUsageCacheURL(paths: paths, scope: .agent))
+        let agentLedgerURL = hermesUsageLedgerURL(paths: paths, scope: .agent)
+        let resolvedHermesUsageLedger = HermesUsageLedger(fileURL: agentLedgerURL)
 
         homeDirectory = home
         self.environment = environment
         self.rolloutUsageCache = resolvedRolloutUsageCache
         self.claudeUsageCache = resolvedClaudeUsageCache
         self.retentionTimeZone = retentionTimeZone
-        self.readerDescriptors = readerDescriptors
-            ?? LocalUsageReaderRegistry.agentDescriptors(
+        if let readerDescriptors {
+            self.readerDescriptors = readerDescriptors
+        } else {
+            self.readerDescriptors = LocalUsageReaderRegistry.agentDescriptors(
                 home: home,
                 environment: environment,
                 codexRolloutUsageCache: resolvedRolloutUsageCache,
-                claudeUsageCache: resolvedClaudeUsageCache)
+                claudeUsageCache: resolvedClaudeUsageCache,
+                hermesUsageLedger: resolvedHermesUsageLedger)
+                .map { descriptor in
+                    guard descriptor.name == HermesReader.sourceName else { return descriptor }
+                    return LocalUsageReaderDescriptor(
+                        reader: descriptor.reader,
+                        sourceLocations: descriptor.sourceLocations + [
+                            .file(agentLedgerURL, includesSQLiteSidecars: false),
+                        ],
+                        sourceSignatureStrategy: descriptor.sourceSignatureStrategy)
+                }
+        }
     }
 
     func build(configuration: AgentConfiguration, now: Date = Date()) async throws -> RemoteUsageSnapshot {
