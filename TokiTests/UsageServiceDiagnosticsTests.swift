@@ -499,6 +499,8 @@ final class UsageServicePeriodTotalsTests: XCTestCase {
         let refreshedService = UsageService(
             readers: [refreshedReader],
             periodTokenTotalsCache: cache)
+        // Avoid the separate today-versus-yesterday total read in this cache-focused test.
+        refreshedService.selectDay(Date(timeIntervalSince1970: 0))
 
         await refreshedService.refreshAfterRemoteSyncChange()
 
