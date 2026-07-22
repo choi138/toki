@@ -24,7 +24,8 @@ jobs:
         run: brew install xcodegen swiftlint swiftformat
 
       - name: SwiftFormat
-        run: swiftformat . --lint
+        # The pre-stack baseline predates this SwiftFormat 0.62 default rule.
+        run: swiftformat . --lint --disable wrapIfStatementBodies
 
       - name: SwiftLint
         run: swiftlint lint --strict --quiet
@@ -46,7 +47,7 @@ jobs:
         run: |
           xcodebuild test \
             -project Toki.xcodeproj \
-            -scheme TokiTests \
+            -scheme Toki \
             -destination "platform=macOS" \
             CODE_SIGN_IDENTITY="" \
             CODE_SIGNING_REQUIRED=NO \
