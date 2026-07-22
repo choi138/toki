@@ -128,12 +128,13 @@ private func registerSnapshotRoutes(
     ownerToken: String) {
     application.get("v1", "snapshots", "manifest") { request async throws -> Response in
         try requireOwner(request, token: ownerToken)
-        let entityTag = await makeEntityTag(store.manifestVersionTag())
+        let representation = await store.manifestRepresentation()
+        let entityTag = makeEntityTag(representation.versionTag)
         if request.headers.first(name: "If-None-Match") == entityTag {
             return emptyResponse(status: .notModified, entityTag: entityTag)
         }
-        return try await jsonResponse(
-            RemoteSnapshotManifestResponse(devices: store.devices()),
+        return try jsonResponse(
+            RemoteSnapshotManifestResponse(devices: representation.devices),
             maximumBytes: TokiSyncLimits.maximumManagementResponseBytes,
             entityTag: entityTag)
     }
@@ -141,12 +142,13 @@ private func registerSnapshotRoutes(
     application.get("v1", "snapshots") { request async throws -> Response in
         try requireOwner(request, token: ownerToken)
         do {
-            let entityTag = await makeEntityTag(store.snapshotVersionTag())
+            let representation = try await store.snapshotListRepresentation()
+            let entityTag = makeEntityTag(representation.versionTag)
             if request.headers.first(name: "If-None-Match") == entityTag {
                 return emptyResponse(status: .notModified, entityTag: entityTag)
             }
-            return try await jsonResponse(
-                RemoteSnapshotListResponse(snapshots: store.snapshots()),
+            return try jsonResponse(
+                RemoteSnapshotListResponse(snapshots: representation.snapshots),
                 maximumBytes: TokiSyncLimits.maximumSnapshotResponseBytes,
                 entityTag: entityTag)
         } catch {

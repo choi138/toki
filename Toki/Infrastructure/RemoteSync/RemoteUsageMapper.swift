@@ -4,8 +4,6 @@ import TokiUsageCore
 import TokiUsageReaders
 
 struct RemoteUsageMapper {
-    let readerName: String
-
     func usageSlice(
         from snapshot: RemoteUsageSnapshot,
         startDate: Date,
@@ -21,7 +19,7 @@ struct RemoteUsageMapper {
                 event,
                 model: model,
                 cost: cost,
-                source: "\(event.source) · \(snapshot.device.name)",
+                source: deviceSource(event.source, deviceName: snapshot.device.name),
                 to: &usage)
 
             var sourceUsage = usageBySource[event.source] ?? RawTokenUsage()
@@ -34,13 +32,16 @@ struct RemoteUsageMapper {
             usageBySource[event.source] = sourceUsage
         }
 
-        usage.mergeActivityEvents(
-            mappedActivityEvents(
-                from: snapshot,
-                startDate: startDate,
-                endDate: endDate),
-            source: readerName,
-            clippingEndDate: endDate)
+        usage.activityEvents.append(contentsOf: mappedActivityEvents(
+            from: snapshot,
+            startDate: startDate,
+            endDate: endDate))
+        usage.recomputeMergedActiveEstimate(clippingEndDate: endDate)
+        annotateActivityModelSources(
+            from: snapshot,
+            startDate: startDate,
+            endDate: endDate,
+            usage: &usage)
 
         let activitySources: Set<String> = Set(snapshot.activityEvents.compactMap { event in
             guard event.timestamp >= startDate, event.timestamp < endDate else { return nil }
@@ -139,5 +140,24 @@ struct RemoteUsageMapper {
                 key: normalizedModelID(event.model),
                 agentKind: event.agentKind == .subagent ? .subagent : .main)
         }
+    }
+
+    private func annotateActivityModelSources(
+        from snapshot: RemoteUsageSnapshot,
+        startDate: Date,
+        endDate: Date,
+        usage: inout RawTokenUsage) {
+        for event in snapshot.activityEvents where event.timestamp >= startDate && event.timestamp < endDate {
+            guard let model = normalizedModelID(event.model),
+                  usage.perModel[model] != nil else {
+                continue
+            }
+            usage.perModel[model]?.sources.insert(
+                deviceSource(event.source, deviceName: snapshot.device.name))
+        }
+    }
+
+    private func deviceSource(_ source: String, deviceName: String) -> String {
+        "\(source) · \(deviceName)"
     }
 }

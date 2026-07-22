@@ -20,6 +20,7 @@ final class RemoteUsageReaderTests: XCTestCase {
         XCTAssertEqual(usage.tokenEvents.first?.attribution, nil)
         XCTAssertEqual(usage.activityEvents.count, 1)
         XCTAssertEqual(usage.perModel["gpt-5"]?.totalTokens, 16)
+        XCTAssertEqual(usage.perModel["gpt-5"]?.sources, ["Codex · build-server"])
     }
 }
 
