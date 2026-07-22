@@ -78,4 +78,4 @@ jobs:
         run: swift build --package-path TokiHub -c release --product toki-hub
 
       - name: Verify package lockfile is unchanged
-        run: git -C "$GITHUB_WORKSPACE" diff --exit-code -- TokiHub/Package.resolved
+        run: git -c safe.directory="$GITHUB_WORKSPACE" -C "$GITHUB_WORKSPACE" diff --exit-code -- TokiHub/Package.resolved
