@@ -4,6 +4,42 @@ import XCTest
 @testable import TokiUsageReaders
 
 final class ClaudeCodeReaderActivityTests: XCTestCase {
+    func test_claudeUsageCachePersistsWithPrivatePermissions() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("toki-claude-cache-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let transcriptURL = root.appendingPathComponent("session.jsonl")
+        try Data("{}\n".utf8).write(to: transcriptURL)
+        let cacheURL = root.appendingPathComponent("private/claude-usage-cache.json")
+        let cache = ClaudeUsageCache(cacheURL: cacheURL)
+
+        await cache.store(
+            records: [
+                ClaudeCachedUsageRecord(
+                    lineIndex: 0,
+                    timestamp: 1_750_000_000,
+                    requestId: "request",
+                    sessionID: "session",
+                    cwd: "/private/project",
+                    messageID: "message",
+                    model: "claude-sonnet-4-6",
+                    input: 10,
+                    output: 2,
+                    cacheRead: 0,
+                    cacheWrite: 0),
+            ],
+            for: transcriptURL)
+
+        let cachePermissions = try XCTUnwrap(
+            FileManager.default.attributesOfItem(atPath: cacheURL.path)[.posixPermissions] as? NSNumber)
+        let directoryPermissions = try XCTUnwrap(
+            FileManager.default.attributesOfItem(
+                atPath: cacheURL.deletingLastPathComponent().path)[.posixPermissions] as? NSNumber)
+        XCTAssertEqual(cachePermissions.intValue & 0o777, 0o600)
+        XCTAssertEqual(directoryPermissions.intValue & 0o777, 0o700)
+    }
+
     func test_claudeCodeReader_deduplicatesActivityAcrossLogsForSameRequest() {
         let usage = ClaudeCodeReader.usage(
             fromJSONLSessions: [

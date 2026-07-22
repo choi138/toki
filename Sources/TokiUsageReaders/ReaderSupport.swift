@@ -3,8 +3,8 @@ import TokiUsageCore
 
 func findFiles(in directory: URL, withExtension ext: String, modifiedAfter: Date? = nil) -> [URL] {
     let keys: [URLResourceKey] = modifiedAfter != nil
-        ? [.isRegularFileKey, .contentModificationDateKey]
-        : [.isRegularFileKey]
+        ? [.isDirectoryKey, .isRegularFileKey, .isSymbolicLinkKey, .contentModificationDateKey]
+        : [.isDirectoryKey, .isRegularFileKey, .isSymbolicLinkKey]
 
     guard FileManager.default.fileExists(atPath: directory.path),
           let enumerator = FileManager.default.enumerator(
@@ -14,17 +14,26 @@ func findFiles(in directory: URL, withExtension ext: String, modifiedAfter: Date
         return []
     }
 
-    return enumerator.compactMap { item -> URL? in
-        guard let url = item as? URL, url.pathExtension == ext else { return nil }
+    var files: [URL] = []
+    for case let url as URL in enumerator {
+        guard let values = try? url.resourceValues(forKeys: Set(keys)) else { continue }
+        if values.isSymbolicLink == true {
+            if values.isDirectory == true {
+                enumerator.skipDescendants()
+            }
+            continue
+        }
+        guard values.isRegularFile == true,
+              url.pathExtension == ext else { continue }
 
         if let since = modifiedAfter {
-            let modifiedDate = (try? url.resourceValues(forKeys: [.contentModificationDateKey]))?
-                .contentModificationDate
-            guard let modifiedDate, modifiedDate >= since else { return nil }
+            guard let modifiedDate = values.contentModificationDate,
+                  modifiedDate >= since else { continue }
         }
 
-        return url
+        files.append(url)
     }
+    return files
 }
 
 func readJSONLLines(at url: URL) -> [String] {

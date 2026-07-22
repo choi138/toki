@@ -1,5 +1,4 @@
 import Foundation
-import TokiDurableStorage
 import TokiSyncProtocol
 import Vapor
 
@@ -188,21 +187,7 @@ func prepareSocketDirectory(for socketURL: URL) throws {
 
     let socketPathExists = FileManager.default.fileExists(atPath: socketURL.path)
         || (try? FileManager.default.destinationOfSymbolicLink(atPath: socketURL.path)) != nil
-    guard socketPathExists else { return }
-
-    do {
-        let values = try socketURL.resourceValues(forKeys: [.isSymbolicLinkKey])
-        let socketAttributes = try FileManager.default.attributesOfItem(atPath: socketURL.path)
-        guard values.isSymbolicLink != true,
-              socketAttributes[.type] as? FileAttributeType == .typeSocket else {
-            throw HubConfigurationError.invalidSocketPath
-        }
-        // HubStore acquired the storage lock before this point, so a socket
-        // left by the same configured Hub cannot still have a live owner.
-        try DurableFileIO.removeIfPresent(socketURL)
-    } catch let error as HubConfigurationError {
-        throw error
-    } catch {
+    if socketPathExists {
         throw HubConfigurationError.invalidSocketPath
     }
 }
