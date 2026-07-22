@@ -66,6 +66,9 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Snapshot package lockfile
+        run: cp TokiHub/Package.resolved "$RUNNER_TEMP/toki-hub-Package.resolved"
+
       - name: Verify Swift version
         run: |
           swift --version
@@ -78,4 +81,4 @@ jobs:
         run: swift build --package-path TokiHub -c release --product toki-hub
 
       - name: Verify package lockfile is unchanged
-        run: git -c safe.directory="$GITHUB_WORKSPACE" -C "$GITHUB_WORKSPACE" diff --exit-code -- TokiHub/Package.resolved
+        run: diff -u "$RUNNER_TEMP/toki-hub-Package.resolved" TokiHub/Package.resolved
