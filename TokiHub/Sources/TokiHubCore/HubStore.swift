@@ -165,9 +165,7 @@ extension HubStore {
               Data(base64Encoded: envelope.payload) != nil else {
             throw HubStoreError.payloadTooLarge
         }
-        guard envelope.generatedAt.timeIntervalSince1970.isFinite,
-              envelope.generatedAt <= now.addingTimeInterval(86400),
-              envelope.generatedAt >= Date(timeIntervalSince1970: 946_684_800) else {
+        guard TokiSyncValidation.isAcceptableEnvelopeTimestamp(envelope.generatedAt, now: now) else {
             throw HubStoreError.invalidTimestamp
         }
 

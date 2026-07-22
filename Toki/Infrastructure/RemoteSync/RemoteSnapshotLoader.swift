@@ -89,13 +89,13 @@ private extension RemoteSnapshotLoader {
         }
 
         let cachedState: LoadedRemoteSnapshotState?
-        if let loadedState {
+        if let loadedState, loadedState.isComplete {
             cachedState = loadedState
         } else {
             cachedState = try loadCachedState(
                 configuration: configuration,
                 lifecycleTicket: lifecycleTicket)
-            loadedState = cachedState
+            loadedState = cachedState?.isComplete == true ? cachedState : nil
         }
         if let cachedState,
            cachedState.isComplete,
@@ -186,7 +186,8 @@ private extension RemoteSnapshotLoader {
                     encryptionKeysByDevice: authenticated.encryptionKeysByDevice,
                     envelopeDeviceIDs: authenticatedDeviceIDs)
                 if !authenticatedEnvelopes.isEmpty {
-                    try anchorStore.validateAndSave(authenticatedEnvelopes)
+                    try anchorStore.validateAndSave(
+                        authenticatedEnvelopes, originIdentifier: configuration.snapshotCacheIdentifier)
                 }
             }
         } catch RemoteUsageReaderError.staleSnapshot {
@@ -278,7 +279,8 @@ private extension RemoteSnapshotLoader {
                 encryptionKeysByDevice: encryptionKeysByDevice,
                 envelopeDeviceIDs: envelopeDeviceIDs)
             if !fetchedEnvelopes.isEmpty {
-                try anchorStore.validateAndSave(fetchedEnvelopes)
+                try anchorStore.validateAndSave(
+                    fetchedEnvelopes, originIdentifier: configuration.snapshotCacheIdentifier)
             }
             try cache.save(entry, changedDeviceIDs: changedDeviceIDs.union(removedDeviceIDs))
         }
