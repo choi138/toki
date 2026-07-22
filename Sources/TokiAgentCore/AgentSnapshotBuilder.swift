@@ -89,19 +89,8 @@ struct AgentSnapshotBuilder: AgentSnapshotBuilding {
             .filter { event in
                 event.timestamp >= coveredFrom
                     && event.timestamp < coveredTo
-                    && event.totalTokens > 0
             }
-            .map { event in
-                RemoteTokenEvent(
-                    timestamp: event.timestamp,
-                    source: event.source,
-                    model: remoteModel(event.model),
-                    inputTokens: event.inputTokens,
-                    outputTokens: event.outputTokens,
-                    cacheReadTokens: event.cacheReadTokens,
-                    cacheWriteTokens: event.cacheWriteTokens,
-                    reasoningTokens: event.reasoningTokens)
-            }
+            .compactMap(remoteTokenEvent)
             .sorted(by: tokenEventSort)
 
         let activityEvents = readerUsages
@@ -347,18 +336,27 @@ private extension AgentSnapshotBuilder {
         do {
             files = try FileManager.default.contentsOfDirectory(
                 at: directory,
-                includingPropertiesForKeys: [.contentModificationDateKey, .isRegularFileKey],
+                includingPropertiesForKeys: [
+                    .contentModificationDateKey,
+                    .isRegularFileKey,
+                    .isSymbolicLinkKey,
+                ],
                 options: [.skipsHiddenFiles])
         } catch {
             throw AgentSnapshotBuilderError.sourceInspectionFailed
         }
         return try Set(files.compactMap { fileURL in
             guard fileURL.pathExtension == "jsonl" else { return nil }
-            let values = try fileURL.resourceValues(forKeys: [.contentModificationDateKey, .isRegularFileKey])
+            let values = try fileURL.resourceValues(forKeys: [
+                .contentModificationDateKey,
+                .isRegularFileKey,
+                .isSymbolicLinkKey,
+            ])
             let isRecentEnough = minimumDate.map { minimumDate in
                 values.contentModificationDate.map { $0 >= minimumDate } == true
             } ?? true
             guard values.isRegularFile == true,
+                  values.isSymbolicLink != true,
                   isRecentEnough else {
                 return nil
             }
@@ -430,6 +428,30 @@ private extension AgentSnapshotBuilder {
             return nil
         }
         return model
+    }
+
+    private func remoteTokenEvent(_ event: TokenUsageEvent) -> RemoteTokenEvent? {
+        let counts = [
+            event.inputTokens,
+            event.outputTokens,
+            event.cacheReadTokens,
+            event.cacheWriteTokens,
+            event.reasoningTokens,
+        ]
+        let validRange = 0...RemoteUsageSnapshotValidator.maximumTokenCountPerBucket
+        guard counts.allSatisfy(validRange.contains),
+              counts.contains(where: { $0 > 0 }) else {
+            return nil
+        }
+        return RemoteTokenEvent(
+            timestamp: event.timestamp,
+            source: event.source,
+            model: remoteModel(event.model),
+            inputTokens: event.inputTokens,
+            outputTokens: event.outputTokens,
+            cacheReadTokens: event.cacheReadTokens,
+            cacheWriteTokens: event.cacheWriteTokens,
+            reasoningTokens: event.reasoningTokens)
     }
 
     private var platformName: String {
