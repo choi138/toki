@@ -93,7 +93,7 @@ jobs:
         run: swift build -c release --product toki-agent
 
       - name: Verify package lockfiles are unchanged
-        run: git -C "$GITHUB_WORKSPACE" diff --exit-code -- Package.resolved
+        run: git -c safe.directory="$GITHUB_WORKSPACE" -C "$GITHUB_WORKSPACE" diff --exit-code -- Package.resolved
 
   remote-linux-hub:
     name: Linux Hub (Swift 5.9.2)
@@ -117,4 +117,4 @@ jobs:
         run: swift build --package-path TokiHub -c release --product toki-hub
 
       - name: Verify package lockfiles are unchanged
-        run: git -C "$GITHUB_WORKSPACE" diff --exit-code -- TokiHub/Package.resolved
+        run: git -c safe.directory="$GITHUB_WORKSPACE" -C "$GITHUB_WORKSPACE" diff --exit-code -- TokiHub/Package.resolved
