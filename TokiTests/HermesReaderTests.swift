@@ -236,6 +236,32 @@ final class HermesReaderTests: XCTestCase {
         XCTAssertEqual(usage.totalTokens, 123)
     }
 
+    func test_hermesReader_fallsBackToSessionTimestampsWhenMessagesSchemaIsIncomplete() async throws {
+        let tempDir = try makeHermesTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let dbURL = tempDir.appendingPathComponent("state.db")
+        try createHermesStateDB(
+            at: dbURL,
+            rows: [hermesSingleCounterFixture(id: "legacy-session", inputTokens: 123)])
+        try replaceHermesMessagesTableWithIncompleteSchema(databaseURL: dbURL)
+        let ledger = HermesUsageLedger(fileURL: tempDir.appendingPathComponent("hermes-usage-ledger.json"))
+        try await ledger.refresh(
+            observations: [],
+            observedAt: tokiTestISODate("2026-04-09T07:00:00Z"))
+        let reader = HermesReader(
+            dbPathOverride: dbURL.path,
+            usageLedger: ledger,
+            now: { tokiTestISODate("2026-04-10T12:00:00Z") })
+
+        let usage = try await reader.readUsage(
+            from: tokiTestISODate("2026-04-09T00:00:00Z"),
+            to: tokiTestISODate("2026-04-11T00:00:00Z"))
+
+        XCTAssertEqual(usage.inputTokens, 123)
+        XCTAssertEqual(usage.totalTokens, 123)
+    }
+
     func test_hermesReader_reportsZeroTokenMainCallsWithoutCountingAuxiliaryUsage() throws {
         let tempDir = try makeHermesTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: tempDir) }
@@ -710,6 +736,23 @@ func createIncompleteHermesModelUsageTable(databaseURL: URL) throws {
         nil,
         nil) == SQLITE_OK else {
         throw NSError(domain: "HermesReaderTests", code: 17)
+    }
+}
+
+func replaceHermesMessagesTableWithIncompleteSchema(databaseURL: URL) throws {
+    var database: OpaquePointer?
+    guard sqlite3_open(databaseURL.path, &database) == SQLITE_OK, let database else {
+        throw NSError(domain: "HermesReaderTests", code: 21)
+    }
+    defer { sqlite3_close(database) }
+
+    guard sqlite3_exec(
+        database,
+        "DROP TABLE messages; CREATE TABLE messages (id INTEGER PRIMARY KEY);",
+        nil,
+        nil,
+        nil) == SQLITE_OK else {
+        throw NSError(domain: "HermesReaderTests", code: 22)
     }
 }
 

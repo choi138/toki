@@ -16,6 +16,28 @@ final class ActivityMonitorTests: XCTestCase {
             since: recentDate.addingTimeInterval(-30)))
     }
 
+    func test_activityMonitor_detectsRecentArchivedCodexRollout() throws {
+        let now = Date()
+        let codexHome = FileManager.default.temporaryDirectory
+            .appendingPathComponent("toki-codex-activity-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: codexHome) }
+        let rolloutURL = codexHome
+            .appendingPathComponent("archived_sessions", isDirectory: true)
+            .appendingPathComponent("recent.jsonl")
+        try FileManager.default.createDirectory(
+            at: rolloutURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true)
+        try Data("{}\n".utf8).write(to: rolloutURL)
+        try FileManager.default.setAttributes(
+            [.modificationDate: now],
+            ofItemAtPath: rolloutURL.path)
+
+        XCTAssertTrue(ActivityMonitor.hasRecentCodexRollout(
+            codexHomeURL: codexHome,
+            since: now.addingTimeInterval(-30),
+            now: now))
+    }
+
     func test_activityMonitor_detectsRecentCursorComposerActivity() throws {
         let dbPath = try makeCursorActivityDatabase(
             lastUpdatedAt: Int64(Date().timeIntervalSince1970 * 1000),
