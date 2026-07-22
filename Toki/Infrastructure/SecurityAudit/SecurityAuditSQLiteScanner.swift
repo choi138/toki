@@ -13,8 +13,8 @@ struct SecurityFileScanResult {
     }
 }
 
-extension SecurityAuditScanner {
-    func sqliteWALModificationDate(
+enum SecurityAuditSQLiteFileMetadata {
+    static func walModificationDate(
         for source: SecurityAuditFileSource,
         fileURL: URL,
         fileManager: FileManager) -> Date? {
@@ -25,7 +25,7 @@ extension SecurityAuditScanner {
         return attributes?[.modificationDate] as? Date
     }
 
-    func sqliteWALSignature(
+    static func walSignature(
         for source: SecurityAuditFileSource,
         fileURL: URL,
         fileManager: FileManager) -> SecurityAuditSQLiteWALSignature? {
@@ -48,7 +48,9 @@ extension SecurityAuditScanner {
             modificationDate: modificationDate,
             signature: SecurityAuditCacheSignature.signature(for: walURL, byteOffset: fileSize))
     }
+}
 
+extension SecurityAuditFileScanner {
     func scanSQLiteFile(
         _ fileURL: URL,
         sourceName: String,
