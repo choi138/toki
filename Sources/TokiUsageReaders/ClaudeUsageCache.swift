@@ -2,18 +2,24 @@ import Foundation
 import TokiDurableStorage
 
 private let claudeUsageCacheParserVersion = 2
+public let maximumClaudeUsageCacheBytes = 64 * 1024 * 1024
 
 public actor ClaudeUsageCache {
     public static let shared = ClaudeUsageCache(cacheURL: claudeUsageCacheURL())
 
     private let cacheURL: URL
+    private let maximumBytes: Int
     private var isLoaded = false
     private var entries: [String: ClaudeUsageCacheEntry] = [:]
     private var batchDepth = 0
     private var hasPendingChanges = false
 
-    public init(cacheURL: URL) {
+    public init(
+        cacheURL: URL,
+        maximumBytes: Int = maximumClaudeUsageCacheBytes) {
+        precondition(maximumBytes >= 0)
         self.cacheURL = cacheURL
+        self.maximumBytes = maximumBytes
     }
 
     func beginBatch() async {
@@ -78,9 +84,18 @@ public actor ClaudeUsageCache {
         guard !isLoaded else { return }
         isLoaded = true
 
-        guard let data = try? Data(contentsOf: cacheURL),
-              let decoded = try? JSONDecoder().decode(ClaudeUsageCacheFile.self, from: data) else {
-            entries = [:]
+        let data: Data?
+        do {
+            data = try DurableFileIO.readPrivate(
+                from: cacheURL,
+                maximumByteCount: maximumBytes)
+        } catch {
+            replaceInvalidCache()
+            return
+        }
+        guard let data else { return }
+        guard let decoded = try? JSONDecoder().decode(ClaudeUsageCacheFile.self, from: data) else {
+            replaceInvalidCache()
             return
         }
 
@@ -91,13 +106,22 @@ public actor ClaudeUsageCache {
         guard hasPendingChanges, batchDepth == 0 else { return }
 
         let payload = ClaudeUsageCacheFile(entries: entries)
-        guard let data = try? JSONEncoder().encode(payload) else { return }
+        guard let data = try? JSONEncoder().encode(payload),
+              data.count <= maximumBytes else {
+            return
+        }
         do {
             try DurableFileIO.writePrivate(data, to: cacheURL)
         } catch {
             return
         }
         hasPendingChanges = false
+    }
+
+    private func replaceInvalidCache() {
+        entries = [:]
+        hasPendingChanges = true
+        persistIfNeeded()
     }
 }
 

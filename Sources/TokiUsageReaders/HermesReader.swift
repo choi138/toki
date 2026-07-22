@@ -105,7 +105,10 @@ public struct HermesReader: TokenReader {
     }
 
     private func preparedUsageStatement(in database: OpaquePointer) throws -> OpaquePointer {
-        let hasMessages = try tableExists("messages", in: database)
+        let hasMessages = try table(
+            "messages",
+            hasColumns: ["session_id", "timestamp"],
+            in: database)
         let activityJoin = hasMessages
             ? """
             LEFT JOIN (

@@ -7,12 +7,15 @@ public struct ClaudeCodeReader: TokenReader {
     public let name = "Claude Code"
     private let projectsURLOverride: URL?
     private let usageCache: ClaudeUsageCache
+    private let attributionHomeDirectory: URL
 
     public init(
         projectsURLOverride: URL? = nil,
         usageCache: ClaudeUsageCache = .shared) {
         self.projectsURLOverride = projectsURLOverride
         self.usageCache = usageCache
+        attributionHomeDirectory = Self.resolveAttributionHomeDirectory(
+            projectsURLOverride: projectsURLOverride)
     }
 
     private var projectsURL: URL {
@@ -38,31 +41,38 @@ public struct ClaudeCodeReader: TokenReader {
             fromSessions: sessions,
             from: startDate,
             to: endDate,
-            source: name)
+            source: name,
+            attributionHomeDirectory: attributionHomeDirectory)
     }
+}
 
+extension ClaudeCodeReader {
     static func usage(
         fromJSONLLines lines: [String],
         streamID: String,
         from startDate: Date,
-        to endDate: Date) -> RawTokenUsage {
+        to endDate: Date,
+        attributionHomeDirectory: URL = homeDir()) -> RawTokenUsage {
         usage(
             fromJSONLSessions: [(streamID: streamID, lines: lines)],
             from: startDate,
-            to: endDate)
+            to: endDate,
+            attributionHomeDirectory: attributionHomeDirectory)
     }
 
     static func usage(
         fromJSONLSessions sessions: [(streamID: String, lines: [String])],
         from startDate: Date,
-        to endDate: Date) -> RawTokenUsage {
+        to endDate: Date,
+        attributionHomeDirectory: URL = homeDir()) -> RawTokenUsage {
         usage(
             fromSessions: sessions.map { session in
                 (streamID: session.streamID, records: parseUsageRecords(from: session.lines))
             },
             from: startDate,
             to: endDate,
-            source: "Claude Code")
+            source: "Claude Code",
+            attributionHomeDirectory: attributionHomeDirectory)
     }
 
     private func cachedUsageRecords(at url: URL) async -> [ClaudeCachedUsageRecord] {
@@ -81,7 +91,8 @@ public struct ClaudeCodeReader: TokenReader {
         from startDate: Date,
         to endDate: Date,
         dedup: inout [String: Entry],
-        activityByKey: inout [String: ActivitySeries]) {
+        activityByKey: inout [String: ActivitySeries],
+        attributionHomeDirectory: URL) {
         for record in records {
             let date = Date(timeIntervalSince1970: record.timestamp)
             guard date >= startDate, date < endDate else { continue }
@@ -97,7 +108,10 @@ public struct ClaudeCodeReader: TokenReader {
                 output: record.output,
                 cacheRead: record.cacheRead,
                 cacheWrite: record.cacheWrite,
-                attribution: attribution(for: record, streamID: streamID))
+                attribution: attribution(
+                    for: record,
+                    streamID: streamID,
+                    homeDirectory: attributionHomeDirectory))
 
             if let existing = dedup[key] {
                 dedup[key] = existing.mergedMax(with: entry)
@@ -123,7 +137,8 @@ public struct ClaudeCodeReader: TokenReader {
         fromSessions sessions: [(streamID: String, records: [ClaudeCachedUsageRecord])],
         from startDate: Date,
         to endDate: Date,
-        source: String) -> RawTokenUsage {
+        source: String,
+        attributionHomeDirectory: URL) -> RawTokenUsage {
         var dedup: [String: Entry] = [:]
         var activityByKey: [String: ActivitySeries] = [:]
 
@@ -134,7 +149,8 @@ public struct ClaudeCodeReader: TokenReader {
                 from: startDate,
                 to: endDate,
                 dedup: &dedup,
-                activityByKey: &activityByKey)
+                activityByKey: &activityByKey,
+                attributionHomeDirectory: attributionHomeDirectory)
         }
 
         return usage(
@@ -227,6 +243,18 @@ public struct ClaudeCodeReader: TokenReader {
                 cacheWrite: usage.cacheCreationInputTokens ?? 0)
         }
     }
+
+    private static func resolveAttributionHomeDirectory(projectsURLOverride: URL?) -> URL {
+        guard let projectsURLOverride,
+              projectsURLOverride.lastPathComponent == "projects" else {
+            return homeDir()
+        }
+        let claudeDirectory = projectsURLOverride.deletingLastPathComponent()
+        guard claudeDirectory.lastPathComponent == ".claude" else {
+            return homeDir()
+        }
+        return claudeDirectory.deletingLastPathComponent()
+    }
 }
 
 // MARK: - Private Types
@@ -294,7 +322,10 @@ private struct ActivitySeries {
     }
 }
 
-private func attribution(for record: ClaudeCachedUsageRecord, streamID: String) -> UsageAttribution {
+private func attribution(
+    for record: ClaudeCachedUsageRecord,
+    streamID: String,
+    homeDirectory: URL) -> UsageAttribution {
     let sessionID = record.sessionID
         ?? usageSessionID(fromPath: streamID).trimmedNonEmpty
         ?? record.requestId
@@ -306,7 +337,10 @@ private func attribution(for record: ClaudeCachedUsageRecord, streamID: String) 
             quality: .exact)
     }
 
-    if let attribution = inferredAttributionFromClaudeStreamID(streamID, sessionID: sessionID) {
+    if let attribution = inferredAttributionFromClaudeStreamID(
+        streamID,
+        sessionID: sessionID,
+        homeDirectory: homeDirectory) {
         return attribution
     }
 
@@ -315,7 +349,10 @@ private func attribution(for record: ClaudeCachedUsageRecord, streamID: String) 
         quality: .unknown)
 }
 
-private func inferredAttributionFromClaudeStreamID(_ streamID: String, sessionID: String?) -> UsageAttribution? {
+private func inferredAttributionFromClaudeStreamID(
+    _ streamID: String,
+    sessionID: String?,
+    homeDirectory: URL) -> UsageAttribution? {
     guard streamID.contains("/") else {
         guard let projectName = streamID.trimmedNonEmpty else { return nil }
         return UsageAttribution(
@@ -331,7 +368,11 @@ private func inferredAttributionFromClaudeStreamID(_ streamID: String, sessionID
     }
 
     if parentName.hasPrefix("-") {
-        guard let projectName = projectNameFromClaudeEncodedFolder(parentName) else { return nil }
+        guard let projectName = projectNameFromClaudeEncodedFolder(
+            parentName,
+            homeDirectory: homeDirectory) else {
+            return nil
+        }
         return UsageAttribution(
             projectName: projectName,
             sessionID: sessionID,
@@ -345,8 +386,10 @@ private func inferredAttributionFromClaudeStreamID(_ streamID: String, sessionID
         quality: .inferred)
 }
 
-private func projectNameFromClaudeEncodedFolder(_ parentName: String) -> String? {
-    let encodedHomePath = homeDir().path.replacingOccurrences(of: "/", with: "-")
+private func projectNameFromClaudeEncodedFolder(
+    _ parentName: String,
+    homeDirectory: URL) -> String? {
+    let encodedHomePath = homeDirectory.path.replacingOccurrences(of: "/", with: "-")
     if parentName.hasPrefix(encodedHomePath) {
         let suffix = parentName.dropFirst(encodedHomePath.count)
         if let projectName = String(suffix).trimmingLeadingHyphens.trimmedNonEmpty {
