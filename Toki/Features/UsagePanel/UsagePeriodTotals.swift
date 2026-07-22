@@ -85,4 +85,8 @@ final class PeriodTokenTotalsCache {
         guard let data = try? encoder.encode(entry) else { return }
         defaults.set(data, forKey: key)
     }
+
+    func clear() {
+        defaults.removeObject(forKey: key)
+    }
 }

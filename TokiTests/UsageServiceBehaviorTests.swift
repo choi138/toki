@@ -55,6 +55,26 @@ final class UsageServiceBehaviorTests: XCTestCase {
         XCTAssertEqual(date, secondDay)
     }
 
+    func test_usageService_queuesRemoteSyncRefreshDuringIdenticalActiveLoad() async {
+        let gate = BlockingReaderGate()
+        let reader = BlockingMockReader(name: "Mock", gate: gate) { _, _ in
+            mockUsage(totalTokens: 100)
+        }
+        let service = await MainActor.run { UsageService(readers: [reader]) }
+        let initialRefresh = Task { await service.refresh() }
+
+        await gate.waitForFirstRequest()
+        await service.refreshAfterRemoteSyncChange()
+        let requestCountDuringLoad = await gate.requestCountSnapshot()
+        await gate.release()
+        await initialRefresh.value
+        await gate.waitForRequestCount(2)
+        let finalRequestCount = await gate.requestCountSnapshot()
+
+        XCTAssertEqual(requestCountDuringLoad, 1)
+        XCTAssertGreaterThanOrEqual(finalRequestCount, 2)
+    }
+
     func test_usageService_sortsModelsByActiveTime() async {
         let recorder = MockReaderRecorder()
         let reader = MockReader(name: "Mock", recorder: recorder) { _, _ in
@@ -206,5 +226,32 @@ final class UsageServiceBehaviorTests: XCTestCase {
 
         XCTAssertEqual(startDate, behaviorLocalStartOfDay("2026-04-10T09:00:00Z"))
         XCTAssertEqual(endDate, behaviorLocalExclusiveEnd("2026-04-12T18:00:00Z"))
+    }
+}
+
+final class UsageServicePeriodTotalsConcurrencyTests: XCTestCase {
+    func test_usageService_remoteSyncChangeRejectsSupersededPeriodTokenTotalsLoad() async throws {
+        let suiteName = "UsageServicePeriodTotalsConcurrencyTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let state = SupersededPeriodTokenTotalsReaderState()
+        let service = await MainActor.run {
+            UsageService(
+                readers: [SupersededPeriodTokenTotalsReader(state: state)],
+                periodTokenTotalsCache: PeriodTokenTotalsCache(defaults: defaults))
+        }
+        await MainActor.run { service.selectDay(Date(timeIntervalSince1970: 0)) }
+        let initialLoad = Task { await service.refreshPeriodTokenTotals() }
+        await state.waitForRequestCount(1)
+        let remoteRefresh = Task { await service.refreshAfterRemoteSyncChange() }
+        await state.waitForRequestCount(2)
+
+        await state.releaseRequest(1)
+        await initialLoad.value
+        await state.releaseRequest(2)
+        await remoteRefresh.value
+
+        let totals = await MainActor.run { service.periodTokenTotals.map(\.totalTokens) }
+        XCTAssertEqual(totals, [999, 999, 999])
     }
 }

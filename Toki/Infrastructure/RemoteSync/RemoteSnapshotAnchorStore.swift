@@ -8,6 +8,9 @@ protocol RemoteSnapshotAnchorStoring {
     func validateAndSave(
         _ envelopes: [EncryptedUsageEnvelope],
         originIdentifier: String) throws
+    func copyAnchors(
+        from sourceOriginIdentifier: String,
+        to destinationOriginIdentifier: String) throws
     func remove(deviceID: String, originIdentifier: String) throws
     func clear() throws
 }
@@ -42,6 +45,42 @@ final class RemoteSnapshotAnchorStore: RemoteSnapshotAnchorStoring {
             anchors.merge(candidates) { _, candidate in candidate }
             if !anchors.isEmpty {
                 loadResult.partitions[originIdentifier] = anchors
+            }
+            try validate(loadResult.partitions)
+            guard loadResult.requiresWrite || loadResult.partitions != previousPartitions else { return }
+            try write(loadResult.partitions)
+        }
+    }
+
+    func copyAnchors(
+        from sourceOriginIdentifier: String,
+        to destinationOriginIdentifier: String) throws {
+        guard SnapshotCipher.isSHA256Digest(sourceOriginIdentifier),
+              SnapshotCipher.isSHA256Digest(destinationOriginIdentifier) else {
+            throw RemoteSnapshotAnchorStoreError.invalidAnchorStore
+        }
+        guard sourceOriginIdentifier != destinationOriginIdentifier else { return }
+
+        try withExclusiveLock {
+            var loadResult = try loadAnchorPartitions(migratingTo: sourceOriginIdentifier)
+            let previousPartitions = loadResult.partitions
+            let sourceAnchors = loadResult.partitions[sourceOriginIdentifier] ?? [:]
+            var destinationAnchors = loadResult.partitions[destinationOriginIdentifier] ?? [:]
+
+            for (deviceID, sourceAnchor) in sourceAnchors {
+                guard let destinationAnchor = destinationAnchors[deviceID] else {
+                    destinationAnchors[deviceID] = sourceAnchor
+                    continue
+                }
+                if sourceAnchor.sequence > destinationAnchor.sequence {
+                    destinationAnchors[deviceID] = sourceAnchor
+                } else if sourceAnchor.sequence == destinationAnchor.sequence,
+                          sourceAnchor.envelopeDigest != destinationAnchor.envelopeDigest {
+                    throw RemoteUsageReaderError.conflictingSnapshots
+                }
+            }
+            if !destinationAnchors.isEmpty {
+                loadResult.partitions[destinationOriginIdentifier] = destinationAnchors
             }
             try validate(loadResult.partitions)
             guard loadResult.requiresWrite || loadResult.partitions != previousPartitions else { return }

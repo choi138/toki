@@ -166,4 +166,54 @@ extension RemoteUsageReaderTests {
             retainedAttributes[.systemFileNumber] as? NSNumber)
         XCTAssertEqual(try cache.load()?.envelopes, [fixture.envelope])
     }
+
+    func test_splitCacheDeviceRemovalCleansOrphanedEnvelopeWithoutMetadata() throws {
+        let fixture = try makeFixture()
+        let sourceSnapshot = try SnapshotCipher.open(fixture.envelope, key: fixture.encryptionKey)
+        let secondSnapshot = RemoteUsageSnapshot(
+            device: RemoteDeviceDescriptor(id: "device-2", name: "worker-2", platform: "linux"),
+            generatedAt: sourceSnapshot.generatedAt,
+            coveredFrom: sourceSnapshot.coveredFrom,
+            coveredTo: sourceSnapshot.coveredTo,
+            tokenEvents: sourceSnapshot.tokenEvents,
+            activityEvents: sourceSnapshot.activityEvents)
+        let secondEnvelope = try SnapshotCipher.seal(
+            secondSnapshot,
+            sequence: 1,
+            key: SnapshotCipher.generateKey())
+        let secondDevice = RemoteDeviceSummary(
+            id: "device-2",
+            name: "worker-2",
+            createdAt: fixture.start,
+            lastSeenAt: fixture.end,
+            latestSequence: 1)
+        let root = makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let cache = RemoteSnapshotCache(url: root.appendingPathComponent("snapshots.json"))
+        try cache.save(RemoteSnapshotCacheEntry(
+            envelopes: [fixture.envelope, secondEnvelope],
+            manifest: [fixture.device(), secondDevice]))
+        let envelopeURLs = try FileManager.default.contentsOfDirectory(
+            at: cache.envelopeDirectoryURL,
+            includingPropertiesForKeys: nil)
+        let removedURL = try XCTUnwrap(envelopeURLs.first {
+            $0.lastPathComponent.hasPrefix("\(fixture.envelope.deviceID).")
+        })
+        let retainedURL = try XCTUnwrap(envelopeURLs.first {
+            $0.lastPathComponent.hasPrefix("device-2.")
+        })
+        let retainedData = try Data(contentsOf: retainedURL)
+        try FileManager.default.removeItem(at: cache.url)
+
+        try cache.remove(deviceID: fixture.envelope.deviceID)
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: removedURL.path))
+        XCTAssertEqual(try Data(contentsOf: retainedURL), retainedData)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: cache.envelopeDirectoryURL.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: cache.url.path))
+
+        try cache.remove(deviceID: "device-2")
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: cache.envelopeDirectoryURL.path))
+    }
 }

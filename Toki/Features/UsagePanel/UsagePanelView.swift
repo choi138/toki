@@ -129,7 +129,10 @@ struct UsagePanelView: View {
         .background(Color(red: 0.09, green: 0.09, blue: 0.11))
         .preferredColorScheme(.dark)
         .sheet(isPresented: $isShowingSettings) {
-            PanelSettingsView(settings: viewModel.settings, readerNames: viewModel.readerNames)
+            PanelSettingsView(
+                settings: viewModel.settings,
+                readerNames: viewModel.readerNames,
+                onRemoteSyncChange: handleRemoteSyncChange)
         }
         .sheet(isPresented: $isShowingSecurityAudit) {
             SecurityAuditView()
@@ -225,6 +228,10 @@ struct UsagePanelView: View {
 
     private func refresh() {
         Task { await refreshVisibleData() }
+    }
+
+    private func handleRemoteSyncChange() {
+        Task { await viewModel.refreshAfterRemoteSyncChange() }
     }
 
     private func selectDay(_ date: Date) {

@@ -479,6 +479,36 @@ final class UsageServicePeriodTotalsTests: XCTestCase {
         XCTAssertTrue(cachedCalls.usage.isEmpty)
     }
 
+    func test_usageService_remoteSyncChangeInvalidatesFreshPeriodTokenTotalsCache() async {
+        let (suiteName, defaults) = makeDefaults()
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let cache = PeriodTokenTotalsCache(defaults: defaults)
+        let seedReader = PeriodTokenTotalsReader(
+            name: "Mock",
+            recorder: PeriodTokenRangeRecorder()) { _, _ in 42 }
+        let seedService = UsageService(
+            readers: [seedReader],
+            periodTokenTotalsCache: cache)
+        await seedService.refreshPeriodTokenTotals()
+
+        let refreshedRecorder = PeriodTokenRangeRecorder()
+        let refreshedReader = PeriodTokenTotalsReader(name: "Mock", recorder: refreshedRecorder) { _, _ in
+            999
+        }
+        let refreshedService = UsageService(
+            readers: [refreshedReader],
+            periodTokenTotalsCache: cache)
+        // Avoid the separate today-versus-yesterday total read in this cache-focused test.
+        refreshedService.selectDay(Date(timeIntervalSince1970: 0))
+
+        await refreshedService.refreshAfterRemoteSyncChange()
+
+        let refreshedCalls = await refreshedRecorder.snapshot()
+        XCTAssertEqual(refreshedService.periodTokenTotals.map(\.totalTokens), [999, 999, 999])
+        XCTAssertEqual(refreshedCalls.total.count, 3)
+    }
+
     func test_usageService_discardsStalePeriodTokenTotalsWhenReaderSettingsChangeDuringLoad() async {
         let (suiteName, defaults) = makeDefaults()
         defer { defaults.removePersistentDomain(forName: suiteName) }
