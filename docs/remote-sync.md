@@ -201,9 +201,10 @@ device index so a crash between the two stores cannot leave an undiscoverable
 device key behind. Legacy split URL/token records fail closed and
 must be reconnected. Connecting from a disconnected state clears any unbound
 encrypted cache, replay anchors, and leftover device keys before saving the new
-Hub configuration. Credential deletion happens before cache or replay-anchor
-removal, so a Keychain failure leaves the existing rollback protection intact;
-existing devices whose keys were lost must be revoked and paired again.
+Hub configuration. Local cleanup clears encrypted cache and replay anchors
+before deleting Keychain credentials. If any cleanup step fails, Toki reports
+the failure; retry local cleanup before reconnecting or resuming remote reads.
+Existing devices whose keys were lost must be revoked and paired again.
 The encrypted disk cache is also bound to the configured Hub origin so library
 consumers cannot reuse one Hub's cache after changing origins.
 The cache stores ciphertext envelopes plus private, plaintext routing and
