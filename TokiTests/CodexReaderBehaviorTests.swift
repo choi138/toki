@@ -252,6 +252,53 @@ extension CodexReaderBehaviorTests {
         XCTAssertEqual(sanitizedUsage.perModel["gpt-5.4"]?.totalTokens, 120)
     }
 
+    func test_codexReaderSkipsSymlinkedArchivedSessionWithoutDatabaseRow() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("toki-codex-symlink-tests-\(UUID().uuidString)", isDirectory: true)
+        let archiveDirectory = directory.appendingPathComponent("archived_sessions", isDirectory: true)
+        try FileManager.default.createDirectory(at: archiveDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let databaseURL = directory.appendingPathComponent("state_5.sqlite")
+        try createSecurityAuditSQLiteDB(
+            at: databaseURL,
+            statements: [
+                """
+                CREATE TABLE threads (
+                    rollout_path TEXT NOT NULL,
+                    model TEXT,
+                    source TEXT,
+                    cwd TEXT,
+                    created_at INTEGER NOT NULL,
+                    updated_at INTEGER NOT NULL
+                )
+                """,
+            ])
+        let targetURL = directory.appendingPathComponent("outside-session.jsonl")
+        let linkURL = archiveDirectory.appendingPathComponent("linked-session.jsonl")
+        let lines = [
+            #"{"timestamp":"2026-04-10T08:59:58Z","type":"session_meta","payload":{"id":"linked-session"}}"#,
+            tokenCountLine(
+                ts: "2026-04-10T09:00:00Z",
+                input: 120,
+                cachedInput: 20,
+                output: 30,
+                reasoning: 5,
+                total: 150),
+        ]
+        try Data((lines.joined(separator: "\n") + "\n").utf8).write(to: targetURL)
+        try FileManager.default.createSymbolicLink(at: linkURL, withDestinationURL: targetURL)
+        let reader = CodexReader(dbPath: databaseURL.path)
+        let startDate = codexBehaviorISODate("2026-04-10T00:00:00Z")
+        let endDate = codexBehaviorISODate("2026-04-11T00:00:00Z")
+
+        let sessions = reader.overlappingSessions(from: startDate, to: endDate)
+        let usage = try await reader.readUsage(from: startDate, to: endDate)
+
+        XCTAssertTrue(sessions.isEmpty)
+        XCTAssertTrue(usage.tokenEvents.isEmpty)
+    }
+
     private func tokenCountLine(
         ts: String,
         input: Int,
