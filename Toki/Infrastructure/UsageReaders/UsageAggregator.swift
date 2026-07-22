@@ -28,6 +28,7 @@ struct UsageAggregationRequest: Equatable {
 
 struct UsageAggregationResult: Equatable {
     let usageData: UsageData
+    let originReports: [UsageOriginReport]
     let readerStatuses: [ReaderStatus]
 }
 
@@ -54,15 +55,24 @@ final class UsageAggregator {
                 date: request.start,
                 endDate: request.end,
                 sourceStats: summary.sourceStats),
+            originReports: summary.originSlices.map { slice in
+                UsageOriginReport(
+                    origin: slice.origin,
+                    usageData: UsageReportBuilder.report(
+                        from: slice.usage,
+                        date: request.start,
+                        endDate: request.end,
+                        sourceStats: slice.sourceStats))
+            },
             readerStatuses: summary.readerStatuses)
     }
 
-    func aggregateTotalTokens(for request: UsageAggregationRequest) async -> Int {
-        await fetchTotalTokens(for: request)
+    func aggregateTotalTokens(for request: UsageAggregationRequest, scope: UsageScope = .all) async -> Int {
+        await fetchTotalTokens(for: request, scope: scope)
     }
 
-    func aggregateOutputTokens(for request: UsageAggregationRequest) async -> Int {
-        await fetchOutputTokens(for: request)
+    func aggregateOutputTokens(for request: UsageAggregationRequest, scope: UsageScope = .all) async -> Int {
+        await fetchOutputTokens(for: request, scope: scope)
     }
 }
 
@@ -70,17 +80,18 @@ private struct ReaderFetchResult {
     let index: Int
     let usage: RawTokenUsage
     let status: ReaderStatus
-    let sourceStats: [SourceStat]
+    let originSlices: [UsageOriginSlice]
 }
 
 private struct UsageFetchSummary {
     var usage = RawTokenUsage()
     var readerStatuses: [ReaderStatus] = []
     var sourceStats: [SourceStat] = []
+    var originSlices: [UsageOriginSlice] = []
 }
 
 private extension UsageAggregator {
-    func fetchTotalTokens(for request: UsageAggregationRequest) async -> Int {
+    func fetchTotalTokens(for request: UsageAggregationRequest, scope: UsageScope) async -> Int {
         guard !Task.isCancelled else { return 0 }
 
         var totalTokens = 0
@@ -95,6 +106,7 @@ private extension UsageAggregator {
                 group.addTask {
                     await readerTotalTokens(
                         reader: reader,
+                        scope: scope,
                         from: request.start,
                         to: request.end)
                 }
@@ -113,7 +125,7 @@ private extension UsageAggregator {
         return totalTokens
     }
 
-    func fetchOutputTokens(for request: UsageAggregationRequest) async -> Int {
+    func fetchOutputTokens(for request: UsageAggregationRequest, scope: UsageScope) async -> Int {
         guard !Task.isCancelled else { return 0 }
 
         var outputTokens = 0
@@ -128,6 +140,7 @@ private extension UsageAggregator {
                 group.addTask {
                     await readerOutputTokens(
                         reader: reader,
+                        scope: scope,
                         from: request.start,
                         to: request.end)
                 }
@@ -160,7 +173,7 @@ private extension UsageAggregator {
                     message: nil,
                     lastReadAt: nil,
                     totalTokens: 0),
-                sourceStats: [])
+                originSlices: [])
         }
 
         await withTaskGroup(of: ReaderFetchResult.self) { group in
@@ -193,34 +206,42 @@ private extension UsageAggregator {
         guard !Task.isCancelled else { return UsageFetchSummary() }
 
         let sortedResults = results.sorted { $0.index < $1.index }
-        var combined = RawTokenUsage()
-        var perModelBySource: [ModelSourceUsageKey: PerModelUsage] = [:]
-        for result in sortedResults {
-            mergePerModelUsage(
-                result.usage.perModel,
-                source: result.status.name,
-                into: &perModelBySource)
-            combined += result.usage
-        }
-        combined.perModelBySource = perModelBySource
-        combined.recomputeMergedActiveEstimate(clippingEndDate: request.end)
+        let unmergedOriginSlices = sortedResults.flatMap(\.originSlices)
+        let originSlices = mergedOriginSlices(
+            unmergedOriginSlices,
+            endDate: request.end)
 
         return UsageFetchSummary(
-            usage: combined,
+            usage: combinedUsage(
+                from: unmergedOriginSlices,
+                endDate: request.end),
             readerStatuses: sortedResults.map(\.status),
-            sourceStats: mergedSourceStats(sortedResults.flatMap(\.sourceStats))
-                .sorted(by: sourceStatSort))
+            sourceStats: mergedSourceStats(originSlices.flatMap(\.sourceStats)),
+            originSlices: originSlices)
     }
 }
 
 private func readerTotalTokens(
     reader: any TokenReader,
+    scope: UsageScope,
     from startDate: Date,
     to endDate: Date) async -> Int {
     guard !Task.isCancelled else { return 0 }
 
     do {
-        return try await reader.readTotalTokens(from: startDate, to: endDate)
+        switch scope {
+        case .all:
+            return try await reader.readTotalTokens(from: startDate, to: endDate)
+        case let .origin(originID):
+            if let partitionedReader = reader as? any OriginPartitionedTokenReader {
+                return try await partitionedReader
+                    .readUsageByOrigin(from: startDate, to: endDate)
+                    .filter { $0.origin.id == originID }
+                    .reduce(0) { $0 + $1.usage.totalTokens }
+            }
+            guard originID == .local else { return 0 }
+            return try await reader.readTotalTokens(from: startDate, to: endDate)
+        }
     } catch {
         return 0
     }
@@ -228,12 +249,25 @@ private func readerTotalTokens(
 
 private func readerOutputTokens(
     reader: any TokenReader,
+    scope: UsageScope,
     from startDate: Date,
     to endDate: Date) async -> Int {
     guard !Task.isCancelled else { return 0 }
 
     do {
-        return try await reader.readOutputTokens(from: startDate, to: endDate)
+        switch scope {
+        case .all:
+            return try await reader.readOutputTokens(from: startDate, to: endDate)
+        case let .origin(originID):
+            if let partitionedReader = reader as? any OriginPartitionedTokenReader {
+                return try await partitionedReader
+                    .readUsageByOrigin(from: startDate, to: endDate)
+                    .filter { $0.origin.id == originID }
+                    .reduce(0) { $0 + $1.usage.outputTokens }
+            }
+            guard originID == .local else { return 0 }
+            return try await reader.readOutputTokens(from: startDate, to: endDate)
+        }
     } catch {
         return 0
     }
@@ -255,16 +289,29 @@ private func readerFetchResult(
                 message: nil,
                 lastReadAt: nil,
                 totalTokens: 0),
-            sourceStats: [])
+            originSlices: [])
     }
 
     do {
-        let readerUsage = try await readUsageAndSourceStats(
-            reader: reader,
-            includeEmptySourceRows: includeEmptySourceRows,
-            from: startDate,
-            to: endDate)
-        let usage = readerUsage.usage
+        let readAt = Date()
+        let originSlices: [UsageOriginSlice]
+        let usage: RawTokenUsage
+        if let partitionedReader = reader as? any OriginPartitionedTokenReader {
+            originSlices = try await partitionedReader.readUsageByOrigin(
+                from: startDate,
+                to: endDate)
+            usage = combinedUsage(from: originSlices, endDate: endDate)
+        } else {
+            usage = try await reader.readUsage(from: startDate, to: endDate)
+            let sourceStats = [sourceStat(
+                from: usage,
+                source: reader.name,
+                includeEmpty: includeEmptySourceRows)].compactMap { $0 }
+            originSlices = [UsageOriginSlice(
+                origin: .local(lastUpdatedAt: readAt),
+                usage: usage,
+                sourceStats: sourceStats)]
+        }
         let statusState: ReaderStatusState = usage.hasReportableData ? .loaded : .empty
         return ReaderFetchResult(
             index: index,
@@ -273,9 +320,9 @@ private func readerFetchResult(
                 name: reader.name,
                 state: statusState,
                 message: nil,
-                lastReadAt: Date(),
+                lastReadAt: readAt,
                 totalTokens: usage.totalTokens),
-            sourceStats: readerUsage.sourceStats)
+            originSlices: originSlices)
     } catch {
         return ReaderFetchResult(
             index: index,
@@ -286,51 +333,137 @@ private func readerFetchResult(
                 message: error.localizedDescription,
                 lastReadAt: Date(),
                 totalTokens: 0),
-            sourceStats: [])
+            originSlices: [])
     }
 }
 
-private func readUsageAndSourceStats(
-    reader: any TokenReader,
-    includeEmptySourceRows: Bool,
-    from startDate: Date,
-    to endDate: Date) async throws -> (usage: RawTokenUsage, sourceStats: [SourceStat]) {
-    guard let partitionedReader = reader as? any OriginPartitionedTokenReader else {
-        let usage = try await reader.readUsage(from: startDate, to: endDate)
-        return (
-            usage,
-            sourceStat(from: usage, source: reader.name, includeEmpty: includeEmptySourceRows).map { [$0] } ?? [])
+private struct OriginSliceAggregate {
+    var origin: UsageOrigin
+    var usage = RawTokenUsage()
+    var sourceStats: [SourceStat] = []
+    var perModelBySource: [ModelSourceUsageKey: PerModelUsage] = [:]
+}
+
+private struct SourceStatAggregate {
+    let source: String
+    var inputTokens = 0
+    var outputTokens = 0
+    var cacheReadTokens = 0
+    var cacheWriteTokens = 0
+    var reasoningTokens = 0
+    var cost: Double = 0
+    var activeSeconds: TimeInterval = 0
+
+    mutating func merge(_ stat: SourceStat) {
+        inputTokens += stat.inputTokens
+        outputTokens += stat.outputTokens
+        cacheReadTokens += stat.cacheReadTokens
+        cacheWriteTokens += stat.cacheWriteTokens
+        reasoningTokens += stat.reasoningTokens
+        cost += stat.cost
+        activeSeconds += stat.activeSeconds
     }
 
-    let slices = try await partitionedReader.readUsageByOrigin(from: startDate, to: endDate)
-    var usage = RawTokenUsage()
+    var sourceStat: SourceStat {
+        SourceStat(
+            source: source,
+            inputTokens: inputTokens,
+            outputTokens: outputTokens,
+            cacheReadTokens: cacheReadTokens,
+            cacheWriteTokens: cacheWriteTokens,
+            reasoningTokens: reasoningTokens,
+            cost: cost,
+            activeSeconds: activeSeconds)
+    }
+}
+
+private func combinedUsage(
+    from slices: [UsageOriginSlice],
+    endDate: Date) -> RawTokenUsage {
+    var combined = RawTokenUsage()
+    var perModelBySource: [ModelSourceUsageKey: PerModelUsage] = [:]
+
     for slice in slices {
-        usage += slice.usage
+        mergePerModelUsage(
+            slice.usage.perModel,
+            source: fallbackSource(for: slice),
+            into: &perModelBySource)
+        combined += slice.usage
     }
-    usage.recomputeMergedActiveEstimate(clippingEndDate: endDate)
-    let sourceStats = mergedSourceStats(slices.flatMap(\.sourceStats))
-    if sourceStats.isEmpty, includeEmptySourceRows,
-       let emptyStat = sourceStat(from: usage, source: reader.name, includeEmpty: true) {
-        return (usage, [emptyStat])
+
+    combined.perModelBySource = perModelBySource
+    combined.recomputeMergedActiveEstimate(clippingEndDate: endDate)
+    return combined
+}
+
+private func mergedOriginSlices(
+    _ slices: [UsageOriginSlice],
+    endDate: Date) -> [UsageOriginSlice] {
+    var aggregates: [UsageOriginID: OriginSliceAggregate] = [:]
+
+    for slice in slices {
+        var aggregate = aggregates[slice.origin.id] ?? OriginSliceAggregate(origin: slice.origin)
+        aggregate.origin = preferredOriginMetadata(aggregate.origin, slice.origin)
+        aggregate.usage += slice.usage
+        aggregate.sourceStats.append(contentsOf: slice.sourceStats)
+        mergePerModelUsage(
+            slice.usage.perModel,
+            source: fallbackSource(for: slice),
+            into: &aggregate.perModelBySource)
+        aggregates[slice.origin.id] = aggregate
     }
-    return (usage, sourceStats)
+
+    return aggregates.values.map { aggregate in
+        var usage = aggregate.usage
+        usage.perModelBySource = aggregate.perModelBySource
+        usage.recomputeMergedActiveEstimate(clippingEndDate: endDate)
+        return UsageOriginSlice(
+            origin: aggregate.origin,
+            usage: usage,
+            sourceStats: mergedSourceStats(aggregate.sourceStats))
+    }
+    .sorted(by: originSliceSort)
 }
 
 private func mergedSourceStats(_ sourceStats: [SourceStat]) -> [SourceStat] {
-    var merged: [String: SourceStat] = [:]
-    for stat in sourceStats {
-        let current = merged[stat.source]
-        merged[stat.source] = SourceStat(
-            source: stat.source,
-            inputTokens: (current?.inputTokens ?? 0) + stat.inputTokens,
-            outputTokens: (current?.outputTokens ?? 0) + stat.outputTokens,
-            cacheReadTokens: (current?.cacheReadTokens ?? 0) + stat.cacheReadTokens,
-            cacheWriteTokens: (current?.cacheWriteTokens ?? 0) + stat.cacheWriteTokens,
-            reasoningTokens: (current?.reasoningTokens ?? 0) + stat.reasoningTokens,
-            cost: (current?.cost ?? 0) + stat.cost,
-            activeSeconds: (current?.activeSeconds ?? 0) + stat.activeSeconds)
+    var aggregates: [String: SourceStatAggregate] = [:]
+    for sourceStat in sourceStats {
+        var aggregate = aggregates[sourceStat.source]
+            ?? SourceStatAggregate(source: sourceStat.source)
+        aggregate.merge(sourceStat)
+        aggregates[sourceStat.source] = aggregate
     }
-    return Array(merged.values)
+    return aggregates.values.map(\.sourceStat).sorted(by: sourceStatSort)
+}
+
+private func fallbackSource(for slice: UsageOriginSlice) -> String {
+    let sources = Set(slice.sourceStats.compactMap(\.source.trimmedNonEmpty))
+    if sources.count == 1, let source = sources.first {
+        return source
+    }
+    return slice.origin.name
+}
+
+private func preferredOriginMetadata(_ lhs: UsageOrigin, _ rhs: UsageOrigin) -> UsageOrigin {
+    switch (lhs.lastUpdatedAt, rhs.lastUpdatedAt) {
+    case let (lhsDate?, rhsDate?):
+        rhsDate >= lhsDate ? rhs : lhs
+    case (nil, _?):
+        rhs
+    default:
+        lhs
+    }
+}
+
+private func originSliceSort(_ lhs: UsageOriginSlice, _ rhs: UsageOriginSlice) -> Bool {
+    if lhs.origin.kind != rhs.origin.kind {
+        return lhs.origin.kind == .local
+    }
+    let nameComparison = lhs.origin.name.localizedCaseInsensitiveCompare(rhs.origin.name)
+    if nameComparison != .orderedSame {
+        return nameComparison == .orderedAscending
+    }
+    return lhs.origin.id.rawValue < rhs.origin.id.rawValue
 }
 
 private func sourceStat(from usage: RawTokenUsage, source: String, includeEmpty: Bool) -> SourceStat? {
