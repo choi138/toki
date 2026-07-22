@@ -81,9 +81,9 @@ extension RemoteSyncSettingsViewModel {
                 ownerToken: ownerToken)
             let fetchedDevices = try await client.fetchDevices(configuration: configuration)
             try lifecycleCoordinator.mutate {
-                try store.clear()
                 try cache.clear()
                 try anchorStore.clear()
+                try store.clear()
                 try store.save(configuration)
             }
             ownerToken = ""
@@ -192,6 +192,9 @@ extension RemoteSyncSettingsViewModel {
                 ownerToken: ownerToken)
             let fetchedDevices = try await client.fetchDevices(configuration: updatedConfiguration)
             try lifecycleCoordinator.mutate {
+                try anchorStore.copyAnchors(
+                    from: currentConfiguration.snapshotCacheIdentifier,
+                    to: updatedConfiguration.snapshotCacheIdentifier)
                 try store.save(updatedConfiguration)
             }
             ownerToken = ""
@@ -364,9 +367,9 @@ private extension RemoteSyncSettingsViewModel {
 
     func clearLocalState() throws {
         try lifecycleCoordinator.mutate {
-            try store.clear()
             try cache.clear()
             try anchorStore.clear()
+            try store.clear()
         }
     }
 

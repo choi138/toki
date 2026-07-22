@@ -312,6 +312,36 @@ extension RemoteUsageReaderTests {
         }
     }
 
+    func test_replayAnchorsCopyAcrossCredentialRotation() throws {
+        let fixture = try makeFixture()
+        let snapshot = try SnapshotCipher.open(fixture.envelope, key: fixture.encryptionKey)
+        let newerEnvelope = try SnapshotCipher.seal(snapshot, sequence: 2, key: fixture.encryptionKey)
+        let updatedConfiguration = try RemoteHubConfiguration(
+            hubURL: fixture.configuration.hubURL,
+            ownerToken: String(repeating: "n", count: 32))
+        let root = makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let anchorStore = RemoteSnapshotAnchorStore(
+            url: root.appendingPathComponent("anchors.json"),
+            legacyCacheURL: root.appendingPathComponent("missing-cache.json"))
+        try anchorStore.validateAndSave(
+            [newerEnvelope],
+            originIdentifier: fixture.configuration.snapshotCacheIdentifier)
+
+        try anchorStore.copyAnchors(
+            from: fixture.configuration.snapshotCacheIdentifier,
+            to: updatedConfiguration.snapshotCacheIdentifier)
+
+        XCTAssertThrowsError(try anchorStore.validateAndSave(
+            [fixture.envelope],
+            originIdentifier: updatedConfiguration.snapshotCacheIdentifier)) { error in
+                guard let readerError = error as? RemoteUsageReaderError,
+                      case .staleSnapshot = readerError else {
+                    return XCTFail("Expected staleSnapshot, got \(error)")
+                }
+            }
+    }
+
     func test_corruptedReplayAnchorFailsClosed() async throws {
         let fixture = try makeFixture()
         let root = makeTemporaryDirectory()
