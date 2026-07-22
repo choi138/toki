@@ -75,7 +75,10 @@ final class RemoteSnapshotCache: RemoteSnapshotCaching {
         defer { Self.lock.unlock() }
         try removeStaleTemporaryFiles()
 
-        guard let entry = try loadEntry() else { return }
+        guard let entry = try loadEntry() else {
+            try removeEnvelopeFiles(deviceID: deviceID)
+            return
+        }
         let remainingEnvelopes = entry.envelopes.filter { $0.deviceID != deviceID }
         let remainingManifest = entry.manifest.filter { $0.id != deviceID }
         if remainingEnvelopes.isEmpty, remainingManifest.isEmpty {
@@ -214,6 +217,18 @@ private extension RemoteSnapshotCache {
 }
 
 private extension RemoteSnapshotCache {
+    private func removeEnvelopeFiles(deviceID: String) throws {
+        let urls = try validatedEnvelopeFiles()
+        let expectedPrefix = "\(deviceID)."
+        let matchingURLs = urls.filter { $0.lastPathComponent.hasPrefix(expectedPrefix) }
+        for fileURL in matchingURLs {
+            try DurableFileIO.removeIfPresent(fileURL)
+        }
+        if matchingURLs.count == urls.count {
+            try DurableFileIO.removeEmptyDirectoryIfPresent(envelopeDirectoryURL)
+        }
+    }
+
     private func removeObsoleteEnvelopeFiles(keeping expectedNames: Set<String>) throws {
         let urls = try validatedEnvelopeFiles()
         for fileURL in urls {
