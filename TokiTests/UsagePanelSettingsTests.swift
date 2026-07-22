@@ -48,6 +48,7 @@ final class UsagePanelSettingsTests: XCTestCase {
         XCTAssertEqual(settingsReaderNames, UsageAggregator.defaultReaders.map(\.name))
         XCTAssertTrue(settingsReaderNames.contains("GJC"))
         XCTAssertTrue(settingsReaderNames.contains("Hermes"))
+        XCTAssertTrue(settingsReaderNames.contains("Remote Devices"))
     }
 
     private func makeDefaults() -> (String, UserDefaults) {

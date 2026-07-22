@@ -24,7 +24,9 @@ extension RemoteUsageReaderTests {
         let fixture = try makeFixture()
         let snapshot = try SnapshotCipher.open(fixture.envelope, key: fixture.encryptionKey)
         let newerEnvelope = try SnapshotCipher.seal(snapshot, sequence: 2, key: fixture.encryptionKey)
-        let anchorStore = InMemoryRemoteSnapshotAnchorStore(envelopes: [newerEnvelope])
+        let anchorStore = InMemoryRemoteSnapshotAnchorStore(
+            envelopes: [newerEnvelope],
+            originIdentifier: fixture.configuration.snapshotCacheIdentifier)
         let reader = fixture.makeReader(
             client: fixture.makeClient(),
             anchorStore: anchorStore)
@@ -44,7 +46,9 @@ extension RemoteUsageReaderTests {
         let snapshot = try SnapshotCipher.open(fixture.envelope, key: fixture.encryptionKey)
         let resealedEnvelope = try SnapshotCipher.seal(snapshot, sequence: 1, key: fixture.encryptionKey)
         XCTAssertNotEqual(resealedEnvelope.payload, fixture.envelope.payload)
-        let anchorStore = InMemoryRemoteSnapshotAnchorStore(envelopes: [fixture.envelope])
+        let anchorStore = InMemoryRemoteSnapshotAnchorStore(
+            envelopes: [fixture.envelope],
+            originIdentifier: fixture.configuration.snapshotCacheIdentifier)
         let client = fixture.makeClient(envelopes: [resealedEnvelope])
         let reader = fixture.makeReader(client: client, anchorStore: anchorStore)
 
