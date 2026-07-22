@@ -108,6 +108,52 @@ extension RemoteUsageReaderTests {
         XCTAssertEqual(try cache.load()?.envelopes.map(\.deviceID).sorted(), ["device-1", "device-2"])
     }
 
+    func test_manifestRemovalDropsCachedDeviceBeforeRequiringItsDeletedKey() async throws {
+        let fixture = try makeFixture()
+        let revokedKey = SnapshotCipher.generateKey()
+        let originalSnapshot = try SnapshotCipher.open(fixture.envelope, key: fixture.encryptionKey)
+        let revokedSnapshot = RemoteUsageSnapshot(
+            device: RemoteDeviceDescriptor(id: "device-2", name: "revoked", platform: "linux"),
+            generatedAt: originalSnapshot.generatedAt,
+            coveredFrom: originalSnapshot.coveredFrom,
+            coveredTo: originalSnapshot.coveredTo,
+            tokenEvents: originalSnapshot.tokenEvents,
+            activityEvents: originalSnapshot.activityEvents)
+        let revokedEnvelope = try SnapshotCipher.seal(revokedSnapshot, sequence: 1, key: revokedKey)
+        let revokedDevice = RemoteDeviceSummary(
+            id: revokedEnvelope.deviceID,
+            name: "revoked",
+            createdAt: fixture.start,
+            lastSeenAt: Date(),
+            latestSequence: revokedEnvelope.sequence)
+        let cache = InMemoryRemoteSnapshotCache(entry: RemoteSnapshotCacheEntry(
+            envelopes: [fixture.envelope, revokedEnvelope],
+            manifest: [fixture.device(), revokedDevice],
+            manifestEntityTag: entityTag("a"),
+            fetchedAt: Date().addingTimeInterval(-60),
+            snapshotCacheIdentifier: fixture.configuration.snapshotCacheIdentifier))
+        let client = StubRemoteHubClient(
+            manifestResult: .success(.modified(
+                [fixture.device()],
+                entityTag: entityTag("b"))))
+        let provider = StubRemoteConfigurationProvider(
+            configuration: fixture.configuration,
+            encryptionKeys: [fixture.envelope.deviceID: fixture.encryptionKey])
+        let reader = RemoteUsageReader(
+            configurationProvider: provider,
+            client: client,
+            cache: cache,
+            anchorStore: InMemoryRemoteSnapshotAnchorStore())
+
+        let usage = try await reader.readUsage(from: fixture.start, to: fixture.end)
+
+        XCTAssertEqual(usage.totalTokens, 16)
+        XCTAssertEqual(client.fetchManifestCallCount, 1)
+        XCTAssertEqual(client.fetchSnapshotCallCount, 0)
+        XCTAssertEqual(try cache.load()?.envelopes.map(\.deviceID), [fixture.envelope.deviceID])
+        XCTAssertEqual(cache.savedChangedDeviceIDs, [[revokedEnvelope.deviceID]])
+    }
+
     func test_remoteReaderRejectsDeviceThatMissedFreshnessWindow() async throws {
         let fixture = try makeFixture()
         let interval = TokiSyncLimits.minimumSyncIntervalSeconds

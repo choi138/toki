@@ -18,7 +18,9 @@ struct RemoteHubConfiguration: Equatable {
     }
 
     var snapshotCacheIdentifier: String {
-        SnapshotCipher.digest("toki-hub-origin-v1\0\(hubURL.absoluteString)")
+        let ownerCredentialDigest = SnapshotCipher.digest("toki-hub-owner-v1\0\(ownerToken)")
+        return SnapshotCipher.digest(
+            "toki-hub-origin-v2\0\(hubURL.absoluteString)\0\(ownerCredentialDigest)")
     }
 }
 

@@ -72,19 +72,21 @@ struct AgentConfigurationStore {
         guard paths.pathExistsIncludingSymbolicLink(paths.configurationURL) else {
             throw AgentConfigurationError.notPaired
         }
-        let values = try paths.configurationURL.resourceValues(
-            forKeys: [.fileSizeKey, .isRegularFileKey, .isSymbolicLinkKey])
-        guard values.isRegularFile == true,
-              values.isSymbolicLink != true,
-              let fileSize = values.fileSize,
-              fileSize <= TokiSyncLimits.maximumConfigurationFileBytes else {
+
+        let privateData: Data?
+        do {
+            privateData = try DurableFileIO.readPrivate(
+                from: paths.configurationURL,
+                maximumByteCount: TokiSyncLimits.maximumConfigurationFileBytes)
+        } catch DurableFileIOError.privateFileTooLarge {
+            throw AgentConfigurationError.configurationTooLarge
+        } catch {
             throw AgentConfigurationError.invalidConfigurationFile
         }
-        let data = try Data(contentsOf: paths.configurationURL)
-        guard data.count <= TokiSyncLimits.maximumConfigurationFileBytes else {
-            throw AgentConfigurationError.configurationTooLarge
+        guard let privateData else {
+            throw AgentConfigurationError.notPaired
         }
-        let configuration = try TokiSyncCoding.makeDecoder().decode(AgentConfiguration.self, from: data)
+        let configuration = try TokiSyncCoding.makeDecoder().decode(AgentConfiguration.self, from: privateData)
         try configuration.validate()
         return configuration
     }
