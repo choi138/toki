@@ -160,7 +160,8 @@ public enum LocalUsageReaderRegistry {
         } else {
             switch cacheScope {
             case .application:
-                .shared
+                CodexRolloutUsageCache(
+                    cacheURL: codexRolloutUsageCacheURL(paths: paths, scope: .application))
             case .agent:
                 CodexRolloutUsageCache(cacheURL: codexRolloutUsageCacheURL(paths: paths, scope: .agent))
             }

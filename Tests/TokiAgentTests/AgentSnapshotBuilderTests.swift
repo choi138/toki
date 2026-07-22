@@ -174,6 +174,29 @@ final class AgentSnapshotBuilderTests: XCTestCase {
             try builder.contentDigest(firstSnapshot),
             try builder.contentDigest(verificationSnapshot))
     }
+
+    func test_defaultSourceSignatureTracksAgentHermesLedgerCreation() async throws {
+        let fixture = try AgentSnapshotFixture()
+        defer { fixture.remove() }
+        let environment: [String: String] = [:]
+        let paths = LocalUsageReaderPaths(homeDirectory: fixture.root, environment: environment)
+        let ledgerURL = hermesUsageLedgerURL(paths: paths, scope: .agent)
+        let builder = AgentSnapshotBuilder(
+            home: fixture.root,
+            environment: environment)
+
+        let missingLedgerSignature = try await builder.sourceSignature(
+            configuration: fixture.configuration,
+            now: fixture.now)
+        try await HermesUsageLedger(fileURL: ledgerURL).refresh(
+            observations: [],
+            observedAt: fixture.now)
+        let createdLedgerSignature = try await builder.sourceSignature(
+            configuration: fixture.configuration,
+            now: fixture.now)
+
+        XCTAssertNotEqual(missingLedgerSignature, createdLedgerSignature)
+    }
 }
 
 extension AgentSnapshotBuilderTests {
