@@ -141,10 +141,15 @@ final class HermesUsageLedgerPrivacyTests: XCTestCase {
         XCTAssertEqual(merged.first?.cost ?? -1, 0.2, accuracy: 0.000_001)
 
         let beforeReplay = try Data(contentsOf: fixture.ledgerURL)
+        let beforeReplayAttributes = try FileManager.default.attributesOfItem(atPath: fixture.ledgerURL.path)
         let restarted = HermesUsageLedger(fileURL: fixture.ledgerURL)
         try await restarted.refresh(observations: [observation(inputTokens: 30)], observedAt: observedAt)
         let afterReplay = try Data(contentsOf: fixture.ledgerURL)
+        let afterReplayAttributes = try FileManager.default.attributesOfItem(atPath: fixture.ledgerURL.path)
         XCTAssertEqual(afterReplay, beforeReplay)
+        XCTAssertEqual(
+            afterReplayAttributes[.systemFileNumber] as? NSNumber,
+            beforeReplayAttributes[.systemFileNumber] as? NSNumber)
         assertSerializedLedgerIsPrivate(
             afterReplay,
             forbidden: [sentinel, "raw-session", "projectName", "identifierKey"])
@@ -285,7 +290,7 @@ extension HermesUsageLedgerPrivacyTests {
             .notRequired)
     }
 
-    func test_agentMigrationCommandUsesDryRunUnlessApplyIsExplicit() throws {
+    func test_agentMigrationCommandUsesDryRunUnlessApplyIsExplicit() async throws {
         let fixture = try HermesPrivacyFixture()
         defer { fixture.remove() }
         let paths = AgentPaths(
@@ -308,9 +313,13 @@ extension HermesUsageLedgerPrivacyTests {
             try TokiAgentCommand.migrateHermesLedger(arguments: [], paths: paths),
             .migrationRequired)
         XCTAssertEqual(try Data(contentsOf: ledgerURL), original)
-        XCTAssertEqual(
-            try TokiAgentCommand.migrateHermesLedger(arguments: ["--apply"], paths: paths),
-            .migrated)
+        try await TokiAgentCommand.execute(
+            arguments: ["migrate-hermes-ledger", "--apply"],
+            migrationPaths: paths)
+        let migrated = try JSONDecoder().decode(
+            HermesUsageLedgerPrivateDocument.self,
+            from: Data(contentsOf: ledgerURL))
+        XCTAssertEqual(migrated.schemaVersion, 3)
         do {
             _ = try TokiAgentCommand.migrateHermesLedger(
                 arguments: ["--apply", "TOKI_SECRET_ARGUMENT"],

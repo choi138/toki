@@ -19,12 +19,15 @@ package enum TokiAgentCommand {
         }
     }
 
-    static func execute(arguments: [String]) async throws {
+    static func execute(
+        arguments: [String],
+        migrationPaths: AgentPaths = AgentPaths()) async throws {
         guard let command = arguments.first else {
             AgentConsole.write(usage)
             return
         }
-        guard arguments.dropFirst().isEmpty else {
+        let commandArguments = Array(arguments.dropFirst())
+        guard command == "migrate-hermes-ledger" || commandArguments.isEmpty else {
             throw AgentCommandError.unexpectedArguments
         }
 
@@ -44,7 +47,7 @@ package enum TokiAgentCommand {
             try await AgentSyncService().fullRescanAndSync()
             AgentConsole.write("full rescan completed")
         case "migrate-hermes-ledger":
-            let result = try migrateHermesLedger(arguments: Array(arguments.dropFirst()))
+            let result = try migrateHermesLedger(arguments: commandArguments, paths: migrationPaths)
             AgentConsole.write(migrationDescription(result))
         case "run":
             _ = try await AgentSyncService().run()

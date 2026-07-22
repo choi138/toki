@@ -306,7 +306,6 @@ struct HermesUsageLedgerBaseline: Codable, Equatable {
         model != previous.model
             || counters != previous.counters
             || cost != previous.cost
-            || projectName != previous.projectName
             || attributionQuality != previous.attributionQuality
     }
 }
