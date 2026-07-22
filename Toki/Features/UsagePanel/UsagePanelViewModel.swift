@@ -56,6 +56,7 @@ final class UsagePanelViewModel: ObservableObject {
     private var yesterdayComparisonTask: Task<Void, Never>?
     private var activeRefreshRequest: UsageAggregationRequest?
     private var activePeriodTokenTotalsRequest: PeriodTokenTotalsRequest?
+    private var periodTokenTotalsGeneration: UInt64 = 0
     private var lastPeriodTokenTotalsRequest: PeriodTokenTotalsRequest?
     private var lastPeriodTokenTotalsFetchedAt: Date?
 
@@ -362,12 +363,14 @@ private extension UsagePanelViewModel {
             return
         }
 
+        let generation = periodTokenTotalsGeneration
         activePeriodTokenTotalsRequest = totalsRequest
         updateSnapshot { $0.isLoadingPeriodTokenTotals = true }
         var didPublishResult = false
         defer {
             if !didPublishResult,
                Task.isCancelled,
+               generation == periodTokenTotalsGeneration,
                activePeriodTokenTotalsRequest == totalsRequest {
                 updateSnapshot { $0.isLoadingPeriodTokenTotals = false }
                 activePeriodTokenTotalsRequest = nil
@@ -377,6 +380,7 @@ private extension UsagePanelViewModel {
         let summaries = await periodTokenTotals(for: totalsRequest)
 
         guard !Task.isCancelled else { return }
+        guard generation == periodTokenTotalsGeneration else { return }
         guard activePeriodTokenTotalsRequest == totalsRequest else { return }
         guard makePeriodTokenTotalsRequest() == totalsRequest else {
             activePeriodTokenTotalsRequest = nil
@@ -494,6 +498,7 @@ private extension UsagePanelViewModel {
     }
 
     private func invalidatePeriodTokenTotals() {
+        periodTokenTotalsGeneration &+= 1
         activePeriodTokenTotalsRequest = nil
         lastPeriodTokenTotalsRequest = nil
         lastPeriodTokenTotalsFetchedAt = nil
