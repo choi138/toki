@@ -13,15 +13,18 @@ final class RemoteSyncSettingsViewModel: ObservableObject {
     @Published private(set) var isConnected = false
     @Published private(set) var connectedHost: String?
     @Published private(set) var devices: [RemoteDeviceSummary] = []
+    @Published private(set) var deviceIDsWithEncryptionKeys: Set<String> = []
     @Published private(set) var isBusy = false
     @Published private(set) var statusMessage: String?
     @Published private(set) var hasError = false
+    @Published private(set) var needsLocalCredentialRecovery = false
 
     private let store: any RemoteSyncConfigurationStoring
     private let client: any RemoteHubClientProtocol
     private let cache: any RemoteSnapshotCaching
     private let anchorStore: any RemoteSnapshotAnchorStoring
     private let lifecycleCoordinator: RemoteSyncLifecycleCoordinator
+    private let onRemoteSyncChange: () -> Void
     private var clipboardClearTask: Task<Void, Never>?
     private var pairingBundlePasteboardChangeCount: Int?
 
@@ -30,12 +33,14 @@ final class RemoteSyncSettingsViewModel: ObservableObject {
         client: any RemoteHubClientProtocol = RemoteHubClient(),
         cache: any RemoteSnapshotCaching = RemoteSnapshotCache(),
         anchorStore: any RemoteSnapshotAnchorStoring = RemoteSnapshotAnchorStore(),
-        lifecycleCoordinator: RemoteSyncLifecycleCoordinator = .shared) {
+        lifecycleCoordinator: RemoteSyncLifecycleCoordinator = .shared,
+        onRemoteSyncChange: @escaping () -> Void = {}) {
         self.store = store
         self.client = client
         self.cache = cache
         self.anchorStore = anchorStore
         self.lifecycleCoordinator = lifecycleCoordinator
+        self.onRemoteSyncChange = onRemoteSyncChange
         reload()
     }
 
@@ -53,15 +58,18 @@ final class RemoteSyncSettingsViewModel: ObservableObject {
     func reload() {
         do {
             guard let configuration = try store.load() else {
-                isConnected = false
-                connectedHost = nil
-                devices = []
+                resetConnectionState()
+                needsLocalCredentialRecovery = false
                 return
             }
             isConnected = true
             connectedHost = configuration.hubURL.host
             hubURLText = configuration.hubURL.absoluteString
+            needsLocalCredentialRecovery = false
+            updateDevices(devices)
         } catch {
+            resetConnectionState()
+            needsLocalCredentialRecovery = true
             publish(error)
         }
     }
@@ -91,8 +99,10 @@ extension RemoteSyncSettingsViewModel {
             ownerToken = ""
             isConnected = true
             connectedHost = configuration.hubURL.host
-            devices = fetchedDevices
-            if devices.contains(where: { !store.hasEncryptionKey(for: $0.id) }) {
+            needsLocalCredentialRecovery = false
+            updateDevices(fetchedDevices)
+            onRemoteSyncChange()
+            if deviceIDsWithEncryptionKeys.count != devices.count {
                 publish(message: "Connected. Revoke and pair devices whose encryption key is unavailable.")
             } else {
                 publish(message: "Connected. Per-device snapshot keys are stored in Keychain.")
@@ -137,6 +147,7 @@ extension RemoteSyncSettingsViewModel {
                 try lifecycleCoordinator.mutate {
                     try store.saveEncryptionKey(encryptionKey, for: device.deviceID)
                 }
+                deviceIDsWithEncryptionKeys.insert(device.deviceID)
                 let bundle = AgentPairingBundle(
                     hubURL: configuration.hubURL,
                     deviceID: device.deviceID,
@@ -155,6 +166,7 @@ extension RemoteSyncSettingsViewModel {
                         try store.deleteEncryptionKey(for: device.deviceID)
                     }
                     devices.removeAll { $0.id == device.deviceID }
+                    deviceIDsWithEncryptionKeys.remove(device.deviceID)
                 } catch {
                     throw RemoteSyncSettingsError.pairingCleanupRequired
                 }
@@ -162,7 +174,7 @@ extension RemoteSyncSettingsViewModel {
             }
             deviceName = ""
             do {
-                devices = try await client.fetchDevices(configuration: configuration)
+                try await updateDevices(client.fetchDevices(configuration: configuration))
                 publish(message: "Agent pairing bundle copied. It will be cleared from the clipboard in 60 seconds.")
             } catch {
                 publish(
@@ -191,7 +203,8 @@ extension RemoteSyncSettingsViewModel {
                 try store.save(updatedConfiguration)
             }
             ownerToken = ""
-            devices = fetchedDevices
+            updateDevices(fetchedDevices)
+            onRemoteSyncChange()
             publish(message: "Hub owner token updated.")
         } catch {
             publish(error)
@@ -202,9 +215,12 @@ extension RemoteSyncSettingsViewModel {
         guard isConnected, !isBusy else { return }
         isBusy = true
         defer { isBusy = false }
+        clearStatus()
         do {
-            guard let configuration = try store.load() else { return }
-            devices = try await client.fetchDevices(configuration: configuration)
+            guard let configuration = try store.load() else {
+                throw RemoteSyncSettingsError.notConnected
+            }
+            try await updateDevices(client.fetchDevices(configuration: configuration))
         } catch {
             publish(error)
         }
@@ -227,8 +243,10 @@ extension RemoteSyncSettingsViewModel {
                 try store.deleteEncryptionKey(for: device.id)
             }
             devices.removeAll { $0.id == device.id }
+            deviceIDsWithEncryptionKeys.remove(device.id)
+            onRemoteSyncChange()
             do {
-                devices = try await client.fetchDevices(configuration: configuration)
+                try await updateDevices(client.fetchDevices(configuration: configuration))
                 publish(message: "Revoked \(device.name).")
             } catch {
                 publish(message: "Revoked \(device.name), but the device list could not refresh. Use Refresh.")
@@ -251,7 +269,7 @@ extension RemoteSyncSettingsViewModel {
                 throw RemoteSyncSettingsError.notConnected
             }
             let fetchedDevices = try await client.fetchDevices(configuration: configuration)
-            devices = fetchedDevices
+            updateDevices(fetchedDevices)
             guard fetchedDevices.isEmpty else {
                 throw RemoteSyncSettingsError.revokeDevicesBeforeDisconnect
             }
@@ -260,11 +278,35 @@ extension RemoteSyncSettingsViewModel {
                 try cache.clear()
                 try anchorStore.clear()
             }
-            isConnected = false
-            connectedHost = nil
-            devices = []
+            resetConnectionState()
+            needsLocalCredentialRecovery = false
             ownerToken = ""
+            onRemoteSyncChange()
             publish(message: "Disconnected and removed local remote-sync credentials.")
+        } catch {
+            reload()
+            publish(error)
+        }
+    }
+
+    func clearInvalidLocalState() async {
+        guard needsLocalCredentialRecovery, !isBusy else { return }
+        isBusy = true
+        defer { isBusy = false }
+        clearStatus()
+
+        do {
+            try lifecycleCoordinator.mutate {
+                try store.clear()
+                try cache.clear()
+                try anchorStore.clear()
+            }
+            resetConnectionState()
+            needsLocalCredentialRecovery = false
+            hubURLText = ""
+            ownerToken = ""
+            onRemoteSyncChange()
+            publish(message: "Cleared invalid local remote-sync credentials and cache.")
         } catch {
             reload()
             publish(error)
@@ -274,11 +316,27 @@ extension RemoteSyncSettingsViewModel {
 
 extension RemoteSyncSettingsViewModel {
     func hasEncryptionKey(for device: RemoteDeviceSummary) -> Bool {
-        store.hasEncryptionKey(for: device.id)
+        deviceIDsWithEncryptionKeys.contains(device.id)
     }
 }
 
 private extension RemoteSyncSettingsViewModel {
+    func updateDevices(_ devices: [RemoteDeviceSummary]) {
+        var keyDeviceIDs: Set<String> = []
+        for device in devices where store.hasEncryptionKey(for: device.id) {
+            keyDeviceIDs.insert(device.id)
+        }
+        self.devices = devices
+        deviceIDsWithEncryptionKeys = keyDeviceIDs
+    }
+
+    func resetConnectionState() {
+        isConnected = false
+        connectedHost = nil
+        devices = []
+        deviceIDsWithEncryptionKeys = []
+    }
+
     func upsertProvisionalDevice(_ device: CreateRemoteDeviceResponse) {
         devices.removeAll { $0.id == device.deviceID }
         devices.append(RemoteDeviceSummary(

@@ -39,6 +39,53 @@ extension RemoteUsageReaderTests {
         XCTAssertNil(try cache.load())
     }
 
+    func test_remoteReaderDoesNotReuseCacheAfterOwnerCredentialChanges() async throws {
+        let fixture = try makeFixture()
+        let otherConfiguration = try RemoteHubConfiguration(
+            hubURL: fixture.configuration.hubURL,
+            ownerToken: String(repeating: "n", count: 32))
+        let provider = StubRemoteConfigurationProvider(
+            configuration: otherConfiguration,
+            encryptionKeys: [fixture.envelope.deviceID: fixture.encryptionKey])
+        let cache = InMemoryRemoteSnapshotCache(entry: fixture.cacheEntry())
+        let reader = RemoteUsageReader(
+            configurationProvider: provider,
+            client: StubRemoteHubClient(
+                manifestResult: .failure(URLError(.notConnectedToInternet))),
+            cache: cache,
+            anchorStore: InMemoryRemoteSnapshotAnchorStore())
+
+        XCTAssertNotEqual(
+            fixture.configuration.snapshotCacheIdentifier,
+            otherConfiguration.snapshotCacheIdentifier)
+        await XCTAssertThrowsErrorAsync {
+            _ = try await reader.readUsage(from: fixture.start, to: fixture.end)
+        }
+        XCTAssertNil(try cache.load())
+    }
+
+    func test_remoteReaderUsesOfflineCacheEvenWhenManifestDeviceIsStale() async throws {
+        let fixture = try makeFixture()
+        let staleDevice = fixture.device(
+            lastSeenAt: Date().addingTimeInterval(-2 * 60 * 60),
+            syncIntervalSeconds: TokiSyncLimits.minimumSyncIntervalSeconds)
+        let cache = InMemoryRemoteSnapshotCache(entry: RemoteSnapshotCacheEntry(
+            envelopes: [fixture.envelope],
+            manifest: [staleDevice],
+            fetchedAt: Date().addingTimeInterval(-60 * 60),
+            snapshotCacheIdentifier: fixture.configuration.snapshotCacheIdentifier))
+        let reader = fixture.makeReader(
+            client: StubRemoteHubClient(
+                manifestResult: .failure(URLError(.notConnectedToInternet))),
+            cache: cache)
+
+        let firstUsage = try await reader.readUsage(from: fixture.start, to: fixture.end)
+        let repeatedUsage = try await reader.readUsage(from: fixture.start, to: fixture.end)
+
+        XCTAssertEqual(firstUsage.totalTokens, 16)
+        XCTAssertEqual(repeatedUsage.totalTokens, 16)
+    }
+
     func test_remoteReaderRejectsExpiredCacheForTransportFailure() async throws {
         let fixture = try makeFixture()
         let cache = InMemoryRemoteSnapshotCache(

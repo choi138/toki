@@ -10,11 +10,13 @@ extension RemoteUsageReaderTests {
         try store.saveEncryptionKey(fixture.encryptionKey, for: fixture.envelope.deviceID)
         let cache = InMemoryRemoteSnapshotCache(entry: fixture.cacheEntry())
         let anchorStore = InMemoryRemoteSnapshotAnchorStore(envelopes: [fixture.envelope])
+        var remoteSyncChangeCount = 0
         let viewModel = RemoteSyncSettingsViewModel(
             store: store,
             client: StubRemoteHubClient(devicesResult: .success([])),
             cache: cache,
-            anchorStore: anchorStore)
+            anchorStore: anchorStore,
+            onRemoteSyncChange: { remoteSyncChangeCount += 1 })
         viewModel.hubURLText = fixture.configuration.hubURL.absoluteString
         viewModel.ownerToken = fixture.configuration.ownerToken
 
@@ -27,6 +29,7 @@ extension RemoteUsageReaderTests {
         XCTAssertFalse(store.hasEncryptionKey(for: fixture.envelope.deviceID))
         XCTAssertTrue(viewModel.isConnected)
         XCTAssertFalse(viewModel.hasError)
+        XCTAssertEqual(remoteSyncChangeCount, 1)
     }
 
     @MainActor
@@ -84,11 +87,13 @@ extension RemoteUsageReaderTests {
         let fixture = try makeFixture()
         let store = InMemoryRemoteSyncConfigurationStore(configuration: fixture.configuration)
         let anchorStore = InMemoryRemoteSnapshotAnchorStore(envelopes: [fixture.envelope])
+        var remoteSyncChangeCount = 0
         let viewModel = RemoteSyncSettingsViewModel(
             store: store,
             client: StubRemoteHubClient(devicesResult: .success([])),
             cache: InMemoryRemoteSnapshotCache(),
-            anchorStore: anchorStore)
+            anchorStore: anchorStore,
+            onRemoteSyncChange: { remoteSyncChangeCount += 1 })
 
         await viewModel.disconnect()
 
@@ -96,6 +101,7 @@ extension RemoteUsageReaderTests {
         XCTAssertEqual(anchorStore.clearCallCount, 1)
         XCTAssertFalse(viewModel.isConnected)
         XCTAssertFalse(viewModel.hasError)
+        XCTAssertEqual(remoteSyncChangeCount, 1)
     }
 
     @MainActor
@@ -157,11 +163,13 @@ extension RemoteUsageReaderTests {
         try store.saveEncryptionKey(fixture.encryptionKey, for: device.id)
         let anchorStore = InMemoryRemoteSnapshotAnchorStore(envelopes: [fixture.envelope])
         let client = StubRemoteHubClient(devicesResult: .success([]))
+        var remoteSyncChangeCount = 0
         let viewModel = RemoteSyncSettingsViewModel(
             store: store,
             client: client,
             cache: InMemoryRemoteSnapshotCache(entry: fixture.cacheEntry()),
-            anchorStore: anchorStore)
+            anchorStore: anchorStore,
+            onRemoteSyncChange: { remoteSyncChangeCount += 1 })
 
         await viewModel.revoke(device)
 
@@ -169,5 +177,66 @@ extension RemoteUsageReaderTests {
         XCTAssertEqual(client.revokedDeviceIDs, [device.id])
         XCTAssertFalse(store.hasEncryptionKey(for: device.id))
         XCTAssertFalse(viewModel.hasError)
+        XCTAssertEqual(remoteSyncChangeCount, 1)
+    }
+
+    @MainActor
+    func test_refreshDevicesCachesKeyAvailabilityAndClearsPreviousError() async throws {
+        let fixture = try makeFixture()
+        let device = fixture.device()
+        let store = InMemoryRemoteSyncConfigurationStore(configuration: fixture.configuration)
+        try store.saveEncryptionKey(fixture.encryptionKey, for: device.id)
+        let client = StubRemoteHubClient(devicesResults: [
+            .failure(TestError.temporaryCredentialFailure),
+            .success([device]),
+        ])
+        let viewModel = RemoteSyncSettingsViewModel(
+            store: store,
+            client: client,
+            cache: InMemoryRemoteSnapshotCache(),
+            anchorStore: InMemoryRemoteSnapshotAnchorStore())
+
+        await viewModel.refreshDevices()
+        XCTAssertTrue(viewModel.hasError)
+
+        await viewModel.refreshDevices()
+
+        XCTAssertEqual(viewModel.devices, [device])
+        XCTAssertFalse(viewModel.hasError)
+        XCTAssertNil(viewModel.statusMessage)
+        let keyReadCount = store.hasEncryptionKeyCallCount
+        XCTAssertTrue(viewModel.hasEncryptionKey(for: device))
+        XCTAssertTrue(viewModel.hasEncryptionKey(for: device))
+        XCTAssertEqual(store.hasEncryptionKeyCallCount, keyReadCount)
+    }
+
+    @MainActor
+    func test_invalidStoredCredentialsCanBeClearedWithoutHubAccess() async throws {
+        let fixture = try makeFixture()
+        let store = InMemoryRemoteSyncConfigurationStore(
+            configuration: nil,
+            loadError: TestError.temporaryCredentialFailure)
+        let cache = InMemoryRemoteSnapshotCache(entry: fixture.cacheEntry())
+        let anchorStore = InMemoryRemoteSnapshotAnchorStore(envelopes: [fixture.envelope])
+        var remoteSyncChangeCount = 0
+        let viewModel = RemoteSyncSettingsViewModel(
+            store: store,
+            client: StubRemoteHubClient(),
+            cache: cache,
+            anchorStore: anchorStore,
+            onRemoteSyncChange: { remoteSyncChangeCount += 1 })
+
+        XCTAssertTrue(viewModel.needsLocalCredentialRecovery)
+        XCTAssertTrue(viewModel.hasError)
+
+        await viewModel.clearInvalidLocalState()
+
+        XCTAssertNil(try store.load())
+        XCTAssertEqual(store.clearCallCount, 1)
+        XCTAssertNil(try cache.load())
+        XCTAssertEqual(anchorStore.clearCallCount, 1)
+        XCTAssertFalse(viewModel.needsLocalCredentialRecovery)
+        XCTAssertFalse(viewModel.hasError)
+        XCTAssertEqual(remoteSyncChangeCount, 1)
     }
 }

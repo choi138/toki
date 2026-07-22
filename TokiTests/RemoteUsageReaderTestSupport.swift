@@ -87,7 +87,7 @@ final class StubRemoteHubClient: RemoteHubClientProtocol {
     private let lock = NSLock()
     private let manifestResult: Result<RemoteConditionalResult<[RemoteDeviceSummary]>, Error>
     private let snapshotResult: Result<[EncryptedUsageEnvelope], Error>
-    private let devicesResult: Result<[RemoteDeviceSummary], Error>
+    private var devicesResults: [Result<[RemoteDeviceSummary], Error>]
     private let delayNanoseconds: UInt64
     private var manifestCallCount = 0
     private var snapshotCallCount = 0
@@ -101,10 +101,15 @@ final class StubRemoteHubClient: RemoteHubClientProtocol {
         snapshotResult: Result<[EncryptedUsageEnvelope], Error> =
             .failure(TestError.unexpectedCall),
         devicesResult: Result<[RemoteDeviceSummary], Error> = .success([]),
+        devicesResults: [Result<[RemoteDeviceSummary], Error>]? = nil,
         delayNanoseconds: UInt64 = 0) {
         self.manifestResult = manifestResult
         self.snapshotResult = snapshotResult
-        self.devicesResult = devicesResult
+        if let devicesResults, !devicesResults.isEmpty {
+            self.devicesResults = devicesResults
+        } else {
+            self.devicesResults = [devicesResult]
+        }
         self.delayNanoseconds = delayNanoseconds
     }
 
@@ -162,7 +167,11 @@ final class StubRemoteHubClient: RemoteHubClientProtocol {
     }
 
     func fetchDevices(configuration _: RemoteHubConfiguration) async throws -> [RemoteDeviceSummary] {
-        try devicesResult.get()
+        let result = lock.withLock {
+            guard devicesResults.count > 1 else { return devicesResults[0] }
+            return devicesResults.removeFirst()
+        }
+        return try result.get()
     }
 
     func revokeDevice(id: String, configuration _: RemoteHubConfiguration) async throws {
@@ -243,14 +252,18 @@ final class InMemoryRemoteSnapshotAnchorStore: RemoteSnapshotAnchorStoring {
 final class InMemoryRemoteSyncConfigurationStore: RemoteSyncConfigurationStoring {
     private var configuration: RemoteHubConfiguration?
     private var encryptionKeys: [String: String] = [:]
+    private var loadError: Error?
     private(set) var clearCallCount = 0
+    private(set) var hasEncryptionKeyCallCount = 0
 
-    init(configuration: RemoteHubConfiguration?) {
+    init(configuration: RemoteHubConfiguration?, loadError: Error? = nil) {
         self.configuration = configuration
+        self.loadError = loadError
     }
 
     func load() throws -> RemoteHubConfiguration? {
-        configuration
+        if let loadError { throw loadError }
+        return configuration
     }
 
     func save(_ configuration: RemoteHubConfiguration) throws {
@@ -270,13 +283,15 @@ final class InMemoryRemoteSyncConfigurationStore: RemoteSyncConfigurationStoring
     }
 
     func hasEncryptionKey(for deviceID: String) -> Bool {
-        encryptionKeys[deviceID] != nil
+        hasEncryptionKeyCallCount += 1
+        return encryptionKeys[deviceID] != nil
     }
 
     func clear() throws {
         clearCallCount += 1
         configuration = nil
         encryptionKeys = [:]
+        loadError = nil
     }
 }
 

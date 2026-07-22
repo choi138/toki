@@ -95,9 +95,7 @@ public struct HermesReader: TokenReader {
             let observation = try HermesUsageResolver.resolve(
                 session: session,
                 modelUsage: modelUsageBySessionID[session.sessionID] ?? [])
-            if observation.counters.totalTokens > 0 {
-                observations.append(observation)
-            }
+            observations.append(observation)
             stepStatus = sqlite3_step(statement)
         }
         guard stepStatus == SQLITE_DONE else {

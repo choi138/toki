@@ -23,9 +23,43 @@ final class AgentStateStoreTests: XCTestCase {
         let stateStore = AgentStateStore(paths: fixture.paths)
         try stateStore.save(AgentRuntimeState(latestSequence: 7))
 
+        let bundle = try AgentPairingBundle(
+            hubURL: XCTUnwrap(URL(string: "https://hub.example.test")),
+            deviceID: "device-1",
+            deviceName: "ubuntu",
+            uploadToken: SnapshotCipher.randomToken(),
+            encryptionKey: SnapshotCipher.generateKey())
+        try AgentConfigurationStore(paths: fixture.paths).save(AgentConfiguration(bundle: bundle))
+
         XCTAssertEqual(try stateStore.load().latestSequence, 7)
-        let attributes = try FileManager.default.attributesOfItem(atPath: fixture.paths.runtimeStateURL.path)
-        XCTAssertEqual((attributes[.posixPermissions] as? NSNumber)?.intValue, 0o600)
+        let stateAttributes = try FileManager.default.attributesOfItem(atPath: fixture.paths.runtimeStateURL.path)
+        let configurationAttributes = try FileManager.default.attributesOfItem(
+            atPath: fixture.paths.configurationURL.path)
+        XCTAssertEqual((stateAttributes[.posixPermissions] as? NSNumber)?.intValue, 0o600)
+        XCTAssertEqual((configurationAttributes[.posixPermissions] as? NSNumber)?.intValue, 0o600)
+    }
+
+    func test_configurationStoreRejectsGroupReadableCredentials() throws {
+        let fixture = try makeFixture()
+        defer { fixture.remove() }
+        let bundle = try AgentPairingBundle(
+            hubURL: XCTUnwrap(URL(string: "https://hub.example.test")),
+            deviceID: "device-1",
+            deviceName: "ubuntu",
+            uploadToken: SnapshotCipher.randomToken(),
+            encryptionKey: SnapshotCipher.generateKey())
+        let store = AgentConfigurationStore(paths: fixture.paths)
+        try store.save(AgentConfiguration(bundle: bundle))
+        try FileManager.default.setAttributes(
+            [.posixPermissions: NSNumber(value: 0o640)],
+            ofItemAtPath: fixture.paths.configurationURL.path)
+
+        XCTAssertThrowsError(try store.load()) { error in
+            guard let configurationError = error as? AgentConfigurationError,
+                  case .invalidConfigurationFile = configurationError else {
+                return XCTFail("Expected invalidConfigurationFile, got \(error)")
+            }
+        }
     }
 
     func test_stateStoreRejectsUploadedDigestWithoutSequence() throws {
@@ -307,6 +341,30 @@ final class AgentProcessAndSpoolTests: XCTestCase {
         }
     }
 
+    func test_spoolRejectsFifthEnvelopeWithoutPoisoningExistingQueue() throws {
+        let fixture = try makeFixture()
+        defer { fixture.remove() }
+        let spool = AgentSpool(paths: fixture.paths)
+
+        for sequence in UInt64(1)...UInt64(4) {
+            _ = try spool.enqueue(makeEncryptedEnvelope(sequence: sequence))
+        }
+
+        XCTAssertThrowsError(try spool.enqueue(makeEncryptedEnvelope(sequence: 5))) { error in
+            guard let spoolError = error as? AgentSpoolError,
+                  case .tooManyPendingEnvelopes = spoolError else {
+                return XCTFail("Expected tooManyPendingEnvelopes, got \(error)")
+            }
+        }
+        XCTAssertNoThrow(try spool.enqueue(makeEncryptedEnvelope(sequence: 4, payload: "replacement")))
+
+        let pending = try spool.pendingEnvelopes()
+        XCTAssertEqual(pending.map(\.envelope.sequence), [1, 2, 3, 4])
+        XCTAssertEqual(
+            pending.last?.envelope.payload,
+            Data("replacement".utf8).base64EncodedString())
+    }
+
     func test_publicErrorDescriptionDoesNotExposeLocalPath() {
         let sensitivePath = "/private/sensitive/codex-state"
         let error = NSError(
@@ -530,6 +588,16 @@ private func makeFixture() throws -> AgentTestFixture {
         "XDG_DATA_HOME": root.appendingPathComponent("data").path,
     ]
     return AgentTestFixture(root: root, paths: AgentPaths(environment: environment, home: root))
+}
+
+private func makeEncryptedEnvelope(
+    sequence: UInt64,
+    payload: String = "ciphertext") -> EncryptedUsageEnvelope {
+    EncryptedUsageEnvelope(
+        deviceID: "device-1",
+        sequence: sequence,
+        generatedAt: Date(timeIntervalSince1970: 1_750_000_000),
+        payload: Data(payload.utf8).base64EncodedString())
 }
 
 private struct AgentTestFixture {
