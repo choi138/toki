@@ -60,13 +60,15 @@ struct AgentSyncService {
                let sourceSignature,
                state.lastSourceSignature == sourceSignature,
                state.lastUploadedContentDigest != nil {
-                try await hubClient.heartbeat(
+                if try await heartbeatAccepted(
                     configuration: configuration,
-                    latestSequence: state.latestSequence)
-                state.lastSuccessfulSyncAt = now
-                state.lastError = nil
-                try stateStore.save(state)
-                return
+                    latestSequence: state.latestSequence) {
+                    state.lastSuccessfulSyncAt = now
+                    state.lastError = nil
+                    try stateStore.save(state)
+                    return
+                }
+                try Self.invalidateSnapshotVerification(&state, stateStore: stateStore)
             }
 
             let snapshot = try await snapshotBuilder.build(configuration: configuration, now: now)
@@ -76,13 +78,15 @@ struct AgentSyncService {
                     configuration: configuration,
                     now: now)
                 try stateStore.save(state)
-                try await hubClient.heartbeat(
+                if try await heartbeatAccepted(
                     configuration: configuration,
-                    latestSequence: state.latestSequence)
-                state.lastSuccessfulSyncAt = now
-                state.lastError = nil
-                try stateStore.save(state)
-                return
+                    latestSequence: state.latestSequence) {
+                    state.lastSuccessfulSyncAt = now
+                    state.lastError = nil
+                    try stateStore.save(state)
+                    return
+                }
+                try Self.invalidateSnapshotVerification(&state, stateStore: stateStore)
             }
             guard state.latestSequence < UInt64.max else {
                 throw AgentSyncError.sequenceExhausted
@@ -201,6 +205,30 @@ struct AgentSyncService {
         let value = UInt64(prefix, radix: 16) ?? 0
         let jitter = Int(value % UInt64(jitterLimit + 1))
         return phase == "initial" ? jitter : interval + jitter
+    }
+}
+
+private extension AgentSyncService {
+    func heartbeatAccepted(
+        configuration: AgentConfiguration,
+        latestSequence: UInt64) async throws -> Bool {
+        do {
+            try await hubClient.heartbeat(
+                configuration: configuration,
+                latestSequence: latestSequence)
+            return true
+        } catch let error as AgentHubClientError {
+            guard case .httpStatus(409) = error else { throw error }
+            return false
+        }
+    }
+
+    static func invalidateSnapshotVerification(
+        _ state: inout AgentRuntimeState,
+        stateStore: AgentStateStore) throws {
+        state.lastSourceSignature = nil
+        state.lastUploadedContentDigest = nil
+        try stateStore.save(state)
     }
 }
 

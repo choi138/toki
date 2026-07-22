@@ -87,7 +87,7 @@ struct AgentSnapshotBuilder: AgentSnapshotBuilding {
                 RemoteTokenEvent(
                     timestamp: event.timestamp,
                     source: event.source,
-                    model: event.model,
+                    model: remoteModel(event.model),
                     inputTokens: event.inputTokens,
                     outputTokens: event.outputTokens,
                     cacheReadTokens: event.cacheReadTokens,
@@ -104,7 +104,7 @@ struct AgentSnapshotBuilder: AgentSnapshotBuilding {
                         RemoteActivityEvent(
                             timestamp: event.timestamp,
                             source: readerUsage.name,
-                            model: event.key,
+                            model: remoteModel(event.key),
                             streamID: identifierHasher.identifier(
                                 for: "\(readerUsage.name)\u{0}\(event.streamID)"),
                             agentKind: event.agentKind == .subagent ? .subagent : .main)
@@ -406,6 +406,16 @@ private extension AgentSnapshotBuilder {
         if lhs.model != rhs.model { return (lhs.model ?? "") < (rhs.model ?? "") }
         if lhs.streamID != rhs.streamID { return lhs.streamID < rhs.streamID }
         return lhs.agentKind.rawValue < rhs.agentKind.rawValue
+    }
+
+    private func remoteModel(_ model: String?) -> String? {
+        guard let model,
+              TokiSyncValidation.isSafeDisplayText(
+                  model,
+                  maximumLength: RemoteUsageSnapshotValidator.maximumModelLength) else {
+            return nil
+        }
+        return model
     }
 
     private var platformName: String {
