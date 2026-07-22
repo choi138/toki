@@ -3,7 +3,7 @@ import TokiSyncProtocol
 import XCTest
 @testable import Toki
 
-final class RemoteSyncTransportTests: XCTestCase {
+extension RemoteUsageReaderTests {
     func test_hubURLAndOwnerTokenRemainBoundInOneKeychainRecord() throws {
         let suiteName = "RemoteUsageReaderTests.\(UUID().uuidString)"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
