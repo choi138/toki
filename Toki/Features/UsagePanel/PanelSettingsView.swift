@@ -1,60 +1,68 @@
-import ServiceManagement
 import SwiftUI
 
 struct PanelSettingsView: View {
     @Environment(\.dismiss) private var dismiss
     @ObservedObject var settings: UsagePanelSettings
+    @StateObject private var remoteSyncSettings: RemoteSyncSettingsViewModel
+    @StateObject private var launchAtLogin = LaunchAtLoginViewModel()
 
     private let readerNames: [String]
-    @State private var launchAtLoginEnabled = SMAppService.mainApp.status == .enabled
-    @State private var launchAtLoginIsUpdating = false
-    @State private var launchAtLoginError: String?
 
-    init(settings: UsagePanelSettings, readerNames: [String] = UsagePanelSettings.defaultReaderNames) {
+    init(
+        settings: UsagePanelSettings,
+        readerNames: [String] = UsagePanelSettings.defaultReaderNames,
+        onRemoteSyncChange: @escaping () -> Void = {}) {
         self.settings = settings
         self.readerNames = readerNames
+        _remoteSyncSettings = StateObject(wrappedValue: RemoteSyncSettingsViewModel(
+            onRemoteSyncChange: onRemoteSyncChange))
     }
 
     var body: some View {
         VStack(spacing: 0) {
             header
             divider
-            VStack(spacing: 14) {
-                refreshPicker
-                settingsSection("Readers") {
-                    ForEach(readerNames, id: \.self) { name in
+            ScrollView(.vertical) {
+                VStack(spacing: 14) {
+                    refreshPicker
+                    settingsSection("Remote Sync") {
+                        RemoteSyncSettingsSection(viewModel: remoteSyncSettings)
+                    }
+                    settingsSection("Readers") {
+                        ForEach(readerNames, id: \.self) { name in
+                            settingsToggle(
+                                name,
+                                isOn: Binding(
+                                    get: { settings.isReaderEnabled(name) },
+                                    set: { settings.setReader(name, isEnabled: $0) }))
+                        }
+                    }
+                    settingsSection("Display") {
                         settingsToggle(
-                            name,
+                            "Show zero rows",
                             isOn: Binding(
-                                get: { settings.isReaderEnabled(name) },
-                                set: { settings.setReader(name, isEnabled: $0) }))
+                                get: { settings.showsZeroSourceRows },
+                                set: { settings.setShowsZeroSourceRows($0) }))
+                        launchAtLoginToggle
+                        if let errorMessage = launchAtLogin.errorMessage {
+                            Text(errorMessage)
+                                .font(.system(size: 10, weight: .medium))
+                                .foregroundColor(Color(red: 1.0, green: 0.45, blue: 0.35).opacity(0.8))
+                                .padding(.horizontal, 10)
+                                .padding(.bottom, 7)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
                     }
                 }
-                settingsSection("Display") {
-                    settingsToggle(
-                        "Show zero rows",
-                        isOn: Binding(
-                            get: { settings.showsZeroSourceRows },
-                            set: { settings.setShowsZeroSourceRows($0) }))
-                    launchAtLoginToggle
-                    if let launchAtLoginError {
-                        Text(launchAtLoginError)
-                            .font(.system(size: 10, weight: .medium))
-                            .foregroundColor(Color(red: 1.0, green: 0.45, blue: 0.35).opacity(0.8))
-                            .padding(.horizontal, 10)
-                            .padding(.bottom, 7)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                    }
-                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 14)
             }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 14)
         }
-        .frame(width: 280)
+        .frame(width: 320, height: 560)
         .background(Color(red: 0.09, green: 0.09, blue: 0.11))
         .preferredColorScheme(.dark)
         .onAppear {
-            launchAtLoginEnabled = SMAppService.mainApp.status == .enabled
+            launchAtLogin.reload()
         }
     }
 
@@ -97,10 +105,10 @@ struct PanelSettingsView: View {
         settingsToggle(
             "Launch at Login",
             isOn: Binding(
-                get: { launchAtLoginEnabled },
-                set: { setLaunchAtLogin($0) }))
-            .disabled(launchAtLoginIsUpdating)
-            .opacity(launchAtLoginIsUpdating ? 0.5 : 1)
+                get: { launchAtLogin.isEnabled },
+                set: { launchAtLogin.setEnabled($0) }))
+            .disabled(launchAtLogin.isUpdating)
+            .opacity(launchAtLogin.isUpdating ? 0.5 : 1)
     }
 
     private var divider: some View {
@@ -141,33 +149,5 @@ struct PanelSettingsView: View {
             return "\(seconds)s"
         }
         return "\(seconds / 60)m"
-    }
-
-    private func setLaunchAtLogin(_ isEnabled: Bool) {
-        guard launchAtLoginEnabled != isEnabled, !launchAtLoginIsUpdating else { return }
-        launchAtLoginIsUpdating = true
-        launchAtLoginError = nil
-
-        Task {
-            let result = await Task.detached(priority: .userInitiated) {
-                do {
-                    if isEnabled {
-                        try SMAppService.mainApp.register()
-                    } else {
-                        try SMAppService.mainApp.unregister()
-                    }
-                    return Result<Void, Error>.success(())
-                } catch {
-                    return .failure(error)
-                }
-            }.value
-
-            if case let .failure(error) = result {
-                launchAtLoginError = error.localizedDescription
-                NSLog("Launch at Login update failed: \(error.localizedDescription)")
-            }
-            launchAtLoginEnabled = SMAppService.mainApp.status == .enabled
-            launchAtLoginIsUpdating = false
-        }
     }
 }

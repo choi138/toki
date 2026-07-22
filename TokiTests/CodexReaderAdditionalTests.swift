@@ -1,7 +1,8 @@
+import TokiUsageCore
 import XCTest
 @testable import Toki
+@testable import TokiUsageReaders
 
-// swiftlint:disable:next type_body_length
 final class CodexReaderAdditionalTests: XCTestCase {
     func test_codexUsageSnapshot_doesNotTreatSubsetCounterRewriteAsStaleRegression() {
         let previous = CodexUsageSnapshot(
@@ -191,7 +192,9 @@ final class CodexReaderAdditionalTests: XCTestCase {
         XCTAssertEqual(usage.reasoningTokens, 5)
         XCTAssertEqual(usage.totalTokens, 60)
     }
+}
 
+extension CodexReaderAdditionalTests {
     func test_codexReader_respectsPartialDayRangeWithOutOfOrderSnapshots() {
         let lines = [
             tokenCountLine(
@@ -325,7 +328,9 @@ final class CodexReaderAdditionalTests: XCTestCase {
 
         XCTAssertEqual(skippedPaths, ["/tmp/main-with-model.jsonl"])
     }
+}
 
+extension CodexReaderAdditionalTests {
     func test_codexReaderUsesDatabaseCwdForProjectAttribution() throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
@@ -448,5 +453,114 @@ final class CodexReaderAdditionalTests: XCTestCase {
         XCTAssertEqual(merged.first?.model, "gpt-5.4")
         XCTAssertEqual(merged.first?.agentKind, .subagent)
         XCTAssertEqual(merged.first?.hasSourceAttribution, true)
+    }
+}
+
+extension CodexReaderAdditionalTests {
+    func test_codexReaderDiscoversArchivedSessionWithoutDatabaseRow() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("toki-codex-archive-tests-\(UUID().uuidString)", isDirectory: true)
+        let archiveDirectory = directory.appendingPathComponent("archived_sessions", isDirectory: true)
+        try FileManager.default.createDirectory(at: archiveDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let databaseURL = directory.appendingPathComponent("state_5.sqlite")
+        try createSecurityAuditSQLiteDB(
+            at: databaseURL,
+            statements: [
+                """
+                CREATE TABLE threads (
+                    rollout_path TEXT NOT NULL,
+                    model TEXT,
+                    source TEXT,
+                    cwd TEXT,
+                    created_at INTEGER NOT NULL,
+                    updated_at INTEGER NOT NULL
+                )
+                """,
+            ])
+        let rolloutURL = archiveDirectory.appendingPathComponent("archived-session.jsonl")
+        let lines = [
+            #"{"timestamp":"2026-04-10T08:59:58Z","type":"session_meta","payload":{"id":"archived-session"}}"#,
+            #"{"type":"turn_context","payload":{"model":"gpt-5.4-mini","cwd":"/tmp/example"}}"#,
+            tokenCountLine(
+                ts: "2026-04-10T09:00:00Z",
+                input: 120,
+                cachedInput: 20,
+                output: 30,
+                reasoning: 5,
+                total: 150),
+        ]
+        try Data((lines.joined(separator: "\n") + "\n").utf8).write(to: rolloutURL)
+
+        let reader = CodexReader(dbPath: databaseURL.path)
+        let startDate = isoDate("2026-04-10T00:00:00Z")
+        let endDate = isoDate("2026-04-11T00:00:00Z")
+        let sessions = reader.overlappingSessions(from: startDate, to: endDate)
+        let usage = try await reader.readUsage(from: startDate, to: endDate)
+
+        XCTAssertEqual(sessions.map(\.rolloutPath), [rolloutURL.resolvingSymlinksInPath().path])
+        XCTAssertEqual(sessions.first?.upstreamSessionID, "archived-session")
+        XCTAssertEqual(sessions.first?.model, "gpt-5.4-mini")
+        XCTAssertEqual(usage.tokenEvents.count, 1)
+        XCTAssertGreaterThan(usage.totalTokens, 0)
+    }
+
+    func test_rolloutCachePrunesEntriesOutsideRetainedBatch() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("toki-rollout-cache-tests-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let firstURL = directory.appendingPathComponent("first.jsonl")
+        let secondURL = directory.appendingPathComponent("second.jsonl")
+        try Data("{}\n".utf8).write(to: firstURL)
+        try Data("{}\n".utf8).write(to: secondURL)
+        let cacheURL = directory.appendingPathComponent("cache.json")
+        let cache = CodexRolloutUsageCache(cacheURL: cacheURL, maximumBytes: 16 * 1024)
+        let usage = ["2026-04-10": CodexCachedDailyUsage.zero]
+
+        let initialBatch = await cache.beginBatch(retaining: [firstURL.path, secondURL.path])
+        await cache.store(dailyUsage: usage, dailyActivityTimestamps: [:], for: firstURL)
+        await cache.store(dailyUsage: usage, dailyActivityTimestamps: [:], for: secondURL)
+        await cache.endBatch(initialBatch)
+        let retainedBatch = await cache.beginBatch(retaining: [secondURL.path])
+        await cache.endBatch(retainedBatch)
+
+        let firstUsage = await cache.dailyUsage(for: firstURL)
+        let secondUsage = await cache.dailyUsage(for: secondURL)
+        let persisted = try JSONDecoder().decode(
+            CodexRolloutUsageCacheFile.self,
+            from: Data(contentsOf: cacheURL))
+        XCTAssertNil(firstUsage)
+        XCTAssertNotNil(secondUsage)
+        XCTAssertEqual(Set(persisted.entries.keys), [secondURL.path])
+    }
+
+    func test_rolloutCacheRejectsEntryThatExceedsMemoryBudget() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("toki-rollout-cache-tests-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let rolloutURL = directory.appendingPathComponent("oversized.jsonl")
+        try Data("{}\n".utf8).write(to: rolloutURL)
+        let cacheURL = directory.appendingPathComponent("cache.json")
+        let cache = CodexRolloutUsageCache(cacheURL: cacheURL, maximumBytes: 2 * 1024)
+        let events = (0..<100).map { index in
+            CodexCachedTokenUsageEvent(
+                timestamp: Date(timeIntervalSince1970: TimeInterval(index)),
+                usage: RawTokenUsage(inputTokens: 1))
+        }
+
+        let batch = await cache.beginBatch(retaining: [rolloutURL.path])
+        await cache.store(
+            dailyUsage: ["2026-04-10": .zero],
+            dailyActivityTimestamps: [:],
+            dailyTokenUsageEvents: ["2026-04-10": events],
+            for: rolloutURL)
+        await cache.endBatch(batch)
+
+        let cachedUsage = await cache.dailyUsage(for: rolloutURL)
+        XCTAssertNil(cachedUsage)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: cacheURL.path))
     }
 }

@@ -3,6 +3,9 @@ options:
   bundleIdPrefix: com.toki
   deploymentTarget:
     macOS: "13.0"
+packages:
+  TokiRemote:
+    path: .
 targets:
   TokiTests:
     type: bundle.unit-test
@@ -12,6 +15,12 @@ targets:
     dependencies:
       - target: Toki
         embed: false
+      - package: TokiRemote
+        product: TokiUsageCore
+      - package: TokiRemote
+        product: TokiUsageReaders
+      - package: TokiRemote
+        product: TokiSyncProtocol
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.toki.TokiTests
@@ -37,7 +46,16 @@ targets:
         NSHighResolutionCapable: true
         LSUIElement: true
     dependencies:
+      - package: TokiRemote
+        product: TokiDurableStorage
+      - package: TokiRemote
+        product: TokiSyncProtocol
+      - package: TokiRemote
+        product: TokiUsageCore
+      - package: TokiRemote
+        product: TokiUsageReaders
       - sdk: libsqlite3.tbd
+      - sdk: Security.framework
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.toki.app

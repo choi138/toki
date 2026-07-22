@@ -4,7 +4,7 @@ import XCTest
 
 final class SecurityAuditSQLiteIntegrationTests: SecurityAuditScannerTestCase {
     func testScannerReadsCursorAndOpenCodeSQLiteTextRows() async throws {
-        let sources = SecurityAuditScanner.defaultSources(homeDirectory: tempRoot)
+        let sources = SecurityAuditScanner.defaultSources(homeDirectory: tempRoot, environment: [:])
         let cursorRoot = try XCTUnwrap(sources.first { $0.name == "Cursor" }).rootURL
         let openCodeRoot = try XCTUnwrap(sources.first { $0.name == "OpenCode" }).rootURL
         try FileManager.default.createDirectory(at: cursorRoot, withIntermediateDirectories: true)
@@ -41,7 +41,7 @@ final class SecurityAuditSQLiteIntegrationTests: SecurityAuditScannerTestCase {
     func testScannerInvalidatesSQLiteCacheWhenWriteAheadLogChanges() async throws {
         let counter = SecurityAuditValidatorCounter()
         let cursorRoot = try XCTUnwrap(
-            SecurityAuditScanner.defaultSources(homeDirectory: tempRoot)
+            SecurityAuditScanner.defaultSources(homeDirectory: tempRoot, environment: [:])
                 .first { $0.name == "Cursor" }?
                 .rootURL)
         try FileManager.default.createDirectory(at: cursorRoot, withIntermediateDirectories: true)

@@ -1,5 +1,7 @@
 import Foundation
 import SQLite3
+import TokiUsageCore
+import TokiUsageReaders
 
 // Detects whether any AI coding tool is currently active.
 
@@ -163,8 +165,9 @@ enum ActivityMonitor {
 
     /// Queries the indexed message timestamp (milliseconds) — only true
     /// when a message was created recently (active session).
-    private static func isOpenCodeActive(since threshold: Date) -> Bool {
-        let dbPath = homeDir().appendingPathComponent(".local/share/opencode/opencode.db").path
+    static func isOpenCodeActive(
+        dbPath: String = LocalUsageReaderPaths().openCodeDatabase.path,
+        since threshold: Date) -> Bool {
         let epochMs = Int64(threshold.timeIntervalSince1970 * 1000)
         return queryCount(
             db: dbPath,
@@ -403,11 +406,13 @@ private func queryExists(db path: String, sql: String, bind: SQLiteBind) -> Bool
     case let .int64(value):
         sqlite3_bind_int64(statement, 1, value)
     case let .text(value):
-        sqlite3_bind_text(statement, 1, value, -1, sqliteTransient)
+        sqlite3_bind_text(statement, 1, value, -1, activitySQLiteTransient)
     }
     guard bindStatus == SQLITE_OK else { return false }
     return sqlite3_step(statement) == SQLITE_ROW
 }
+
+private let activitySQLiteTransient = unsafeBitCast(-1, to: sqlite3_destructor_type.self)
 
 // MARK: - Claude Code JSONL entry
 

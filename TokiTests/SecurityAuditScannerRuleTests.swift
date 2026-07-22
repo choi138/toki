@@ -137,11 +137,27 @@ final class SecurityAuditScannerRuleTests: SecurityAuditScannerTestCase {
     }
 
     func testDefaultSourcesIncludeAllUsageReaders() {
-        let sourceNames = SecurityAuditScanner.defaultSources(homeDirectory: tempRoot).map(\.name)
+        let sourceNames = SecurityAuditScanner.defaultSources(
+            homeDirectory: tempRoot,
+            environment: [:])
+            .map(\.name)
 
         XCTAssertEqual(
             sourceNames,
             ["Claude Code", "Codex", "Cursor", "Gemini CLI", "OpenCode", "OpenClaw"])
+    }
+
+    func testDefaultSourcesUseInjectedOpenCodeDataDirectory() throws {
+        let xdgDataDirectory = tempRoot.appendingPathComponent("xdg-data", isDirectory: true)
+        let source = try XCTUnwrap(
+            SecurityAuditScanner.defaultSources(
+                homeDirectory: tempRoot,
+                environment: ["XDG_DATA_HOME": xdgDataDirectory.path])
+                .first { $0.name == "OpenCode" })
+
+        XCTAssertEqual(
+            source.rootURL.standardizedFileURL.path,
+            xdgDataDirectory.appendingPathComponent("opencode").standardizedFileURL.path)
     }
 
     func testScannerReportsFileProgress() async throws {

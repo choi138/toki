@@ -28,7 +28,7 @@ class SecurityAuditScannerTestCase: XCTestCase {
     }
 
     func sourceDefinitions(for sourceNames: [String]) -> [SecurityAuditFileSource] {
-        SecurityAuditScanner.defaultSources(homeDirectory: tempRoot)
+        SecurityAuditScanner.defaultSources(homeDirectory: tempRoot, environment: [:])
             .filter { sourceNames.contains($0.name) }
     }
 
@@ -37,7 +37,7 @@ class SecurityAuditScannerTestCase: XCTestCase {
         sourceName: String,
         relativePath: String,
         lines: [String]) throws -> URL {
-        let root = SecurityAuditScanner.defaultSources(homeDirectory: tempRoot)
+        let root = SecurityAuditScanner.defaultSources(homeDirectory: tempRoot, environment: [:])
             .first { $0.name == sourceName }!
             .rootURL
         let url = root.appendingPathComponent(relativePath)

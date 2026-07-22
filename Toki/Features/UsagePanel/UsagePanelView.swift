@@ -106,6 +106,11 @@ struct UsagePanelView: View {
                 selectRangeEnd: selectRangeEnd,
                 refresh: refresh)
             panelDivider
+            PanelUsageScopePickerView(
+                selectedScope: viewModel.selectedUsageScope,
+                originReports: viewModel.originReports,
+                onSelect: viewModel.selectUsageScope)
+            panelDivider
             PanelTabBarView(activeTab: $activeTab)
             panelDivider
             ScrollView(.vertical) {
@@ -124,7 +129,10 @@ struct UsagePanelView: View {
         .background(Color(red: 0.09, green: 0.09, blue: 0.11))
         .preferredColorScheme(.dark)
         .sheet(isPresented: $isShowingSettings) {
-            PanelSettingsView(settings: viewModel.settings, readerNames: viewModel.readerNames)
+            PanelSettingsView(
+                settings: viewModel.settings,
+                readerNames: viewModel.readerNames,
+                onRemoteSyncChange: refresh)
         }
         .sheet(isPresented: $isShowingSecurityAudit) {
             SecurityAuditView()
@@ -159,6 +167,12 @@ struct UsagePanelView: View {
                 .task {
                     await viewModel.refreshPeriodTokenTotalsIfNeeded()
                 }
+            if showsDeviceBreakdown {
+                panelDivider
+                PanelDeviceBreakdownView(
+                    reports: viewModel.originReports,
+                    onSelect: { viewModel.selectUsageScope(.origin($0)) })
+            }
             panelDivider
             PanelTokenTotalsView(
                 summaries: viewModel.periodTokenTotals,
@@ -166,7 +180,8 @@ struct UsagePanelView: View {
             panelDivider
             PanelTokenBreakdownView(
                 usage: viewModel.usageData,
-                liveTokensPerSecond: tokenVelocityState.liveTokensPerSecond,
+                liveTokensPerSecond: scopedLiveTokensPerSecond,
+                liveTokenLabel: liveTokenLabel,
                 isLoading: viewModel.isLoading)
         case .projects:
             PanelProjectTimelineView(usage: viewModel.usageData, isLoading: viewModel.isLoading)
@@ -177,8 +192,12 @@ struct UsagePanelView: View {
         case .sources:
             PanelSourceView(
                 usage: viewModel.usageData,
+                originReports: viewModel.originReports,
+                selectedScope: viewModel.selectedUsageScope,
+                scopeTitle: viewModel.usageScopeTitle,
                 readerStatuses: viewModel.readerStatuses,
-                isLoading: viewModel.isLoading)
+                isLoading: viewModel.isLoading,
+                onSelectOrigin: { viewModel.selectUsageScope(.origin($0)) })
         case .workTime:
             PanelWorkTimeView(usage: viewModel.usageData, isLoading: viewModel.isLoading)
         }
@@ -188,6 +207,23 @@ struct UsagePanelView: View {
         Rectangle()
             .fill(Color.white.opacity(0.07))
             .frame(height: 0.5)
+    }
+
+    private var showsDeviceBreakdown: Bool {
+        viewModel.selectedUsageScope == .all && viewModel.originReports.count > 1
+    }
+
+    private var scopedLiveTokensPerSecond: Double? {
+        switch viewModel.selectedUsageScope {
+        case .all, .origin(.local):
+            tokenVelocityState.liveTokensPerSecond
+        case .origin:
+            nil
+        }
+    }
+
+    private var liveTokenLabel: String {
+        viewModel.selectedUsageScope == .all ? "This Mac Live TPS" : "Live TPS"
     }
 
     private func refresh() {
@@ -227,6 +263,95 @@ struct UsagePanelView: View {
         if activeTab == .overview {
             await viewModel.refreshPeriodTokenTotalsIfNeeded()
         }
+    }
+}
+
+struct PanelUsageScopePickerView: View {
+    let selectedScope: UsageScope
+    let originReports: [UsageOriginReport]
+    let onSelect: (UsageScope) -> Void
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Text("DEVICE")
+                .font(.system(size: 9, weight: .semibold))
+                .foregroundColor(Color.white.opacity(0.24))
+                .tracking(1.2)
+            Spacer(minLength: 8)
+            Menu {
+                scopeButton(
+                    title: "All Devices",
+                    subtitle: nil,
+                    systemImage: "square.grid.2x2",
+                    scope: .all)
+                Divider()
+                ForEach(originReports) { report in
+                    scopeButton(
+                        title: report.origin.name,
+                        subtitle: panelDevicePlatformLabel(for: report.origin),
+                        systemImage: panelDeviceSystemImage(for: report.origin),
+                        scope: .origin(report.id))
+                }
+            } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: selectedSystemImage)
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundColor(Color.white.opacity(0.5))
+                    Text(selectedTitle)
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundColor(Color.white.opacity(0.76))
+                        .lineLimit(1)
+                    Image(systemName: "chevron.down")
+                        .font(.system(size: 8, weight: .bold))
+                        .foregroundColor(Color.white.opacity(0.3))
+                }
+                .padding(.horizontal, 9)
+                .padding(.vertical, 5)
+                .background(Color.white.opacity(0.06))
+                .clipShape(RoundedRectangle(cornerRadius: 5, style: .continuous))
+            }
+            .menuStyle(.borderlessButton)
+            .frame(maxWidth: 200, alignment: .trailing)
+            .accessibilityLabel(Text("Usage device"))
+            .accessibilityValue(Text(selectedTitle))
+        }
+        .padding(.horizontal, 16)
+        .frame(height: 34)
+    }
+
+    private var selectedOrigin: UsageOrigin? {
+        guard case let .origin(originID) = selectedScope else { return nil }
+        return originReports.first { $0.id == originID }?.origin
+    }
+
+    private var selectedTitle: String {
+        selectedOrigin?.name ?? "All Devices"
+    }
+
+    private var selectedSystemImage: String {
+        selectedOrigin.map(panelDeviceSystemImage) ?? "square.grid.2x2"
+    }
+
+    private func scopeButton(
+        title: String,
+        subtitle: String?,
+        systemImage: String,
+        scope: UsageScope) -> some View {
+        Button {
+            onSelect(scope)
+        } label: {
+            HStack {
+                Label(menuTitle(title: title, subtitle: subtitle), systemImage: systemImage)
+                if selectedScope == scope {
+                    Image(systemName: "checkmark")
+                }
+            }
+        }
+    }
+
+    private func menuTitle(title: String, subtitle: String?) -> String {
+        guard let subtitle else { return title }
+        return "\(title) · \(subtitle)"
     }
 }
 

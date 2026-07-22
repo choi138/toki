@@ -1,5 +1,6 @@
 import Combine
 import Foundation
+import TokiUsageCore
 
 @MainActor
 final class UsagePanelSettings: ObservableObject {
@@ -14,6 +15,7 @@ final class UsagePanelSettings: ObservableObject {
         "GJC",
         "OpenCode",
         "OpenClaw",
+        "Remote Devices",
     ]
 
     @Published private var storedRefreshIntervalSeconds: Int
