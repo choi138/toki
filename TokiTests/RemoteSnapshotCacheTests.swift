@@ -84,11 +84,15 @@ extension RemoteUsageReaderTests {
         let anchorStore = RemoteSnapshotAnchorStore(
             url: anchorURL,
             legacyCacheURL: root.appendingPathComponent("missing-cache.json"))
-        try anchorStore.validateAndSave([fixture.envelope])
+        try anchorStore.validateAndSave(
+            [fixture.envelope],
+            originIdentifier: fixture.configuration.snapshotCacheIdentifier)
         let temporaryURL = root.appendingPathComponent(".anchors.json.\(UUID().uuidString).tmp")
         try Data("stale anchors".utf8).write(to: temporaryURL)
 
-        try anchorStore.validateAndSave([fixture.envelope])
+        try anchorStore.validateAndSave(
+            [fixture.envelope],
+            originIdentifier: fixture.configuration.snapshotCacheIdentifier)
 
         XCTAssertFalse(FileManager.default.fileExists(atPath: temporaryURL.path))
     }

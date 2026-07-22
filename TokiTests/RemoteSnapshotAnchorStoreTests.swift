@@ -17,18 +17,56 @@ extension RemoteUsageReaderTests {
             legacyCacheURL: cache.url)
 
         try cache.save(fixture.cacheEntry(envelopes: [newerEnvelope], sequence: 2))
-        try anchorStore.validateAndSave([newerEnvelope])
+        try anchorStore.validateAndSave(
+            [newerEnvelope],
+            originIdentifier: fixture.configuration.snapshotCacheIdentifier)
         try cache.clear()
 
-        XCTAssertThrowsError(try anchorStore.validateAndSave([fixture.envelope])) { error in
-            guard let readerError = error as? RemoteUsageReaderError,
-                  case .staleSnapshot = readerError else {
-                return XCTFail("Expected staleSnapshot, got \(error)")
+        XCTAssertThrowsError(try anchorStore.validateAndSave(
+            [fixture.envelope],
+            originIdentifier: fixture.configuration.snapshotCacheIdentifier)) { error in
+                guard let readerError = error as? RemoteUsageReaderError,
+                      case .staleSnapshot = readerError else {
+                    return XCTFail("Expected staleSnapshot, got \(error)")
+                }
             }
-        }
 
-        try anchorStore.remove(deviceID: fixture.envelope.deviceID)
-        XCTAssertNoThrow(try anchorStore.validateAndSave([fixture.envelope]))
+        try anchorStore.remove(
+            deviceID: fixture.envelope.deviceID,
+            originIdentifier: fixture.configuration.snapshotCacheIdentifier)
+        XCTAssertNoThrow(try anchorStore.validateAndSave(
+            [fixture.envelope],
+            originIdentifier: fixture.configuration.snapshotCacheIdentifier))
+    }
+
+    func test_replayAnchorsArePartitionedByRemoteOrigin() throws {
+        let fixture = try makeFixture()
+        let snapshot = try SnapshotCipher.open(fixture.envelope, key: fixture.encryptionKey)
+        let newerEnvelope = try SnapshotCipher.seal(snapshot, sequence: 2, key: fixture.encryptionKey)
+        let otherConfiguration = try RemoteHubConfiguration(
+            hubURL: fixture.configuration.hubURL,
+            ownerToken: String(repeating: "n", count: 32))
+        let root = makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let anchorStore = RemoteSnapshotAnchorStore(
+            url: root.appendingPathComponent("anchors.json"),
+            legacyCacheURL: root.appendingPathComponent("missing-cache.json"))
+
+        try anchorStore.validateAndSave(
+            [newerEnvelope],
+            originIdentifier: fixture.configuration.snapshotCacheIdentifier)
+
+        XCTAssertNoThrow(try anchorStore.validateAndSave(
+            [fixture.envelope],
+            originIdentifier: otherConfiguration.snapshotCacheIdentifier))
+        XCTAssertThrowsError(try anchorStore.validateAndSave(
+            [fixture.envelope],
+            originIdentifier: fixture.configuration.snapshotCacheIdentifier)) { error in
+                guard let readerError = error as? RemoteUsageReaderError,
+                      case .staleSnapshot = readerError else {
+                    return XCTFail("Expected staleSnapshot, got \(error)")
+                }
+            }
     }
 
     func test_replayAnchorAheadOfDiskCacheRefetchesFromHub() async throws {
@@ -37,7 +75,9 @@ extension RemoteUsageReaderTests {
         let newerEnvelope = try SnapshotCipher.seal(snapshot, sequence: 2, key: fixture.encryptionKey)
         let cache = InMemoryRemoteSnapshotCache(
             entry: fixture.cacheEntry(fetchedAt: Date().addingTimeInterval(-60)))
-        let anchorStore = InMemoryRemoteSnapshotAnchorStore(envelopes: [newerEnvelope])
+        let anchorStore = InMemoryRemoteSnapshotAnchorStore(
+            envelopes: [newerEnvelope],
+            originIdentifier: fixture.configuration.snapshotCacheIdentifier)
         let client = fixture.makeClient(
             envelopes: [newerEnvelope],
             manifest: [fixture.device(sequence: newerEnvelope.sequence)])
@@ -67,16 +107,20 @@ extension RemoteUsageReaderTests {
         try TokiSyncCoding.makeEncoder().encode(legacyDocument).write(to: legacyCacheURL)
         let anchorStore = RemoteSnapshotAnchorStore(url: anchorURL, legacyCacheURL: legacyCacheURL)
 
-        try anchorStore.validateAndSave([newerEnvelope])
+        try anchorStore.validateAndSave(
+            [newerEnvelope],
+            originIdentifier: fixture.configuration.snapshotCacheIdentifier)
         try FileManager.default.removeItem(at: legacyCacheURL)
 
         XCTAssertTrue(FileManager.default.fileExists(atPath: anchorURL.path))
-        XCTAssertThrowsError(try anchorStore.validateAndSave([fixture.envelope])) { error in
-            guard let readerError = error as? RemoteUsageReaderError,
-                  case .staleSnapshot = readerError else {
-                return XCTFail("Expected staleSnapshot, got \(error)")
+        XCTAssertThrowsError(try anchorStore.validateAndSave(
+            [fixture.envelope],
+            originIdentifier: fixture.configuration.snapshotCacheIdentifier)) { error in
+                guard let readerError = error as? RemoteUsageReaderError,
+                      case .staleSnapshot = readerError else {
+                    return XCTFail("Expected staleSnapshot, got \(error)")
+                }
             }
-        }
     }
 
     func test_corruptedLegacyCacheWithoutAnchorFailsClosed() throws {
@@ -88,12 +132,14 @@ extension RemoteUsageReaderTests {
         try Data("not-json".utf8).write(to: legacyCacheURL)
         let anchorStore = RemoteSnapshotAnchorStore(url: anchorURL, legacyCacheURL: legacyCacheURL)
 
-        XCTAssertThrowsError(try anchorStore.validateAndSave([fixture.envelope])) { error in
-            guard let anchorError = error as? RemoteSnapshotAnchorStoreError,
-                  case .invalidAnchorStore = anchorError else {
-                return XCTFail("Expected invalidAnchorStore, got \(error)")
+        XCTAssertThrowsError(try anchorStore.validateAndSave(
+            [fixture.envelope],
+            originIdentifier: fixture.configuration.snapshotCacheIdentifier)) { error in
+                guard let anchorError = error as? RemoteSnapshotAnchorStoreError,
+                      case .invalidAnchorStore = anchorError else {
+                    return XCTFail("Expected invalidAnchorStore, got \(error)")
+                }
             }
-        }
         XCTAssertFalse(FileManager.default.fileExists(atPath: anchorURL.path))
     }
 
@@ -117,12 +163,14 @@ extension RemoteUsageReaderTests {
             url: anchorURL,
             legacyCacheURL: root.appendingPathComponent("missing-cache.json"))
 
-        XCTAssertThrowsError(try anchorStore.validateAndSave([fixture.envelope])) { error in
-            guard let anchorError = error as? RemoteSnapshotAnchorStoreError,
-                  case .lockUnavailable = anchorError else {
-                return XCTFail("Expected lockUnavailable, got \(error)")
+        XCTAssertThrowsError(try anchorStore.validateAndSave(
+            [fixture.envelope],
+            originIdentifier: fixture.configuration.snapshotCacheIdentifier)) { error in
+                guard let anchorError = error as? RemoteSnapshotAnchorStoreError,
+                      case .lockUnavailable = anchorError else {
+                    return XCTFail("Expected lockUnavailable, got \(error)")
+                }
             }
-        }
     }
 
     func test_replayAnchorLockRepairsExistingPermissions() throws {
@@ -139,7 +187,9 @@ extension RemoteUsageReaderTests {
             url: anchorURL,
             legacyCacheURL: root.appendingPathComponent("missing-cache.json"))
 
-        try anchorStore.validateAndSave([fixture.envelope])
+        try anchorStore.validateAndSave(
+            [fixture.envelope],
+            originIdentifier: fixture.configuration.snapshotCacheIdentifier)
 
         let attributes = try FileManager.default.attributesOfItem(atPath: lockURL.path)
         XCTAssertEqual((attributes[.posixPermissions] as? NSNumber)?.intValue, 0o600)
@@ -157,12 +207,14 @@ extension RemoteUsageReaderTests {
             url: anchorURL,
             legacyCacheURL: root.appendingPathComponent("missing-cache.json"))
 
-        XCTAssertThrowsError(try anchorStore.validateAndSave([fixture.envelope])) { error in
-            guard let anchorError = error as? RemoteSnapshotAnchorStoreError,
-                  case .invalidAnchorStore = anchorError else {
-                return XCTFail("Expected invalidAnchorStore, got \(error)")
+        XCTAssertThrowsError(try anchorStore.validateAndSave(
+            [fixture.envelope],
+            originIdentifier: fixture.configuration.snapshotCacheIdentifier)) { error in
+                guard let anchorError = error as? RemoteSnapshotAnchorStoreError,
+                      case .invalidAnchorStore = anchorError else {
+                    return XCTFail("Expected invalidAnchorStore, got \(error)")
+                }
             }
-        }
     }
 
     func test_cacheCorruptionCannotResetReplayAnchor() async throws {
@@ -176,7 +228,9 @@ extension RemoteUsageReaderTests {
         let anchorStore = RemoteSnapshotAnchorStore(
             url: root.appendingPathComponent("anchors.json"),
             legacyCacheURL: cacheURL)
-        try anchorStore.validateAndSave([newerEnvelope])
+        try anchorStore.validateAndSave(
+            [newerEnvelope],
+            originIdentifier: fixture.configuration.snapshotCacheIdentifier)
         try Data("not-json".utf8).write(to: cacheURL)
         let reader = fixture.makeReader(
             client: fixture.makeClient(),
@@ -202,7 +256,9 @@ extension RemoteUsageReaderTests {
             configuration: fixture.configuration,
             encryptionKey: fixture.encryptionKey,
             failuresRemaining: 1)
-        let anchorStore = InMemoryRemoteSnapshotAnchorStore(envelopes: [newerEnvelope])
+        let anchorStore = InMemoryRemoteSnapshotAnchorStore(
+            envelopes: [newerEnvelope],
+            originIdentifier: fixture.configuration.snapshotCacheIdentifier)
         let reader = RemoteUsageReader(
             configurationProvider: provider,
             client: fixture.makeClient(),

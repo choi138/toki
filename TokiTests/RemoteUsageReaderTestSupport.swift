@@ -224,28 +224,39 @@ final class InMemoryRemoteSnapshotCache: RemoteSnapshotCaching {
 }
 
 final class InMemoryRemoteSnapshotAnchorStore: RemoteSnapshotAnchorStoring {
-    private var anchors: [String: RemoteSnapshotAnchor]
+    private var anchorsByOrigin: [String: [String: RemoteSnapshotAnchor]] = [:]
     private(set) var removedDeviceIDs: [String] = []
+    private(set) var removedOriginIdentifiers: [String] = []
     private(set) var clearCallCount = 0
 
-    init(envelopes: [EncryptedUsageEnvelope] = []) {
-        anchors = (try? RemoteSnapshotProgress.anchors(for: envelopes)) ?? [:]
+    init(
+        envelopes: [EncryptedUsageEnvelope] = [],
+        originIdentifier: String? = nil) {
+        guard let originIdentifier, !envelopes.isEmpty else { return }
+        anchorsByOrigin[originIdentifier] = (try? RemoteSnapshotProgress.anchors(for: envelopes)) ?? [:]
     }
 
-    func validateAndSave(_ envelopes: [EncryptedUsageEnvelope]) throws {
+    func validateAndSave(
+        _ envelopes: [EncryptedUsageEnvelope],
+        originIdentifier: String) throws {
+        var anchors = anchorsByOrigin[originIdentifier] ?? [:]
         let candidates = try RemoteSnapshotProgress.anchors(for: envelopes)
         try RemoteSnapshotProgress.validate(candidateAnchors: candidates, against: anchors)
         anchors.merge(candidates) { _, candidate in candidate }
+        anchorsByOrigin[originIdentifier] = anchors
     }
 
-    func remove(deviceID: String) throws {
+    func remove(deviceID: String, originIdentifier: String) throws {
         removedDeviceIDs.append(deviceID)
+        removedOriginIdentifiers.append(originIdentifier)
+        var anchors = anchorsByOrigin[originIdentifier] ?? [:]
         anchors.removeValue(forKey: deviceID)
+        anchorsByOrigin[originIdentifier] = anchors.isEmpty ? nil : anchors
     }
 
     func clear() throws {
         clearCallCount += 1
-        anchors = [:]
+        anchorsByOrigin = [:]
     }
 }
 

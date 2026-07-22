@@ -72,7 +72,9 @@ struct AgentSyncService {
             let snapshot = try await snapshotBuilder.build(configuration: configuration, now: now)
             let contentDigest = try snapshotBuilder.contentDigest(snapshot)
             if state.lastUploadedContentDigest == contentDigest {
-                state.lastSourceSignature = sourceSignature
+                state.lastSourceSignature = try await snapshotBuilder.sourceSignature(
+                    configuration: configuration,
+                    now: now)
                 try stateStore.save(state)
                 try await hubClient.heartbeat(
                     configuration: configuration,
@@ -90,6 +92,9 @@ struct AgentSyncService {
                 snapshot,
                 sequence: sequence,
                 key: configuration.encryptionKey)
+            guard TokiSyncValidation.isAcceptableEnvelopeTimestamp(envelope.generatedAt, now: now) else {
+                throw AgentSyncError.invalidEnvelopeTimestamp
+            }
             let spoolURL = try spool.enqueue(envelope)
             state.latestSequence = sequence
             try stateStore.save(state)
@@ -200,15 +205,18 @@ struct AgentSyncService {
 }
 
 enum AgentSyncError: LocalizedError {
+    case invalidEnvelopeTimestamp
     case pendingDeviceMismatch
     case sequenceExhausted
 
     var errorDescription: String? {
         switch self {
+        case .invalidEnvelopeTimestamp:
+            "The Agent clock is outside the Hub timestamp window. Correct the system clock and retry."
         case .pendingDeviceMismatch:
-            "A pending snapshot belongs to a different pairing. Pair the Agent again to recover."
+            "A pending snapshot belongs to a different pairing. Run `toki-agent unpair`, then pair again."
         case .sequenceExhausted:
-            "The Agent upload sequence is exhausted. Pair the Agent as a new device."
+            "The Agent upload sequence is exhausted. Run `toki-agent unpair`, then pair as a new device."
         }
     }
 }

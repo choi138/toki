@@ -199,7 +199,7 @@ private extension AgentSnapshotBuilder {
         guard let coveredTo = calendar.date(byAdding: .day, value: 1, to: today),
               let coveredFrom = calendar.date(
                   byAdding: .day,
-                  value: -configuration.retentionDays,
+                  value: 1 - configuration.retentionDays,
                   to: today) else {
             throw AgentSnapshotBuilderError.invalidDateRange
         }

@@ -14,7 +14,7 @@ extension SecurityAuditScanner {
                 allowedExtensions: ["jsonl"]),
             SecurityAuditFileSource(
                 name: "Codex",
-                rootURL: paths.codexSessions,
+                rootURL: paths.codexSessions.deletingLastPathComponent(),
                 allowedExtensions: ["jsonl"]),
             SecurityAuditFileSource(
                 name: "Cursor",
