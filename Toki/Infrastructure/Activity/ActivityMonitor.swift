@@ -79,42 +79,6 @@ enum ActivityMonitor {
         return hasRecentCodexRollout(since: threshold)
     }
 
-    private static func hasRecentCodexRollout(since threshold: Date) -> Bool {
-        let cal = Calendar.current
-        let today = cal.startOfDay(for: Date())
-        let yesterday = cal.date(byAdding: .day, value: -1, to: today) ?? today
-        let candidateDays = [yesterday, cal.startOfDay(for: threshold), today]
-
-        let sessionDirs = Set(candidateDays.map { day in
-            let comps = cal.dateComponents([.year, .month, .day], from: day)
-            return homeDir()
-                .appendingPathComponent(".codex/sessions")
-                .appendingPathComponent(String(format: "%04d", comps.year ?? 0))
-                .appendingPathComponent(String(format: "%02d", comps.month ?? 0))
-                .appendingPathComponent(String(format: "%02d", comps.day ?? 0))
-                .path
-        })
-
-        for dirPath in sessionDirs {
-            let dirURL = URL(fileURLWithPath: dirPath)
-            guard FileManager.default.fileExists(atPath: dirURL.path),
-                  let enumerator = FileManager.default.enumerator(
-                      at: dirURL,
-                      includingPropertiesForKeys: [.contentModificationDateKey],
-                      options: [.skipsHiddenFiles]) else { continue }
-
-            for case let url as URL in enumerator {
-                guard url.pathExtension == "jsonl",
-                      let mod = (try? url.resourceValues(forKeys: [.contentModificationDateKey]))?
-                      .contentModificationDate,
-                      mod >= threshold else { continue }
-                return true
-            }
-        }
-
-        return false
-    }
-
     // MARK: - Cursor
 
     /// Cursor agent/composer activity updates the mutable composerData snapshot.
@@ -273,6 +237,48 @@ enum ActivityMonitor {
         sqlite3_bind_int64(stmt, 1, param)
         guard sqlite3_step(stmt) == SQLITE_ROW else { return 0 }
         return Int(sqlite3_column_int64(stmt, 0))
+    }
+}
+
+extension ActivityMonitor {
+    static func hasRecentCodexRollout(
+        codexHomeURL: URL = homeDir().appendingPathComponent(".codex"),
+        since threshold: Date,
+        now: Date = Date()) -> Bool {
+        let cal = Calendar.current
+        let today = cal.startOfDay(for: now)
+        let yesterday = cal.date(byAdding: .day, value: -1, to: today) ?? today
+        let candidateDays = [yesterday, cal.startOfDay(for: threshold), today]
+
+        var rolloutDirectories = Set(candidateDays.map { day in
+            let comps = cal.dateComponents([.year, .month, .day], from: day)
+            return codexHomeURL
+                .appendingPathComponent("sessions")
+                .appendingPathComponent(String(format: "%04d", comps.year ?? 0))
+                .appendingPathComponent(String(format: "%02d", comps.month ?? 0))
+                .appendingPathComponent(String(format: "%02d", comps.day ?? 0))
+                .path
+        })
+        rolloutDirectories.insert(codexHomeURL.appendingPathComponent("archived_sessions").path)
+
+        for dirPath in rolloutDirectories {
+            let dirURL = URL(fileURLWithPath: dirPath)
+            guard FileManager.default.fileExists(atPath: dirURL.path),
+                  let enumerator = FileManager.default.enumerator(
+                      at: dirURL,
+                      includingPropertiesForKeys: [.contentModificationDateKey],
+                      options: [.skipsHiddenFiles]) else { continue }
+
+            for case let url as URL in enumerator {
+                guard url.pathExtension == "jsonl",
+                      let mod = (try? url.resourceValues(forKeys: [.contentModificationDateKey]))?
+                      .contentModificationDate,
+                      mod >= threshold else { continue }
+                return true
+            }
+        }
+
+        return false
     }
 }
 
