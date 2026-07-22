@@ -231,6 +231,30 @@ final class AgentSnapshotBuilderTests: XCTestCase {
 }
 
 extension AgentSnapshotBuilderTests {
+    func test_defaultSourceSignatureTracksAgentHermesIdentifierKeyRemoval() async throws {
+        let fixture = try AgentSnapshotFixture()
+        defer { fixture.remove() }
+        let environment: [String: String] = [:]
+        let paths = LocalUsageReaderPaths(homeDirectory: fixture.root, environment: environment)
+        let ledgerURL = hermesUsageLedgerURL(paths: paths, scope: .agent)
+        try await HermesUsageLedger(fileURL: ledgerURL).refresh(
+            observations: [],
+            observedAt: fixture.now)
+        let builder = AgentSnapshotBuilder(
+            home: fixture.root,
+            environment: environment)
+
+        let existingKeySignature = try await builder.sourceSignature(
+            configuration: fixture.configuration,
+            now: fixture.now)
+        try FileManager.default.removeItem(at: hermesUsageLedgerIdentifierKeyURL(for: ledgerURL))
+        let missingKeySignature = try await builder.sourceSignature(
+            configuration: fixture.configuration,
+            now: fixture.now)
+
+        XCTAssertNotEqual(existingKeySignature, missingKeySignature)
+    }
+
     func test_sharedReaderFileDiscoverySkipsSymbolicLinks() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("toki-reader-symlink-\(UUID().uuidString)", isDirectory: true)

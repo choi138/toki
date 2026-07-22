@@ -52,8 +52,7 @@ struct AgentSyncService {
                 try stateStore.save(state)
                 try spool.remove(pending.url)
             }
-
-            let sourceSignature = try await snapshotBuilder.sourceSignature(
+            let sourceSignature = try await preparedSourceSignature(
                 configuration: configuration,
                 now: now)
             if !forceSnapshotBuild,
@@ -115,6 +114,15 @@ struct AgentSyncService {
             try? stateStore.save(state)
             throw error
         }
+    }
+
+    private func preparedSourceSignature(
+        configuration: AgentConfiguration,
+        now: Date) async throws -> String? {
+        try await snapshotBuilder.prepareForSync()
+        return try await snapshotBuilder.sourceSignature(
+            configuration: configuration,
+            now: now)
     }
 
     func run() async throws -> Never {
