@@ -11,6 +11,8 @@ final class SyncSecurityTests: XCTestCase {
         XCTAssertFalse(try TokiSyncValidation.isAllowedHubURL(XCTUnwrap(URL(string: "https://hub.example.test?q=1"))))
         XCTAssertFalse(try TokiSyncValidation.isAllowedHubURL(XCTUnwrap(URL(string: "https://hub.example.test:0"))))
         XCTAssertFalse(try TokiSyncValidation.isAllowedHubURL(XCTUnwrap(URL(string: "https://hub.example.test:65536"))))
+        XCTAssertFalse(try TokiSyncValidation.isAllowedHubURL(XCTUnwrap(URL(
+            string: "https://hub.example.test:999999999999999999999"))))
     }
 
     func test_hubURLRejectsOversizedHost() throws {
