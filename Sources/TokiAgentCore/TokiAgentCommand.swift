@@ -24,6 +24,9 @@ package enum TokiAgentCommand {
             AgentConsole.write(usage)
             return
         }
+        guard arguments.dropFirst().isEmpty else {
+            throw AgentCommandError.unexpectedArguments
+        }
 
         switch command {
         case "doctor":
@@ -199,7 +202,9 @@ package enum TokiAgentCommand {
         }
         return lines
     }
+}
 
+extension TokiAgentCommand {
     private static func snapshotVerificationStatus(_ state: AgentRuntimeState) -> String {
         state.lastUploadedContentDigest != nil && state.lastSourceSignature != nil
             ? "stable"
@@ -224,9 +229,7 @@ package enum TokiAgentCommand {
       run          Run continuously without opening an inbound port
       version      Show the sync protocol version
     """
-}
 
-extension TokiAgentCommand {
     static func migrateHermesLedger(
         arguments: [String],
         paths: AgentPaths = AgentPaths()) throws -> HermesUsageLedgerMigrationResult {
@@ -319,6 +322,7 @@ extension TokiAgentCommand {
 
 enum AgentCommandError: LocalizedError {
     case unknownCommand
+    case unexpectedArguments
     case missingPairingBundle
     case pairingBundleTooLarge
     case terminalEchoControlFailed
@@ -331,6 +335,8 @@ enum AgentCommandError: LocalizedError {
         switch self {
         case .unknownCommand:
             "Unknown command. Run `toki-agent help`."
+        case .unexpectedArguments:
+            "Unexpected arguments. Run `toki-agent help`."
         case .missingPairingBundle:
             "No pairing bundle was received on standard input."
         case .pairingBundleTooLarge:
