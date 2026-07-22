@@ -147,6 +147,63 @@ struct RecordingOutputReader: TokenReader {
     }
 }
 
+actor SupersededPeriodTokenTotalsReaderState {
+    private var requestCount = 0
+    private var releasedRequests: Set<Int> = []
+    private var releaseContinuations: [Int: CheckedContinuation<Void, Never>] = [:]
+    private var requestWaiters: [(target: Int, continuation: CheckedContinuation<Void, Never>)] = []
+
+    func readTotalTokens() async -> Int {
+        requestCount += 1
+        let requestNumber = requestCount
+        resumeSatisfiedWaiters()
+
+        if requestNumber <= 2, !releasedRequests.contains(requestNumber) {
+            await withCheckedContinuation { continuation in
+                releaseContinuations[requestNumber] = continuation
+            }
+        }
+
+        switch requestNumber {
+        case 1, 3, 4:
+            return 42
+        default:
+            return 999
+        }
+    }
+
+    func waitForRequestCount(_ target: Int) async {
+        if requestCount >= target { return }
+        await withCheckedContinuation { continuation in
+            requestWaiters.append((target: target, continuation: continuation))
+        }
+    }
+
+    func releaseRequest(_ requestNumber: Int) {
+        releasedRequests.insert(requestNumber)
+        releaseContinuations.removeValue(forKey: requestNumber)?.resume()
+    }
+
+    private func resumeSatisfiedWaiters() {
+        let ready = requestWaiters.filter { requestCount >= $0.target }
+        requestWaiters.removeAll { requestCount >= $0.target }
+        ready.forEach { $0.continuation.resume() }
+    }
+}
+
+struct SupersededPeriodTokenTotalsReader: TokenReader {
+    let name = "Superseded"
+    let state: SupersededPeriodTokenTotalsReaderState
+
+    func readUsage(from startDate: Date, to endDate: Date) async throws -> RawTokenUsage {
+        mockUsage(totalTokens: 0)
+    }
+
+    func readTotalTokens(from startDate: Date, to endDate: Date) async throws -> Int {
+        await state.readTotalTokens()
+    }
+}
+
 func mockOutputUsage(outputTokens: Int) -> RawTokenUsage {
     var usage = RawTokenUsage()
     usage.outputTokens = outputTokens
