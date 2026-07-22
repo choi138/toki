@@ -224,6 +224,7 @@ final class UsagePanelViewModel: ObservableObject {
     }
 
     func refreshAfterRemoteSyncChange() async {
+        periodTokenTotalsCache.clear()
         invalidatePeriodTokenTotals()
         if snapshot.isLoading {
             needsRemoteSyncRefreshAfterCurrentLoad = true

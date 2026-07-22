@@ -34,7 +34,7 @@ extension RemoteUsageReaderTests {
     }
 
     @MainActor
-    func test_connectPreservesReplayStateWhenCredentialClearFails() async throws {
+    func test_connectClearsReplayStateBeforeCredentialClearFailure() async throws {
         let fixture = try makeFixture()
         let store = ClearFailingRemoteSyncConfigurationStore(
             configuration: nil,
@@ -55,9 +55,9 @@ extension RemoteUsageReaderTests {
         XCTAssertEqual(store.clearCallCount, 1)
         XCTAssertNil(try store.load())
         XCTAssertTrue(store.hasEncryptionKey(for: fixture.envelope.deviceID))
-        XCTAssertEqual(try cache.load(), cacheEntry)
-        XCTAssertEqual(cache.clearCallCount, 0)
-        XCTAssertEqual(anchorStore.clearCallCount, 0)
+        XCTAssertNil(try cache.load())
+        XCTAssertEqual(cache.clearCallCount, 1)
+        XCTAssertEqual(anchorStore.clearCallCount, 1)
         XCTAssertFalse(viewModel.isConnected)
         XCTAssertTrue(viewModel.hasError)
     }
@@ -106,7 +106,7 @@ extension RemoteUsageReaderTests {
     }
 
     @MainActor
-    func test_disconnectPreservesReplayStateWhenCredentialClearFails() async throws {
+    func test_disconnectClearsReplayStateBeforeCredentialClearFailure() async throws {
         let fixture = try makeFixture()
         let store = ClearFailingRemoteSyncConfigurationStore(
             configuration: fixture.configuration,
@@ -125,19 +125,20 @@ extension RemoteUsageReaderTests {
         XCTAssertEqual(store.clearCallCount, 1)
         XCTAssertEqual(try store.load(), fixture.configuration)
         XCTAssertTrue(store.hasEncryptionKey(for: fixture.envelope.deviceID))
-        XCTAssertEqual(try cache.load(), cacheEntry)
-        XCTAssertEqual(cache.clearCallCount, 0)
-        XCTAssertEqual(anchorStore.clearCallCount, 0)
+        XCTAssertNil(try cache.load())
+        XCTAssertEqual(cache.clearCallCount, 1)
+        XCTAssertEqual(anchorStore.clearCallCount, 1)
         XCTAssertTrue(viewModel.isConnected)
         XCTAssertTrue(viewModel.hasError)
     }
 
     @MainActor
-    func test_disconnectReloadsConnectionStateWhenPostCredentialCleanupFails() async throws {
+    func test_disconnectKeepsCredentialsWhenCacheCleanupFails() async throws {
         let fixture = try makeFixture()
         let store = InMemoryRemoteSyncConfigurationStore(configuration: fixture.configuration)
+        let cacheEntry = fixture.cacheEntry()
         let cache = InMemoryRemoteSnapshotCache(
-            entry: fixture.cacheEntry(),
+            entry: cacheEntry,
             clearError: TestError.temporaryCacheFailure)
         let anchorStore = InMemoryRemoteSnapshotAnchorStore(envelopes: [fixture.envelope])
         let viewModel = RemoteSyncSettingsViewModel(
@@ -148,11 +149,38 @@ extension RemoteUsageReaderTests {
 
         await viewModel.disconnect()
 
-        XCTAssertNil(try store.load())
+        XCTAssertEqual(try store.load(), fixture.configuration)
+        XCTAssertEqual(store.clearCallCount, 0)
+        XCTAssertEqual(try cache.load(), cacheEntry)
         XCTAssertEqual(cache.clearCallCount, 1)
         XCTAssertEqual(anchorStore.clearCallCount, 0)
-        XCTAssertFalse(viewModel.isConnected)
-        XCTAssertNil(viewModel.connectedHost)
+        XCTAssertTrue(viewModel.isConnected)
+        XCTAssertTrue(viewModel.hasError)
+    }
+
+    @MainActor
+    func test_disconnectKeepsCredentialsWhenAnchorCleanupFails() async throws {
+        let fixture = try makeFixture()
+        let store = InMemoryRemoteSyncConfigurationStore(configuration: fixture.configuration)
+        let cache = InMemoryRemoteSnapshotCache(entry: fixture.cacheEntry())
+        let anchorStore = InMemoryRemoteSnapshotAnchorStore(
+            envelopes: [fixture.envelope],
+            originIdentifier: fixture.configuration.snapshotCacheIdentifier,
+            clearError: TestError.temporaryCacheFailure)
+        let viewModel = RemoteSyncSettingsViewModel(
+            store: store,
+            client: StubRemoteHubClient(devicesResult: .success([])),
+            cache: cache,
+            anchorStore: anchorStore)
+
+        await viewModel.disconnect()
+
+        XCTAssertEqual(try store.load(), fixture.configuration)
+        XCTAssertEqual(store.clearCallCount, 0)
+        XCTAssertNil(try cache.load())
+        XCTAssertEqual(cache.clearCallCount, 1)
+        XCTAssertEqual(anchorStore.clearCallCount, 1)
+        XCTAssertTrue(viewModel.isConnected)
         XCTAssertTrue(viewModel.hasError)
     }
 
@@ -212,6 +240,42 @@ extension RemoteUsageReaderTests {
         XCTAssertTrue(viewModel.hasEncryptionKey(for: device))
         XCTAssertTrue(viewModel.hasEncryptionKey(for: device))
         XCTAssertEqual(store.hasEncryptionKeyCallCount, keyReadCount)
+    }
+
+    @MainActor
+    func test_updateOwnerTokenCopiesReplayAnchorsToUpdatedCredentialOrigin() async throws {
+        let fixture = try makeFixture()
+        let snapshot = try SnapshotCipher.open(fixture.envelope, key: fixture.encryptionKey)
+        let newerEnvelope = try SnapshotCipher.seal(snapshot, sequence: 2, key: fixture.encryptionKey)
+        let store = InMemoryRemoteSyncConfigurationStore(configuration: fixture.configuration)
+        let anchorStore = InMemoryRemoteSnapshotAnchorStore(
+            envelopes: [newerEnvelope],
+            originIdentifier: fixture.configuration.snapshotCacheIdentifier)
+        var remoteSyncChangeCount = 0
+        let viewModel = RemoteSyncSettingsViewModel(
+            store: store,
+            client: StubRemoteHubClient(devicesResult: .success([fixture.device()])),
+            cache: InMemoryRemoteSnapshotCache(),
+            anchorStore: anchorStore,
+            onRemoteSyncChange: { remoteSyncChangeCount += 1 })
+        viewModel.ownerToken = String(repeating: "n", count: 32)
+
+        await viewModel.updateOwnerToken()
+
+        let updatedConfiguration = try XCTUnwrap(store.load())
+        XCTAssertNotEqual(
+            updatedConfiguration.snapshotCacheIdentifier,
+            fixture.configuration.snapshotCacheIdentifier)
+        XCTAssertThrowsError(try anchorStore.validateAndSave(
+            [fixture.envelope],
+            originIdentifier: updatedConfiguration.snapshotCacheIdentifier)) { error in
+                guard let readerError = error as? RemoteUsageReaderError,
+                      case .staleSnapshot = readerError else {
+                    return XCTFail("Expected staleSnapshot, got \(error)")
+                }
+            }
+        XCTAssertFalse(viewModel.hasError)
+        XCTAssertEqual(remoteSyncChangeCount, 1)
     }
 
     @MainActor
