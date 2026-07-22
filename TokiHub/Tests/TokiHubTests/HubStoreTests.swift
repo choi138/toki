@@ -3,6 +3,11 @@ import TokiDurableStorage
 import TokiSyncProtocol
 import XCTest
 @testable import TokiHubCore
+#if os(Linux)
+    import Glibc
+#else
+    import Darwin
+#endif
 
 final class HubStoreTests: XCTestCase {
     func test_configurationRejectsRelativeStoragePathAndMalformedPort() {
@@ -40,6 +45,22 @@ final class HubStoreTests: XCTestCase {
             "TOKI_HUB_SOCKET_PATH": socketPath,
             "PORT": "8080",
         ]))
+    }
+
+    func test_socketPreparationRemovesStaleSocketButPreservesUnexpectedFiles() throws {
+        let fixture = HubTestFixture(root: URL(fileURLWithPath:
+            "/tmp/toki-hub-socket-\(UUID().uuidString.prefix(8))"))
+        defer { fixture.remove() }
+        let socketURL = fixture.root.appendingPathComponent("run/toki-hub.sock")
+        try createStaleUnixSocket(at: socketURL)
+
+        try prepareSocketDirectory(for: socketURL)
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: socketURL.path))
+        let unexpected = Data("keep".utf8)
+        try unexpected.write(to: socketURL)
+        XCTAssertThrowsError(try prepareSocketDirectory(for: socketURL))
+        XCTAssertEqual(try Data(contentsOf: socketURL), unexpected)
     }
 
     func test_storeAuthenticatesAndEnforcesSequenceRules() async throws {
@@ -280,6 +301,25 @@ final class HubStorePersistenceTests: XCTestCase {
 }
 
 final class HubStoreDurabilityTests: XCTestCase {
+    func test_createDeviceReturnsTokenAfterCommittedRegistrySyncFailure() async throws {
+        let fixture = makeHubFixture()
+        defer { fixture.remove() }
+        let store = try HubStore(directory: fixture.root) { data, url in
+            try DurableFileIO.writePrivate(data, to: url)
+            throw DurableFileIOError.replacementCommittedDirectorySyncFailed
+        }
+
+        let device = try await store.createDevice(name: "ubuntu")
+
+        try await store.authorizeDevice(device.deviceID, uploadToken: device.uploadToken)
+        let devices = await store.devices()
+        XCTAssertEqual(devices.map(\.id), [device.deviceID])
+        let registryText = try String(
+            contentsOf: fixture.root.appendingPathComponent("devices.json"),
+            encoding: .utf8)
+        XCTAssertFalse(registryText.contains(device.uploadToken))
+    }
+
     func test_hubClassifiesAlreadyCommittedFileMutationsAsUnconfirmed() throws {
         let fixture = makeHubFixture()
         defer { fixture.remove() }
@@ -416,6 +456,12 @@ private enum HubDurabilityTestError: Error {
     case expected
 }
 
+private enum HubSocketTestError: Error {
+    case couldNotCreateSocket
+    case socketPathTooLong
+    case couldNotBindSocket
+}
+
 private struct HubTestFixture {
     let root: URL
 
@@ -430,6 +476,45 @@ private func makeHubEnvelope(deviceID: String, sequence: UInt64, payload: String
         sequence: sequence,
         generatedAt: Date(timeIntervalSince1970: 1_750_000_000.123_456),
         payload: Data(payload.utf8).base64EncodedString())
+}
+
+private func createStaleUnixSocket(at url: URL) throws {
+    try FileManager.default.createDirectory(
+        at: url.deletingLastPathComponent(),
+        withIntermediateDirectories: true)
+    #if os(Linux)
+        let descriptor = Glibc.socket(AF_UNIX, Int32(SOCK_STREAM.rawValue), 0)
+    #else
+        let descriptor = Darwin.socket(AF_UNIX, SOCK_STREAM, 0)
+    #endif
+    guard descriptor >= 0 else { throw HubSocketTestError.couldNotCreateSocket }
+    defer {
+        #if os(Linux)
+            _ = Glibc.close(descriptor)
+        #else
+            _ = Darwin.close(descriptor)
+        #endif
+    }
+
+    var address = sockaddr_un()
+    address.sun_family = sa_family_t(AF_UNIX)
+    let pathData = Data(url.path.utf8) + Data([0])
+    let copied = withUnsafeMutableBytes(of: &address.sun_path) { buffer -> Bool in
+        guard pathData.count <= buffer.count else { return false }
+        pathData.copyBytes(to: buffer)
+        return true
+    }
+    guard copied else { throw HubSocketTestError.socketPathTooLong }
+    let result = withUnsafePointer(to: &address) { pointer in
+        pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) { socketAddress in
+            #if os(Linux)
+                Glibc.bind(descriptor, socketAddress, socklen_t(MemoryLayout<sockaddr_un>.size))
+            #else
+                Darwin.bind(descriptor, socketAddress, socklen_t(MemoryLayout<sockaddr_un>.size))
+            #endif
+        }
+    }
+    guard result == 0 else { throw HubSocketTestError.couldNotBindSocket }
 }
 
 private func makeHubFixture() -> HubTestFixture {
