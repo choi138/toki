@@ -6,11 +6,14 @@ import TokiUsageReaders
 protocol AgentSnapshotBuilding {
     func build(configuration: AgentConfiguration, now: Date) async throws -> RemoteUsageSnapshot
     func contentDigest(_ snapshot: RemoteUsageSnapshot) throws -> String
+    func prepareForSync() async throws
     func resetCaches() async throws
     func sourceSignature(configuration: AgentConfiguration, now: Date) async throws -> String?
 }
 
 extension AgentSnapshotBuilding {
+    func prepareForSync() async throws {}
+
     func resetCaches() async throws {}
 
     func sourceSignature(configuration _: AgentConfiguration, now _: Date) async throws -> String? {
@@ -25,6 +28,7 @@ struct AgentSnapshotBuilder: AgentSnapshotBuilding {
     private let claudeUsageCache: ClaudeUsageCache
     private let readerDescriptors: [LocalUsageReaderDescriptor]
     private let retentionTimeZone: TimeZone
+    private let agentHermesLedgerURL: URL
 
     init(
         home: URL = homeDir(),
@@ -47,6 +51,7 @@ struct AgentSnapshotBuilder: AgentSnapshotBuilding {
         self.rolloutUsageCache = resolvedRolloutUsageCache
         self.claudeUsageCache = resolvedClaudeUsageCache
         self.retentionTimeZone = retentionTimeZone
+        agentHermesLedgerURL = agentLedgerURL
         if let readerDescriptors {
             self.readerDescriptors = readerDescriptors
         } else {
@@ -62,6 +67,9 @@ struct AgentSnapshotBuilder: AgentSnapshotBuilding {
                         reader: descriptor.reader,
                         sourceLocations: descriptor.sourceLocations + [
                             .file(agentLedgerURL, includesSQLiteSidecars: false),
+                            .file(
+                                hermesUsageLedgerIdentifierKeyURL(for: agentLedgerURL),
+                                includesSQLiteSidecars: false),
                         ],
                         sourceSignatureStrategy: descriptor.sourceSignatureStrategy)
                 }
@@ -121,6 +129,12 @@ struct AgentSnapshotBuilder: AgentSnapshotBuilding {
             tokenEvents: snapshot.tokenEvents,
             activityEvents: snapshot.activityEvents)
         return try SnapshotCipher.digest(TokiSyncCoding.makeEncoder().encode(content))
+    }
+
+    func prepareForSync() async throws {
+        _ = try HermesUsageLedgerMigrator.migrate(
+            fileURL: agentHermesLedgerURL,
+            mode: .apply)
     }
 
     func resetCaches() async throws {

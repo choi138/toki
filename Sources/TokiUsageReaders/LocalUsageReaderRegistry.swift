@@ -168,8 +168,16 @@ public enum LocalUsageReaderRegistry {
         }
         let resolvedClaudeUsageCache = claudeUsageCache
             ?? ClaudeUsageCache(cacheURL: claudeUsageCacheURL(paths: paths, scope: cacheScope))
+        let automaticallyMigrateLegacyHermesLedger = switch cacheScope {
+        case .application:
+            true
+        case .agent:
+            false
+        }
         let resolvedHermesUsageLedger = hermesUsageLedger
-            ?? HermesUsageLedger(fileURL: hermesUsageLedgerURL(paths: paths, scope: cacheScope))
+            ?? HermesUsageLedger(
+                fileURL: hermesUsageLedgerURL(paths: paths, scope: cacheScope),
+                automaticallyMigrateLegacy: automaticallyMigrateLegacyHermesLedger)
         return [
             LocalUsageReaderDescriptor(
                 reader: ClaudeCodeReader(

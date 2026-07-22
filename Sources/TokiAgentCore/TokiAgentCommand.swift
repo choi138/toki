@@ -19,12 +19,15 @@ package enum TokiAgentCommand {
         }
     }
 
-    static func execute(arguments: [String]) async throws {
+    static func execute(
+        arguments: [String],
+        migrationPaths: AgentPaths = AgentPaths()) async throws {
         guard let command = arguments.first else {
             AgentConsole.write(usage)
             return
         }
-        guard arguments.dropFirst().isEmpty else {
+        let commandArguments = Array(arguments.dropFirst())
+        guard command == "migrate-hermes-ledger" || commandArguments.isEmpty else {
             throw AgentCommandError.unexpectedArguments
         }
 
@@ -43,6 +46,9 @@ package enum TokiAgentCommand {
         case "full-rescan":
             try await AgentSyncService().fullRescanAndSync()
             AgentConsole.write("full rescan completed")
+        case "migrate-hermes-ledger":
+            let result = try migrateHermesLedger(arguments: commandArguments, paths: migrationPaths)
+            AgentConsole.write(migrationDescription(result))
         case "run":
             _ = try await AgentSyncService().run()
         case "help", "--help", "-h":
@@ -199,7 +205,9 @@ package enum TokiAgentCommand {
         }
         return lines
     }
+}
 
+extension TokiAgentCommand {
     private static func snapshotVerificationStatus(_ state: AgentRuntimeState) -> String {
         state.lastUploadedContentDigest != nil && state.lastSourceSignature != nil
             ? "stable"
@@ -219,12 +227,45 @@ package enum TokiAgentCommand {
       sync-once    Collect, encrypt, and upload one snapshot
       status       Show redacted operational state
       full-rescan  Clear local usage parse caches and synchronize
+      migrate-hermes-ledger [--apply]
+                   Inspect legacy ledger migration; write only with --apply
       run          Run continuously without opening an inbound port
       version      Show the sync protocol version
     """
-}
 
-extension TokiAgentCommand {
+    static func migrateHermesLedger(
+        arguments: [String],
+        paths: AgentPaths = AgentPaths()) throws -> HermesUsageLedgerMigrationResult {
+        let mode: HermesUsageLedgerMigrationMode
+        switch arguments {
+        case []:
+            mode = .dryRun
+        case ["--apply"]:
+            mode = .apply
+        default:
+            throw AgentCommandError.invalidMigrationArguments
+        }
+        try paths.prepare()
+        let processLock = try AgentProcessLock.acquire(paths: paths)
+        defer { _ = processLock }
+        return try HermesUsageLedgerMigrator.migrate(
+            fileURL: paths.stateDirectory.appendingPathComponent("hermes-usage-ledger.json"),
+            mode: mode)
+    }
+
+    private static func migrationDescription(_ result: HermesUsageLedgerMigrationResult) -> String {
+        switch result {
+        case .noLedger:
+            "Hermes ledger: not found"
+        case .notRequired:
+            "Hermes ledger: migration not required"
+        case .migrationRequired:
+            "Hermes ledger: migration required (dry run; rerun with --apply)"
+        case .migrated:
+            "Hermes ledger: migration completed"
+        }
+    }
+
     static func sourceDiagnostics(
         home: URL,
         environment: [String: String]) -> [AgentSourceDiagnostic] {
@@ -291,6 +332,7 @@ enum AgentCommandError: LocalizedError {
     case alreadyPaired
     case localUsageDataUnavailable
     case localUsageSourceErrors(Int)
+    case invalidMigrationArguments
 
     var errorDescription: String? {
         switch self {
@@ -310,6 +352,8 @@ enum AgentCommandError: LocalizedError {
             "No readable supported local usage source was found for this user."
         case let .localUsageSourceErrors(count):
             "\(count) local usage source(s) could not be read safely. Check the Agent service read-only paths."
+        case .invalidMigrationArguments:
+            "Usage: toki-agent migrate-hermes-ledger [--apply]"
         }
     }
 }

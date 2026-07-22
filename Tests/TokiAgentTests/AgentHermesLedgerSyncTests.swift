@@ -1,10 +1,59 @@
 import Foundation
+import TokiDurableStorage
 import TokiSyncProtocol
 import XCTest
 @testable import TokiAgentCore
 @testable import TokiUsageReaders
 
 final class AgentHermesLedgerSyncTests: XCTestCase {
+    func test_pendingUploadFailureStillMigratesLegacyHermesLedger() async throws {
+        let fixture = try AgentSyncFixture()
+        defer { fixture.remove() }
+        let now = Date(timeIntervalSince1970: 1_780_000_000)
+        let environment = [
+            "XDG_CONFIG_HOME": fixture.root.appendingPathComponent("config").path,
+            "XDG_STATE_HOME": fixture.root.appendingPathComponent("state").path,
+            "XDG_DATA_HOME": fixture.root.appendingPathComponent("data").path,
+        ]
+        try AgentConfigurationStore(paths: fixture.paths).save(fixture.configuration)
+        let pendingBuilder = AgentSnapshotBuilder(home: fixture.root, readerDescriptors: [])
+        let pendingSnapshot = try await pendingBuilder.build(configuration: fixture.configuration, now: now)
+        _ = try AgentSpool(paths: fixture.paths).enqueue(SnapshotCipher.seal(
+            pendingSnapshot,
+            sequence: 1,
+            key: fixture.configuration.encryptionKey))
+        let identifierKey = SnapshotCipher.generateKey()
+        let ledgerURL = hermesUsageLedgerURL(
+            paths: LocalUsageReaderPaths(homeDirectory: fixture.root, environment: environment),
+            scope: .agent)
+        let legacy = HermesUsageLedgerDocument(
+            schemaVersion: hermesUsageLedgerPreviousSchemaVersion,
+            identifierKey: identifierKey,
+            accurateSince: now,
+            lastSuccessfulObservationAt: now,
+            baselines: [:],
+            unattributed: [:],
+            events: [])
+        try DurableFileIO.writePrivate(JSONEncoder().encode(legacy), to: ledgerURL)
+        let service = AgentSyncService(
+            paths: fixture.paths,
+            hubClient: FailFirstUploadAgentHubClient(),
+            snapshotBuilder: AgentSnapshotBuilder(home: fixture.root, environment: environment))
+
+        do {
+            try await service.syncOnce(now: now)
+            XCTFail("Expected the pending upload to fail")
+        } catch AgentSyncTestError.uploadFailed {}
+
+        let migrated = try JSONDecoder().decode(
+            HermesUsageLedgerPrivateDocument.self,
+            from: Data(contentsOf: ledgerURL))
+        XCTAssertEqual(migrated.schemaVersion, hermesUsageLedgerSchemaVersion)
+        XCTAssertEqual(
+            try Data(contentsOf: hermesUsageLedgerIdentifierKeyURL(for: ledgerURL)),
+            Data(identifierKey.utf8))
+    }
+
     func test_uploadFailurePreservesHermesLedgerIncrementAcrossServiceRestart() async throws {
         let fixture = try AgentSyncFixture()
         defer { fixture.remove() }

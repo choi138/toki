@@ -304,6 +304,8 @@ final class AgentProcessAndSpoolTests: XCTestCase {
         let temporaryURLs = [
             fixture.paths.configurationDirectory.appendingPathComponent(".config.json.\(identifier).tmp"),
             fixture.paths.stateDirectory.appendingPathComponent(".state.json.\(identifier).tmp"),
+            fixture.paths.stateDirectory.appendingPathComponent(
+                ".hermes-usage-ledger.key.\(identifier).tmp"),
             fixture.paths.spoolDirectory.appendingPathComponent(
                 ".00000000000000000001.json.\(identifier).tmp"),
         ]

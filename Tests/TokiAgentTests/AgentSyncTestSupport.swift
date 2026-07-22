@@ -1,4 +1,5 @@
 import Foundation
+import TokiDurableStorage
 import TokiSyncProtocol
 @testable import TokiAgentCore
 
@@ -45,6 +46,23 @@ final class FailFirstHeartbeatAgentHubClient: AgentHubClientProtocol {
         }
         if shouldFail {
             throw AgentSyncTestError.heartbeatFailed
+        }
+    }
+}
+
+final class CommittedKeyFailureWriter {
+    private let keyURL: URL
+    private var shouldFailKeyWrite = true
+
+    init(keyURL: URL) {
+        self.keyURL = keyURL
+    }
+
+    func write(_ data: Data, _ url: URL) throws {
+        try DurableFileIO.writePrivate(data, to: url)
+        if url == keyURL, shouldFailKeyWrite {
+            shouldFailKeyWrite = false
+            throw DurableFileIOError.replacementCommittedDirectorySyncFailed
         }
     }
 }

@@ -38,6 +38,7 @@ struct AgentSyncService {
         state.lastAttemptAt = now
 
         do {
+            try await snapshotBuilder.prepareForSync()
             for pending in try spool.pendingEnvelopes() {
                 guard pending.envelope.deviceID == configuration.deviceID else {
                     throw AgentSyncError.pendingDeviceMismatch
@@ -52,10 +53,7 @@ struct AgentSyncService {
                 try stateStore.save(state)
                 try spool.remove(pending.url)
             }
-
-            let sourceSignature = try await snapshotBuilder.sourceSignature(
-                configuration: configuration,
-                now: now)
+            let sourceSignature = try await snapshotBuilder.sourceSignature(configuration: configuration, now: now)
             if !forceSnapshotBuild,
                let sourceSignature,
                state.lastSourceSignature == sourceSignature,

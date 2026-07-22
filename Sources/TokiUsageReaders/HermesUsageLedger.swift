@@ -2,16 +2,43 @@ import Foundation
 import TokiDurableStorage
 import TokiSyncProtocol
 
+typealias HermesUsageLedgerMigrationHandler =
+    (URL, HermesUsageLedgerMigrationMode) throws -> HermesUsageLedgerMigrationResult
+
 public actor HermesUsageLedger {
-    public static let shared = HermesUsageLedger(fileURL: hermesUsageLedgerURL())
+    public static let shared = HermesUsageLedger(
+        fileURL: hermesUsageLedgerURL(),
+        automaticallyMigrateLegacy: true)
 
     private let fileURL: URL
+    private let automaticallyMigrateLegacy: Bool
+    private let privateFileWriter: (Data, URL) throws -> Void
+    private let legacyMigrationHandler: HermesUsageLedgerMigrationHandler
     private var document: HermesUsageLedgerDocument?
     private var isLoaded = false
-    private var requiresPersistence = false
 
-    public init(fileURL: URL) {
+    public init(fileURL: URL, automaticallyMigrateLegacy: Bool = false) {
         self.fileURL = fileURL
+        self.automaticallyMigrateLegacy = automaticallyMigrateLegacy
+        privateFileWriter = { data, url in
+            try DurableFileIO.writePrivate(data, to: url)
+        }
+        legacyMigrationHandler = { fileURL, mode in
+            try HermesUsageLedgerMigrator.migrate(fileURL: fileURL, mode: mode)
+        }
+    }
+
+    init(
+        fileURL: URL,
+        automaticallyMigrateLegacy: Bool = false,
+        privateFileWriter: @escaping (Data, URL) throws -> Void,
+        legacyMigrationHandler: @escaping HermesUsageLedgerMigrationHandler = { fileURL, mode in
+            try HermesUsageLedgerMigrator.migrate(fileURL: fileURL, mode: mode)
+        }) {
+        self.fileURL = fileURL
+        self.automaticallyMigrateLegacy = automaticallyMigrateLegacy
+        self.privateFileWriter = privateFileWriter
+        self.legacyMigrationHandler = legacyMigrationHandler
     }
 
     func refresh(
@@ -24,9 +51,9 @@ public actor HermesUsageLedger {
 
         let previousSuccessfulObservationAt = document?.lastSuccessfulObservationAt
         let effectiveObservedAt = max(previousSuccessfulObservationAt ?? observedAt, observedAt)
-        var candidate = document ?? HermesUsageLedgerDocument(
+        var candidate = try document ?? HermesUsageLedgerDocument(
             schemaVersion: hermesUsageLedgerSchemaVersion,
-            identifierKey: SnapshotCipher.generateKey(),
+            identifierKey: identifierKeyForNewDocument(),
             accurateSince: effectiveObservedAt,
             lastSuccessfulObservationAt: nil,
             baselines: [:],
@@ -39,7 +66,7 @@ public actor HermesUsageLedger {
             throw HermesUsageLedgerError.invalidLedger
         }
 
-        var changed = document == nil || requiresPersistence
+        var changed = document == nil
         for observation in observations.sorted(by: { $0.sessionID < $1.sessionID }) {
             let observationChanged = try apply(
                 observation,
@@ -195,24 +222,28 @@ private extension HermesUsageLedger {
         }
         switch schemaVersion {
         case hermesUsageLedgerSchemaVersion:
-            let decoded: HermesUsageLedgerDocument
+            let decoded: HermesUsageLedgerPrivateDocument
             do {
-                decoded = try JSONDecoder().decode(HermesUsageLedgerDocument.self, from: data)
+                decoded = try JSONDecoder().decode(HermesUsageLedgerPrivateDocument.self, from: data)
             } catch {
                 throw HermesUsageLedgerError.invalidLedger
             }
-            try validate(decoded)
-            document = decoded
-        case hermesUsageLedgerLegacySchemaVersion:
-            let legacy: HermesUsageLedgerV1Document
-            do {
-                legacy = try JSONDecoder().decode(HermesUsageLedgerV1Document.self, from: data)
-            } catch {
+            let current = try decoded.document(identifierKey: loadIdentifierKey())
+            try validate(current)
+            if automaticallyMigrateLegacy {
+                _ = try HermesUsageLedgerMigrator.migrate(fileURL: fileURL, mode: .apply)
+            }
+            document = current
+        case hermesUsageLedgerPreviousSchemaVersion, hermesUsageLedgerLegacySchemaVersion:
+            guard automaticallyMigrateLegacy else {
+                throw HermesUsageLedgerError.migrationRequired
+            }
+            let result = try legacyMigrationHandler(fileURL, .apply)
+            guard result == .migrated || result == .notRequired else {
                 throw HermesUsageLedgerError.invalidLedger
             }
-            try validate(legacy)
-            document = migrate(legacy)
-            requiresPersistence = true
+            try loadIfNeeded()
+            return
         default:
             throw HermesUsageLedgerError.invalidLedger
         }
@@ -224,7 +255,7 @@ private extension HermesUsageLedger {
         do {
             let encoder = JSONEncoder()
             encoder.outputFormatting = [.sortedKeys]
-            data = try encoder.encode(candidate)
+            data = try encoder.encode(HermesUsageLedgerPrivateDocument(candidate))
         } catch {
             throw HermesUsageLedgerError.couldNotPersist
         }
@@ -234,18 +265,65 @@ private extension HermesUsageLedger {
 
         do {
             try DurableFileIO.preparePrivateDirectory(fileURL.deletingLastPathComponent())
-            try DurableFileIO.writePrivate(data, to: fileURL)
-            document = candidate
-            isLoaded = true
-            requiresPersistence = false
+        } catch {
+            throw HermesUsageLedgerError.couldNotPersist
+        }
+
+        do {
+            try persistIdentifierKeyIfNeeded(candidate.identifierKey)
         } catch DurableFileIOError.replacementCommittedDirectorySyncFailed {
-            document = candidate
-            isLoaded = true
-            requiresPersistence = false
             throw HermesUsageLedgerError.durabilityNotConfirmed
         } catch {
             throw HermesUsageLedgerError.couldNotPersist
         }
+
+        do {
+            try privateFileWriter(data, fileURL)
+            document = candidate
+            isLoaded = true
+        } catch DurableFileIOError.replacementCommittedDirectorySyncFailed {
+            document = candidate
+            isLoaded = true
+            throw HermesUsageLedgerError.durabilityNotConfirmed
+        } catch {
+            throw HermesUsageLedgerError.couldNotPersist
+        }
+    }
+
+    private var identifierKeyURL: URL {
+        fileURL.deletingPathExtension().appendingPathExtension("key")
+    }
+
+    private func identifierKeyForNewDocument() throws -> String {
+        if let data = try DurableFileIO.readPrivate(from: identifierKeyURL, maximumByteCount: 4096) {
+            return try decodeIdentifierKey(data)
+        }
+        return SnapshotCipher.generateKey()
+    }
+
+    private func loadIdentifierKey() throws -> String {
+        guard let data = try DurableFileIO.readPrivate(from: identifierKeyURL, maximumByteCount: 4096) else {
+            throw HermesUsageLedgerError.invalidLedger
+        }
+        return try decodeIdentifierKey(data)
+    }
+
+    private func decodeIdentifierKey(_ data: Data) throws -> String {
+        guard let key = String(data: data, encoding: .utf8),
+              (try? SnapshotCipher.makeOpaqueIdentifierHasher(key: key)) != nil else {
+            throw HermesUsageLedgerError.invalidLedger
+        }
+        return key
+    }
+
+    private func persistIdentifierKeyIfNeeded(_ key: String) throws {
+        if let data = try DurableFileIO.readPrivate(from: identifierKeyURL, maximumByteCount: 4096) {
+            guard try decodeIdentifierKey(data) == key else {
+                throw HermesUsageLedgerError.invalidLedger
+            }
+            return
+        }
+        try privateFileWriter(Data(key.utf8), identifierKeyURL)
     }
 
     private func baseline(
@@ -439,36 +517,5 @@ private extension HermesUsageLedger {
               document.events.allSatisfy(\.isValid) else {
             throw HermesUsageLedgerError.invalidLedger
         }
-    }
-
-    private func validate(_ document: HermesUsageLedgerV1Document) throws {
-        guard document.schemaVersion == hermesUsageLedgerLegacySchemaVersion,
-              document.baselines.count <= hermesUsageLedgerMaximumBaselines,
-              document.events.count <= hermesUsageLedgerMaximumEvents,
-              (try? SnapshotCipher.makeOpaqueIdentifierHasher(key: document.identifierKey)) != nil,
-              document.baselines.allSatisfy({ identifier, baseline in
-                  hermesIdentifierIsValid(identifier) && baseline.isValid
-              }),
-              document.events.allSatisfy(\.isValid) else {
-            throw HermesUsageLedgerError.invalidLedger
-        }
-    }
-
-    private func migrate(_ legacy: HermesUsageLedgerV1Document) -> HermesUsageLedgerDocument {
-        let accurateSince = legacy.baselines.values.map(\.lastObservedAt).max()
-        let unattributed = Dictionary(uniqueKeysWithValues: legacy.baselines.map { identifier, baseline in
-            (identifier, HermesUsageLedgerCarryover(
-                counters: baseline.counters,
-                cost: baseline.cost,
-                firstObservedAt: baseline.lastObservedAt))
-        })
-        return HermesUsageLedgerDocument(
-            schemaVersion: hermesUsageLedgerSchemaVersion,
-            identifierKey: legacy.identifierKey,
-            accurateSince: accurateSince,
-            lastSuccessfulObservationAt: accurateSince,
-            baselines: legacy.baselines,
-            unattributed: unattributed,
-            events: [])
     }
 }
