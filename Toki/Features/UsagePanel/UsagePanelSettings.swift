@@ -1,5 +1,6 @@
 import Combine
 import Foundation
+import TokiUsageCore
 
 @MainActor
 final class UsagePanelSettings: ObservableObject {

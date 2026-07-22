@@ -1,4 +1,5 @@
 import Foundation
+import TokiUsageCore
 
 struct CodexModelEntry: Decodable {
     let type: String?

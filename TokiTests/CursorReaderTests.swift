@@ -1,4 +1,5 @@
 import SQLite3
+import TokiUsageCore
 import XCTest
 @testable import Toki
 

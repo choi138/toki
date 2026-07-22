@@ -1,5 +1,6 @@
 import Foundation
 import SQLite3
+import TokiUsageCore
 
 /// Reads ~/.hermes/state.db session usage totals.
 struct HermesReader: TokenReader {

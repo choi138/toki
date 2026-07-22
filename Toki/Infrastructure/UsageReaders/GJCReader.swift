@@ -1,4 +1,5 @@
 import Foundation
+import TokiUsageCore
 
 /// Reads ~/.gjc/agent/sessions/**/*.jsonl
 struct GJCReader: TokenReader {

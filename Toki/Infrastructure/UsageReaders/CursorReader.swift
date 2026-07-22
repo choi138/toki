@@ -1,5 +1,6 @@
 import Foundation
 import SQLite3
+import TokiUsageCore
 
 let sqliteTransient = unsafeBitCast(-1, to: sqlite3_destructor_type.self)
 private let cursorModelLookupIdentifierChunkSize = 250
