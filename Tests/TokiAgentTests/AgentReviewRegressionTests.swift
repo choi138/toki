@@ -123,6 +123,9 @@ final class AgentReviewRegressionTests: XCTestCase {
         }
 
         let syncError = try XCTUnwrap(caughtError as? AgentSyncError)
+        guard case .uploadSequenceConflict = syncError else {
+            return XCTFail("Expected uploadSequenceConflict, got \(syncError)")
+        }
         XCTAssertEqual(
             syncError.errorDescription,
             "The Hub already has an upload at this sequence. Revoke the existing device in Hub, "
@@ -157,6 +160,9 @@ final class AgentReviewRegressionTests: XCTestCase {
         }
 
         let syncError = try XCTUnwrap(caughtError as? AgentSyncError)
+        guard case .uploadSequenceConflict = syncError else {
+            return XCTFail("Expected uploadSequenceConflict, got \(syncError)")
+        }
         XCTAssertEqual(
             syncError.errorDescription,
             "The Hub already has an upload at this sequence. Revoke the existing device in Hub, "
