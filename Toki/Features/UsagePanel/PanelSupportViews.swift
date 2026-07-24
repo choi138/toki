@@ -1,5 +1,44 @@
 import AppKit
 import SwiftUI
+import TokiUsageCore
+
+func panelDeviceSystemImage(for origin: UsageOrigin) -> String {
+    guard origin.kind == .remote else { return "laptopcomputer" }
+    let platform = origin.platform?.lowercased() ?? ""
+    if platform.contains("linux") || platform.contains("ubuntu") {
+        return "server.rack"
+    }
+    if platform.contains("mac") || platform.contains("darwin") {
+        return "desktopcomputer"
+    }
+    if platform.contains("windows") {
+        return "pc"
+    }
+    return "network"
+}
+
+func panelDevicePlatformLabel(for origin: UsageOrigin) -> String {
+    guard let platform = origin.platform?.trimmedNonEmpty else {
+        return origin.kind == .local ? "macOS" : "Remote"
+    }
+
+    switch platform.lowercased() {
+    case "linux":
+        return "Linux"
+    case "macos", "mac", "darwin":
+        return "macOS"
+    case "ubuntu":
+        return "Ubuntu"
+    case "windows":
+        return "Windows"
+    default:
+        return platform
+    }
+}
+
+func panelDeviceUpdateLabel(for origin: UsageOrigin) -> String {
+    origin.kind == .remote ? "Data updated" : "Updated"
+}
 
 struct SkeletonBar: View {
     var width: CGFloat?

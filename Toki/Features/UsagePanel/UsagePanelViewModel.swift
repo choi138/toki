@@ -1,119 +1,23 @@
 import Foundation
 import TokiUsageCore
 
-enum TokenTotalPeriod: String, CaseIterable, Codable, Hashable, Identifiable {
-    case last7Days
-    case last30Days
-    case allTime
-
-    var id: Self {
-        self
-    }
-
-    var title: String {
-        switch self {
-        case .last7Days:
-            "Last 7 Days"
-        case .last30Days:
-            "Last 30 Days"
-        case .allTime:
-            "All Time"
-        }
-    }
-
-    func dateInterval(endingAt endDate: Date, calendar: Calendar) -> DateInterval {
-        let startDate: Date = switch self {
-        case .last7Days:
-            calendar.date(byAdding: .day, value: -7, to: endDate) ?? endDate
-        case .last30Days:
-            calendar.date(byAdding: .day, value: -30, to: endDate) ?? endDate
-        case .allTime:
-            calendar.startOfDay(for: Date(timeIntervalSince1970: 0))
-        }
-
-        return DateInterval(start: min(startDate, endDate), end: endDate)
-    }
-}
-
-struct TokenTotalSummary: Codable, Equatable, Identifiable {
-    let period: TokenTotalPeriod
-    let startDate: Date
-    let endDate: Date
-    let totalTokens: Int
-
-    var id: TokenTotalPeriod {
-        period
-    }
-}
-
 private struct PeriodTokenTotalsRequest: Equatable {
     let endDate: Date
     let enabledReaderNames: [String: Bool]
     let includesEmptySourceRows: Bool
+    let scope: UsageScope
 
     var cacheKey: PeriodTokenTotalsCacheKey {
         PeriodTokenTotalsCacheKey(
             endDate: endDate,
-            enabledReaderNames: enabledReaderNames)
-    }
-}
-
-struct PeriodTokenTotalsCacheKey: Codable, Equatable {
-    let endDate: Date
-    let enabledReaderNames: [String: Bool]
-}
-
-struct PeriodTokenTotalsCacheEntry: Codable, Equatable {
-    let key: PeriodTokenTotalsCacheKey
-    let summaries: [TokenTotalSummary]
-    let fetchedAt: Date
-}
-
-@MainActor
-final class TokenVelocityState: ObservableObject {
-    @Published private(set) var sample = TokenVelocitySample.zero()
-
-    var liveTokensPerSecond: Double {
-        sample.tokensPerSecond
-    }
-
-    func update(_ sample: TokenVelocitySample) {
-        self.sample = sample
-    }
-}
-
-final class PeriodTokenTotalsCache {
-    private let defaults: UserDefaults
-    private let key: String
-    private let decoder = JSONDecoder()
-    private let encoder = JSONEncoder()
-
-    init(defaults: UserDefaults = .standard, key: String = "usagePanel.periodTokenTotalsCache.v1") {
-        self.defaults = defaults
-        self.key = key
-    }
-
-    func entry(for requestKey: PeriodTokenTotalsCacheKey) -> PeriodTokenTotalsCacheEntry? {
-        guard let data = defaults.data(forKey: key),
-              let entry = try? decoder.decode(PeriodTokenTotalsCacheEntry.self, from: data),
-              entry.key == requestKey else {
-            return nil
-        }
-        return entry
-    }
-
-    func store(_ summaries: [TokenTotalSummary], for requestKey: PeriodTokenTotalsCacheKey, fetchedAt: Date = Date()) {
-        let entry = PeriodTokenTotalsCacheEntry(
-            key: requestKey,
-            summaries: summaries,
-            fetchedAt: fetchedAt)
-        guard let data = try? encoder.encode(entry) else { return }
-        defaults.set(data, forKey: key)
+            enabledReaderNames: enabledReaderNames,
+            scope: scope)
     }
 }
 
 private struct UsageServiceSnapshot: Equatable {
-    var usageData: UsageData = .empty
+    var combinedUsageData: UsageData = .empty
+    var originReports: [UsageOriginReport] = []
     var isLoading = false
     var lastFetchedAt: Date?
     var yesterdayTotalTokens: Int?
@@ -135,6 +39,8 @@ final class UsagePanelViewModel: ObservableObject {
             }
         }
     }
+
+    @Published private(set) var selectedUsageScope: UsageScope = .all
 
     @Published private var snapshot = UsageServiceSnapshot()
 
@@ -193,46 +99,6 @@ final class UsagePanelViewModel: ObservableObject {
         if let calendarDayObserver {
             NotificationCenter.default.removeObserver(calendarDayObserver)
         }
-    }
-
-    var readerNames: [String] {
-        aggregator.readerNames
-    }
-
-    var usageData: UsageData {
-        snapshot.usageData
-    }
-
-    var isLoading: Bool {
-        snapshot.isLoading
-    }
-
-    var lastFetchedAt: Date? {
-        snapshot.lastFetchedAt
-    }
-
-    var yesterdayTotalTokens: Int? {
-        snapshot.yesterdayTotalTokens
-    }
-
-    var readerStatuses: [ReaderStatus] {
-        snapshot.readerStatuses
-    }
-
-    var periodTokenTotals: [TokenTotalSummary] {
-        snapshot.periodTokenTotals
-    }
-
-    var isLoadingPeriodTokenTotals: Bool {
-        snapshot.isLoadingPeriodTokenTotals
-    }
-
-    var isSingleDay: Bool {
-        calendar.dateComponents([.day], from: startDate, to: endDate).day == 1
-    }
-
-    var shouldCompareAgainstYesterday: Bool {
-        isSingleDay && calendar.isDateInToday(startDate)
     }
 
     func selectDay(_ date: Date) {
@@ -325,8 +191,11 @@ final class UsagePanelViewModel: ObservableObject {
             return
         }
 
+        let didFallBackToAllDevices = resolveSelectedUsageScope(
+            availableReports: result.originReports)
         updateSnapshot {
-            $0.usageData = result.usageData
+            $0.combinedUsageData = result.usageData
+            $0.originReports = result.originReports
             $0.readerStatuses = result.readerStatuses
             $0.lastFetchedAt = Date()
             $0.isLoading = false
@@ -334,7 +203,12 @@ final class UsagePanelViewModel: ObservableObject {
         didPublishResult = true
 
         if compareAgainstYesterday {
-            startYesterdayComparison(for: request)
+            startYesterdayComparison(for: request, scope: selectedUsageScope)
+        }
+        if didFallBackToAllDevices {
+            Task { [weak self] in
+                await self?.refreshPeriodTokenTotalsIfNeeded()
+            }
         }
     }
 }
@@ -342,6 +216,86 @@ final class UsagePanelViewModel: ObservableObject {
 typealias UsageService = UsagePanelViewModel
 
 extension UsagePanelViewModel {
+    var readerNames: [String] {
+        aggregator.readerNames
+    }
+
+    var usageData: UsageData {
+        switch selectedUsageScope {
+        case .all:
+            snapshot.combinedUsageData
+        case let .origin(originID):
+            snapshot.originReports.first { $0.id == originID }?.usageData
+                ?? snapshot.combinedUsageData
+        }
+    }
+
+    var originReports: [UsageOriginReport] {
+        snapshot.originReports
+    }
+
+    var selectedUsageOrigin: UsageOrigin? {
+        guard case let .origin(originID) = selectedUsageScope else { return nil }
+        return snapshot.originReports.first { $0.id == originID }?.origin
+    }
+
+    var usageScopeTitle: String {
+        selectedUsageOrigin?.name ?? "All Devices"
+    }
+
+    var isLoading: Bool {
+        snapshot.isLoading
+    }
+
+    var lastFetchedAt: Date? {
+        snapshot.lastFetchedAt
+    }
+
+    var yesterdayTotalTokens: Int? {
+        snapshot.yesterdayTotalTokens
+    }
+
+    var readerStatuses: [ReaderStatus] {
+        snapshot.readerStatuses
+    }
+
+    var periodTokenTotals: [TokenTotalSummary] {
+        snapshot.periodTokenTotals
+    }
+
+    var isLoadingPeriodTokenTotals: Bool {
+        snapshot.isLoadingPeriodTokenTotals
+    }
+
+    var isSingleDay: Bool {
+        calendar.dateComponents([.day], from: startDate, to: endDate).day == 1
+    }
+
+    var shouldCompareAgainstYesterday: Bool {
+        isSingleDay && calendar.isDateInToday(startDate)
+    }
+
+    func selectUsageScope(_ scope: UsageScope) {
+        guard scope != selectedUsageScope else { return }
+        if case let .origin(originID) = scope,
+           !snapshot.originReports.contains(where: { $0.id == originID }) {
+            return
+        }
+
+        resetYesterdayComparison()
+        selectedUsageScope = scope
+        invalidatePeriodTokenTotals()
+
+        let request = makeUsageRequest(start: startDate, end: endDate)
+        if shouldCompareAgainstYesterday(start: request.start, end: request.end) {
+            startYesterdayComparison(for: request, scope: scope)
+        }
+
+        Task { [weak self] in
+            await self?.refreshPeriodTokenTotalsIfNeeded()
+        }
+    }
+
     func refreshPeriodTokenTotals() async {
         let totalsRequest = makePeriodTokenTotalsRequest()
         publishCachedPeriodTokenTotals(for: totalsRequest)
@@ -479,7 +433,8 @@ private extension UsagePanelViewModel {
         return PeriodTokenTotalsRequest(
             endDate: endDate,
             enabledReaderNames: settings.normalizedReaderSettings(for: readerNames),
-            includesEmptySourceRows: settings.showsZeroSourceRows)
+            includesEmptySourceRows: settings.showsZeroSourceRows,
+            scope: selectedUsageScope)
     }
 
     private func periodTokenTotals(for request: PeriodTokenTotalsRequest) async -> [TokenTotalSummary] {
@@ -494,7 +449,9 @@ private extension UsagePanelViewModel {
                 end: interval.end,
                 enabledReaderNames: request.enabledReaderNames,
                 includesEmptySourceRows: request.includesEmptySourceRows)
-            let totalTokens = await aggregator.aggregateTotalTokens(for: usageRequest)
+            let totalTokens = await aggregator.aggregateTotalTokens(
+                for: usageRequest,
+                scope: request.scope)
 
             guard !Task.isCancelled else { return summaries }
             summaries.append(
@@ -513,6 +470,30 @@ private extension UsagePanelViewModel {
         yesterdayComparisonTask = nil
     }
 
+    private func invalidatePeriodTokenTotals() {
+        activePeriodTokenTotalsRequest = nil
+        lastPeriodTokenTotalsRequest = nil
+        lastPeriodTokenTotalsFetchedAt = nil
+        updateSnapshot {
+            $0.periodTokenTotals = []
+            $0.isLoadingPeriodTokenTotals = false
+        }
+    }
+
+    @discardableResult
+    private func resolveSelectedUsageScope(
+        availableReports: [UsageOriginReport]) -> Bool {
+        guard case let .origin(originID) = selectedUsageScope,
+              !availableReports.contains(where: { $0.id == originID }) else {
+            return false
+        }
+
+        resetYesterdayComparison()
+        selectedUsageScope = .all
+        invalidatePeriodTokenTotals()
+        return true
+    }
+
     private func resetYesterdayComparison() {
         cancelYesterdayComparison()
         if snapshot.yesterdayTotalTokens != nil {
@@ -525,7 +506,9 @@ private extension UsagePanelViewModel {
             && calendar.isDateInToday(start)
     }
 
-    private func startYesterdayComparison(for request: UsageAggregationRequest) {
+    private func startYesterdayComparison(
+        for request: UsageAggregationRequest,
+        scope: UsageScope) {
         yesterdayComparisonTask = Task { [weak self] in
             guard let self else { return }
             let prevStart = calendar.date(byAdding: .day, value: -1, to: request.start)!
@@ -536,10 +519,13 @@ private extension UsagePanelViewModel {
                 end: request.start,
                 enabledReaderNames: request.enabledReaderNames,
                 includesEmptySourceRows: request.includesEmptySourceRows)
-            let previousTotalTokens = await aggregator.aggregateTotalTokens(for: previousRequest)
+            let previousTotalTokens = await aggregator.aggregateTotalTokens(
+                for: previousRequest,
+                scope: scope)
 
             guard !Task.isCancelled else { return }
             guard request == makeUsageRequest(start: startDate, end: endDate),
+                  selectedUsageScope == scope,
                   shouldCompareAgainstYesterday(start: request.start, end: request.end) else {
                 return
             }
