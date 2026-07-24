@@ -59,7 +59,7 @@ package enum TokiAgentCommand {
         let descriptor = standardInput.fileDescriptor
         let isTerminal = isatty(descriptor) == 1
         let data = try AgentTerminal.withEchoDisabledIfNeeded(fileDescriptor: descriptor) {
-            try readPairingBundle(from: standardInput)
+            try readPairingBundle(from: standardInput, isTerminal: isTerminal)
         }
         if isTerminal {
             AgentConsole.write("")
@@ -86,23 +86,6 @@ package enum TokiAgentCommand {
             try configurationStore.save(configuration)
         }
         AgentConsole.write("paired device \(configuration.deviceName); credentials stored with user-only permissions")
-    }
-
-    static func readPairingBundle(from file: FileHandle) throws -> Data {
-        var data = Data()
-        let maximumReadCount = TokiSyncLimits.maximumPairingBundleBytes + 1
-        while data.count < maximumReadCount {
-            let remainingCount = maximumReadCount - data.count
-            guard let chunk = try file.read(upToCount: min(4096, remainingCount)),
-                  !chunk.isEmpty else {
-                break
-            }
-            data.append(chunk)
-        }
-        guard data.count <= TokiSyncLimits.maximumPairingBundleBytes else {
-            throw AgentCommandError.pairingBundleTooLarge
-        }
-        return data
     }
 
     private static func unpair() throws {
@@ -279,6 +262,36 @@ extension TokiAgentCommand {
 
         if hasError { return .error }
         return hasReadableLocation ? .readable : .notFound
+    }
+}
+
+extension TokiAgentCommand {
+    static func readPairingBundle(from file: FileHandle, isTerminal: Bool = false) throws -> Data {
+        try readPairingBundle(isTerminal: isTerminal) { count in
+            try file.read(upToCount: count)
+        }
+    }
+
+    static func readPairingBundle(
+        isTerminal: Bool,
+        read: (Int) throws -> Data?) throws -> Data {
+        var data = Data()
+        let maximumReadCount = TokiSyncLimits.maximumPairingBundleBytes + 1
+        while data.count < maximumReadCount {
+            let remainingCount = maximumReadCount - data.count
+            guard let chunk = try read(min(4096, remainingCount)),
+                  !chunk.isEmpty else {
+                break
+            }
+            data.append(chunk)
+            if isTerminal, chunk.contains(0x0A) {
+                break
+            }
+        }
+        guard data.count <= TokiSyncLimits.maximumPairingBundleBytes else {
+            throw AgentCommandError.pairingBundleTooLarge
+        }
+        return data
     }
 }
 
