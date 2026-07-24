@@ -76,13 +76,6 @@ final class UsageAggregator {
     }
 }
 
-private struct ReaderFetchResult {
-    let index: Int
-    let usage: RawTokenUsage
-    let status: ReaderStatus
-    let originSlices: [UsageOriginSlice]
-}
-
 private struct UsageFetchSummary {
     var usage = RawTokenUsage()
     var readerStatuses: [ReaderStatus] = []
@@ -164,16 +157,10 @@ private extension UsageAggregator {
 
         var results: [ReaderFetchResult] = readers.enumerated().compactMap { index, reader in
             guard request.enabledReaderNames[reader.name] == false else { return nil }
-            return ReaderFetchResult(
+            return emptyReaderFetchResult(
                 index: index,
-                usage: RawTokenUsage(),
-                status: ReaderStatus(
-                    name: reader.name,
-                    state: .disabled,
-                    message: nil,
-                    lastReadAt: nil,
-                    totalTokens: 0),
-                originSlices: [])
+                reader: reader,
+                state: .disabled)
         }
 
         await withTaskGroup(of: ReaderFetchResult.self) { group in
@@ -216,7 +203,9 @@ private extension UsageAggregator {
                 from: unmergedOriginSlices,
                 endDate: request.end),
             readerStatuses: sortedResults.map(\.status),
-            sourceStats: mergedSourceStats(originSlices.flatMap(\.sourceStats)),
+            sourceStats: mergedSourceStats(
+                originSlices.flatMap(\.sourceStats)
+                    + sortedResults.flatMap(\.fallbackSourceStats)),
             originSlices: originSlices)
     }
 }
@@ -280,27 +269,30 @@ private func readerFetchResult(
     from startDate: Date,
     to endDate: Date) async -> ReaderFetchResult {
     guard !Task.isCancelled else {
-        return ReaderFetchResult(
+        return emptyReaderFetchResult(
             index: index,
-            usage: RawTokenUsage(),
-            status: ReaderStatus(
-                name: reader.name,
-                state: .empty,
-                message: nil,
-                lastReadAt: nil,
-                totalTokens: 0),
-            originSlices: [])
+            reader: reader,
+            state: .empty)
     }
 
     do {
         let readAt = Date()
         let originSlices: [UsageOriginSlice]
         let usage: RawTokenUsage
+        let fallbackSourceStats: [SourceStat]
         if let partitionedReader = reader as? any OriginPartitionedTokenReader {
             originSlices = try await partitionedReader.readUsageByOrigin(
                 from: startDate,
                 to: endDate)
             usage = combinedUsage(from: originSlices, endDate: endDate)
+            fallbackSourceStats = if originSlices.allSatisfy(\.sourceStats.isEmpty) {
+                [sourceStat(
+                    from: usage,
+                    source: reader.name,
+                    includeEmpty: includeEmptySourceRows)].compactMap { $0 }
+            } else {
+                []
+            }
         } else {
             usage = try await reader.readUsage(from: startDate, to: endDate)
             let sourceStats = [sourceStat(
@@ -311,6 +303,7 @@ private func readerFetchResult(
                 origin: .local(lastUpdatedAt: readAt),
                 usage: usage,
                 sourceStats: sourceStats)]
+            fallbackSourceStats = []
         }
         let statusState: ReaderStatusState = usage.hasReportableData ? .loaded : .empty
         return ReaderFetchResult(
@@ -321,19 +314,17 @@ private func readerFetchResult(
                 state: statusState,
                 message: nil,
                 lastReadAt: readAt,
-                totalTokens: usage.totalTokens),
-            originSlices: originSlices)
+                totalTokens: usage.totalTokens,
+                isOriginPartitioned: reader is any OriginPartitionedTokenReader),
+            originSlices: originSlices,
+            fallbackSourceStats: fallbackSourceStats)
     } catch {
-        return ReaderFetchResult(
+        return emptyReaderFetchResult(
             index: index,
-            usage: RawTokenUsage(),
-            status: ReaderStatus(
-                name: reader.name,
-                state: .failed,
-                message: error.localizedDescription,
-                lastReadAt: Date(),
-                totalTokens: 0),
-            originSlices: [])
+            reader: reader,
+            state: .failed,
+            message: error.localizedDescription,
+            lastReadAt: Date())
     }
 }
 
@@ -341,7 +332,7 @@ private struct OriginSliceAggregate {
     var origin: UsageOrigin
     var usage = RawTokenUsage()
     var sourceStats: [SourceStat] = []
-    var perModelBySource: [ModelSourceUsageKey: PerModelUsage] = [:]
+    var slices: [UsageOriginSlice] = []
 }
 
 private struct SourceStatAggregate {
@@ -381,17 +372,14 @@ private func combinedUsage(
     from slices: [UsageOriginSlice],
     endDate: Date) -> RawTokenUsage {
     var combined = RawTokenUsage()
-    var perModelBySource: [ModelSourceUsageKey: PerModelUsage] = [:]
 
     for slice in slices {
-        mergePerModelUsage(
-            slice.usage.perModel,
-            source: fallbackSource(for: slice),
-            into: &perModelBySource)
         combined += slice.usage
     }
 
-    combined.perModelBySource = perModelBySource
+    combined.perModelBySource = mergedModelSourceUsage(
+        from: slices,
+        endDate: endDate)
     combined.recomputeMergedActiveEstimate(clippingEndDate: endDate)
     return combined
 }
@@ -406,16 +394,15 @@ private func mergedOriginSlices(
         aggregate.origin = preferredOriginMetadata(aggregate.origin, slice.origin)
         aggregate.usage += slice.usage
         aggregate.sourceStats.append(contentsOf: slice.sourceStats)
-        mergePerModelUsage(
-            slice.usage.perModel,
-            source: fallbackSource(for: slice),
-            into: &aggregate.perModelBySource)
+        aggregate.slices.append(slice)
         aggregates[slice.origin.id] = aggregate
     }
 
     return aggregates.values.map { aggregate in
         var usage = aggregate.usage
-        usage.perModelBySource = aggregate.perModelBySource
+        usage.perModelBySource = mergedModelSourceUsage(
+            from: aggregate.slices,
+            endDate: endDate)
         usage.recomputeMergedActiveEstimate(clippingEndDate: endDate)
         return UsageOriginSlice(
             origin: aggregate.origin,
@@ -480,30 +467,104 @@ private func sourceStat(from usage: RawTokenUsage, source: String, includeEmpty:
         activeSeconds: usage.activeSeconds)
 }
 
-private func mergePerModelUsage(
-    _ modelUsage: [String: PerModelUsage],
+private func mergedModelSourceUsage(
+    from slices: [UsageOriginSlice],
+    endDate: Date) -> [ModelSourceUsageKey: PerModelUsage] {
+    var result: [ModelSourceUsageKey: PerModelUsage] = [:]
+
+    for slice in slices {
+        if slice.origin.kind == .remote {
+            mergeRemoteModelUsage(
+                slice.usage,
+                source: fallbackSource(for: slice),
+                endDate: endDate,
+                into: &result)
+            continue
+        }
+
+        var explicitlyMappedModels = Set<String>()
+        for (key, usage) in slice.usage.perModelBySource {
+            guard let modelID = key.modelID.trimmedNonEmpty,
+                  let source = key.source.trimmedNonEmpty else {
+                continue
+            }
+            explicitlyMappedModels.insert(modelID)
+            accumulateModelUsage(
+                usage,
+                key: ModelSourceUsageKey(modelID: modelID, source: source),
+                into: &result)
+        }
+        mergeLegacyPerModelUsage(
+            slice.usage.perModel,
+            source: fallbackSource(for: slice),
+            excluding: explicitlyMappedModels,
+            into: &result)
+    }
+    return result
+}
+
+private func mergeRemoteModelUsage(
+    _ usage: RawTokenUsage,
     source fallbackSource: String,
+    endDate: Date,
     into result: inout [ModelSourceUsageKey: PerModelUsage]) {
     guard let fallbackSource = fallbackSource.trimmedNonEmpty else { return }
 
-    for (modelID, usage) in modelUsage {
-        guard let modelID = modelID.trimmedNonEmpty else { continue }
+    for model in UsageReportBuilder.buildModelStats(from: usage, endDate: endDate) {
+        guard let modelID = model.modelID.trimmedNonEmpty else { continue }
+        let sources = Set(model.sources.compactMap(\.trimmedNonEmpty))
+        let source = sources.count == 1
+            ? sources.first ?? fallbackSource
+            : fallbackSource
+        accumulateModelUsage(
+            PerModelUsage(
+                totalTokens: model.totalTokens,
+                cost: model.cost,
+                activeSeconds: model.activeSeconds,
+                sources: sources),
+            key: ModelSourceUsageKey(modelID: modelID, source: source),
+            into: &result)
+    }
+}
+
+private func mergeLegacyPerModelUsage(
+    _ modelUsage: [String: PerModelUsage],
+    source fallbackSource: String,
+    excluding sourceMappedModels: Set<String>,
+    into result: inout [ModelSourceUsageKey: PerModelUsage]) {
+    guard let fallbackSource = fallbackSource.trimmedNonEmpty else { return }
+
+    for (rawModelID, usage) in modelUsage {
+        guard let modelID = rawModelID.trimmedNonEmpty,
+              !sourceMappedModels.contains(modelID) else {
+            continue
+        }
         let usageSources = Set(usage.sources.compactMap(\.trimmedNonEmpty))
         let source = usageSources.count == 1
             ? usageSources.first ?? fallbackSource
             : fallbackSource
-        let key = ModelSourceUsageKey(modelID: modelID, source: source)
-        var entry = result[key] ?? PerModelUsage()
-        entry.totalTokens += usage.totalTokens
-        entry.cost += usage.cost
-        entry.activeSeconds += usage.activeSeconds
-        if usageSources.isEmpty {
-            entry.sources.insert(source)
-        } else {
-            entry.sources.formUnion(usageSources)
-        }
-        result[key] = entry
+        accumulateModelUsage(
+            usage,
+            key: ModelSourceUsageKey(modelID: modelID, source: source),
+            into: &result)
     }
+}
+
+private func accumulateModelUsage(
+    _ usage: PerModelUsage,
+    key: ModelSourceUsageKey,
+    into result: inout [ModelSourceUsageKey: PerModelUsage]) {
+    var entry = result[key] ?? PerModelUsage()
+    entry.totalTokens += usage.totalTokens
+    entry.cost += usage.cost
+    entry.activeSeconds += usage.activeSeconds
+    let usageSources = Set(usage.sources.compactMap(\.trimmedNonEmpty))
+    if usageSources.isEmpty {
+        entry.sources.insert(key.source)
+    } else {
+        entry.sources.formUnion(usageSources)
+    }
+    result[key] = entry
 }
 
 private func sourceStatSort(_ lhs: SourceStat, _ rhs: SourceStat) -> Bool {

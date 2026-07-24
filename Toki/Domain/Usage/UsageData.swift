@@ -205,6 +205,7 @@ struct ReaderStatus: Identifiable, Equatable {
     let message: String?
     let lastReadAt: Date?
     let totalTokens: Int
+    let isOriginPartitioned: Bool
 
     var id: String {
         name

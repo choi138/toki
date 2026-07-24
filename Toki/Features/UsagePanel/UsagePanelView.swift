@@ -285,7 +285,7 @@ struct PanelUsageScopePickerView: View {
                 ForEach(originReports) { report in
                     scopeButton(
                         title: report.origin.name,
-                        subtitle: panelDevicePlatformLabel(for: report.origin),
+                        subtitle: panelDeviceMenuSubtitle(for: report, among: originReports),
                         systemImage: panelDeviceSystemImage(for: report.origin),
                         scope: .origin(report.id))
                 }
@@ -316,13 +316,20 @@ struct PanelUsageScopePickerView: View {
         .frame(height: 34)
     }
 
-    private var selectedOrigin: UsageOrigin? {
+    private var selectedReport: UsageOriginReport? {
         guard case let .origin(originID) = selectedScope else { return nil }
-        return originReports.first { $0.id == originID }?.origin
+        return originReports.first { $0.id == originID }
+    }
+
+    private var selectedOrigin: UsageOrigin? {
+        selectedReport?.origin
     }
 
     private var selectedTitle: String {
-        selectedOrigin?.name ?? "All Devices"
+        guard let selectedReport else { return "All Devices" }
+        return menuTitle(
+            title: selectedReport.origin.name,
+            subtitle: panelDeviceMenuSubtitle(for: selectedReport, among: originReports))
     }
 
     private var selectedSystemImage: String {
@@ -350,6 +357,23 @@ struct PanelUsageScopePickerView: View {
         guard let subtitle else { return title }
         return "\(title) · \(subtitle)"
     }
+}
+
+func panelDeviceMenuSubtitle(
+    for report: UsageOriginReport,
+    among reports: [UsageOriginReport]) -> String {
+    let platform = panelDevicePlatformLabel(for: report.origin)
+    let duplicates = reports
+        .filter {
+            $0.origin.name == report.origin.name
+                && panelDevicePlatformLabel(for: $0.origin) == platform
+        }
+        .sorted { $0.id.rawValue < $1.id.rawValue }
+    guard duplicates.count > 1,
+          let index = duplicates.firstIndex(where: { $0.id == report.id }) else {
+        return platform
+    }
+    return "\(platform) · Device \(index + 1)"
 }
 
 private extension View {
