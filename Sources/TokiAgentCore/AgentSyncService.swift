@@ -74,9 +74,8 @@ struct AgentSyncService {
             let snapshot = try await snapshotBuilder.build(configuration: configuration, now: now)
             let contentDigest = try snapshotBuilder.contentDigest(snapshot)
             if state.lastUploadedContentDigest == contentDigest {
-                state.lastSourceSignature = try await snapshotBuilder.sourceSignature(
-                    configuration: configuration,
-                    now: now)
+                state.lastSourceSignature = try await stableSourceSignature(
+                    sourceSignature, configuration: configuration, now: now)
                 try stateStore.save(state)
                 if try await heartbeatAccepted(
                     configuration: configuration,
@@ -209,6 +208,16 @@ struct AgentSyncService {
 }
 
 private extension AgentSyncService {
+    func stableSourceSignature(
+        _ preBuildSourceSignature: String?,
+        configuration: AgentConfiguration,
+        now: Date) async throws -> String? {
+        let postBuildSourceSignature = try await snapshotBuilder.sourceSignature(
+            configuration: configuration,
+            now: now)
+        return preBuildSourceSignature == postBuildSourceSignature ? preBuildSourceSignature : nil
+    }
+
     func upload(
         _ envelope: EncryptedUsageEnvelope,
         configuration: AgentConfiguration) async throws {

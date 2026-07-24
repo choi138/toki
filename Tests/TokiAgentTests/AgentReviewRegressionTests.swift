@@ -4,7 +4,7 @@ import XCTest
 @testable import TokiAgentCore
 
 final class AgentReviewRegressionTests: XCTestCase {
-    func test_buildMutatedSourceSignatureIsPersistedForHeartbeatFastPath() async throws {
+    func test_buildMutationInvalidatesHeartbeatFastPath() async throws {
         let fixture = try AgentSyncFixture()
         defer { fixture.remove() }
         try AgentConfigurationStore(paths: fixture.paths).save(fixture.configuration)
@@ -20,12 +20,10 @@ final class AgentReviewRegressionTests: XCTestCase {
         try await service.syncOnce(now: now)
         try await service.syncOnce(now: now)
 
-        XCTAssertEqual(snapshotBuilder.buildCallCount, 2)
+        XCTAssertEqual(snapshotBuilder.buildCallCount, 3)
         XCTAssertEqual(hubClient.uploadedSequences, [1])
         XCTAssertEqual(hubClient.heartbeatSequences, [1, 1])
-        XCTAssertEqual(
-            try AgentStateStore(paths: fixture.paths).load().lastSourceSignature,
-            snapshotBuilder.currentSourceSignature)
+        XCTAssertNil(try AgentStateStore(paths: fixture.paths).load().lastSourceSignature)
     }
 
     func test_hubRejectedTimestampIsNotAddedToSpool() async throws {
