@@ -3,7 +3,41 @@ import TokiSyncProtocol
 import XCTest
 @testable import Toki
 
-final class RemoteSyncTransportTests: XCTestCase {
+extension RemoteUsageReaderTests {
+    func test_equivalentHubURLsShareSnapshotCacheIdentifier() throws {
+        let ownerToken = String(repeating: "o", count: 32)
+        let spellings = [
+            "https://hub.example.test",
+            "https://HUB.EXAMPLE.TEST/",
+            "https://hub.example.test:443/",
+        ]
+        let identifiers = try spellings.map { spelling in
+            try RemoteHubConfiguration(
+                hubURL: XCTUnwrap(URL(string: spelling)),
+                ownerToken: ownerToken).snapshotCacheIdentifier
+        }
+
+        XCTAssertEqual(Set(identifiers).count, 1)
+    }
+
+    func test_localAgentIdentityProviderMatchesCanonicalHubOrigin() throws {
+        let root = makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let configurationURL = root.appendingPathComponent("config.json")
+        let data = try JSONSerialization.data(withJSONObject: [
+            "schemaVersion": TokiSyncProtocolVersion.current,
+            "hubURL": "https://HUB.EXAMPLE.TEST:443/",
+            "deviceID": "local-device",
+        ])
+        try data.write(to: configurationURL)
+        let provider = LocalAgentIdentityProvider(configurationURL: configurationURL)
+
+        XCTAssertEqual(
+            try provider.deviceID(matching: XCTUnwrap(URL(string: "https://hub.example.test"))),
+            "local-device")
+        XCTAssertNil(try provider.deviceID(matching: XCTUnwrap(URL(string: "https://other.example.test"))))
+    }
+
     func test_hubURLAndOwnerTokenRemainBoundInOneKeychainRecord() throws {
         let suiteName = "RemoteUsageReaderTests.\(UUID().uuidString)"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))

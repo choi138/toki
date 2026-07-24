@@ -15,6 +15,7 @@ final class UsagePanelSettings: ObservableObject {
         "GJC",
         "OpenCode",
         "OpenClaw",
+        "Remote Devices",
     ]
 
     @Published private var storedRefreshIntervalSeconds: Int

@@ -20,7 +20,31 @@ struct RemoteHubConfiguration: Equatable {
     }
 
     var snapshotCacheIdentifier: String {
-        SnapshotCipher.digest("toki-hub-owner-v2\0\(hubURL.absoluteString)\0\(ownerToken)")
+        let ownerCredentialDigest = SnapshotCipher.digest("toki-hub-owner-v1\0\(ownerToken)")
+        return SnapshotCipher.digest(
+            "toki-hub-origin-v2\0\(Self.canonicalHubOrigin(for: hubURL))\0\(ownerCredentialDigest)")
+    }
+
+    var legacySnapshotCacheIdentifier: String {
+        let ownerCredentialDigest = SnapshotCipher.digest("toki-hub-owner-v1\0\(ownerToken)")
+        return SnapshotCipher.digest(
+            "toki-hub-origin-v2\0\(hubURL.absoluteString)\0\(ownerCredentialDigest)")
+    }
+
+    static func canonicalHubOrigin(for hubURL: URL) -> String {
+        guard var components = URLComponents(url: hubURL, resolvingAgainstBaseURL: false) else {
+            return hubURL.absoluteString
+        }
+        components.scheme = components.scheme?.lowercased()
+        components.host = components.host?.lowercased()
+        if (components.scheme == "https" && components.port == 443)
+            || (components.scheme == "http" && components.port == 80) {
+            components.port = nil
+        }
+        components.percentEncodedPath = ""
+        components.percentEncodedQuery = nil
+        components.percentEncodedFragment = nil
+        return components.string ?? hubURL.absoluteString
     }
 }
 

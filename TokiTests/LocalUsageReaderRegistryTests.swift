@@ -3,11 +3,12 @@ import XCTest
 @testable import TokiUsageReaders
 
 final class LocalUsageReaderRegistryTests: XCTestCase {
-    func test_usageAggregatorUsesEveryLocalRegistryReader() {
+    func test_usageAggregatorUsesEveryLocalRegistryReaderPlusRemoteDevices() {
         let localNames = LocalUsageReaderRegistry.readers().map(\.name)
         let aggregatorNames = UsageAggregator.defaultReaders.map(\.name)
 
-        XCTAssertEqual(aggregatorNames, localNames)
+        XCTAssertEqual(Array(aggregatorNames.dropLast()), localNames)
+        XCTAssertEqual(aggregatorNames.last, "Remote Devices")
         XCTAssertEqual(
             localNames,
             ["Claude Code", "Codex", "Hermes", "Cursor", "Gemini CLI", "GJC", "OpenCode", "OpenClaw"])

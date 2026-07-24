@@ -32,7 +32,9 @@ struct UsageAggregationResult: Equatable {
 }
 
 final class UsageAggregator {
-    static let defaultReaders: [any TokenReader] = LocalUsageReaderRegistry.readers()
+    static let defaultReaders: [any TokenReader] = LocalUsageReaderRegistry.readers() + [
+        RemoteUsageReader(localAgentIdentityProvider: LocalAgentIdentityProvider()),
+    ]
 
     private let readers: [any TokenReader]
 
@@ -68,7 +70,7 @@ private struct ReaderFetchResult {
     let index: Int
     let usage: RawTokenUsage
     let status: ReaderStatus
-    let sourceStat: SourceStat?
+    let sourceStats: [SourceStat]
 }
 
 private struct UsageFetchSummary {
@@ -158,7 +160,7 @@ private extension UsageAggregator {
                     message: nil,
                     lastReadAt: nil,
                     totalTokens: 0),
-                sourceStat: nil)
+                sourceStats: [])
         }
 
         await withTaskGroup(of: ReaderFetchResult.self) { group in
@@ -206,8 +208,7 @@ private extension UsageAggregator {
         return UsageFetchSummary(
             usage: combined,
             readerStatuses: sortedResults.map(\.status),
-            sourceStats: sortedResults
-                .compactMap(\.sourceStat)
+            sourceStats: mergedSourceStats(sortedResults.flatMap(\.sourceStats))
                 .sorted(by: sourceStatSort))
     }
 }
@@ -254,11 +255,16 @@ private func readerFetchResult(
                 message: nil,
                 lastReadAt: nil,
                 totalTokens: 0),
-            sourceStat: nil)
+            sourceStats: [])
     }
 
     do {
-        let usage = try await reader.readUsage(from: startDate, to: endDate)
+        let readerUsage = try await readUsageAndSourceStats(
+            reader: reader,
+            includeEmptySourceRows: includeEmptySourceRows,
+            from: startDate,
+            to: endDate)
+        let usage = readerUsage.usage
         let statusState: ReaderStatusState = usage.hasReportableData ? .loaded : .empty
         return ReaderFetchResult(
             index: index,
@@ -269,10 +275,7 @@ private func readerFetchResult(
                 message: nil,
                 lastReadAt: Date(),
                 totalTokens: usage.totalTokens),
-            sourceStat: sourceStat(
-                from: usage,
-                source: reader.name,
-                includeEmpty: includeEmptySourceRows))
+            sourceStats: readerUsage.sourceStats)
     } catch {
         return ReaderFetchResult(
             index: index,
@@ -283,8 +286,51 @@ private func readerFetchResult(
                 message: error.localizedDescription,
                 lastReadAt: Date(),
                 totalTokens: 0),
-            sourceStat: nil)
+            sourceStats: [])
     }
+}
+
+private func readUsageAndSourceStats(
+    reader: any TokenReader,
+    includeEmptySourceRows: Bool,
+    from startDate: Date,
+    to endDate: Date) async throws -> (usage: RawTokenUsage, sourceStats: [SourceStat]) {
+    guard let partitionedReader = reader as? any OriginPartitionedTokenReader else {
+        let usage = try await reader.readUsage(from: startDate, to: endDate)
+        return (
+            usage,
+            sourceStat(from: usage, source: reader.name, includeEmpty: includeEmptySourceRows).map { [$0] } ?? [])
+    }
+
+    let slices = try await partitionedReader.readUsageByOrigin(from: startDate, to: endDate)
+    var usage = RawTokenUsage()
+    for slice in slices {
+        usage += slice.usage
+    }
+    usage.recomputeMergedActiveEstimate(clippingEndDate: endDate)
+    let sourceStats = mergedSourceStats(slices.flatMap(\.sourceStats))
+    if sourceStats.isEmpty, includeEmptySourceRows,
+       let emptyStat = sourceStat(from: usage, source: reader.name, includeEmpty: true) {
+        return (usage, [emptyStat])
+    }
+    return (usage, sourceStats)
+}
+
+private func mergedSourceStats(_ sourceStats: [SourceStat]) -> [SourceStat] {
+    var merged: [String: SourceStat] = [:]
+    for stat in sourceStats {
+        let current = merged[stat.source]
+        merged[stat.source] = SourceStat(
+            source: stat.source,
+            inputTokens: (current?.inputTokens ?? 0) + stat.inputTokens,
+            outputTokens: (current?.outputTokens ?? 0) + stat.outputTokens,
+            cacheReadTokens: (current?.cacheReadTokens ?? 0) + stat.cacheReadTokens,
+            cacheWriteTokens: (current?.cacheWriteTokens ?? 0) + stat.cacheWriteTokens,
+            reasoningTokens: (current?.reasoningTokens ?? 0) + stat.reasoningTokens,
+            cost: (current?.cost ?? 0) + stat.cost,
+            activeSeconds: (current?.activeSeconds ?? 0) + stat.activeSeconds)
+    }
+    return Array(merged.values)
 }
 
 private func sourceStat(from usage: RawTokenUsage, source: String, includeEmpty: Bool) -> SourceStat? {

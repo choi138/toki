@@ -434,9 +434,7 @@ enum RemoteHubClientError: LocalizedError {
 
     var allowsCachedFallback: Bool {
         switch self {
-        case .invalidResponse:
-            true
-        case .invalidPayload, .redirectedResponse, .responseTooLarge:
+        case .invalidResponse, .invalidPayload, .redirectedResponse, .responseTooLarge:
             false
         case let .httpStatus(status):
             status == 408 || status == 429 || status >= 500
