@@ -9,6 +9,19 @@ import XCTest
 #endif
 
 final class AgentTerminalTests: XCTestCase {
+    func test_interactiveCanonicalTerminalLineDoesNotReadForEOF() throws {
+        let line = Data("pairing-bundle\n".utf8)
+        var readCount = 0
+
+        let data = try TokiAgentCommand.readPairingBundle(isTerminal: true) { _ in
+            readCount += 1
+            return readCount == 1 ? line : nil
+        }
+
+        XCTAssertEqual(data, line)
+        XCTAssertEqual(readCount, 1)
+    }
+
     func test_pairingInputDisablesTerminalEchoAndRestoresItAfterFailure() throws {
         let terminal = try PseudoTerminal()
         defer { terminal.close() }
