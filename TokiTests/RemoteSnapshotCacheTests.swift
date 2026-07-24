@@ -124,6 +124,19 @@ extension RemoteUsageReaderTests {
         XCTAssertEqual(try cache.load(), try RemoteSnapshotCacheValidation.validated(refreshedEntry))
     }
 
+    func test_cacheConsistencyRejectsDuplicateManifestDeviceIDsWithoutTrapping() throws {
+        let fixture = try makeFixture()
+        let device = fixture.device()
+
+        XCTAssertThrowsError(try RemoteSnapshotCacheValidation.validateConsistency(
+            envelopes: [fixture.envelope],
+            manifest: [device, device])) { error in
+                guard case RemoteSnapshotCacheError.invalidCache = error else {
+                    return XCTFail("Expected invalidCache, got \(error)")
+                }
+            }
+    }
+
     func test_splitCacheDeviceRemovalKeepsUnchangedEnvelopeFile() throws {
         let fixture = try makeFixture()
         let sourceSnapshot = try SnapshotCipher.open(fixture.envelope, key: fixture.encryptionKey)

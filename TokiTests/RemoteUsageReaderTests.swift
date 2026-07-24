@@ -1,5 +1,6 @@
 import Foundation
 import TokiSyncProtocol
+import TokiUsageCore
 import XCTest
 @testable import Toki
 
@@ -34,6 +35,26 @@ final class RemoteUsageReaderTests: XCTestCase {
 
         XCTAssertEqual(result.usageData.sourceStats.map(\.source), ["Codex"])
         XCTAssertEqual(result.usageData.sourceStats.map(\.totalTokens), [16])
+    }
+
+    func test_defaultAggregationMergesLocalAndRemoteRowsForTheSameSource() async throws {
+        let fixture = try makeFixture()
+        let localReader = MockReader(name: "Codex", recorder: MockReaderRecorder()) { _, _ in
+            var usage = RawTokenUsage()
+            usage.inputTokens = 4
+            usage.outputTokens = 1
+            return usage
+        }
+        let remoteReader = fixture.makeReader(client: fixture.makeClient())
+        let result = await UsageAggregator(readers: [localReader, remoteReader]).aggregateUsage(
+            for: UsageAggregationRequest(
+                start: fixture.start,
+                end: fixture.end,
+                enabledReaderNames: [:],
+                includesEmptySourceRows: false))
+
+        XCTAssertEqual(result.usageData.sourceStats.map(\.source), ["Codex"])
+        XCTAssertEqual(result.usageData.sourceStats.map(\.totalTokens), [21])
     }
 
     func test_activityEventsAreGroupedBySourceInOneMappingPass() throws {

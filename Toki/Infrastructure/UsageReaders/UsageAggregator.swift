@@ -206,8 +206,7 @@ private extension UsageAggregator {
         return UsageFetchSummary(
             usage: combined,
             readerStatuses: sortedResults.map(\.status),
-            sourceStats: sortedResults
-                .flatMap(\.sourceStats)
+            sourceStats: mergedSourceStats(sortedResults.flatMap(\.sourceStats))
                 .sorted(by: sourceStatSort))
     }
 }

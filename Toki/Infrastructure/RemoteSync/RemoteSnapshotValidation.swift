@@ -33,9 +33,13 @@ enum RemoteSnapshotCacheValidation {
         envelopes: [EncryptedUsageEnvelope],
         manifest: [RemoteDeviceSummary]) throws {
         let envelopeSequences = Dictionary(uniqueKeysWithValues: envelopes.map { ($0.deviceID, $0.sequence) })
-        let manifestSequences = Dictionary(uniqueKeysWithValues: manifest.compactMap { device in
-            device.latestSequence.map { (device.id, $0) }
-        })
+        var manifestSequences: [String: UInt64] = [:]
+        for device in manifest {
+            guard let sequence = device.latestSequence else { continue }
+            guard manifestSequences.updateValue(sequence, forKey: device.id) == nil else {
+                throw RemoteSnapshotCacheError.invalidCache
+            }
+        }
         guard envelopeSequences == manifestSequences else {
             throw RemoteSnapshotCacheError.invalidCache
         }

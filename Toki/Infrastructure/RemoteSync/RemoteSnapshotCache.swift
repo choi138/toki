@@ -180,7 +180,6 @@ private extension RemoteSnapshotCache {
         // before committing any replacement so an unknown or special file
         // fails closed without partially updating otherwise valid metadata.
         _ = try validatedEnvelopeFiles()
-        let envelopesByDevice = Dictionary(uniqueKeysWithValues: entry.envelopes.map { ($0.deviceID, $0) })
         for envelope in entry.envelopes {
             let envelopeURL = envelopeURL(deviceID: envelope.deviceID, sequence: envelope.sequence)
             let envelopeExists = pathExistsIncludingSymbolicLink(envelopeURL)
@@ -207,7 +206,7 @@ private extension RemoteSnapshotCache {
             throw RemoteHubClientError.responseTooLarge
         }
         try DurableFileIO.writePrivate(metadataData, to: url)
-        try removeObsoleteEnvelopeFiles(keeping: Set(envelopesByDevice.values.map {
+        try removeObsoleteEnvelopeFiles(keeping: Set(entry.envelopes.map {
             envelopeURL(deviceID: $0.deviceID, sequence: $0.sequence).lastPathComponent
         }))
     }

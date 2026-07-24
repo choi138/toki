@@ -84,7 +84,10 @@ private extension RemoteSnapshotLoader {
         }
 
         if let loadedState, try canReuse(loadedState, now: now) {
-            try lifecycleCoordinator.validate(lifecycleTicket)
+            try validateLoadedState(
+                loadedState,
+                configuration: configuration,
+                lifecycleTicket: lifecycleTicket)
             return loadedState.snapshots
         }
 
@@ -109,7 +112,10 @@ private extension RemoteSnapshotLoader {
                 lastCheckedAt: now,
                 usedOfflineFallback: false,
                 lifecycleTicket: lifecycleTicket)
-            try lifecycleCoordinator.validate(lifecycleTicket)
+            try validateLoadedState(
+                reused,
+                configuration: configuration,
+                lifecycleTicket: lifecycleTicket)
             loadedState = reused
             return reused.snapshots
         }
@@ -133,7 +139,10 @@ private extension RemoteSnapshotLoader {
                         lastCheckedAt: now,
                         usedOfflineFallback: true,
                         lifecycleTicket: lifecycleTicket)
-                    try lifecycleCoordinator.validate(lifecycleTicket)
+                    try validateLoadedState(
+                        fallback,
+                        configuration: configuration,
+                        lifecycleTicket: lifecycleTicket)
                     loadedState = fallback
                     return fallback.snapshots
                 }
@@ -251,7 +260,8 @@ private extension RemoteSnapshotLoader {
             device.latestSequence.map { (device.id, $0) }
         })
         let changedDeviceIDs = Set(desiredSequences.compactMap { deviceID, sequence in
-            cachedEnvelopes[deviceID]?.sequence == sequence ? nil : deviceID
+            guard let cachedSequence = cachedEnvelopes[deviceID]?.sequence else { return deviceID }
+            return cachedSequence < sequence ? deviceID : nil
         })
         let removedDeviceIDs = Set(cachedEnvelopes.keys).subtracting(desiredSequences.keys)
         let retainedEnvelopes = cachedEnvelopes.values.filter { envelope in
@@ -264,13 +274,11 @@ private extension RemoteSnapshotLoader {
             changedDeviceIDs: changedDeviceIDs,
             maximumPayloadBytes: remainingPayloadBytes)
 
-        let fetchedByDevice = Dictionary(uniqueKeysWithValues: fetchedEnvelopes.map { ($0.deviceID, $0) })
-        let reconciliation = reconcileManifest(manifest, fetchedByDevice: fetchedByDevice)
-
         let envelopesByDevice = reconcileEnvelopes(
             cachedEnvelopes: cachedEnvelopes,
             removedDeviceIDs: removedDeviceIDs,
             fetchedEnvelopes: fetchedEnvelopes)
+        let reconciliation = reconcileManifest(manifest, envelopesByDevice: envelopesByDevice)
         let entry = try RemoteSnapshotCacheValidation.validated(RemoteSnapshotCacheEntry(
             envelopes: Array(envelopesByDevice.values),
             manifest: reconciliation.manifest,
@@ -349,12 +357,12 @@ private extension RemoteSnapshotLoader {
 
     private func reconcileManifest(
         _ manifest: [RemoteDeviceSummary],
-        fetchedByDevice: [String: EncryptedUsageEnvelope]) -> (manifest: [RemoteDeviceSummary], didAdvance: Bool) {
+        envelopesByDevice: [String: EncryptedUsageEnvelope]) -> (manifest: [RemoteDeviceSummary], didAdvance: Bool) {
         var didAdvance = false
         let reconciled = manifest.map { device in
-            guard let fetchedEnvelope = fetchedByDevice[device.id],
+            guard let envelope = envelopesByDevice[device.id],
                   let manifestSequence = device.latestSequence,
-                  fetchedEnvelope.sequence > manifestSequence else {
+                  envelope.sequence > manifestSequence else {
                 return device
             }
             didAdvance = true
@@ -362,8 +370,8 @@ private extension RemoteSnapshotLoader {
                 id: device.id,
                 name: device.name,
                 createdAt: device.createdAt,
-                lastSeenAt: max(device.lastSeenAt ?? fetchedEnvelope.generatedAt, fetchedEnvelope.generatedAt),
-                latestSequence: fetchedEnvelope.sequence,
+                lastSeenAt: max(device.lastSeenAt ?? envelope.generatedAt, envelope.generatedAt),
+                latestSequence: envelope.sequence,
                 syncIntervalSeconds: device.syncIntervalSeconds)
         }
         return (reconciled, didAdvance)
@@ -448,6 +456,17 @@ private extension RemoteSnapshotLoader {
         return AuthenticatedRemoteSnapshots(
             snapshots: snapshots,
             encryptionKeysByDevice: encryptionKeysByDevice)
+    }
+
+    private func validateLoadedState(
+        _ state: LoadedRemoteSnapshotState,
+        configuration: RemoteHubConfiguration,
+        lifecycleTicket: RemoteSyncLifecycleCoordinator.ReadTicket) throws {
+        try validateCommitState(
+            configuration: configuration,
+            encryptionKeysByDevice: state.encryptionKeysByDevice,
+            envelopeDeviceIDs: Set(state.entry.envelopes.map(\.deviceID)),
+            lifecycleTicket: lifecycleTicket)
     }
 
     private func validateCommitState(
