@@ -4,6 +4,22 @@ import XCTest
 @testable import Toki
 
 extension RemoteUsageReaderTests {
+    func test_equivalentHubURLsShareSnapshotCacheIdentifier() throws {
+        let ownerToken = String(repeating: "o", count: 32)
+        let spellings = [
+            "https://hub.example.test",
+            "https://HUB.EXAMPLE.TEST/",
+            "https://hub.example.test:443/",
+        ]
+        let identifiers = try spellings.map { spelling in
+            try RemoteHubConfiguration(
+                hubURL: XCTUnwrap(URL(string: spelling)),
+                ownerToken: ownerToken).snapshotCacheIdentifier
+        }
+
+        XCTAssertEqual(Set(identifiers).count, 1)
+    }
+
     func test_hubURLAndOwnerTokenRemainBoundInOneKeychainRecord() throws {
         let suiteName = "RemoteUsageReaderTests.\(UUID().uuidString)"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))

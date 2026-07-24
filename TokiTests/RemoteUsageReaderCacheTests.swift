@@ -136,6 +136,105 @@ extension RemoteUsageReaderTests {
         XCTAssertNil(saved.manifestEntityTag)
     }
 
+    func test_remoteReaderRefreshesFreshnessWhenSnapshotAdvancesPastManifest() async throws {
+        let fixture = try makeFixture()
+        let start = Date().addingTimeInterval(-10 * 60)
+        let end = Date().addingTimeInterval(60)
+        let freshGeneratedAt = Date().addingTimeInterval(-1)
+        let freshSnapshot = RemoteUsageSnapshot(
+            device: RemoteDeviceDescriptor(
+                id: fixture.envelope.deviceID,
+                name: "build-server",
+                platform: "linux"),
+            generatedAt: freshGeneratedAt,
+            coveredFrom: start,
+            coveredTo: end,
+            tokenEvents: [
+                RemoteTokenEvent(
+                    timestamp: start.addingTimeInterval(60),
+                    source: "Codex",
+                    model: "gpt-5",
+                    inputTokens: 10,
+                    outputTokens: 3,
+                    cacheReadTokens: 2,
+                    cacheWriteTokens: 0,
+                    reasoningTokens: 1),
+            ],
+            activityEvents: [])
+        let advancedEnvelope = try SnapshotCipher.seal(
+            freshSnapshot,
+            sequence: 2,
+            key: fixture.encryptionKey)
+        let staleLastSeenAt = Date().addingTimeInterval(-2 * 60 * 60)
+        let manifestDevice = RemoteDeviceSummary(
+            id: fixture.envelope.deviceID,
+            name: "build-server",
+            createdAt: start,
+            lastSeenAt: staleLastSeenAt,
+            latestSequence: 1,
+            syncIntervalSeconds: TokiSyncLimits.minimumSyncIntervalSeconds)
+        let cache = InMemoryRemoteSnapshotCache()
+        let reader = fixture.makeReader(
+            client: fixture.makeClient(
+                envelopes: [advancedEnvelope],
+                manifest: [manifestDevice]),
+            cache: cache)
+
+        let usage = try await reader.readUsage(from: start, to: end)
+
+        XCTAssertEqual(usage.totalTokens, 16)
+        XCTAssertEqual(try cache.load()?.manifest.first?.lastSeenAt, advancedEnvelope.generatedAt)
+    }
+
+    func test_remoteReaderRefetchesAfterCachedCiphertextFailsAuthentication() async throws {
+        let fixture = try makeFixture()
+        let corruptedEnvelope = EncryptedUsageEnvelope(
+            deviceID: fixture.envelope.deviceID,
+            sequence: fixture.envelope.sequence,
+            generatedAt: fixture.envelope.generatedAt,
+            payload: Data(repeating: 0, count: 32).base64EncodedString())
+        let cache = InMemoryRemoteSnapshotCache(entry: fixture.cacheEntry(
+            envelopes: [corruptedEnvelope],
+            fetchedAt: Date().addingTimeInterval(-60)))
+        let client = fixture.makeClient()
+        let reader = fixture.makeReader(client: client, cache: cache)
+
+        let usage = try await reader.readUsage(from: fixture.start, to: fixture.end)
+
+        XCTAssertEqual(usage.totalTokens, 16)
+        XCTAssertEqual(client.fetchManifestCallCount, 1)
+        XCTAssertEqual(client.fetchSnapshotCallCount, 1)
+        XCTAssertEqual(try cache.load()?.envelopes, [fixture.envelope])
+    }
+
+    func test_remoteReaderDiscardsReplayInconsistentCacheFromAnotherOrigin() async throws {
+        let fixture = try makeFixture()
+        let snapshot = try SnapshotCipher.open(fixture.envelope, key: fixture.encryptionKey)
+        let newerEnvelope = try SnapshotCipher.seal(snapshot, sequence: 2, key: fixture.encryptionKey)
+        let otherConfiguration = try RemoteHubConfiguration(
+            hubURL: XCTUnwrap(URL(string: "https://other-hub.example.test")),
+            ownerToken: String(repeating: "n", count: 32))
+        let provider = StubRemoteConfigurationProvider(
+            configuration: otherConfiguration,
+            encryptionKeys: [fixture.envelope.deviceID: fixture.encryptionKey])
+        let cache = InMemoryRemoteSnapshotCache(entry: fixture.cacheEntry())
+        let anchorStore = InMemoryRemoteSnapshotAnchorStore(
+            envelopes: [newerEnvelope],
+            originIdentifier: fixture.configuration.snapshotCacheIdentifier)
+        let client = fixture.makeClient()
+        let reader = RemoteUsageReader(
+            configurationProvider: provider,
+            client: client,
+            cache: cache,
+            anchorStore: anchorStore)
+
+        let usage = try await reader.readUsage(from: fixture.start, to: fixture.end)
+
+        XCTAssertEqual(usage.totalTokens, 16)
+        XCTAssertEqual(client.fetchManifestCallCount, 1)
+        XCTAssertEqual(try cache.load()?.snapshotCacheIdentifier, otherConfiguration.snapshotCacheIdentifier)
+    }
+
     func test_remoteReaderRejectsSnapshotOlderThanManifestSequence() async throws {
         let fixture = try makeFixture()
         let reader = fixture.makeReader(

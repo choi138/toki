@@ -22,7 +22,23 @@ struct RemoteHubConfiguration: Equatable {
     var snapshotCacheIdentifier: String {
         let ownerCredentialDigest = SnapshotCipher.digest("toki-hub-owner-v1\0\(ownerToken)")
         return SnapshotCipher.digest(
-            "toki-hub-origin-v2\0\(hubURL.absoluteString)\0\(ownerCredentialDigest)")
+            "toki-hub-origin-v2\0\(canonicalHubOrigin)\0\(ownerCredentialDigest)")
+    }
+
+    private var canonicalHubOrigin: String {
+        guard var components = URLComponents(url: hubURL, resolvingAgainstBaseURL: false) else {
+            return hubURL.absoluteString
+        }
+        components.scheme = components.scheme?.lowercased()
+        components.host = components.host?.lowercased()
+        if (components.scheme == "https" && components.port == 443)
+            || (components.scheme == "http" && components.port == 80) {
+            components.port = nil
+        }
+        components.percentEncodedPath = ""
+        components.percentEncodedQuery = nil
+        components.percentEncodedFragment = nil
+        return components.string ?? hubURL.absoluteString
     }
 }
 

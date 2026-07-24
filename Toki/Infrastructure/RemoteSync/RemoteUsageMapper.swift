@@ -43,18 +43,14 @@ struct RemoteUsageMapper {
             endDate: endDate,
             usage: &usage)
 
-        let activitySources: Set<String> = Set(snapshot.activityEvents.compactMap { event in
-            guard event.timestamp >= startDate, event.timestamp < endDate else { return nil }
-            return event.source
-        })
-        for source in Set(usageBySource.keys).union(activitySources) {
+        let activityEventsBySource = mappedActivityEventsBySource(
+            from: snapshot,
+            startDate: startDate,
+            endDate: endDate)
+        for source in Set(usageBySource.keys).union(activityEventsBySource.keys) {
             var sourceUsage = usageBySource[source] ?? RawTokenUsage()
             sourceUsage.mergeActivityEvents(
-                mappedActivityEvents(
-                    from: snapshot,
-                    startDate: startDate,
-                    endDate: endDate,
-                    matchingSource: source),
+                activityEventsBySource[source] ?? [],
                 source: source,
                 clippingEndDate: endDate)
             usageBySource[source] = sourceUsage
@@ -126,14 +122,27 @@ struct RemoteUsageMapper {
             cacheWrite: event.cacheWriteTokens)
     }
 
+    func mappedActivityEventsBySource(
+        from snapshot: RemoteUsageSnapshot,
+        startDate: Date,
+        endDate: Date) -> [String: [ActivityTimeEvent<String>]] {
+        var eventsBySource: [String: [ActivityTimeEvent<String>]] = [:]
+        for event in snapshot.activityEvents where event.timestamp >= startDate && event.timestamp < endDate {
+            eventsBySource[event.source, default: []].append(ActivityTimeEvent(
+                streamID: "\(snapshot.device.id):\(event.streamID)",
+                timestamp: event.timestamp,
+                key: normalizedModelID(event.model),
+                agentKind: event.agentKind == .subagent ? .subagent : .main))
+        }
+        return eventsBySource
+    }
+
     private func mappedActivityEvents(
         from snapshot: RemoteUsageSnapshot,
         startDate: Date,
-        endDate: Date,
-        matchingSource: String? = nil) -> [ActivityTimeEvent<String>] {
+        endDate: Date) -> [ActivityTimeEvent<String>] {
         snapshot.activityEvents.compactMap { event in
             guard event.timestamp >= startDate, event.timestamp < endDate else { return nil }
-            guard matchingSource == nil || event.source == matchingSource else { return nil }
             return ActivityTimeEvent(
                 streamID: "\(snapshot.device.id):\(event.streamID)",
                 timestamp: event.timestamp,
