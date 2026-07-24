@@ -7,7 +7,9 @@ struct RemoteHubConfiguration: Equatable {
     let ownerToken: String
 
     init(hubURL: URL, ownerToken: String) throws {
-        guard TokiSyncValidation.isAllowedHubURL(hubURL) else {
+        guard let components = URLComponents(url: hubURL, resolvingAgainstBaseURL: false),
+              components.percentEncodedPath.isEmpty || components.percentEncodedPath == "/",
+              TokiSyncValidation.isAllowedHubURL(hubURL) else {
             throw RemoteSyncConfigurationError.insecureHubURL
         }
         guard TokiSyncValidation.isSafeCredential(ownerToken) else {
