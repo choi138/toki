@@ -4,7 +4,7 @@ import XCTest
 @testable import TokiAgentCore
 
 final class AgentReviewRegressionTests: XCTestCase {
-    func test_buildMutatedSourceSignatureIsPersistedForHeartbeatFastPath() async throws {
+    func test_buildMutationInvalidatesHeartbeatFastPath() async throws {
         let fixture = try AgentSyncFixture()
         defer { fixture.remove() }
         try AgentConfigurationStore(paths: fixture.paths).save(fixture.configuration)
@@ -20,12 +20,10 @@ final class AgentReviewRegressionTests: XCTestCase {
         try await service.syncOnce(now: now)
         try await service.syncOnce(now: now)
 
-        XCTAssertEqual(snapshotBuilder.buildCallCount, 2)
+        XCTAssertEqual(snapshotBuilder.buildCallCount, 3)
         XCTAssertEqual(hubClient.uploadedSequences, [1])
         XCTAssertEqual(hubClient.heartbeatSequences, [1, 1])
-        XCTAssertEqual(
-            try AgentStateStore(paths: fixture.paths).load().lastSourceSignature,
-            snapshotBuilder.currentSourceSignature)
+        XCTAssertNil(try AgentStateStore(paths: fixture.paths).load().lastSourceSignature)
     }
 
     func test_hubRejectedTimestampIsNotAddedToSpool() async throws {
@@ -104,6 +102,73 @@ final class AgentReviewRegressionTests: XCTestCase {
         XCTAssertNotNil(state.lastSourceSignature)
     }
 
+    func test_freshUploadSequenceConflictProvidesRecoveryGuidance() async throws {
+        let fixture = try AgentSyncFixture()
+        defer { fixture.remove() }
+        try AgentConfigurationStore(paths: fixture.paths).save(fixture.configuration)
+        let service = AgentSyncService(
+            paths: fixture.paths,
+            hubClient: ReviewUploadConflictHubClient(),
+            snapshotBuilder: ReviewFixedBuilder())
+        let now = Date(timeIntervalSince1970: 1_780_000_000)
+        var caughtError: Error?
+
+        do {
+            try await service.syncOnce(now: now)
+            XCTFail("Expected the fresh upload to report a sequence conflict")
+        } catch {
+            caughtError = error
+        }
+
+        let syncError = try XCTUnwrap(caughtError as? AgentSyncError)
+        guard case .uploadSequenceConflict = syncError else {
+            return XCTFail("Expected uploadSequenceConflict, got \(syncError)")
+        }
+        XCTAssertEqual(
+            syncError.errorDescription,
+            "The Hub already has an upload at this sequence. Revoke the existing device in Hub, "
+                + "run `toki-agent unpair`, then pair again as a new device.")
+        XCTAssertEqual(try AgentSpool(paths: fixture.paths).pendingEnvelopes().count, 1)
+    }
+
+    func test_pendingReplaySequenceConflictPreservesSpool() async throws {
+        let fixture = try AgentSyncFixture()
+        defer { fixture.remove() }
+        try AgentConfigurationStore(paths: fixture.paths).save(fixture.configuration)
+        let now = Date(timeIntervalSince1970: 1_780_000_000)
+        let snapshot = try await ReviewFixedBuilder().build(
+            configuration: fixture.configuration,
+            now: now)
+        let envelope = try SnapshotCipher.seal(
+            snapshot,
+            sequence: 1,
+            key: fixture.configuration.encryptionKey)
+        _ = try AgentSpool(paths: fixture.paths).enqueue(envelope)
+        let service = AgentSyncService(
+            paths: fixture.paths,
+            hubClient: ReviewUploadConflictHubClient(),
+            snapshotBuilder: ReviewFixedBuilder())
+        var caughtError: Error?
+
+        do {
+            try await service.syncOnce(now: now)
+            XCTFail("Expected the pending upload to report a sequence conflict")
+        } catch {
+            caughtError = error
+        }
+
+        let syncError = try XCTUnwrap(caughtError as? AgentSyncError)
+        guard case .uploadSequenceConflict = syncError else {
+            return XCTFail("Expected uploadSequenceConflict, got \(syncError)")
+        }
+        XCTAssertEqual(
+            syncError.errorDescription,
+            "The Hub already has an upload at this sequence. Revoke the existing device in Hub, "
+                + "run `toki-agent unpair`, then pair again as a new device.")
+        let pending = try AgentSpool(paths: fixture.paths).pendingEnvelopes()
+        XCTAssertEqual(pending.map(\.envelope.sequence), [1])
+    }
+
     func test_commandRejectsTrailingArgumentsBeforeDispatch() async throws {
         do {
             try await TokiAgentCommand.execute(arguments: ["version", "--unexpected"])
@@ -170,6 +235,14 @@ private final class SequenceConflictHubClient: AgentHubClientProtocol {
             throw AgentHubClientError.httpStatus(409)
         }
     }
+}
+
+private final class ReviewUploadConflictHubClient: AgentHubClientProtocol {
+    func upload(_: EncryptedUsageEnvelope, configuration _: AgentConfiguration) async throws {
+        throw AgentHubClientError.httpStatus(409)
+    }
+
+    func heartbeat(configuration _: AgentConfiguration, latestSequence _: UInt64) async throws {}
 }
 
 private class ReviewFixedBuilder: AgentSnapshotBuilding {
