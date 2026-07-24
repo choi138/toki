@@ -157,6 +157,39 @@ extension RemoteUsageReaderTests {
         XCTAssertNil(try cache.load())
     }
 
+    func test_previousSnapshotCacheIdentifierMigratesAnchorIntoCurrentPartition() async throws {
+        let fixture = try makeFixture()
+        let snapshot = try SnapshotCipher.open(fixture.envelope, key: fixture.encryptionKey)
+        let newerEnvelope = try SnapshotCipher.seal(snapshot, sequence: 2, key: fixture.encryptionKey)
+        let configuration = try RemoteHubConfiguration(
+            hubURL: XCTUnwrap(URL(string: "https://HUB.EXAMPLE.TEST:443/")),
+            ownerToken: fixture.configuration.ownerToken)
+        XCTAssertNotEqual(configuration.legacySnapshotCacheIdentifier, configuration.snapshotCacheIdentifier)
+        let provider = StubRemoteConfigurationProvider(
+            configuration: configuration,
+            encryptionKeys: [fixture.envelope.deviceID: fixture.encryptionKey])
+        let cache = InMemoryRemoteSnapshotCache(entry: RemoteSnapshotCacheEntry(
+            envelopes: [newerEnvelope],
+            manifest: [fixture.device(sequence: newerEnvelope.sequence)],
+            fetchedAt: Date(),
+            snapshotCacheIdentifier: configuration.legacySnapshotCacheIdentifier))
+        let reader = RemoteUsageReader(
+            configurationProvider: provider,
+            client: fixture.makeClient(),
+            cache: cache,
+            anchorStore: InMemoryRemoteSnapshotAnchorStore())
+
+        do {
+            _ = try await reader.readUsage(from: fixture.start, to: fixture.end)
+            XCTFail("Expected the migrated anchor to reject the older snapshot")
+        } catch let error as RemoteUsageReaderError {
+            guard case .staleSnapshot = error else {
+                return XCTFail("Expected staleSnapshot, got \(error)")
+            }
+        }
+        XCTAssertEqual(cache.clearCallCount, 1)
+    }
+
     func test_corruptedLegacyCacheWithoutAnchorFailsClosed() throws {
         let fixture = try makeFixture()
         let root = makeTemporaryDirectory()

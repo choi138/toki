@@ -57,6 +57,34 @@ final class RemoteUsageReaderTests: XCTestCase {
         XCTAssertEqual(result.usageData.sourceStats.map(\.totalTokens), [21])
     }
 
+    func test_defaultAggregationExcludesTheLocalAgentSnapshot() async throws {
+        let fixture = try makeFixture()
+        let localReader = MockReader(name: "Codex", recorder: MockReaderRecorder()) { _, _ in
+            var usage = RawTokenUsage()
+            usage.inputTokens = 4
+            usage.outputTokens = 1
+            return usage
+        }
+        let remoteReader = RemoteUsageReader(
+            configurationProvider: fixture.configurationProvider,
+            client: fixture.makeClient(),
+            cache: InMemoryRemoteSnapshotCache(),
+            anchorStore: InMemoryRemoteSnapshotAnchorStore(),
+            localAgentIdentityProvider: StubLocalAgentIdentityProvider(
+                hubURL: fixture.configuration.hubURL,
+                deviceID: fixture.envelope.deviceID))
+        let result = await UsageAggregator(readers: [localReader, remoteReader]).aggregateUsage(
+            for: UsageAggregationRequest(
+                start: fixture.start,
+                end: fixture.end,
+                enabledReaderNames: [:],
+                includesEmptySourceRows: false))
+
+        XCTAssertEqual(result.usageData.totalTokens, 5)
+        XCTAssertEqual(result.usageData.sourceStats.map(\.source), ["Codex"])
+        XCTAssertEqual(result.usageData.sourceStats.map(\.totalTokens), [5])
+    }
+
     func test_activityEventsAreGroupedBySourceInOneMappingPass() throws {
         let fixture = try makeFixture()
         let original = try SnapshotCipher.open(fixture.envelope, key: fixture.encryptionKey)

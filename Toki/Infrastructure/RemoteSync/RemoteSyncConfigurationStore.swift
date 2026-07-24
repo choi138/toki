@@ -22,10 +22,16 @@ struct RemoteHubConfiguration: Equatable {
     var snapshotCacheIdentifier: String {
         let ownerCredentialDigest = SnapshotCipher.digest("toki-hub-owner-v1\0\(ownerToken)")
         return SnapshotCipher.digest(
-            "toki-hub-origin-v2\0\(canonicalHubOrigin)\0\(ownerCredentialDigest)")
+            "toki-hub-origin-v2\0\(Self.canonicalHubOrigin(for: hubURL))\0\(ownerCredentialDigest)")
     }
 
-    private var canonicalHubOrigin: String {
+    var legacySnapshotCacheIdentifier: String {
+        let ownerCredentialDigest = SnapshotCipher.digest("toki-hub-owner-v1\0\(ownerToken)")
+        return SnapshotCipher.digest(
+            "toki-hub-origin-v2\0\(hubURL.absoluteString)\0\(ownerCredentialDigest)")
+    }
+
+    static func canonicalHubOrigin(for hubURL: URL) -> String {
         guard var components = URLComponents(url: hubURL, resolvingAgainstBaseURL: false) else {
             return hubURL.absoluteString
         }

@@ -32,7 +32,9 @@ struct UsageAggregationResult: Equatable {
 }
 
 final class UsageAggregator {
-    static let defaultReaders: [any TokenReader] = LocalUsageReaderRegistry.readers() + [RemoteUsageReader()]
+    static let defaultReaders: [any TokenReader] = LocalUsageReaderRegistry.readers() + [
+        RemoteUsageReader(localAgentIdentityProvider: LocalAgentIdentityProvider()),
+    ]
 
     private let readers: [any TokenReader]
 

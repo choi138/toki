@@ -16,6 +16,18 @@ struct StubRemoteConfigurationProvider: RemoteSyncConfigurationProviding {
     }
 }
 
+struct StubLocalAgentIdentityProvider: LocalAgentIdentityProviding {
+    let hubURL: URL
+    let deviceID: String
+
+    func deviceID(matching candidateHubURL: URL) -> String? {
+        RemoteHubConfiguration.canonicalHubOrigin(for: candidateHubURL)
+            == RemoteHubConfiguration.canonicalHubOrigin(for: hubURL)
+            ? deviceID
+            : nil
+    }
+}
+
 final class FlakyRemoteConfigurationProvider: RemoteSyncConfigurationProviding {
     private let configuration: RemoteHubConfiguration
     private let storedEncryptionKey: String

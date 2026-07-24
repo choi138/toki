@@ -175,8 +175,12 @@ private extension RemoteSnapshotLoader {
         }
         guard let entry else { return nil }
         guard entry.snapshotCacheIdentifier == configuration.snapshotCacheIdentifier else {
-            let cachedOriginIdentifier = entry.snapshotCacheIdentifier
-                ?? configuration.snapshotCacheIdentifier
+            let cachedOriginIdentifier = if let identifier = entry.snapshotCacheIdentifier,
+                                            identifier != configuration.legacySnapshotCacheIdentifier {
+                identifier
+            } else {
+                configuration.snapshotCacheIdentifier
+            }
             try validateCommitState(configuration: configuration, lifecycleTicket: lifecycleTicket)
             if !entry.envelopes.isEmpty {
                 do {

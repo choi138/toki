@@ -4,6 +4,7 @@ struct RemoteUsageReader: OriginPartitionedTokenReader {
     let name = "Remote Devices"
     private let configurationProvider: any RemoteSyncConfigurationProviding
     private let snapshotLoader: RemoteSnapshotLoader
+    private let localAgentIdentityProvider: any LocalAgentIdentityProviding
     private let usageMapper = RemoteUsageMapper()
 
     init(
@@ -11,8 +12,10 @@ struct RemoteUsageReader: OriginPartitionedTokenReader {
         client: any RemoteHubClientProtocol = RemoteHubClient(),
         cache: any RemoteSnapshotCaching = RemoteSnapshotCache(),
         anchorStore: any RemoteSnapshotAnchorStoring = RemoteSnapshotAnchorStore(),
-        lifecycleCoordinator: RemoteSyncLifecycleCoordinator = .shared) {
+        lifecycleCoordinator: RemoteSyncLifecycleCoordinator = .shared,
+        localAgentIdentityProvider: any LocalAgentIdentityProviding = NoLocalAgentIdentityProvider()) {
         self.configurationProvider = configurationProvider
+        self.localAgentIdentityProvider = localAgentIdentityProvider
         snapshotLoader = RemoteSnapshotLoader(
             configurationProvider: configurationProvider,
             client: client,
@@ -26,8 +29,10 @@ struct RemoteUsageReader: OriginPartitionedTokenReader {
             return []
         }
         let snapshots = try await snapshotLoader.loadSnapshots(configuration: configuration)
+        let localAgentDeviceID = localAgentIdentityProvider.deviceID(matching: configuration.hubURL)
         return snapshots.compactMap { snapshot in
-            usageMapper.usageSlice(from: snapshot, startDate: startDate, endDate: endDate)
+            guard snapshot.device.id != localAgentDeviceID else { return nil }
+            return usageMapper.usageSlice(from: snapshot, startDate: startDate, endDate: endDate)
         }
     }
 }
