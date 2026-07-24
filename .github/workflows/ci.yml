@@ -30,8 +30,11 @@ jobs:
       - name: SwiftLint
         run: swiftlint lint --strict --quiet
 
-      - name: Run sync foundation tests
+      - name: Run protocol and Agent tests
         run: swift test
+
+      - name: Build macOS Agent
+        run: swift build -c release --product toki-agent
 
       - name: Generate Xcode project
         run: xcodegen generate
@@ -55,6 +58,45 @@ jobs:
             CODE_SIGN_IDENTITY="" \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGNING_ALLOWED=NO
+
+      - name: Verify package lockfiles are unchanged
+        run: >-
+          git diff --exit-code --
+          Package.resolved
+          TokiHub/Package.resolved
+          Toki.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved
+
+  remote-linux-agent:
+    name: Linux Agent (Swift 5.9.2)
+    runs-on: ubuntu-24.04
+    container: swift:5.9.2-jammy
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Snapshot package lockfile
+        run: cp Package.resolved "$RUNNER_TEMP/toki-agent-Package.resolved"
+
+      - name: Install SQLite development headers
+        run: |
+          apt-get update
+          DEBIAN_FRONTEND=noninteractive apt-get install -y libsqlite3-dev
+
+      - name: Verify Swift version
+        run: |
+          swift --version
+          swift --version | grep -q "Swift version 5.9.2"
+
+      - name: Run protocol and Agent tests
+        run: swift test
+
+      - name: Build Linux Agent
+        run: swift build -c release --product toki-agent
+
+      - name: Verify package lockfiles are unchanged
+        run: diff -u "$RUNNER_TEMP/toki-agent-Package.resolved" Package.resolved
 
   remote-linux-hub:
     name: Linux Hub (Swift 5.9.2)
@@ -80,5 +122,5 @@ jobs:
       - name: Build Linux Hub
         run: swift build --package-path TokiHub -c release --product toki-hub
 
-      - name: Verify package lockfile is unchanged
+      - name: Verify package lockfiles are unchanged
         run: diff -u "$RUNNER_TEMP/toki-hub-Package.resolved" TokiHub/Package.resolved

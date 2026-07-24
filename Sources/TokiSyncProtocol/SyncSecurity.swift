@@ -27,8 +27,19 @@ public enum TokiSyncLimits {
 }
 
 public enum TokiSyncValidation {
+    private static let earliestEnvelopeTimestamp = Date(timeIntervalSince1970: 946_684_800)
+    private static let maximumEnvelopeFutureSkew: TimeInterval = 86400
     private static let unsafeDirectionalScalars = CharacterSet(charactersIn:
         "\u{061C}\u{200E}\u{200F}\u{202A}\u{202B}\u{202C}\u{202D}\u{202E}\u{2066}\u{2067}\u{2068}\u{2069}")
+
+    public static func isAcceptableEnvelopeTimestamp(_ timestamp: Date, now: Date) -> Bool {
+        guard timestamp.timeIntervalSince1970.isFinite,
+              now.timeIntervalSince1970.isFinite else {
+            return false
+        }
+        return timestamp >= earliestEnvelopeTimestamp
+            && timestamp <= now.addingTimeInterval(maximumEnvelopeFutureSkew)
+    }
 
     public static func isAllowedHubURL(_ url: URL) -> Bool {
         guard let components = URLComponents(url: url, resolvingAgainstBaseURL: false) else {

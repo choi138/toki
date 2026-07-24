@@ -12,6 +12,7 @@ let package = Package(
         .library(name: "TokiUsageReaders", targets: ["TokiUsageReaders"]),
         .library(name: "TokiSyncProtocol", targets: ["TokiSyncProtocol"]),
         .library(name: "TokiDurableStorage", targets: ["TokiDurableStorage"]),
+        .executable(name: "toki-agent", targets: ["TokiAgent"]),
     ],
     dependencies: [
         .package(url: "https://github.com/apple/swift-crypto.git", from: "3.12.5"),
@@ -47,6 +48,9 @@ let package = Package(
                 "TokiUsageCore",
                 "TokiUsageReaders",
             ]),
+        .executableTarget(
+            name: "TokiAgent",
+            dependencies: ["TokiAgentCore"]),
         .testTarget(
             name: "TokiSyncProtocolTests",
             dependencies: ["TokiSyncProtocol"]),
