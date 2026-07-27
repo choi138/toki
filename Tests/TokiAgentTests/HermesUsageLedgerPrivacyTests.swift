@@ -58,7 +58,9 @@ final class HermesUsageLedgerPrivacyTests: XCTestCase {
             timestamp: timestamp,
             sentinel: sentinel)
         try writePrivateTestData(original, to: fixture.ledgerURL)
-
+        let staleTemporaryURL = fixture.directory.appendingPathComponent(
+            ".\(fixture.ledgerURL.lastPathComponent).\(UUID().uuidString).tmp")
+        try writePrivateTestData(original, to: staleTemporaryURL)
         do {
             _ = try await HermesUsageLedger(fileURL: fixture.ledgerURL).status()
             XCTFail("Legacy ledger must require explicit migration")
@@ -80,6 +82,7 @@ final class HermesUsageLedgerPrivacyTests: XCTestCase {
         XCTAssertFalse(serialized.contains("identifierKey"))
         XCTAssertFalse(FileManager.default.fileExists(atPath: fixture.backupURL.path))
         XCTAssertFalse(FileManager.default.fileExists(atPath: fixture.v1BackupURL.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: staleTemporaryURL.path))
         XCTAssertEqual(try Data(contentsOf: fixture.keyURL), Data(identifierKey.utf8))
         XCTAssertEqual(try permissions(at: fixture.keyURL), 0o600)
         XCTAssertEqual(try permissions(at: fixture.ledgerURL), 0o600)
@@ -167,12 +170,14 @@ final class HermesUsageLedgerPrivacyTests: XCTestCase {
         let beforeReplayAttributes = try FileManager.default.attributesOfItem(atPath: fixture.ledgerURL.path)
         let restarted = HermesUsageLedger(fileURL: fixture.ledgerURL)
         try await restarted.refresh(observations: [observation(inputTokens: 30)], observedAt: observedAt)
+        let restoredEvents = try await restarted.events(from: startedAt, to: observedAt.addingTimeInterval(1))
         let afterReplay = try Data(contentsOf: fixture.ledgerURL)
         let afterReplayAttributes = try FileManager.default.attributesOfItem(atPath: fixture.ledgerURL.path)
         XCTAssertEqual(afterReplay, beforeReplay)
         XCTAssertEqual(
             afterReplayAttributes[.systemFileNumber] as? NSNumber,
             beforeReplayAttributes[.systemFileNumber] as? NSNumber)
+        XCTAssertEqual(restoredEvents.first?.projectName, "/Users/private/\(sentinel)")
         assertSerializedLedgerIsPrivate(
             afterReplay,
             forbidden: [sentinel, "raw-session", "projectName", "identifierKey"])

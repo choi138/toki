@@ -32,6 +32,9 @@ public enum HermesUsageLedgerMigrator {
             throw HermesUsageLedgerError.invalidLedger
         }
 
+        let legacyTemporaryURLs = mode == .apply
+            ? try legacyTemporaryLedgerURLs(ledgerURL: fileURL)
+            : []
         let schemaVersion: Int
         do {
             schemaVersion = try JSONDecoder().decode(HermesUsageLedgerVersionProbe.self, from: source).schemaVersion
@@ -41,7 +44,9 @@ public enum HermesUsageLedgerMigrator {
         if schemaVersion == hermesUsageLedgerSchemaVersion {
             try validateCurrentLedger(source, fileURL: fileURL)
             if mode == .apply {
-                try removeLegacyBackups(ledgerURL: fileURL)
+                try removeLegacyArtifacts(
+                    ledgerURL: fileURL,
+                    temporaryURLs: legacyTemporaryURLs)
             }
             return .notRequired
         }
@@ -57,7 +62,9 @@ public enum HermesUsageLedgerMigrator {
         } catch {
             throw HermesUsageLedgerError.couldNotPersist
         }
-        try removeLegacyBackups(ledgerURL: fileURL)
+        try removeLegacyArtifacts(
+            ledgerURL: fileURL,
+            temporaryURLs: legacyTemporaryURLs)
         return .migrated
     }
 }
@@ -241,6 +248,66 @@ private extension HermesUsageLedgerMigrator {
         } catch {
             throw HermesUsageLedgerError.invalidLedger
         }
+    }
+
+    static func legacyTemporaryLedgerURLs(ledgerURL: URL) throws -> [URL] {
+        let directory = ledgerURL.deletingLastPathComponent()
+        let prefix = ".\(ledgerURL.lastPathComponent)."
+        let suffix = ".tmp"
+        let urls: [URL]
+        do {
+            urls = try FileManager.default.contentsOfDirectory(
+                at: directory,
+                includingPropertiesForKeys: [.isRegularFileKey, .isSymbolicLinkKey])
+        } catch {
+            throw HermesUsageLedgerError.invalidLedger
+        }
+        return try urls.compactMap { url in
+            let name = url.lastPathComponent
+            guard name.hasPrefix(prefix), name.hasSuffix(suffix) else { return nil }
+            let identifierStart = name.index(name.startIndex, offsetBy: prefix.count)
+            let identifierEnd = name.index(name.endIndex, offsetBy: -suffix.count)
+            guard UUID(uuidString: String(name[identifierStart..<identifierEnd])) != nil else {
+                return nil
+            }
+            let values = try url.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey])
+            guard values.isRegularFile == true, values.isSymbolicLink != true else {
+                throw HermesUsageLedgerError.invalidLedger
+            }
+            let data: Data
+            do {
+                guard let source = try DurableFileIO.readPrivate(
+                    from: url,
+                    maximumByteCount: hermesUsageLedgerMaximumBytes) else {
+                    return nil
+                }
+                data = source
+            } catch {
+                throw HermesUsageLedgerError.invalidLedger
+            }
+            guard let schemaVersion = try? JSONDecoder()
+                .decode(HermesUsageLedgerVersionProbe.self, from: data).schemaVersion,
+                schemaVersion == hermesUsageLedgerLegacySchemaVersion
+                || schemaVersion == hermesUsageLedgerPreviousSchemaVersion else {
+                return nil
+            }
+            return url
+        }
+    }
+
+    static func removeLegacyArtifacts(
+        ledgerURL: URL,
+        temporaryURLs: [URL]) throws {
+        for temporaryURL in temporaryURLs {
+            do {
+                try DurableFileIO.removeIfPresent(temporaryURL)
+            } catch DurableFileIOError.removalCommittedDirectorySyncFailed {
+                throw HermesUsageLedgerError.durabilityNotConfirmed
+            } catch {
+                throw HermesUsageLedgerError.couldNotPersist
+            }
+        }
+        try removeLegacyBackups(ledgerURL: ledgerURL)
     }
 
     static func removeLegacyBackups(ledgerURL: URL) throws {

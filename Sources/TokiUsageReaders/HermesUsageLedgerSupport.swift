@@ -127,7 +127,7 @@ struct HermesUsageLedgerEvent: Codable, Equatable {
     let model: String?
     var counters: HermesTokenCounters
     var cost: Double
-    let projectName: String?
+    var projectName: String?
     let attributionQuality: AttributionQuality
 
     func canMerge(with other: Self) -> Bool {

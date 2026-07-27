@@ -67,6 +67,7 @@ public actor HermesUsageLedger {
         }
 
         var changed = document == nil
+        var rehydratedProjectNames = false
         for observation in observations.sorted(by: { $0.sessionID < $1.sessionID }) {
             let observationChanged = try apply(
                 observation,
@@ -74,7 +75,12 @@ public actor HermesUsageLedger {
                 previousSuccessfulObservationAt: previousSuccessfulObservationAt,
                 identifierHasher: identifierHasher,
                 to: &candidate)
+            let projectNamesChanged = rehydrateProjectNames(
+                for: observation,
+                identifierHasher: identifierHasher,
+                in: &candidate)
             changed = changed || observationChanged
+            rehydratedProjectNames = rehydratedProjectNames || projectNamesChanged
         }
 
         if candidate.lastSuccessfulObservationAt != effectiveObservedAt {
@@ -82,7 +88,12 @@ public actor HermesUsageLedger {
             changed = true
         }
 
-        guard changed else { return }
+        guard changed else {
+            if rehydratedProjectNames {
+                document = candidate
+            }
+            return
+        }
         try validate(candidate)
         try persist(candidate)
     }
@@ -108,6 +119,22 @@ public actor HermesUsageLedger {
 }
 
 private extension HermesUsageLedger {
+    func rehydrateProjectNames(
+        for observation: HermesSessionObservation,
+        identifierHasher: SnapshotOpaqueIdentifierHasher,
+        in candidate: inout HermesUsageLedgerDocument) -> Bool {
+        guard let projectName = observation.projectName else { return false }
+        let identifier = identifierHasher.identifier(for: observation.sessionID)
+        var changed = false
+        for index in candidate.events.indices
+            where candidate.events[index].sessionIdentifier == identifier
+            && candidate.events[index].projectName != projectName {
+            candidate.events[index].projectName = projectName
+            changed = true
+        }
+        return changed
+    }
+
     func apply(
         _ observation: HermesSessionObservation,
         observedAt: Date,
