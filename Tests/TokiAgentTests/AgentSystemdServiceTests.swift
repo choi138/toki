@@ -11,9 +11,9 @@ final class AgentSystemdServiceTests: XCTestCase {
         let service = try String(contentsOf: serviceURL, encoding: .utf8)
 
         XCTAssertTrue(service.contains("ProtectHome=tmpfs"))
-        let inaccessibleHome = try XCTUnwrap(service.range(of: "InaccessiblePaths=%h"))
+        let temporaryHome = try XCTUnwrap(service.range(of: "TemporaryFileSystem=%h:ro"))
         let firstReadOnlyMount = try XCTUnwrap(service.range(of: "BindReadOnlyPaths="))
-        XCTAssertLessThan(inaccessibleHome.lowerBound, firstReadOnlyMount.lowerBound)
+        XCTAssertLessThan(temporaryHome.lowerBound, firstReadOnlyMount.lowerBound)
         XCTAssertTrue(service.contains("PrivateUsers=true"))
         XCTAssertFalse(service.contains("ProtectControlGroups="))
         XCTAssertFalse(service.contains("ProtectKernelLogs="))
