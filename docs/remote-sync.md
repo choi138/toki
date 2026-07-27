@@ -184,8 +184,9 @@ controls.
 2. Enter a device name, retention days, and interval minutes.
 3. Click **Copy Agent Pairing Bundle**. The bundle contains only that device's
    write token and encryption key. Toki marks the pasteboard value as concealed
-   and transient, then clears it after 60 seconds or when the settings model is
-   released.
+   and transient, then schedules it to clear after 60 seconds while Toki remains
+   running. Quitting Toki before the timer fires can leave the system clipboard
+   unchanged, so replace it manually after transferring the bundle.
 
 Treat the bundle as a secret until pairing finishes. Other apps and macOS
 Universal Clipboard may observe clipboard contents; disable cross-device
@@ -352,12 +353,16 @@ If a directory `fsync` reports failure after a rename or removal has already
 committed, the storage API reports that committed state explicitly. The Hub
 keeps the committed generation instead of rolling one side of a
 registry/snapshot update back. Before advancing the registry, it confirms the
-snapshot-directory rename. It returns HTTP 503 until the relevant directory
-synchronization is confirmed. Snapshot, heartbeat, and revocation retries are
-idempotent, and startup recovery completes interrupted snapshot commits. Device
-provisioning is intentionally not retried blindly because its upload token is
-returned only once: after a provisioning 503, refresh the device list and revoke
-any newly visible keyless device before creating another pairing bundle.
+snapshot-directory rename. Snapshot, heartbeat, and revocation operations return
+HTTP 503 until the relevant directory synchronization is confirmed; their
+retries are idempotent, and startup recovery completes interrupted snapshot
+commits. Device provisioning is the exception: after the registry rename has
+committed, the Hub returns the one-time upload token even when directory
+synchronization could not be confirmed, instead of returning 503 and orphaning a
+visible device without its token. Do not blindly repeat provisioning after an
+ambiguous client or network failure. Refresh the device list and revoke any
+newly visible keyless device before creating another pairing bundle; if a later
+restart loses an unconfirmed new record, create a new pairing then.
 
 ## Library integration
 
