@@ -111,6 +111,7 @@
 		C36760D5F31645546E54DD9F /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = E1DA65F57500D6F6BB7793AD /* Assets.xcassets */; };
 		C51D063F04218FF9A6A23A0F /* SecurityAuditViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4360CAF6769074C64EB0F300 /* SecurityAuditViewModel.swift */; };
 		C74B36023221B03A893000FD /* RemoteUsageReader.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1081585613F3D38A303C7B0 /* RemoteUsageReader.swift */; };
+		C81FDB77EFDDB4D8D738F47B /* PairingBundleClipboard.swift in Sources */ = {isa = PBXBuildFile; fileRef = B6BAE1901B6B63C2F72788B4 /* PairingBundleClipboard.swift */; };
 		CA7BC8750CD31AE49C75F11F /* RemoteUsageReaderFetchReuseTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D793B660094D95240AF5DD23 /* RemoteUsageReaderFetchReuseTests.swift */; };
 		CB2B57AF9540E6D529CCFF0F /* PanelSupportViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6C7BC82ACA2362A5775D0BDD /* PanelSupportViews.swift */; };
 		CF177959CFC6AFC2D6B57957 /* UsageProjectTimelineReportTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 249A8147031075DB2B206742 /* UsageProjectTimelineReportTests.swift */; };
@@ -253,6 +254,7 @@
 		B4C3B0595A6C521B237BC8AE /* ProjectTimelineBreakdownTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProjectTimelineBreakdownTests.swift; sourceTree = "<group>"; };
 		B60EB0929925CB9634708D25 /* OpenClawReaderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OpenClawReaderTests.swift; sourceTree = "<group>"; };
 		B6780BA4E1370D9DC631805A /* TokiApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TokiApp.swift; sourceTree = "<group>"; };
+		B6BAE1901B6B63C2F72788B4 /* PairingBundleClipboard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PairingBundleClipboard.swift; sourceTree = "<group>"; };
 		C08F6079C3FC989A7466B6E7 /* MenuBarActivityController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MenuBarActivityController.swift; sourceTree = "<group>"; };
 		C4BF69189BDE750B3BE66C4E /* RemoteSyncTransportTestSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteSyncTransportTestSupport.swift; sourceTree = "<group>"; };
 		CA15B3EFD222050ECA620C03 /* PanelHeroComparisonContent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PanelHeroComparisonContent.swift; sourceTree = "<group>"; };
@@ -385,6 +387,7 @@
 			isa = PBXGroup;
 			children = (
 				E50483956143F3CE467BC5C7 /* LocalAgentIdentityProvider.swift */,
+				B6BAE1901B6B63C2F72788B4 /* PairingBundleClipboard.swift */,
 				B03817C34A0165DBDAA6B1C1 /* RemoteHubClient.swift */,
 				F4227D216D8FE12E11E964C4 /* RemoteSnapshotAnchorStore.swift */,
 				DD5B0DC4DAC585BF217B4C74 /* RemoteSnapshotCache.swift */,
@@ -734,6 +737,7 @@
 				6EEA4D7FD3B514CA968C1C84 /* MenuBarPanelController.swift in Sources */,
 				5DFCC5FAC2D4E5BA818C5BA9 /* MenuBarStatusItemController.swift in Sources */,
 				85105FACCE20BBA33C54ED26 /* OriginPartitionedTokenReader.swift in Sources */,
+				C81FDB77EFDDB4D8D738F47B /* PairingBundleClipboard.swift in Sources */,
 				6CFA95243695415B46ED9010 /* PanelByModelView.swift in Sources */,
 				E0476E76B7CEA7BA6DDEAABD /* PanelDatePickerView.swift in Sources */,
 				9A4D33ED42435E4F7C557235 /* PanelHeaderView.swift in Sources */,

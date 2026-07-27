@@ -100,7 +100,8 @@ extension RemoteSyncLifecycleTests {
             createDeviceResponse: CreateRemoteDeviceResponse(
                 deviceID: "paired-device",
                 deviceName: "paired-agent",
-                uploadToken: String(repeating: "u", count: 32)))
+                uploadToken: String(repeating: "u", count: 32)),
+            manifest: [fixture.device])
         let store = ObservingRemoteSyncConfigurationStore(
             configuration: fixture.configuration,
             encryptionKeys: [fixture.device.id: fixture.encryptionKey])
@@ -210,7 +211,7 @@ extension RemoteSyncLifecycleTests {
         let cache = InMemoryRemoteSnapshotCache()
         let anchorStore = InMemoryRemoteSnapshotAnchorStore(envelopes: [fixture.envelope])
         let gate = AsyncTestGate()
-        let client = GatedRemoteHubClient(gate: gate)
+        let client = GatedRemoteHubClient(gate: gate, manifest: [fixture.device])
         let reader = RemoteUsageReader(
             configurationProvider: store,
             client: client,
@@ -248,7 +249,7 @@ extension RemoteSyncLifecycleTests {
         let cache = InMemoryRemoteSnapshotCache()
         let anchorStore = InMemoryRemoteSnapshotAnchorStore(envelopes: [fixture.envelope])
         let gate = AsyncTestGate()
-        let client = GatedRemoteHubClient(gate: gate)
+        let client = GatedRemoteHubClient(gate: gate, manifest: [fixture.device])
         let reader = RemoteUsageReader(
             configurationProvider: store,
             client: client,
@@ -440,10 +441,13 @@ private final class GatedRemoteHubClient: RemoteHubClientProtocol {
     private let createDeviceResponse: CreateRemoteDeviceResponse?
     private let manifest: [RemoteDeviceSummary]
 
-    init(gate: AsyncTestGate, createDeviceResponse: CreateRemoteDeviceResponse? = nil) {
+    init(
+        gate: AsyncTestGate,
+        createDeviceResponse: CreateRemoteDeviceResponse? = nil,
+        manifest: [RemoteDeviceSummary]? = nil) {
         self.gate = gate
         self.createDeviceResponse = createDeviceResponse
-        manifest = [RemoteDeviceSummary(
+        self.manifest = manifest ?? [RemoteDeviceSummary(
             id: "gated-device",
             name: "gated-device",
             createdAt: Date(timeIntervalSince1970: 1_750_000_000),
