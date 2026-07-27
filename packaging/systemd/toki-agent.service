@@ -19,6 +19,7 @@ PrivateDevices=true
 PrivateUsers=true
 ProtectSystem=strict
 ProtectHome=tmpfs
+InaccessiblePaths=%h
 BindReadOnlyPaths=-%h/.claude/projects
 BindReadOnlyPaths=-%h/.codex/state_5.sqlite
 BindReadOnlyPaths=-%h/.codex/state_5.sqlite-wal
