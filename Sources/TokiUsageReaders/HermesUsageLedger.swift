@@ -326,17 +326,25 @@ private extension HermesUsageLedger {
     }
 
     private func identifierKeyForNewDocument() throws -> String {
-        if let data = try DurableFileIO.readPrivate(from: identifierKeyURL, maximumByteCount: 4096) {
+        if let data = try readIdentifierKeyData() {
             return try decodeIdentifierKey(data)
         }
         return SnapshotCipher.generateKey()
     }
 
     private func loadIdentifierKey() throws -> String {
-        guard let data = try DurableFileIO.readPrivate(from: identifierKeyURL, maximumByteCount: 4096) else {
+        guard let data = try readIdentifierKeyData() else {
             throw HermesUsageLedgerError.invalidLedger
         }
         return try decodeIdentifierKey(data)
+    }
+
+    private func readIdentifierKeyData() throws -> Data? {
+        do {
+            return try DurableFileIO.readPrivate(from: identifierKeyURL, maximumByteCount: 4096)
+        } catch {
+            throw HermesUsageLedgerError.invalidLedger
+        }
     }
 
     private func decodeIdentifierKey(_ data: Data) throws -> String {
@@ -348,7 +356,7 @@ private extension HermesUsageLedger {
     }
 
     private func persistIdentifierKeyIfNeeded(_ key: String) throws {
-        if let data = try DurableFileIO.readPrivate(from: identifierKeyURL, maximumByteCount: 4096) {
+        if let data = try readIdentifierKeyData() {
             guard try decodeIdentifierKey(data) == key else {
                 throw HermesUsageLedgerError.invalidLedger
             }

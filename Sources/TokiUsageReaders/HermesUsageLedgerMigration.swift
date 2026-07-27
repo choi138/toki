@@ -264,7 +264,11 @@ private extension HermesUsageLedgerMigrator {
         }
         return try urls.compactMap { url in
             let name = url.lastPathComponent
-            guard name.hasPrefix(prefix), name.hasSuffix(suffix) else { return nil }
+            guard name.hasPrefix(prefix),
+                  name.hasSuffix(suffix),
+                  name.count >= prefix.count + suffix.count else {
+                return nil
+            }
             let identifierStart = name.index(name.startIndex, offsetBy: prefix.count)
             let identifierEnd = name.index(name.endIndex, offsetBy: -suffix.count)
             guard UUID(uuidString: String(name[identifierStart..<identifierEnd])) != nil else {

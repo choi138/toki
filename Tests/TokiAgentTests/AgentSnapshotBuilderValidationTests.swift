@@ -90,7 +90,7 @@ final class AgentSnapshotBuilderValidationTests: XCTestCase {
         let now = try Self.date("2026-07-16T12:00:00Z")
 
         let before = try await builder.sourceSignature(configuration: configuration, now: now)
-        try Data("{\"value\":2}\n".utf8).write(to: targetURL)
+        try Data("{\"value\":2}\n{\"value\":3}\n".utf8).write(to: targetURL)
         let after = try await builder.sourceSignature(configuration: configuration, now: now)
 
         XCTAssertEqual(before, after)
