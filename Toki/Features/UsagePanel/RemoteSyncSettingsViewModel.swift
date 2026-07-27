@@ -80,7 +80,7 @@ extension RemoteSyncSettingsViewModel {
                 hubURL: hubURL,
                 ownerToken: ownerToken)
             let fetchedDevices = try await client.fetchDevices(configuration: configuration)
-            try lifecycleCoordinator.mutate {
+            try performLocalStateChange {
                 try cache.clear()
                 try anchorStore.clear()
                 try store.clear()
@@ -134,7 +134,7 @@ extension RemoteSyncSettingsViewModel {
             upsertProvisionalDevice(device)
             do {
                 let encryptionKey = SnapshotCipher.generateKey()
-                try lifecycleCoordinator.mutate {
+                try performLocalStateChange {
                     try store.saveEncryptionKey(encryptionKey, for: device.deviceID)
                 }
                 deviceIDsWithEncryptionKeys.insert(device.deviceID)
@@ -150,7 +150,7 @@ extension RemoteSyncSettingsViewModel {
             } catch let pairingError {
                 do {
                     try await revokeRemotelyIfPresent(deviceID: device.deviceID, configuration: configuration)
-                    try lifecycleCoordinator.mutate {
+                    try performLocalStateChange {
                         try anchorStore.remove(
                             deviceID: device.deviceID,
                             originIdentifier: configuration.snapshotCacheIdentifier)
@@ -191,7 +191,7 @@ extension RemoteSyncSettingsViewModel {
                 hubURL: currentConfiguration.hubURL,
                 ownerToken: ownerToken)
             let fetchedDevices = try await client.fetchDevices(configuration: updatedConfiguration)
-            try lifecycleCoordinator.mutate {
+            try performLocalStateChange {
                 try anchorStore.copyAnchors(
                     from: currentConfiguration.snapshotCacheIdentifier,
                     to: updatedConfiguration.snapshotCacheIdentifier)
@@ -232,7 +232,7 @@ extension RemoteSyncSettingsViewModel {
                 throw RemoteSyncSettingsError.notConnected
             }
             try await client.revokeDevice(id: device.id, configuration: configuration)
-            try lifecycleCoordinator.mutate {
+            try performLocalStateChange {
                 try anchorStore.remove(
                     deviceID: device.id,
                     originIdentifier: configuration.snapshotCacheIdentifier)
@@ -365,8 +365,13 @@ private extension RemoteSyncSettingsViewModel {
         try await client.revokeDevice(id: deviceID, configuration: configuration)
     }
 
+    func performLocalStateChange(_ change: () throws -> Void) rethrows {
+        defer { lifecycleCoordinator.invalidateReadTickets() }
+        try change()
+    }
+
     func clearLocalState() throws {
-        try lifecycleCoordinator.mutate {
+        try performLocalStateChange {
             try cache.clear()
             try anchorStore.clear()
             try store.clear()

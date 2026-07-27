@@ -29,6 +29,31 @@ final class RemoteSyncLifecycleTests: XCTestCase {
     }
 
     @MainActor
+    func test_connectInvalidatesExistingReadTicketAfterSavingConfiguration() async throws {
+        let fixture = try makeFixture()
+        let coordinator = RemoteSyncLifecycleCoordinator()
+        let viewModel = RemoteSyncSettingsViewModel(
+            store: InMemoryRemoteSyncConfigurationStore(configuration: nil),
+            client: StubRemoteHubClient(devicesResult: .success([])),
+            cache: InMemoryRemoteSnapshotCache(),
+            anchorStore: InMemoryRemoteSnapshotAnchorStore(),
+            lifecycleCoordinator: coordinator)
+        viewModel.hubURLText = fixture.configuration.hubURL.absoluteString
+        viewModel.ownerToken = fixture.configuration.ownerToken
+        let ticket = coordinator.beginRead()
+
+        await viewModel.connect()
+
+        XCTAssertThrowsError(try coordinator.validate(ticket)) { error in
+            guard let lifecycleError = error as? RemoteSyncLifecycleError,
+                  case .stateChanged = lifecycleError else {
+                return XCTFail("Expected stateChanged, got \(error)")
+            }
+        }
+        XCTAssertFalse(viewModel.hasError)
+    }
+
+    @MainActor
     func test_revokePreventsBlockedRefreshFromRestoringDeviceState() async throws {
         let fixture = try makeFixture()
         let coordinator = RemoteSyncLifecycleCoordinator()
