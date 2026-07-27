@@ -66,22 +66,21 @@ public actor HermesUsageLedger {
             throw HermesUsageLedgerError.invalidLedger
         }
 
+        let sortedObservations = observations.sorted(by: { $0.sessionID < $1.sessionID })
         var changed = document == nil
-        var rehydratedProjectNames = false
-        for observation in observations.sorted(by: { $0.sessionID < $1.sessionID }) {
+        for observation in sortedObservations {
             let observationChanged = try apply(
                 observation,
                 observedAt: effectiveObservedAt,
                 previousSuccessfulObservationAt: previousSuccessfulObservationAt,
                 identifierHasher: identifierHasher,
                 to: &candidate)
-            let projectNamesChanged = rehydrateProjectNames(
-                for: observation,
-                identifierHasher: identifierHasher,
-                in: &candidate)
             changed = changed || observationChanged
-            rehydratedProjectNames = rehydratedProjectNames || projectNamesChanged
         }
+        let rehydratedProjectNames = rehydrateProjectNames(
+            for: sortedObservations,
+            identifierHasher: identifierHasher,
+            in: &candidate)
 
         if candidate.lastSuccessfulObservationAt != effectiveObservedAt {
             candidate.lastSuccessfulObservationAt = effectiveObservedAt
@@ -120,15 +119,20 @@ public actor HermesUsageLedger {
 
 private extension HermesUsageLedger {
     func rehydrateProjectNames(
-        for observation: HermesSessionObservation,
+        for observations: [HermesSessionObservation],
         identifierHasher: SnapshotOpaqueIdentifierHasher,
         in candidate: inout HermesUsageLedgerDocument) -> Bool {
-        guard let projectName = observation.projectName else { return false }
-        let identifier = identifierHasher.identifier(for: observation.sessionID)
+        var projectNameByIdentifier: [String: String] = [:]
+        for observation in observations {
+            guard let projectName = observation.projectName else { continue }
+            projectNameByIdentifier[identifierHasher.identifier(for: observation.sessionID)] = projectName
+        }
         var changed = false
-        for index in candidate.events.indices
-            where candidate.events[index].sessionIdentifier == identifier
-            && candidate.events[index].projectName != projectName {
+        for index in candidate.events.indices {
+            guard let projectName = projectNameByIdentifier[candidate.events[index].sessionIdentifier],
+                  candidate.events[index].projectName != projectName else {
+                continue
+            }
             candidate.events[index].projectName = projectName
             changed = true
         }
