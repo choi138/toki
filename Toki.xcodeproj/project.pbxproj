@@ -166,6 +166,7 @@
 		0885004959B871D714D8197B /* UsageExportTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UsageExportTests.swift; sourceTree = "<group>"; };
 		0B85308CE0483EBF29F028DD /* Security.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Security.framework; path = System/Library/Frameworks/Security.framework; sourceTree = SDKROOT; };
 		0C703C562F5F956BF2CFA97A /* SecurityAuditFindingListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SecurityAuditFindingListView.swift; sourceTree = "<group>"; };
+		0DEED506783139DE14237103 /* Toki-stacked-prs */ = {isa = PBXFileReference; lastKnownFileType = folder; name = "Toki-stacked-prs"; path = .; sourceTree = SOURCE_ROOT; };
 		0E640BFCC95D2085AA49840F /* rabbit_run_06.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = rabbit_run_06.png; sourceTree = "<group>"; };
 		107B89D8C6829F00817A902B /* UsageAggregator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UsageAggregator.swift; sourceTree = "<group>"; };
 		128D492BD818BC76538BE7CA /* rabbit_run_02.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = rabbit_run_02.png; sourceTree = "<group>"; };
@@ -184,7 +185,6 @@
 		271C1138E2F9EA2CB9108BF5 /* UsageServiceComparisonRefreshTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UsageServiceComparisonRefreshTests.swift; sourceTree = "<group>"; };
 		282A1BF7C0245EB113DE2BA8 /* UsageOriginAggregationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UsageOriginAggregationTests.swift; sourceTree = "<group>"; };
 		2911A1E6546BEA285E0D8956 /* SecurityAuditScannerCancellationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SecurityAuditScannerCancellationTests.swift; sourceTree = "<group>"; };
-		2920544D75189EF46C07AD4F /* toki-pr59-rebuild */ = {isa = PBXFileReference; lastKnownFileType = folder; name = "toki-pr59-rebuild"; path = .; sourceTree = SOURCE_ROOT; };
 		2A29762983DCCAA8DD498AE0 /* MenuBarStatusItemController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MenuBarStatusItemController.swift; sourceTree = "<group>"; };
 		2B2E791E9576F6E07FBEAD30 /* RemoteSyncLifecycleTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteSyncLifecycleTests.swift; sourceTree = "<group>"; };
 		3542FE2DBB444D4843D16F5D /* UsageServiceBehaviorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UsageServiceBehaviorTests.swift; sourceTree = "<group>"; };
@@ -422,7 +422,7 @@
 		7A4EF5F3A6F1718366E71592 /* Packages */ = {
 			isa = PBXGroup;
 			children = (
-				2920544D75189EF46C07AD4F /* toki-pr59-rebuild */,
+				0DEED506783139DE14237103 /* Toki-stacked-prs */,
 			);
 			name = Packages;
 			sourceTree = "<group>";
