@@ -57,6 +57,7 @@ final class StubRemoteHubClient: RemoteHubClientProtocol {
     private let manifestResult: Result<RemoteConditionalResult<[RemoteDeviceSummary]>, Error>
     private let snapshotResult: Result<[EncryptedUsageEnvelope], Error>
     private var devicesResults: [Result<[RemoteDeviceSummary], Error>]
+    private let revokeResult: Result<Void, Error>
     private let delayNanoseconds: UInt64
     private var manifestCallCount = 0
     private var snapshotCallCount = 0
@@ -71,6 +72,7 @@ final class StubRemoteHubClient: RemoteHubClientProtocol {
             .failure(TestError.unexpectedCall),
         devicesResult: Result<[RemoteDeviceSummary], Error> = .success([]),
         devicesResults: [Result<[RemoteDeviceSummary], Error>]? = nil,
+        revokeResult: Result<Void, Error> = .success(()),
         delayNanoseconds: UInt64 = 0) {
         self.manifestResult = manifestResult
         self.snapshotResult = snapshotResult
@@ -79,6 +81,7 @@ final class StubRemoteHubClient: RemoteHubClientProtocol {
         } else {
             self.devicesResults = [devicesResult]
         }
+        self.revokeResult = revokeResult
         self.delayNanoseconds = delayNanoseconds
     }
 
@@ -145,6 +148,7 @@ final class StubRemoteHubClient: RemoteHubClientProtocol {
 
     func revokeDevice(id: String, configuration _: RemoteHubConfiguration) async throws {
         lock.withLock { revokedIDs.append(id) }
+        try revokeResult.get()
     }
 }
 

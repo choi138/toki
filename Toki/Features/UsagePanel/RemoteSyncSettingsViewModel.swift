@@ -231,7 +231,7 @@ extension RemoteSyncSettingsViewModel {
             guard let configuration = try store.load() else {
                 throw RemoteSyncSettingsError.notConnected
             }
-            try await client.revokeDevice(id: device.id, configuration: configuration)
+            try await revokeRemotelyIfPresent(deviceID: device.id, configuration: configuration)
             try performLocalStateChange {
                 try anchorStore.remove(
                     deviceID: device.id,
@@ -362,11 +362,15 @@ private extension RemoteSyncSettingsViewModel {
     func revokeRemotelyIfPresent(
         deviceID: String,
         configuration: RemoteHubConfiguration) async throws {
-        try await client.revokeDevice(id: deviceID, configuration: configuration)
+        do {
+            try await client.revokeDevice(id: deviceID, configuration: configuration)
+        } catch let error as RemoteHubClientError {
+            guard case .httpStatus(404) = error else { throw error }
+        }
     }
 
     func performLocalStateChange(_ change: () throws -> Void) rethrows {
-        defer { lifecycleCoordinator.invalidateReadTickets() }
+        lifecycleCoordinator.invalidateReadTickets()
         try change()
     }
 
@@ -395,14 +399,42 @@ private extension RemoteSyncSettingsViewModel {
 }
 
 @MainActor
+protocol PairingBundlePasteboard: AnyObject {
+    var changeCount: Int { get }
+
+    func prepareForPairingBundle()
+    func setPairingBundle(_ bundle: String) -> Bool
+    func setPrivacyMarker(_ type: NSPasteboard.PasteboardType) -> Bool
+    func clearPairingBundle()
+}
+
+extension NSPasteboard: PairingBundlePasteboard {
+    func prepareForPairingBundle() {
+        declareTypes([.string, .tokiConcealed, .tokiTransient], owner: nil)
+    }
+
+    func setPairingBundle(_ bundle: String) -> Bool {
+        setString(bundle, forType: .string)
+    }
+
+    func setPrivacyMarker(_ type: NSPasteboard.PasteboardType) -> Bool {
+        setData(Data(), forType: type)
+    }
+
+    func clearPairingBundle() {
+        clearContents()
+    }
+}
+
+@MainActor
 final class PairingBundleClipboard {
-    private let pasteboard: NSPasteboard
+    private let pasteboard: any PairingBundlePasteboard
     private let retentionNanoseconds: UInt64
     private var clearTask: Task<Void, Never>?
     private var copiedPasteboardChangeCount: Int?
 
     init(
-        pasteboard: NSPasteboard = .general,
+        pasteboard: any PairingBundlePasteboard = NSPasteboard.general,
         retentionNanoseconds: UInt64 = 60 * 1_000_000_000) {
         self.pasteboard = pasteboard
         self.retentionNanoseconds = retentionNanoseconds
@@ -411,12 +443,13 @@ final class PairingBundleClipboard {
     func copy(_ bundle: String) throws {
         clearTask?.cancel()
         clearIfUnchanged()
-        pasteboard.declareTypes([.string, .tokiConcealed, .tokiTransient], owner: nil)
-        guard pasteboard.setString(bundle, forType: .string) else {
+        pasteboard.prepareForPairingBundle()
+        guard pasteboard.setPairingBundle(bundle),
+              pasteboard.setPrivacyMarker(.tokiConcealed),
+              pasteboard.setPrivacyMarker(.tokiTransient) else {
+            pasteboard.clearPairingBundle()
             throw RemoteSyncSettingsError.clipboardWriteFailed
         }
-        _ = pasteboard.setData(Data(), forType: .tokiConcealed)
-        _ = pasteboard.setData(Data(), forType: .tokiTransient)
         let expectedChangeCount = pasteboard.changeCount
         copiedPasteboardChangeCount = expectedChangeCount
         let pasteboard = pasteboard
@@ -426,7 +459,7 @@ final class PairingBundleClipboard {
             guard !Task.isCancelled else { return }
             self?.copiedPasteboardChangeCount = nil
             guard pasteboard.changeCount == expectedChangeCount else { return }
-            pasteboard.clearContents()
+            pasteboard.clearPairingBundle()
         }
     }
 
@@ -436,7 +469,7 @@ final class PairingBundleClipboard {
               pasteboard.changeCount == expectedChangeCount else {
             return
         }
-        pasteboard.clearContents()
+        pasteboard.clearPairingBundle()
     }
 }
 

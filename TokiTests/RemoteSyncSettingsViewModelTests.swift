@@ -214,6 +214,32 @@ extension RemoteUsageReaderTests {
     }
 
     @MainActor
+    func test_revokeCleansLocalStateWhenDeviceIsAlreadyAbsentFromHub() async throws {
+        let fixture = try makeFixture()
+        let device = fixture.device()
+        let store = InMemoryRemoteSyncConfigurationStore(configuration: fixture.configuration)
+        try store.saveEncryptionKey(fixture.encryptionKey, for: device.id)
+        let cache = InMemoryRemoteSnapshotCache(entry: fixture.cacheEntry())
+        let anchorStore = InMemoryRemoteSnapshotAnchorStore(envelopes: [fixture.envelope])
+        let client = StubRemoteHubClient(
+            devicesResult: .success([]),
+            revokeResult: .failure(RemoteHubClientError.httpStatus(404)))
+        let viewModel = RemoteSyncSettingsViewModel(
+            store: store,
+            client: client,
+            cache: cache,
+            anchorStore: anchorStore)
+
+        await viewModel.revoke(device)
+
+        XCTAssertEqual(client.revokedDeviceIDs, [device.id])
+        XCTAssertNil(try cache.load())
+        XCTAssertEqual(anchorStore.removedDeviceIDs, [device.id])
+        XCTAssertFalse(store.hasEncryptionKey(for: device.id))
+        XCTAssertFalse(viewModel.hasError)
+    }
+
+    @MainActor
     func test_refreshDevicesCachesKeyAvailabilityAndClearsPreviousError() async throws {
         let fixture = try makeFixture()
         let device = fixture.device()
@@ -356,5 +382,46 @@ extension RemoteUsageReaderTests {
         XCTAssertEqual(pasteboard.string(forType: .string), "temporary-pairing-bundle")
         try await Task.sleep(nanoseconds: 50_000_000)
         XCTAssertNil(pasteboard.string(forType: .string))
+    }
+
+    @MainActor
+    func test_pairingClipboardClearsBundleWhenPrivacyMarkerFails() throws {
+        let pasteboard = FailingPrivacyMarkerPasteboard()
+        let clipboard = PairingBundleClipboard(pasteboard: pasteboard)
+
+        XCTAssertThrowsError(try clipboard.copy("temporary-pairing-bundle"))
+
+        XCTAssertNil(pasteboard.stringValue)
+        XCTAssertEqual(pasteboard.clearCallCount, 1)
+    }
+}
+
+@MainActor
+private final class FailingPrivacyMarkerPasteboard: PairingBundlePasteboard {
+    private(set) var changeCount = 0
+    private(set) var stringValue: String?
+    private(set) var clearCallCount = 0
+    private var markerWriteCount = 0
+
+    func prepareForPairingBundle() {
+        changeCount += 1
+    }
+
+    func setPairingBundle(_ bundle: String) -> Bool {
+        stringValue = bundle
+        changeCount += 1
+        return true
+    }
+
+    func setPrivacyMarker(_: NSPasteboard.PasteboardType) -> Bool {
+        markerWriteCount += 1
+        changeCount += 1
+        return markerWriteCount == 1
+    }
+
+    func clearPairingBundle() {
+        stringValue = nil
+        clearCallCount += 1
+        changeCount += 1
     }
 }

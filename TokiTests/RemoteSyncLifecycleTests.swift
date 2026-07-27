@@ -54,6 +54,36 @@ final class RemoteSyncLifecycleTests: XCTestCase {
     }
 
     @MainActor
+    func test_disconnectInvalidatesReadTicketBeforeClearingLocalState() async throws {
+        let fixture = try makeFixture()
+        let coordinator = RemoteSyncLifecycleCoordinator()
+        let ticket = coordinator.beginRead()
+        var observedInvalidatedTicket = false
+        let store = BlockingRemoteSyncConfigurationStore(
+            configuration: fixture.configuration,
+            encryptionKeys: [fixture.device.id: fixture.encryptionKey],
+            willClear: {
+                do {
+                    try coordinator.validate(ticket)
+                    XCTFail("Expected the read ticket to be invalid before local cleanup")
+                } catch {
+                    observedInvalidatedTicket = true
+                }
+            })
+        let viewModel = RemoteSyncSettingsViewModel(
+            store: store,
+            client: StubRemoteHubClient(devicesResult: .success([])),
+            cache: InMemoryRemoteSnapshotCache(entry: fixture.cacheEntry),
+            anchorStore: InMemoryRemoteSnapshotAnchorStore(envelopes: [fixture.envelope]),
+            lifecycleCoordinator: coordinator)
+
+        await viewModel.disconnect()
+
+        XCTAssertTrue(observedInvalidatedTicket)
+        XCTAssertFalse(viewModel.hasError)
+    }
+
+    @MainActor
     func test_revokePreventsBlockedRefreshFromRestoringDeviceState() async throws {
         let fixture = try makeFixture()
         let coordinator = RemoteSyncLifecycleCoordinator()
@@ -202,10 +232,15 @@ private final class BlockingRemoteSyncConfigurationStore: RemoteSyncConfiguratio
     private var encryptionKeys: [String: String]
     private var shouldBlockEncryptionKeyRead = true
     private var didStartEncryptionKeyRead = false
+    private let willClear: (() -> Void)?
 
-    init(configuration: RemoteHubConfiguration?, encryptionKeys: [String: String]) {
+    init(
+        configuration: RemoteHubConfiguration?,
+        encryptionKeys: [String: String],
+        willClear: (() -> Void)? = nil) {
         self.configuration = configuration
         self.encryptionKeys = encryptionKeys
+        self.willClear = willClear
     }
 
     func load() throws -> RemoteHubConfiguration? {
@@ -242,6 +277,7 @@ private final class BlockingRemoteSyncConfigurationStore: RemoteSyncConfiguratio
     }
 
     func clear() throws {
+        willClear?()
         withLock {
             configuration = nil
             encryptionKeys = [:]
