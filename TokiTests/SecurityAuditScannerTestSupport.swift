@@ -37,9 +37,11 @@ class SecurityAuditScannerTestCase: XCTestCase {
         sourceName: String,
         relativePath: String,
         lines: [String]) throws -> URL {
-        let root = SecurityAuditScanner.defaultSources(homeDirectory: tempRoot)
-            .first { $0.name == sourceName }!
-            .rootURL
+        let root = try XCTUnwrap(
+            SecurityAuditScanner.defaultSources(homeDirectory: tempRoot)
+                .first { $0.name == sourceName }?
+                .rootURL,
+            "Unknown source name: \(sourceName)")
         let url = root.appendingPathComponent(relativePath)
         try FileManager.default.createDirectory(
             at: url.deletingLastPathComponent(),
