@@ -45,7 +45,7 @@ struct AgentSyncService {
                 let pendingSnapshot = try SnapshotCipher.open(
                     pending.envelope,
                     key: configuration.encryptionKey)
-                try await hubClient.upload(pending.envelope, configuration: configuration)
+                try await upload(pending.envelope, configuration: configuration)
                 state.latestSequence = max(state.latestSequence, pending.envelope.sequence)
                 state.lastUploadedContentDigest = try snapshotBuilder.contentDigest(pendingSnapshot)
                 state.lastSourceSignature = nil
@@ -74,9 +74,8 @@ struct AgentSyncService {
             let snapshot = try await snapshotBuilder.build(configuration: configuration, now: now)
             let contentDigest = try snapshotBuilder.contentDigest(snapshot)
             if state.lastUploadedContentDigest == contentDigest {
-                state.lastSourceSignature = try await snapshotBuilder.sourceSignature(
-                    configuration: configuration,
-                    now: now)
+                state.lastSourceSignature = try await stableSourceSignature(
+                    sourceSignature, configuration: configuration, now: now)
                 try stateStore.save(state)
                 if try await heartbeatAccepted(
                     configuration: configuration,
@@ -103,7 +102,7 @@ struct AgentSyncService {
             state.latestSequence = sequence
             try stateStore.save(state)
 
-            try await hubClient.upload(envelope, configuration: configuration)
+            try await upload(envelope, configuration: configuration)
             try spool.remove(spoolURL)
             state.lastUploadedContentDigest = contentDigest
             state.lastSourceSignature = nil
@@ -209,6 +208,27 @@ struct AgentSyncService {
 }
 
 private extension AgentSyncService {
+    func stableSourceSignature(
+        _ preBuildSourceSignature: String?,
+        configuration: AgentConfiguration,
+        now: Date) async throws -> String? {
+        let postBuildSourceSignature = try await snapshotBuilder.sourceSignature(
+            configuration: configuration,
+            now: now)
+        return preBuildSourceSignature == postBuildSourceSignature ? preBuildSourceSignature : nil
+    }
+
+    func upload(
+        _ envelope: EncryptedUsageEnvelope,
+        configuration: AgentConfiguration) async throws {
+        do {
+            try await hubClient.upload(envelope, configuration: configuration)
+        } catch let error as AgentHubClientError {
+            guard case .httpStatus(409) = error else { throw error }
+            throw AgentSyncError.uploadSequenceConflict
+        }
+    }
+
     func heartbeatAccepted(
         configuration: AgentConfiguration,
         latestSequence: UInt64) async throws -> Bool {
@@ -236,6 +256,7 @@ enum AgentSyncError: LocalizedError {
     case invalidEnvelopeTimestamp
     case pendingDeviceMismatch
     case sequenceExhausted
+    case uploadSequenceConflict
 
     var errorDescription: String? {
         switch self {
@@ -245,6 +266,9 @@ enum AgentSyncError: LocalizedError {
             "A pending snapshot belongs to a different pairing. Run `toki-agent unpair`, then pair again."
         case .sequenceExhausted:
             "The Agent upload sequence is exhausted. Run `toki-agent unpair`, then pair as a new device."
+        case .uploadSequenceConflict:
+            "The Hub already has an upload at this sequence. Revoke the existing device in Hub, "
+                + "run `toki-agent unpair`, then pair again as a new device."
         }
     }
 }

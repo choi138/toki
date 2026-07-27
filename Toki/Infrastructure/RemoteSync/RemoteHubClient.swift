@@ -45,7 +45,9 @@ struct RemoteHubClient: RemoteHubClientProtocol {
             emptyBodyStatusCodes: ifNoneMatch == nil ? [] : [304])
         let entityTag = try Self.validatedEntityTag(response.response)
         if response.response.statusCode == 304 {
-            guard response.data.isEmpty else { throw RemoteHubClientError.invalidResponse }
+            guard response.data.isEmpty, entityTag == ifNoneMatch else {
+                throw RemoteHubClientError.invalidResponse
+            }
             return .notModified(entityTag: entityTag)
         }
         let devices = try TokiSyncCoding.makeDecoder()
@@ -72,10 +74,7 @@ struct RemoteHubClient: RemoteHubClientProtocol {
         _ = try Self.validatedEntityTag(response.response)
         let snapshot = try TokiSyncCoding.makeDecoder()
             .decode(RemoteSnapshotResponse.self, from: response.data).snapshot
-        guard snapshot.deviceID == deviceID else {
-            throw RemoteHubClientError.invalidPayload
-        }
-        return snapshot
+        return try Self.validatedSnapshot(snapshot, expectedDeviceID: deviceID)
     }
 
     func createDevice(
@@ -131,6 +130,24 @@ struct RemoteHubClient: RemoteHubClientProtocol {
             maximumBytes: TokiSyncLimits.maximumManagementResponseBytes,
             allowedStatusCodes: [204],
             emptyBodyStatusCodes: [204])
+    }
+
+    static func validatedSnapshot(
+        _ snapshot: EncryptedUsageEnvelope,
+        expectedDeviceID: String,
+        now: Date = Date()) throws -> EncryptedUsageEnvelope {
+        guard snapshot.schemaVersion == TokiSyncProtocolVersion.current,
+              snapshot.deviceID == expectedDeviceID,
+              TokiSyncValidation.isSafeDeviceID(snapshot.deviceID),
+              snapshot.sequence > 0,
+              TokiSyncValidation.isAcceptableEnvelopeTimestamp(snapshot.generatedAt, now: now),
+              !snapshot.payload.isEmpty,
+              snapshot.payload.utf8.count <= TokiSyncLimits.maximumEnvelopeBytes,
+              Data(base64Encoded: snapshot.payload) != nil,
+              try TokiSyncCoding.makeEncoder().encode(snapshot).count <= TokiSyncLimits.maximumEnvelopeBytes else {
+            throw RemoteHubClientError.invalidPayload
+        }
+        return snapshot
     }
 
     static func validateCreatedDevice(_ device: CreateRemoteDeviceResponse) throws {

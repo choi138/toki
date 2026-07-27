@@ -250,7 +250,7 @@ extension ActivityMonitor {
         let yesterday = cal.date(byAdding: .day, value: -1, to: today) ?? today
         let candidateDays = [yesterday, cal.startOfDay(for: threshold), today]
 
-        var rolloutDirectories = Set(candidateDays.map { day in
+        let rolloutDirectories = Set(candidateDays.map { day in
             let comps = cal.dateComponents([.year, .month, .day], from: day)
             return codexHomeURL
                 .appendingPathComponent("sessions")
@@ -259,7 +259,22 @@ extension ActivityMonitor {
                 .appendingPathComponent(String(format: "%02d", comps.day ?? 0))
                 .path
         })
-        rolloutDirectories.insert(codexHomeURL.appendingPathComponent("archived_sessions").path)
+
+        // Archived rollouts are immutable after being moved here. A move updates
+        // the directory metadata, so avoid enumerating an unbounded archive on
+        // every activity poll and inspect only the directory itself.
+        let archiveURL = codexHomeURL.appendingPathComponent("archived_sessions", isDirectory: true)
+        if let values = try? archiveURL.resourceValues(forKeys: [
+            .contentModificationDateKey,
+            .isDirectoryKey,
+            .isSymbolicLinkKey,
+        ]),
+            values.isDirectory == true,
+            values.isSymbolicLink != true,
+            let modifiedDate = values.contentModificationDate,
+            modifiedDate >= threshold {
+            return true
+        }
 
         for dirPath in rolloutDirectories {
             let dirURL = URL(fileURLWithPath: dirPath)

@@ -21,18 +21,39 @@ final class ActivityMonitorTests: XCTestCase {
         let codexHome = FileManager.default.temporaryDirectory
             .appendingPathComponent("toki-codex-activity-\(UUID().uuidString)", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: codexHome) }
-        let rolloutURL = codexHome
-            .appendingPathComponent("archived_sessions", isDirectory: true)
-            .appendingPathComponent("recent.jsonl")
+        let archiveURL = codexHome.appendingPathComponent("archived_sessions", isDirectory: true)
+        let rolloutURL = archiveURL.appendingPathComponent("recent.jsonl")
         try FileManager.default.createDirectory(
-            at: rolloutURL.deletingLastPathComponent(),
+            at: archiveURL,
             withIntermediateDirectories: true)
         try Data("{}\n".utf8).write(to: rolloutURL)
         try FileManager.default.setAttributes(
             [.modificationDate: now],
-            ofItemAtPath: rolloutURL.path)
+            ofItemAtPath: archiveURL.path)
 
         XCTAssertTrue(ActivityMonitor.hasRecentCodexRollout(
+            codexHomeURL: codexHome,
+            since: now.addingTimeInterval(-30),
+            now: now))
+    }
+
+    func test_activityMonitor_doesNotScanFilesInStaleCodexArchive() throws {
+        let now = Date()
+        let codexHome = FileManager.default.temporaryDirectory
+            .appendingPathComponent("toki-codex-activity-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: codexHome) }
+        let archiveURL = codexHome.appendingPathComponent("archived_sessions", isDirectory: true)
+        let rolloutURL = archiveURL.appendingPathComponent("recent.jsonl")
+        try FileManager.default.createDirectory(at: archiveURL, withIntermediateDirectories: true)
+        try Data("{}\n".utf8).write(to: rolloutURL)
+        try FileManager.default.setAttributes(
+            [.modificationDate: now],
+            ofItemAtPath: rolloutURL.path)
+        try FileManager.default.setAttributes(
+            [.modificationDate: now.addingTimeInterval(-180)],
+            ofItemAtPath: archiveURL.path)
+
+        XCTAssertFalse(ActivityMonitor.hasRecentCodexRollout(
             codexHomeURL: codexHome,
             since: now.addingTimeInterval(-30),
             now: now))

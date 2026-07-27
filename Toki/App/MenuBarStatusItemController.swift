@@ -8,6 +8,7 @@ final class MenuBarStatusItemController {
     private var staticIcon: NSImage?
     private var currentFrame = 0
     private var animationTimer: Timer?
+    private var animationLifecycle = RabbitRunAnimationLifecycle()
     private var animationFrameInterval = RabbitRunAnimationSpeed.defaultFrameInterval
 
     var button: NSStatusBarButton? {
@@ -64,11 +65,14 @@ private extension MenuBarStatusItemController {
     func startAnimation(frameInterval: TimeInterval) {
         guard !runFrames.isEmpty else { return }
         animationFrameInterval = frameInterval
+        let animationGeneration = animationLifecycle.start()
         let timer = Timer(
             timeInterval: frameInterval,
             repeats: true) { [weak self] _ in
                 Task { @MainActor [weak self] in
-                    guard let self, let button else { return }
+                    guard let self,
+                          animationLifecycle.shouldApplyFrame(for: animationGeneration),
+                          let button else { return }
                     button.image = runFrames[currentFrame % runFrames.count]
                     currentFrame &+= 1
                 }
@@ -80,6 +84,7 @@ private extension MenuBarStatusItemController {
     func stopAnimation() {
         animationTimer?.invalidate()
         animationTimer = nil
+        animationLifecycle.stop()
         currentFrame = 0
         button?.image = staticIcon
     }
@@ -93,6 +98,25 @@ private extension MenuBarStatusItemController {
         animationTimer?.invalidate()
         animationTimer = nil
         startAnimation(frameInterval: frameInterval)
+    }
+}
+
+struct RabbitRunAnimationLifecycle {
+    private var activeGeneration: UInt?
+    private var nextGeneration: UInt = 0
+
+    mutating func start() -> UInt {
+        nextGeneration &+= 1
+        activeGeneration = nextGeneration
+        return nextGeneration
+    }
+
+    mutating func stop() {
+        activeGeneration = nil
+    }
+
+    func shouldApplyFrame(for generation: UInt) -> Bool {
+        activeGeneration == generation
     }
 }
 

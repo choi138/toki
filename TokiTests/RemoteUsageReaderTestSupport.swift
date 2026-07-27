@@ -3,49 +3,6 @@ import TokiSyncProtocol
 import XCTest
 @testable import Toki
 
-final class RemoteHubURLProtocolStub: URLProtocol {
-    typealias Handler = (URLRequest) throws -> (HTTPURLResponse, Data)
-
-    private static let lock = NSLock()
-    private static var handler: Handler?
-
-    static func install(handler: @escaping Handler) {
-        lock.withLock { self.handler = handler }
-    }
-
-    static func reset() {
-        lock.withLock { handler = nil }
-    }
-
-    override static func canInit(with _: URLRequest) -> Bool {
-        true
-    }
-
-    override static func canonicalRequest(for request: URLRequest) -> URLRequest {
-        request
-    }
-
-    override func startLoading() {
-        guard let handler = Self.lock.withLock({ Self.handler }) else {
-            client?.urlProtocol(self, didFailWithError: TestError.unexpectedCall)
-            return
-        }
-
-        do {
-            let (response, data) = try handler(request)
-            client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
-            if !data.isEmpty {
-                client?.urlProtocol(self, didLoad: data)
-            }
-            client?.urlProtocolDidFinishLoading(self)
-        } catch {
-            client?.urlProtocol(self, didFailWithError: error)
-        }
-    }
-
-    override func stopLoading() {}
-}
-
 struct StubRemoteConfigurationProvider: RemoteSyncConfigurationProviding {
     let configuration: RemoteHubConfiguration?
     let encryptionKeys: [String: String]
@@ -56,6 +13,18 @@ struct StubRemoteConfigurationProvider: RemoteSyncConfigurationProviding {
 
     func encryptionKey(for deviceID: String) throws -> String? {
         encryptionKeys[deviceID]
+    }
+}
+
+struct StubLocalAgentIdentityProvider: LocalAgentIdentityProviding {
+    let hubURL: URL
+    let deviceID: String
+
+    func deviceID(matching candidateHubURL: URL) -> String? {
+        RemoteHubConfiguration.canonicalHubOrigin(for: candidateHubURL)
+            == RemoteHubConfiguration.canonicalHubOrigin(for: hubURL)
+            ? deviceID
+            : nil
     }
 }
 
@@ -88,6 +57,7 @@ final class StubRemoteHubClient: RemoteHubClientProtocol {
     private let manifestResult: Result<RemoteConditionalResult<[RemoteDeviceSummary]>, Error>
     private let snapshotResult: Result<[EncryptedUsageEnvelope], Error>
     private var devicesResults: [Result<[RemoteDeviceSummary], Error>]
+    private let revokeResult: Result<Void, Error>
     private let delayNanoseconds: UInt64
     private var manifestCallCount = 0
     private var snapshotCallCount = 0
@@ -102,6 +72,7 @@ final class StubRemoteHubClient: RemoteHubClientProtocol {
             .failure(TestError.unexpectedCall),
         devicesResult: Result<[RemoteDeviceSummary], Error> = .success([]),
         devicesResults: [Result<[RemoteDeviceSummary], Error>]? = nil,
+        revokeResult: Result<Void, Error> = .success(()),
         delayNanoseconds: UInt64 = 0) {
         self.manifestResult = manifestResult
         self.snapshotResult = snapshotResult
@@ -110,6 +81,7 @@ final class StubRemoteHubClient: RemoteHubClientProtocol {
         } else {
             self.devicesResults = [devicesResult]
         }
+        self.revokeResult = revokeResult
         self.delayNanoseconds = delayNanoseconds
     }
 
@@ -176,6 +148,7 @@ final class StubRemoteHubClient: RemoteHubClientProtocol {
 
     func revokeDevice(id: String, configuration _: RemoteHubConfiguration) async throws {
         lock.withLock { revokedIDs.append(id) }
+        try revokeResult.get()
     }
 }
 
@@ -369,34 +342,6 @@ final class ClearFailingRemoteSyncConfigurationStore: RemoteSyncConfigurationSto
     }
 }
 
-final class InMemoryKeychainCredentialStore: KeychainCredentialStoring {
-    private var values: [String: String] = [:]
-    var failingDeleteAccounts: Set<String> = []
-
-    var savedAccounts: [String] {
-        values.keys.sorted()
-    }
-
-    func save(_ value: String, account: String) throws {
-        values[account] = value
-    }
-
-    func read(account: String) throws -> String? {
-        values[account]
-    }
-
-    func delete(account: String) throws {
-        if failingDeleteAccounts.contains(account) {
-            throw TestError.temporaryCredentialFailure
-        }
-        values.removeValue(forKey: account)
-    }
-
-    func accounts(withPrefix prefix: String) throws -> [String] {
-        values.keys.filter { $0.hasPrefix(prefix) }.sorted()
-    }
-}
-
 private extension NSLock {
     func withLock<Value>(_ operation: () -> Value) -> Value {
         lock()
@@ -409,10 +354,6 @@ enum TestError: Error {
     case temporaryCredentialFailure
     case temporaryCacheFailure
     case unexpectedCall
-}
-
-func entityTag(_ character: Character) -> String {
-    "\"\(String(repeating: character, count: 64))\""
 }
 
 func XCTAssertThrowsErrorAsync(

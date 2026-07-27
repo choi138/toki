@@ -7,7 +7,7 @@ final class RemoteSyncLifecycleCoordinator: @unchecked Sendable {
 
     static let shared = RemoteSyncLifecycleCoordinator()
 
-    private let lock = NSLock()
+    private let lock = NSRecursiveLock()
     private var generation: UInt64 = 0
 
     func beginRead() -> ReadTicket {
@@ -17,23 +17,37 @@ final class RemoteSyncLifecycleCoordinator: @unchecked Sendable {
     }
 
     func validate(_ ticket: ReadTicket) throws {
-        try commit(ticket) {}
-    }
-
-    func commit<Value>(_ ticket: ReadTicket, operation: () throws -> Value) throws -> Value {
         lock.lock()
         defer { lock.unlock() }
-        guard generation == ticket.generation else {
-            throw RemoteSyncLifecycleError.stateChanged
-        }
-        return try operation()
+        try validateLocked(ticket)
     }
 
-    func mutate<Value>(_ operation: () throws -> Value) throws -> Value {
+    func withReadCommit<Value>(
+        _ ticket: ReadTicket,
+        _ commit: () throws -> Value) throws -> Value {
+        lock.lock()
+        defer { lock.unlock() }
+        try validateLocked(ticket)
+        return try commit()
+    }
+
+    func invalidateReadTickets() {
         lock.lock()
         defer { lock.unlock() }
         generation &+= 1
-        return try operation()
+    }
+
+    func withInvalidatingMutation<Value>(_ mutation: () throws -> Value) rethrows -> Value {
+        lock.lock()
+        defer { lock.unlock() }
+        generation &+= 1
+        return try mutation()
+    }
+
+    private func validateLocked(_ ticket: ReadTicket) throws {
+        guard generation == ticket.generation else {
+            throw RemoteSyncLifecycleError.stateChanged
+        }
     }
 }
 

@@ -1,5 +1,6 @@
 import Foundation
 import TokiSyncProtocol
+import TokiUsageCore
 import XCTest
 @testable import Toki
 
@@ -21,6 +22,114 @@ final class RemoteUsageReaderTests: XCTestCase {
         XCTAssertEqual(usage.activityEvents.count, 1)
         XCTAssertEqual(usage.perModel["gpt-5"]?.totalTokens, 16)
         XCTAssertEqual(usage.perModel["gpt-5"]?.sources, ["Codex · build-server"])
+    }
+
+    func test_defaultAggregationPreservesRemoteSourceStats() async throws {
+        let fixture = try makeFixture()
+        let reader = fixture.makeReader(client: fixture.makeClient())
+        let result = await UsageAggregator(readers: [reader]).aggregateUsage(for: UsageAggregationRequest(
+            start: fixture.start,
+            end: fixture.end,
+            enabledReaderNames: [:],
+            includesEmptySourceRows: false))
+
+        XCTAssertEqual(result.usageData.sourceStats.map(\.source), ["Codex"])
+        XCTAssertEqual(result.usageData.sourceStats.map(\.totalTokens), [16])
+    }
+
+    func test_defaultAggregationMergesLocalAndRemoteRowsForTheSameSource() async throws {
+        let fixture = try makeFixture()
+        let localReader = MockReader(name: "Codex", recorder: MockReaderRecorder()) { _, _ in
+            var usage = RawTokenUsage()
+            usage.inputTokens = 4
+            usage.outputTokens = 1
+            return usage
+        }
+        let remoteReader = fixture.makeReader(client: fixture.makeClient())
+        let result = await UsageAggregator(readers: [localReader, remoteReader]).aggregateUsage(
+            for: UsageAggregationRequest(
+                start: fixture.start,
+                end: fixture.end,
+                enabledReaderNames: [:],
+                includesEmptySourceRows: false))
+
+        XCTAssertEqual(result.usageData.sourceStats.map(\.source), ["Codex"])
+        XCTAssertEqual(result.usageData.sourceStats.map(\.totalTokens), [21])
+    }
+
+    func test_defaultAggregationExcludesTheLocalAgentSnapshot() async throws {
+        let fixture = try makeFixture()
+        let localReader = MockReader(name: "Codex", recorder: MockReaderRecorder()) { _, _ in
+            var usage = RawTokenUsage()
+            usage.inputTokens = 4
+            usage.outputTokens = 1
+            return usage
+        }
+        let remoteReader = RemoteUsageReader(
+            configurationProvider: fixture.configurationProvider,
+            client: fixture.makeClient(),
+            cache: InMemoryRemoteSnapshotCache(),
+            anchorStore: InMemoryRemoteSnapshotAnchorStore(),
+            localAgentIdentityProvider: StubLocalAgentIdentityProvider(
+                hubURL: fixture.configuration.hubURL,
+                deviceID: fixture.envelope.deviceID))
+        let result = await UsageAggregator(readers: [localReader, remoteReader]).aggregateUsage(
+            for: UsageAggregationRequest(
+                start: fixture.start,
+                end: fixture.end,
+                enabledReaderNames: [:],
+                includesEmptySourceRows: false))
+
+        XCTAssertEqual(result.usageData.totalTokens, 5)
+        XCTAssertEqual(result.usageData.sourceStats.map(\.source), ["Codex"])
+        XCTAssertEqual(result.usageData.sourceStats.map(\.totalTokens), [5])
+    }
+
+    func test_activityEventsAreGroupedBySourceInOneMappingPass() throws {
+        let fixture = try makeFixture()
+        let original = try SnapshotCipher.open(fixture.envelope, key: fixture.encryptionKey)
+        let snapshot = RemoteUsageSnapshot(
+            device: original.device,
+            generatedAt: original.generatedAt,
+            coveredFrom: original.coveredFrom,
+            coveredTo: original.coveredTo,
+            tokenEvents: [],
+            activityEvents: [
+                RemoteActivityEvent(
+                    timestamp: fixture.start.addingTimeInterval(60),
+                    source: "Codex",
+                    model: "gpt-5",
+                    streamID: "codex-1",
+                    agentKind: .main),
+                RemoteActivityEvent(
+                    timestamp: fixture.start.addingTimeInterval(90),
+                    source: "Codex",
+                    model: "gpt-5",
+                    streamID: "codex-2",
+                    agentKind: .subagent),
+                RemoteActivityEvent(
+                    timestamp: fixture.start.addingTimeInterval(120),
+                    source: "Claude",
+                    model: "claude-sonnet",
+                    streamID: "claude-1",
+                    agentKind: .main),
+                RemoteActivityEvent(
+                    timestamp: fixture.end,
+                    source: "outside-range",
+                    model: nil,
+                    streamID: "ignored",
+                    agentKind: .main),
+            ])
+
+        let grouped = RemoteUsageMapper().mappedActivityEventsBySource(
+            from: snapshot,
+            startDate: fixture.start,
+            endDate: fixture.end)
+
+        XCTAssertEqual(Set(grouped.keys), ["Codex", "Claude"])
+        XCTAssertEqual(grouped["Codex"]?.count, 2)
+        XCTAssertEqual(grouped["Claude"]?.count, 1)
+        XCTAssertEqual(grouped.values.flatMap { $0 }.count, 3)
     }
 }
 

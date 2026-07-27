@@ -61,6 +61,7 @@ struct AgentPaths {
         try removeStaleTemporaryFiles(in: stateDirectory) { destinationName in
             destinationName == runtimeStateURL.lastPathComponent
                 || destinationName == "codex-rollout-cache.json"
+                || destinationName == "claude-usage-cache.json"
                 || destinationName == "hermes-usage-ledger.json"
         }
         try removeStaleTemporaryFiles(in: spoolDirectory) { destinationName in

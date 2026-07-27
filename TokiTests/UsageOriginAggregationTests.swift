@@ -46,6 +46,169 @@ final class UsageOriginAggregationTests: XCTestCase {
         XCTAssertEqual(Set(remoteReports.map(\.usageData.totalTokens)), [25, 50])
     }
 
+    func test_remoteModelBucketsPreserveToolSourcesForSharedModel() async throws {
+        let interval = testInterval
+        var usage = RawTokenUsage(
+            inputTokens: 30,
+            perModel: [
+                "shared-model": PerModelUsage(
+                    totalTokens: 30,
+                    sources: ["Codex", "Claude Code"]),
+            ])
+        usage.recordTokenEvent(
+            timestamp: interval.start.addingTimeInterval(60),
+            source: "Codex",
+            model: "shared-model",
+            inputTokens: 10,
+            outputTokens: 0)
+        usage.recordTokenEvent(
+            timestamp: interval.start.addingTimeInterval(120),
+            source: "Claude Code",
+            model: "shared-model",
+            inputTokens: 20,
+            outputTokens: 0)
+        let slice = UsageOriginSlice(
+            origin: .remote(
+                deviceID: "remote-a",
+                name: "worker",
+                platform: "linux",
+                lastUpdatedAt: interval.start),
+            usage: usage,
+            sourceStats: [
+                SourceStat(
+                    source: "Codex",
+                    inputTokens: 10,
+                    outputTokens: 0,
+                    cacheReadTokens: 0,
+                    cacheWriteTokens: 0,
+                    reasoningTokens: 0,
+                    cost: 0,
+                    activeSeconds: 0),
+                SourceStat(
+                    source: "Claude Code",
+                    inputTokens: 20,
+                    outputTokens: 0,
+                    cacheReadTokens: 0,
+                    cacheWriteTokens: 0,
+                    reasoningTokens: 0,
+                    cost: 0,
+                    activeSeconds: 0),
+            ])
+        let aggregator = UsageAggregator(readers: [
+            FixedOriginReader(name: "Remote Devices", slices: [slice]),
+        ])
+
+        let result = await aggregator.aggregateUsage(for: makeRequest(interval: interval))
+        let combinedRows = result.usageData.perModel.filter { $0.modelID == "shared-model" }
+        let remoteRows = try XCTUnwrap(result.originReports.first).usageData.perModel
+            .filter { $0.modelID == "shared-model" }
+
+        XCTAssertEqual(Set(combinedRows.map(\.sources)), [["Codex"], ["Claude Code"]])
+        XCTAssertEqual(Set(combinedRows.map(\.totalTokens)), [10, 20])
+        XCTAssertEqual(Set(remoteRows.map(\.sources)), [["Codex"], ["Claude Code"]])
+        XCTAssertEqual(Set(remoteRows.map(\.totalTokens)), [10, 20])
+    }
+}
+
+extension UsageOriginAggregationTests {
+    func test_localLegacyModelUsageSurvivesAnotherReadersExplicitMapping() async {
+        let interval = testInterval
+        var explicitUsage = makeUsage(input: 40, output: 0, cost: 0.4)
+        explicitUsage.perModel["shared-model"] = PerModelUsage(
+            totalTokens: 40,
+            cost: 0.4,
+            sources: ["Mapped Tool"])
+        explicitUsage.perModelBySource[
+            ModelSourceUsageKey(modelID: "shared-model", source: "Mapped Tool")
+        ] = PerModelUsage(
+            totalTokens: 40,
+            cost: 0.4,
+            sources: ["Mapped Tool"])
+        var legacyUsage = makeUsage(input: 60, output: 0, cost: 0.6)
+        legacyUsage.perModel["shared-model"] = PerModelUsage(
+            totalTokens: 60,
+            cost: 0.6,
+            sources: ["Legacy Tool"])
+        let aggregator = UsageAggregator(readers: [
+            FixedUsageReader(name: "Mapped Tool", usage: explicitUsage),
+            FixedUsageReader(name: "Legacy Tool", usage: legacyUsage),
+        ])
+
+        let result = await aggregator.aggregateUsage(for: makeRequest(interval: interval))
+        let rows = result.usageData.perModel.filter { $0.modelID == "shared-model" }
+
+        XCTAssertEqual(rows.reduce(0) { $0 + $1.totalTokens }, 100)
+        XCTAssertEqual(rows.reduce(0) { $0 + $1.cost }, 1, accuracy: 0.000_001)
+        XCTAssertEqual(Set(rows.flatMap(\.sources)), ["Mapped Tool", "Legacy Tool"])
+    }
+
+    func test_emptyPartitionedReaderRetainsConfiguredZeroSourceRow() async {
+        let interval = testInterval
+        let aggregator = UsageAggregator(readers: [
+            FixedOriginReader(name: "Remote Devices", slices: []),
+        ])
+        let request = UsageAggregationRequest(
+            start: interval.start,
+            end: interval.end,
+            enabledReaderNames: [:],
+            includesEmptySourceRows: true)
+
+        let result = await aggregator.aggregateUsage(for: request)
+        let row = result.usageData.sourceStats.first { $0.source == "Remote Devices" }
+
+        XCTAssertNotNil(row)
+        XCTAssertEqual(row?.totalTokens, 0)
+        XCTAssertEqual(row?.cost, 0)
+    }
+
+    func test_readerStatusesStayVisibleForTheirSelectedOriginKind() {
+        let statuses = [
+            ReaderStatus(
+                name: "Codex",
+                state: .failed,
+                message: "Read failed",
+                lastReadAt: nil,
+                totalTokens: 0,
+                isOriginPartitioned: false),
+            ReaderStatus(
+                name: "Remote Devices",
+                state: .loaded,
+                message: nil,
+                lastReadAt: nil,
+                totalTokens: 10,
+                isOriginPartitioned: true),
+        ]
+
+        XCTAssertEqual(
+            panelReaderStatuses(statuses, for: .origin(.local)).map(\.name),
+            ["Codex"])
+        XCTAssertEqual(
+            panelReaderStatuses(statuses, for: .origin(.remote(deviceID: "remote-a"))).map(\.name),
+            ["Remote Devices"])
+        XCTAssertEqual(panelReaderStatuses(statuses, for: .all), statuses)
+    }
+
+    func test_duplicateDeviceMenuSubtitlesUseStableAliases() {
+        let first = UsageOriginReport(
+            origin: .remote(
+                deviceID: "remote-a",
+                name: "worker",
+                platform: "linux",
+                lastUpdatedAt: nil),
+            usageData: .empty)
+        let second = UsageOriginReport(
+            origin: .remote(
+                deviceID: "remote-b",
+                name: "worker",
+                platform: "linux",
+                lastUpdatedAt: nil),
+            usageData: .empty)
+        let reports = [second, first]
+
+        XCTAssertEqual(panelDeviceMenuSubtitle(for: first, among: reports), "Linux · Device 1")
+        XCTAssertEqual(panelDeviceMenuSubtitle(for: second, among: reports), "Linux · Device 2")
+    }
+
     func test_scopedLightweightTotalsSelectOnlyRequestedOrigin() async {
         let interval = testInterval
         let remoteID = UsageOriginID.remote(deviceID: "remote-a")

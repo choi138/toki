@@ -181,6 +181,51 @@ extension RemoteUsageReaderTests {
         XCTAssertEqual(client.fetchManifestCallCount, 2)
     }
 
+    func test_cachedSnapshotAheadOfManifestIsRetainedWithoutRefetchingCiphertext() async throws {
+        let fixture = try makeFixture()
+        let snapshot = try SnapshotCipher.open(fixture.envelope, key: fixture.encryptionKey)
+        let advancedEnvelope = try SnapshotCipher.seal(snapshot, sequence: 2, key: fixture.encryptionKey)
+        let cache = InMemoryRemoteSnapshotCache(entry: fixture.cacheEntry(
+            envelopes: [advancedEnvelope],
+            sequence: advancedEnvelope.sequence,
+            fetchedAt: Date().addingTimeInterval(-60)))
+        let client = fixture.makeClient(
+            envelopes: [],
+            manifest: [fixture.device(sequence: fixture.envelope.sequence)])
+        let reader = fixture.makeReader(client: client, cache: cache)
+
+        let usage = try await reader.readUsage(from: fixture.start, to: fixture.end)
+        let saved = try XCTUnwrap(cache.load())
+
+        XCTAssertEqual(usage.totalTokens, 16)
+        XCTAssertEqual(client.fetchManifestCallCount, 1)
+        XCTAssertEqual(client.fetchSnapshotCallCount, 0)
+        XCTAssertEqual(saved.envelopes.first?.sequence, advancedEnvelope.sequence)
+        XCTAssertEqual(saved.manifest.first?.latestSequence, advancedEnvelope.sequence)
+        XCTAssertNil(saved.manifestEntityTag)
+    }
+
+    func test_inMemorySnapshotReuseRejectsDeletedDeviceKey() async throws {
+        let fixture = try makeFixture()
+        let provider = InMemoryRemoteSyncConfigurationStore(configuration: fixture.configuration)
+        try provider.saveEncryptionKey(fixture.encryptionKey, for: fixture.envelope.deviceID)
+        let client = fixture.makeClient()
+        let reader = RemoteUsageReader(
+            configurationProvider: provider,
+            client: client,
+            cache: InMemoryRemoteSnapshotCache(),
+            anchorStore: InMemoryRemoteSnapshotAnchorStore())
+
+        _ = try await reader.readUsage(from: fixture.start, to: fixture.end)
+        try provider.deleteEncryptionKey(for: fixture.envelope.deviceID)
+
+        await XCTAssertThrowsErrorAsync {
+            _ = try await reader.readUsage(from: fixture.start, to: fixture.end)
+        }
+        XCTAssertEqual(client.fetchManifestCallCount, 1)
+        XCTAssertEqual(client.fetchSnapshotCallCount, 1)
+    }
+
     func test_remoteReaderRejectsDeviceThatMissedFreshnessWindow() async throws {
         let fixture = try makeFixture()
         let interval = TokiSyncLimits.minimumSyncIntervalSeconds

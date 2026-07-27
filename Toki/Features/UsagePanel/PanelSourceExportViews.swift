@@ -44,9 +44,9 @@ struct PanelSourceView: View {
                     }
                 }
 
-                if selectedScope == .all, !readerStatuses.isEmpty {
+                if !visibleReaderStatuses.isEmpty {
                     PanelSectionCaption(title: "Reader Status")
-                    ForEach(readerStatuses) { status in
+                    ForEach(visibleReaderStatuses) { status in
                         ReaderStatusRowView(status: status)
                             .equatable()
                     }
@@ -54,6 +54,10 @@ struct PanelSourceView: View {
             }
         }
         .padding(.vertical, 6)
+    }
+
+    private var visibleReaderStatuses: [ReaderStatus] {
+        panelReaderStatuses(readerStatuses, for: selectedScope)
     }
 
     private var exportControls: some View {
@@ -104,6 +108,19 @@ struct PanelSourceView: View {
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 7)
+    }
+}
+
+func panelReaderStatuses(
+    _ statuses: [ReaderStatus],
+    for scope: UsageScope) -> [ReaderStatus] {
+    switch scope {
+    case .all:
+        statuses
+    case let .origin(originID) where originID == .local:
+        statuses.filter { !$0.isOriginPartitioned }
+    case .origin:
+        statuses.filter(\.isOriginPartitioned)
     }
 }
 

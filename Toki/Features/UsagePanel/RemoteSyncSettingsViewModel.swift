@@ -1,4 +1,3 @@
-import AppKit
 import Combine
 import Foundation
 import TokiSyncProtocol
@@ -24,7 +23,7 @@ final class RemoteSyncSettingsViewModel: ObservableObject {
     private let cache: any RemoteSnapshotCaching
     private let anchorStore: any RemoteSnapshotAnchorStoring
     private let lifecycleCoordinator: RemoteSyncLifecycleCoordinator
-    private let pairingBundleClipboard: PairingBundleClipboard
+    private let pairingBundleClipboard: any PairingBundleCopying
     private let onRemoteSyncChange: () -> Void
 
     init(
@@ -33,7 +32,7 @@ final class RemoteSyncSettingsViewModel: ObservableObject {
         cache: any RemoteSnapshotCaching = RemoteSnapshotCache(),
         anchorStore: any RemoteSnapshotAnchorStoring = RemoteSnapshotAnchorStore(),
         lifecycleCoordinator: RemoteSyncLifecycleCoordinator = .shared,
-        pairingBundleClipboard: PairingBundleClipboard? = nil,
+        pairingBundleClipboard: (any PairingBundleCopying)? = nil,
         onRemoteSyncChange: @escaping () -> Void = {}) {
         self.store = store
         self.client = client
@@ -80,7 +79,7 @@ extension RemoteSyncSettingsViewModel {
                 hubURL: hubURL,
                 ownerToken: ownerToken)
             let fetchedDevices = try await client.fetchDevices(configuration: configuration)
-            try lifecycleCoordinator.mutate {
+            try performLocalStateChange {
                 try cache.clear()
                 try anchorStore.clear()
                 try store.clear()
@@ -91,7 +90,6 @@ extension RemoteSyncSettingsViewModel {
             connectedHost = configuration.hubURL.host
             needsLocalCredentialRecovery = false
             updateDevices(fetchedDevices)
-            onRemoteSyncChange()
             if deviceIDsWithEncryptionKeys.count != devices.count {
                 publish(message: "Connected. Revoke and pair devices whose encryption key is unavailable.")
             } else {
@@ -133,36 +131,46 @@ extension RemoteSyncSettingsViewModel {
                 configuration: configuration)
             upsertProvisionalDevice(device)
             do {
-                let encryptionKey = SnapshotCipher.generateKey()
-                try lifecycleCoordinator.mutate {
-                    try store.saveEncryptionKey(encryptionKey, for: device.deviceID)
-                }
-                deviceIDsWithEncryptionKeys.insert(device.deviceID)
-                let bundle = AgentPairingBundle(
-                    hubURL: configuration.hubURL,
-                    deviceID: device.deviceID,
-                    deviceName: device.deviceName,
-                    uploadToken: device.uploadToken,
-                    encryptionKey: encryptionKey,
-                    retentionDays: retentionDays,
-                    syncIntervalSeconds: syncIntervalSeconds)
-                try pairingBundleClipboard.copy(TokiSyncCoding.encodeBundle(bundle))
-            } catch let pairingError {
-                do {
-                    try await revokeRemotelyIfPresent(deviceID: device.deviceID, configuration: configuration)
-                    try lifecycleCoordinator.mutate {
-                        try anchorStore.remove(
-                            deviceID: device.deviceID,
-                            originIdentifier: configuration.snapshotCacheIdentifier)
-                        try cache.remove(deviceID: device.deviceID)
-                        try store.deleteEncryptionKey(for: device.deviceID)
+                var didInvalidateReadTickets = false
+                defer {
+                    if didInvalidateReadTickets {
+                        onRemoteSyncChange()
                     }
-                    devices.removeAll { $0.id == device.deviceID }
-                    deviceIDsWithEncryptionKeys.remove(device.deviceID)
-                } catch {
-                    throw RemoteSyncSettingsError.pairingCleanupRequired
                 }
-                throw pairingError
+                do {
+                    let encryptionKey = SnapshotCipher.generateKey()
+                    didInvalidateReadTickets = true
+                    try performLocalStateChange(notifyingRemoteSyncChange: false) {
+                        try store.saveEncryptionKey(encryptionKey, for: device.deviceID)
+                    }
+                    deviceIDsWithEncryptionKeys.insert(device.deviceID)
+                    let bundle = AgentPairingBundle(
+                        hubURL: configuration.hubURL,
+                        deviceID: device.deviceID,
+                        deviceName: device.deviceName,
+                        uploadToken: device.uploadToken,
+                        encryptionKey: encryptionKey,
+                        retentionDays: retentionDays,
+                        syncIntervalSeconds: syncIntervalSeconds)
+                    try pairingBundleClipboard.copy(TokiSyncCoding.encodeBundle(bundle))
+                } catch let pairingError {
+                    do {
+                        try await revokeRemotelyIfPresent(deviceID: device.deviceID, configuration: configuration)
+                        didInvalidateReadTickets = true
+                        try performLocalStateChange(notifyingRemoteSyncChange: false) {
+                            try anchorStore.remove(
+                                deviceID: device.deviceID,
+                                originIdentifier: configuration.snapshotCacheIdentifier)
+                            try cache.remove(deviceID: device.deviceID)
+                            try store.deleteEncryptionKey(for: device.deviceID)
+                        }
+                        devices.removeAll { $0.id == device.deviceID }
+                        deviceIDsWithEncryptionKeys.remove(device.deviceID)
+                    } catch {
+                        throw RemoteSyncSettingsError.pairingCleanupRequired
+                    }
+                    throw pairingError
+                }
             }
             deviceName = ""
             do {
@@ -191,7 +199,10 @@ extension RemoteSyncSettingsViewModel {
                 hubURL: currentConfiguration.hubURL,
                 ownerToken: ownerToken)
             let fetchedDevices = try await client.fetchDevices(configuration: updatedConfiguration)
-            try lifecycleCoordinator.mutate {
+            try performLocalStateChange {
+                try anchorStore.copyAnchors(
+                    from: currentConfiguration.legacySnapshotCacheIdentifier,
+                    to: updatedConfiguration.snapshotCacheIdentifier)
                 try anchorStore.copyAnchors(
                     from: currentConfiguration.snapshotCacheIdentifier,
                     to: updatedConfiguration.snapshotCacheIdentifier)
@@ -199,7 +210,6 @@ extension RemoteSyncSettingsViewModel {
             }
             ownerToken = ""
             updateDevices(fetchedDevices)
-            onRemoteSyncChange()
             publish(message: "Hub owner token updated.")
         } catch {
             publish(error)
@@ -231,8 +241,8 @@ extension RemoteSyncSettingsViewModel {
             guard let configuration = try store.load() else {
                 throw RemoteSyncSettingsError.notConnected
             }
-            try await client.revokeDevice(id: device.id, configuration: configuration)
-            try lifecycleCoordinator.mutate {
+            try await revokeRemotelyIfPresent(deviceID: device.id, configuration: configuration)
+            try performLocalStateChange {
                 try anchorStore.remove(
                     deviceID: device.id,
                     originIdentifier: configuration.snapshotCacheIdentifier)
@@ -241,7 +251,6 @@ extension RemoteSyncSettingsViewModel {
             }
             devices.removeAll { $0.id == device.id }
             deviceIDsWithEncryptionKeys.remove(device.id)
-            onRemoteSyncChange()
             do {
                 try await updateDevices(client.fetchDevices(configuration: configuration))
                 publish(message: "Revoked \(device.name).")
@@ -274,7 +283,6 @@ extension RemoteSyncSettingsViewModel {
             resetConnectionState()
             needsLocalCredentialRecovery = false
             ownerToken = ""
-            onRemoteSyncChange()
             publish(message: "Disconnected and removed local remote-sync credentials.")
         } catch {
             reload()
@@ -294,7 +302,6 @@ extension RemoteSyncSettingsViewModel {
             needsLocalCredentialRecovery = false
             hubURLText = ""
             ownerToken = ""
-            onRemoteSyncChange()
             publish(message: "Removed local remote-sync credentials. Remote Hub devices were not revoked.")
         } catch {
             reload()
@@ -314,7 +321,6 @@ extension RemoteSyncSettingsViewModel {
             needsLocalCredentialRecovery = false
             hubURLText = ""
             ownerToken = ""
-            onRemoteSyncChange()
             publish(message: "Cleared invalid local remote-sync credentials and cache.")
         } catch {
             reload()
@@ -362,11 +368,26 @@ private extension RemoteSyncSettingsViewModel {
     func revokeRemotelyIfPresent(
         deviceID: String,
         configuration: RemoteHubConfiguration) async throws {
-        try await client.revokeDevice(id: deviceID, configuration: configuration)
+        do {
+            try await client.revokeDevice(id: deviceID, configuration: configuration)
+        } catch let error as RemoteHubClientError {
+            guard case .httpStatus(404) = error else { throw error }
+        }
+    }
+
+    func performLocalStateChange(
+        notifyingRemoteSyncChange: Bool = true,
+        _ change: () throws -> Void) rethrows {
+        defer {
+            if notifyingRemoteSyncChange {
+                onRemoteSyncChange()
+            }
+        }
+        try lifecycleCoordinator.withInvalidatingMutation(change)
     }
 
     func clearLocalState() throws {
-        try lifecycleCoordinator.mutate {
+        try performLocalStateChange {
             try cache.clear()
             try anchorStore.clear()
             try store.clear()
@@ -387,55 +408,4 @@ private extension RemoteSyncSettingsViewModel {
         statusMessage = (error as? LocalizedError)?.errorDescription ?? "Remote sync failed."
         hasError = true
     }
-}
-
-@MainActor
-final class PairingBundleClipboard {
-    private let pasteboard: NSPasteboard
-    private let retentionNanoseconds: UInt64
-    private var clearTask: Task<Void, Never>?
-    private var copiedPasteboardChangeCount: Int?
-
-    init(
-        pasteboard: NSPasteboard = .general,
-        retentionNanoseconds: UInt64 = 60 * 1_000_000_000) {
-        self.pasteboard = pasteboard
-        self.retentionNanoseconds = retentionNanoseconds
-    }
-
-    func copy(_ bundle: String) throws {
-        clearTask?.cancel()
-        clearIfUnchanged()
-        pasteboard.declareTypes([.string, .tokiConcealed, .tokiTransient], owner: nil)
-        guard pasteboard.setString(bundle, forType: .string) else {
-            throw RemoteSyncSettingsError.clipboardWriteFailed
-        }
-        _ = pasteboard.setData(Data(), forType: .tokiConcealed)
-        _ = pasteboard.setData(Data(), forType: .tokiTransient)
-        let expectedChangeCount = pasteboard.changeCount
-        copiedPasteboardChangeCount = expectedChangeCount
-        let pasteboard = pasteboard
-        let retentionNanoseconds = retentionNanoseconds
-        clearTask = Task { @MainActor [weak self] in
-            try? await Task.sleep(nanoseconds: retentionNanoseconds)
-            guard !Task.isCancelled else { return }
-            self?.copiedPasteboardChangeCount = nil
-            guard pasteboard.changeCount == expectedChangeCount else { return }
-            pasteboard.clearContents()
-        }
-    }
-
-    private func clearIfUnchanged() {
-        defer { copiedPasteboardChangeCount = nil }
-        guard let expectedChangeCount = copiedPasteboardChangeCount,
-              pasteboard.changeCount == expectedChangeCount else {
-            return
-        }
-        pasteboard.clearContents()
-    }
-}
-
-private extension NSPasteboard.PasteboardType {
-    static let tokiConcealed = Self("org.nspasteboard.ConcealedType")
-    static let tokiTransient = Self("org.nspasteboard.TransientType")
 }
