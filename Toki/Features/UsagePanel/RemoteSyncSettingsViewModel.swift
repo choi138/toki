@@ -147,6 +147,7 @@ extension RemoteSyncSettingsViewModel {
                     retentionDays: retentionDays,
                     syncIntervalSeconds: syncIntervalSeconds)
                 try pairingBundleClipboard.copy(TokiSyncCoding.encodeBundle(bundle))
+                onRemoteSyncChange()
             } catch let pairingError {
                 do {
                     try await revokeRemotelyIfPresent(deviceID: device.deviceID, configuration: configuration)
