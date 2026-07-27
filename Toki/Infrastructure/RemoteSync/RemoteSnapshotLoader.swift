@@ -181,20 +181,20 @@ private extension RemoteSnapshotLoader {
             } else {
                 configuration.snapshotCacheIdentifier
             }
-            try validateCommitState(configuration: configuration, lifecycleTicket: lifecycleTicket)
-            if !entry.envelopes.isEmpty {
-                do {
-                    try anchorStore.validateAndSave(
-                        entry.envelopes,
-                        originIdentifier: cachedOriginIdentifier)
-                } catch RemoteUsageReaderError.staleSnapshot {
-                    // The cache is stale for another origin; its existing anchors remain authoritative.
-                } catch RemoteUsageReaderError.conflictingSnapshots {
-                    // The cache conflicts with another origin; discard it without weakening that partition.
+            try commitState(configuration: configuration, lifecycleTicket: lifecycleTicket) {
+                if !entry.envelopes.isEmpty {
+                    do {
+                        try anchorStore.validateAndSave(
+                            entry.envelopes,
+                            originIdentifier: cachedOriginIdentifier)
+                    } catch RemoteUsageReaderError.staleSnapshot {
+                        // The cache is stale for another origin; its existing anchors remain authoritative.
+                    } catch RemoteUsageReaderError.conflictingSnapshots {
+                        // The cache conflicts with another origin; discard it without weakening that partition.
+                    }
                 }
+                try cache.clear()
             }
-            try cache.clear()
-            try validateCommitState(configuration: configuration, lifecycleTicket: lifecycleTicket)
             return nil
         }
         let authenticated: AuthenticatedRemoteSnapshots
@@ -209,20 +209,17 @@ private extension RemoteSnapshotLoader {
             authenticatedDeviceIDs.contains($0.deviceID)
         }
         do {
-            try validateCommitState(
+            try commitState(
                 configuration: configuration,
                 encryptionKeysByDevice: authenticated.encryptionKeysByDevice,
                 envelopeDeviceIDs: authenticatedDeviceIDs,
-                lifecycleTicket: lifecycleTicket)
-            if !authenticatedEnvelopes.isEmpty {
-                try anchorStore.validateAndSave(
-                    authenticatedEnvelopes, originIdentifier: configuration.snapshotCacheIdentifier)
-            }
-            try validateCommitState(
-                configuration: configuration,
-                encryptionKeysByDevice: authenticated.encryptionKeysByDevice,
-                envelopeDeviceIDs: authenticatedDeviceIDs,
-                lifecycleTicket: lifecycleTicket)
+                lifecycleTicket: lifecycleTicket) {
+                    if !authenticatedEnvelopes.isEmpty {
+                        try anchorStore.validateAndSave(
+                            authenticatedEnvelopes,
+                            originIdentifier: configuration.snapshotCacheIdentifier)
+                    }
+                }
         } catch RemoteUsageReaderError.staleSnapshot {
             try discardReplayInconsistentCache(lifecycleTicket: lifecycleTicket)
             return nil
@@ -241,9 +238,9 @@ private extension RemoteSnapshotLoader {
 
     private func discardReplayInconsistentCache(
         lifecycleTicket: RemoteSyncLifecycleCoordinator.ReadTicket) throws {
-        try lifecycleCoordinator.validate(lifecycleTicket)
-        try cache.clear()
-        try lifecycleCoordinator.validate(lifecycleTicket)
+        try lifecycleCoordinator.withReadCommit(lifecycleTicket) {
+            try cache.clear()
+        }
     }
 
     private func fetchState(
@@ -301,21 +298,18 @@ private extension RemoteSnapshotLoader {
         guard Set(encryptionKeysByDevice.keys) == envelopeDeviceIDs else {
             throw RemoteUsageReaderError.missingDeviceKey
         }
-        try validateCommitState(
+        try commitState(
             configuration: configuration,
             encryptionKeysByDevice: encryptionKeysByDevice,
             envelopeDeviceIDs: envelopeDeviceIDs,
-            lifecycleTicket: lifecycleTicket)
-        if !fetchedEnvelopes.isEmpty {
-            try anchorStore.validateAndSave(
-                fetchedEnvelopes, originIdentifier: configuration.snapshotCacheIdentifier)
-        }
-        try cache.save(entry, changedDeviceIDs: changedDeviceIDs.union(removedDeviceIDs))
-        try validateCommitState(
-            configuration: configuration,
-            encryptionKeysByDevice: encryptionKeysByDevice,
-            envelopeDeviceIDs: envelopeDeviceIDs,
-            lifecycleTicket: lifecycleTicket)
+            lifecycleTicket: lifecycleTicket) {
+                if !fetchedEnvelopes.isEmpty {
+                    try anchorStore.validateAndSave(
+                        fetchedEnvelopes,
+                        originIdentifier: configuration.snapshotCacheIdentifier)
+                }
+                try cache.save(entry, changedDeviceIDs: changedDeviceIDs.union(removedDeviceIDs))
+            }
 
         var snapshotsByDevice = cachedState?.snapshotsByDevice ?? [:]
         for deviceID in removedDeviceIDs {
@@ -478,15 +472,30 @@ private extension RemoteSnapshotLoader {
         encryptionKeysByDevice: [String: String] = [:],
         envelopeDeviceIDs: Set<String> = [],
         lifecycleTicket: RemoteSyncLifecycleCoordinator.ReadTicket) throws {
-        try lifecycleCoordinator.validate(lifecycleTicket)
-        guard try configurationProvider.load() == configuration,
-              Set(encryptionKeysByDevice.keys) == envelopeDeviceIDs else {
-            throw RemoteSyncLifecycleError.stateChanged
-        }
-        for (deviceID, encryptionKey) in encryptionKeysByDevice {
-            guard try configurationProvider.encryptionKey(for: deviceID) == encryptionKey else {
+        try commitState(
+            configuration: configuration,
+            encryptionKeysByDevice: encryptionKeysByDevice,
+            envelopeDeviceIDs: envelopeDeviceIDs,
+            lifecycleTicket: lifecycleTicket) {}
+    }
+
+    private func commitState(
+        configuration: RemoteHubConfiguration,
+        encryptionKeysByDevice: [String: String] = [:],
+        envelopeDeviceIDs: Set<String> = [],
+        lifecycleTicket: RemoteSyncLifecycleCoordinator.ReadTicket,
+        commit: () throws -> Void) throws {
+        try lifecycleCoordinator.withReadCommit(lifecycleTicket) {
+            guard try configurationProvider.load() == configuration,
+                  Set(encryptionKeysByDevice.keys) == envelopeDeviceIDs else {
                 throw RemoteSyncLifecycleError.stateChanged
             }
+            for (deviceID, encryptionKey) in encryptionKeysByDevice {
+                guard try configurationProvider.encryptionKey(for: deviceID) == encryptionKey else {
+                    throw RemoteSyncLifecycleError.stateChanged
+                }
+            }
+            try commit()
         }
     }
 

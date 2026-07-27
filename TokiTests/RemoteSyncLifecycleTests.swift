@@ -29,6 +29,40 @@ final class RemoteSyncLifecycleTests: XCTestCase {
         XCTAssertNoThrow(try coordinator.validate(ticket))
     }
 
+    func test_readCommitRejectsInvalidatedTicketBeforeWriting() throws {
+        let coordinator = RemoteSyncLifecycleCoordinator()
+        let ticket = coordinator.beginRead()
+        var didWrite = false
+
+        coordinator.invalidateReadTickets()
+
+        XCTAssertThrowsError(try coordinator.withReadCommit(ticket) {
+            didWrite = true
+        }) { error in
+            guard let lifecycleError = error as? RemoteSyncLifecycleError,
+                  case .stateChanged = lifecycleError else {
+                return XCTFail("Expected stateChanged, got \(error)")
+            }
+        }
+        XCTAssertFalse(didWrite)
+    }
+
+    func test_throwingMutationStillInvalidatesExistingReadTicket() throws {
+        let coordinator = RemoteSyncLifecycleCoordinator()
+        let ticket = coordinator.beginRead()
+
+        XCTAssertThrowsError(try coordinator.withInvalidatingMutation {
+            throw TestError.temporaryCacheFailure
+        })
+
+        XCTAssertThrowsError(try coordinator.validate(ticket)) { error in
+            guard let lifecycleError = error as? RemoteSyncLifecycleError,
+                  case .stateChanged = lifecycleError else {
+                return XCTFail("Expected stateChanged, got \(error)")
+            }
+        }
+    }
+
     @MainActor
     func test_connectInvalidatesExistingReadTicketAfterSavingConfiguration() async throws {
         let fixture = try makeFixture()
@@ -131,7 +165,7 @@ extension RemoteSyncLifecycleTests {
 
         await viewModel.createPairingBundle()
 
-        XCTAssertEqual(remoteSyncChangeCount, 0)
+        XCTAssertEqual(remoteSyncChangeCount, 1)
         XCTAssertFalse(store.hasEncryptionKey(for: "paired-device"))
         XCTAssertTrue(viewModel.hasError)
     }

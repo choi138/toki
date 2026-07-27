@@ -91,7 +91,6 @@ extension RemoteSyncSettingsViewModel {
             connectedHost = configuration.hubURL.host
             needsLocalCredentialRecovery = false
             updateDevices(fetchedDevices)
-            onRemoteSyncChange()
             if deviceIDsWithEncryptionKeys.count != devices.count {
                 publish(message: "Connected. Revoke and pair devices whose encryption key is unavailable.")
             } else {
@@ -133,37 +132,46 @@ extension RemoteSyncSettingsViewModel {
                 configuration: configuration)
             upsertProvisionalDevice(device)
             do {
-                let encryptionKey = SnapshotCipher.generateKey()
-                try performLocalStateChange {
-                    try store.saveEncryptionKey(encryptionKey, for: device.deviceID)
-                }
-                deviceIDsWithEncryptionKeys.insert(device.deviceID)
-                let bundle = AgentPairingBundle(
-                    hubURL: configuration.hubURL,
-                    deviceID: device.deviceID,
-                    deviceName: device.deviceName,
-                    uploadToken: device.uploadToken,
-                    encryptionKey: encryptionKey,
-                    retentionDays: retentionDays,
-                    syncIntervalSeconds: syncIntervalSeconds)
-                try pairingBundleClipboard.copy(TokiSyncCoding.encodeBundle(bundle))
-                onRemoteSyncChange()
-            } catch let pairingError {
-                do {
-                    try await revokeRemotelyIfPresent(deviceID: device.deviceID, configuration: configuration)
-                    try performLocalStateChange {
-                        try anchorStore.remove(
-                            deviceID: device.deviceID,
-                            originIdentifier: configuration.snapshotCacheIdentifier)
-                        try cache.remove(deviceID: device.deviceID)
-                        try store.deleteEncryptionKey(for: device.deviceID)
+                var didInvalidateReadTickets = false
+                defer {
+                    if didInvalidateReadTickets {
+                        onRemoteSyncChange()
                     }
-                    devices.removeAll { $0.id == device.deviceID }
-                    deviceIDsWithEncryptionKeys.remove(device.deviceID)
-                } catch {
-                    throw RemoteSyncSettingsError.pairingCleanupRequired
                 }
-                throw pairingError
+                do {
+                    let encryptionKey = SnapshotCipher.generateKey()
+                    didInvalidateReadTickets = true
+                    try performLocalStateChange(notifyingRemoteSyncChange: false) {
+                        try store.saveEncryptionKey(encryptionKey, for: device.deviceID)
+                    }
+                    deviceIDsWithEncryptionKeys.insert(device.deviceID)
+                    let bundle = AgentPairingBundle(
+                        hubURL: configuration.hubURL,
+                        deviceID: device.deviceID,
+                        deviceName: device.deviceName,
+                        uploadToken: device.uploadToken,
+                        encryptionKey: encryptionKey,
+                        retentionDays: retentionDays,
+                        syncIntervalSeconds: syncIntervalSeconds)
+                    try pairingBundleClipboard.copy(TokiSyncCoding.encodeBundle(bundle))
+                } catch let pairingError {
+                    do {
+                        try await revokeRemotelyIfPresent(deviceID: device.deviceID, configuration: configuration)
+                        didInvalidateReadTickets = true
+                        try performLocalStateChange(notifyingRemoteSyncChange: false) {
+                            try anchorStore.remove(
+                                deviceID: device.deviceID,
+                                originIdentifier: configuration.snapshotCacheIdentifier)
+                            try cache.remove(deviceID: device.deviceID)
+                            try store.deleteEncryptionKey(for: device.deviceID)
+                        }
+                        devices.removeAll { $0.id == device.deviceID }
+                        deviceIDsWithEncryptionKeys.remove(device.deviceID)
+                    } catch {
+                        throw RemoteSyncSettingsError.pairingCleanupRequired
+                    }
+                    throw pairingError
+                }
             }
             deviceName = ""
             do {
@@ -194,13 +202,15 @@ extension RemoteSyncSettingsViewModel {
             let fetchedDevices = try await client.fetchDevices(configuration: updatedConfiguration)
             try performLocalStateChange {
                 try anchorStore.copyAnchors(
+                    from: currentConfiguration.legacySnapshotCacheIdentifier,
+                    to: updatedConfiguration.snapshotCacheIdentifier)
+                try anchorStore.copyAnchors(
                     from: currentConfiguration.snapshotCacheIdentifier,
                     to: updatedConfiguration.snapshotCacheIdentifier)
                 try store.save(updatedConfiguration)
             }
             ownerToken = ""
             updateDevices(fetchedDevices)
-            onRemoteSyncChange()
             publish(message: "Hub owner token updated.")
         } catch {
             publish(error)
@@ -242,7 +252,6 @@ extension RemoteSyncSettingsViewModel {
             }
             devices.removeAll { $0.id == device.id }
             deviceIDsWithEncryptionKeys.remove(device.id)
-            onRemoteSyncChange()
             do {
                 try await updateDevices(client.fetchDevices(configuration: configuration))
                 publish(message: "Revoked \(device.name).")
@@ -275,7 +284,6 @@ extension RemoteSyncSettingsViewModel {
             resetConnectionState()
             needsLocalCredentialRecovery = false
             ownerToken = ""
-            onRemoteSyncChange()
             publish(message: "Disconnected and removed local remote-sync credentials.")
         } catch {
             reload()
@@ -295,7 +303,6 @@ extension RemoteSyncSettingsViewModel {
             needsLocalCredentialRecovery = false
             hubURLText = ""
             ownerToken = ""
-            onRemoteSyncChange()
             publish(message: "Removed local remote-sync credentials. Remote Hub devices were not revoked.")
         } catch {
             reload()
@@ -315,7 +322,6 @@ extension RemoteSyncSettingsViewModel {
             needsLocalCredentialRecovery = false
             hubURLText = ""
             ownerToken = ""
-            onRemoteSyncChange()
             publish(message: "Cleared invalid local remote-sync credentials and cache.")
         } catch {
             reload()
@@ -370,9 +376,15 @@ private extension RemoteSyncSettingsViewModel {
         }
     }
 
-    func performLocalStateChange(_ change: () throws -> Void) rethrows {
-        lifecycleCoordinator.invalidateReadTickets()
-        try change()
+    func performLocalStateChange(
+        notifyingRemoteSyncChange: Bool = true,
+        _ change: () throws -> Void) rethrows {
+        defer {
+            if notifyingRemoteSyncChange {
+                onRemoteSyncChange()
+            }
+        }
+        try lifecycleCoordinator.withInvalidatingMutation(change)
     }
 
     func clearLocalState() throws {

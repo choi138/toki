@@ -142,11 +142,13 @@ extension RemoteUsageReaderTests {
             entry: cacheEntry,
             clearError: TestError.temporaryCacheFailure)
         let anchorStore = InMemoryRemoteSnapshotAnchorStore(envelopes: [fixture.envelope])
+        var remoteSyncChangeCount = 0
         let viewModel = RemoteSyncSettingsViewModel(
             store: store,
             client: StubRemoteHubClient(devicesResult: .success([])),
             cache: cache,
-            anchorStore: anchorStore)
+            anchorStore: anchorStore,
+            onRemoteSyncChange: { remoteSyncChangeCount += 1 })
 
         await viewModel.disconnect()
 
@@ -157,6 +159,7 @@ extension RemoteUsageReaderTests {
         XCTAssertEqual(anchorStore.clearCallCount, 0)
         XCTAssertTrue(viewModel.isConnected)
         XCTAssertTrue(viewModel.hasError)
+        XCTAssertEqual(remoteSyncChangeCount, 1)
     }
 
     @MainActor
@@ -272,12 +275,18 @@ extension RemoteUsageReaderTests {
     @MainActor
     func test_updateOwnerTokenCopiesReplayAnchorsToUpdatedCredentialOrigin() async throws {
         let fixture = try makeFixture()
+        let currentConfiguration = try RemoteHubConfiguration(
+            hubURL: XCTUnwrap(URL(string: "https://HUB.EXAMPLE.TEST:443/")),
+            ownerToken: fixture.configuration.ownerToken)
+        XCTAssertNotEqual(
+            currentConfiguration.legacySnapshotCacheIdentifier,
+            currentConfiguration.snapshotCacheIdentifier)
         let snapshot = try SnapshotCipher.open(fixture.envelope, key: fixture.encryptionKey)
         let newerEnvelope = try SnapshotCipher.seal(snapshot, sequence: 2, key: fixture.encryptionKey)
-        let store = InMemoryRemoteSyncConfigurationStore(configuration: fixture.configuration)
+        let store = InMemoryRemoteSyncConfigurationStore(configuration: currentConfiguration)
         let anchorStore = InMemoryRemoteSnapshotAnchorStore(
             envelopes: [newerEnvelope],
-            originIdentifier: fixture.configuration.snapshotCacheIdentifier)
+            originIdentifier: currentConfiguration.legacySnapshotCacheIdentifier)
         var remoteSyncChangeCount = 0
         let viewModel = RemoteSyncSettingsViewModel(
             store: store,
