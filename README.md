@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/choi138/toki/actions/workflows/ci.yml/badge.svg)](https://github.com/choi138/toki/actions/workflows/ci.yml)
 ![Platform](https://img.shields.io/badge/platform-macOS%2013.0%2B%20%7C%20Linux%20Agent-blue)
-![Swift](https://img.shields.io/badge/Swift-5.9-orange)
+![Swift](https://img.shields.io/badge/Swift-5.9.2-orange)
 ![License](https://img.shields.io/github/license/choi138/toki)
 ![Stars](https://img.shields.io/github/stars/choi138/toki?style=social)
 
