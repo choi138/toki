@@ -404,17 +404,24 @@ private actor AsyncTestGate {
 private final class GatedRemoteHubClient: RemoteHubClientProtocol {
     private let gate: AsyncTestGate
     private let createDeviceResponse: CreateRemoteDeviceResponse?
+    private let manifest: [RemoteDeviceSummary]
 
     init(gate: AsyncTestGate, createDeviceResponse: CreateRemoteDeviceResponse? = nil) {
         self.gate = gate
         self.createDeviceResponse = createDeviceResponse
+        manifest = [RemoteDeviceSummary(
+            id: "gated-device",
+            name: "gated-device",
+            createdAt: Date(timeIntervalSince1970: 1_750_000_000),
+            lastSeenAt: nil,
+            latestSequence: nil)]
     }
 
     func fetchSnapshotManifest(
         configuration _: RemoteHubConfiguration,
         ifNoneMatch _: String?) async throws -> RemoteConditionalResult<[RemoteDeviceSummary]> {
         await gate.wait()
-        return .modified([], entityTag: "gated-manifest")
+        return .modified(manifest, entityTag: "gated-manifest")
     }
 
     func fetchSnapshot(
