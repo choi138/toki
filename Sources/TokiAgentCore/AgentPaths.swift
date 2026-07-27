@@ -63,6 +63,7 @@ struct AgentPaths {
                 || destinationName == "codex-rollout-cache.json"
                 || destinationName == "claude-usage-cache.json"
                 || destinationName == "hermes-usage-ledger.json"
+                || destinationName == "hermes-usage-ledger.key"
         }
         try removeStaleTemporaryFiles(in: spoolDirectory) { destinationName in
             guard destinationName.hasSuffix(".json") else { return false }

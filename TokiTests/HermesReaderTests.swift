@@ -518,7 +518,7 @@ func assertHermesLedgerReadFails(
         switch error {
         case .invalidLedger, .ledgerTooLarge:
             break
-        case .invalidObservation, .couldNotPersist, .durabilityNotConfirmed:
+        case .invalidObservation, .couldNotPersist, .durabilityNotConfirmed, .migrationRequired:
             XCTFail("Unexpected Hermes ledger error", file: file, line: line)
         }
     } catch {

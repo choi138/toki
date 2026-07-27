@@ -231,26 +231,28 @@ final class AgentSnapshotBuilderTests: XCTestCase {
 }
 
 extension AgentSnapshotBuilderTests {
-    func test_sourceSignatureIgnoresSymlinkedCodexRollouts() async throws {
+    func test_defaultSourceSignatureTracksAgentHermesIdentifierKeyRemoval() async throws {
         let fixture = try AgentSnapshotFixture()
         defer { fixture.remove() }
-        let archiveDirectory = fixture.root.appendingPathComponent(".codex/archived_sessions")
-        try FileManager.default.createDirectory(at: archiveDirectory, withIntermediateDirectories: true)
-        let targetURL = fixture.root.appendingPathComponent("outside-rollout.jsonl")
-        let linkURL = archiveDirectory.appendingPathComponent("linked-rollout.jsonl")
-        try Data("{\"value\":1}\n".utf8).write(to: targetURL)
-        try FileManager.default.createSymbolicLink(at: linkURL, withDestinationURL: targetURL)
-        let builder = AgentSnapshotBuilder(home: fixture.root)
+        let environment: [String: String] = [:]
+        let paths = LocalUsageReaderPaths(homeDirectory: fixture.root, environment: environment)
+        let ledgerURL = hermesUsageLedgerURL(paths: paths, scope: .agent)
+        try await HermesUsageLedger(fileURL: ledgerURL).refresh(
+            observations: [],
+            observedAt: fixture.now)
+        let builder = AgentSnapshotBuilder(
+            home: fixture.root,
+            environment: environment)
 
-        let before = try await builder.sourceSignature(
+        let existingKeySignature = try await builder.sourceSignature(
             configuration: fixture.configuration,
             now: fixture.now)
-        try Data("{\"value\":2}\n".utf8).write(to: targetURL)
-        let after = try await builder.sourceSignature(
+        try FileManager.default.removeItem(at: hermesUsageLedgerIdentifierKeyURL(for: ledgerURL))
+        let missingKeySignature = try await builder.sourceSignature(
             configuration: fixture.configuration,
             now: fixture.now)
 
-        XCTAssertEqual(before, after)
+        XCTAssertNotEqual(existingKeySignature, missingKeySignature)
     }
 
     func test_sharedReaderFileDiscoverySkipsSymbolicLinks() throws {

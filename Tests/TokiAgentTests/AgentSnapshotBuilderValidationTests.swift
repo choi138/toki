@@ -68,6 +68,34 @@ final class AgentSnapshotBuilderValidationTests: XCTestCase {
         XCTAssertNoThrow(try RemoteUsageSnapshotValidator.validate(snapshot, now: now))
     }
 
+    func test_sourceSignatureIgnoresSymlinkedCodexRollouts() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("toki-agent-codex-symlink-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let archiveDirectory = root.appendingPathComponent(".codex/archived_sessions")
+        try FileManager.default.createDirectory(at: archiveDirectory, withIntermediateDirectories: true)
+        let targetURL = root.appendingPathComponent("outside-rollout.jsonl")
+        let linkURL = archiveDirectory.appendingPathComponent("linked-rollout.jsonl")
+        try Data("{\"value\":1}\n".utf8).write(to: targetURL)
+        try FileManager.default.createSymbolicLink(at: linkURL, withDestinationURL: targetURL)
+        let builder = AgentSnapshotBuilder(home: root)
+        let configuration = try AgentConfiguration(bundle: AgentPairingBundle(
+            hubURL: XCTUnwrap(URL(string: "https://hub.example.test")),
+            deviceID: "validation-device",
+            deviceName: "validation-device",
+            uploadToken: SnapshotCipher.randomToken(),
+            encryptionKey: SnapshotCipher.generateKey(),
+            retentionDays: 7,
+            syncIntervalSeconds: 900))
+        let now = try Self.date("2026-07-16T12:00:00Z")
+
+        let before = try await builder.sourceSignature(configuration: configuration, now: now)
+        try Data("{\"value\":2}\n".utf8).write(to: targetURL)
+        let after = try await builder.sourceSignature(configuration: configuration, now: now)
+
+        XCTAssertEqual(before, after)
+    }
+
     func test_snapshotDropsUnsafeModelFieldsWithoutDroppingEvents() async throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("toki-agent-validation-\(UUID().uuidString)", isDirectory: true)
