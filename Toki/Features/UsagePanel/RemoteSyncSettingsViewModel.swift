@@ -3,11 +3,6 @@ import Foundation
 import TokiSyncProtocol
 
 @MainActor
-protocol PairingBundleCopying: AnyObject {
-    func copy(_ bundle: String) throws
-}
-
-@MainActor
 final class RemoteSyncSettingsViewModel: ObservableObject {
     @Published var hubURLText = ""
     @Published var ownerToken = ""

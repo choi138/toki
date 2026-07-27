@@ -253,6 +253,9 @@ private extension RemoteSnapshotLoader {
             configuration: configuration,
             cachedEntry: cachedEntry,
             now: now)
+        try validateCommitState(
+            configuration: configuration,
+            lifecycleTicket: lifecycleTicket)
         let manifest = manifestResult.devices
         let cachedEnvelopes = Dictionary(uniqueKeysWithValues: (cachedEntry?.envelopes ?? []).map {
             ($0.deviceID, $0)

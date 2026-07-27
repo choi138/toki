@@ -2,6 +2,19 @@ import AppKit
 import Foundation
 
 @MainActor
+protocol PairingBundleCopying: AnyObject {
+    func copy(_ bundle: String) throws
+}
+
+enum PairingBundleClipboardError: LocalizedError {
+    case writeFailed
+
+    var errorDescription: String? {
+        "The pairing bundle could not be copied to the clipboard."
+    }
+}
+
+@MainActor
 protocol PairingBundlePasteboard: AnyObject {
     var changeCount: Int { get }
 
@@ -51,7 +64,7 @@ final class PairingBundleClipboard: PairingBundleCopying {
               pasteboard.setPrivacyMarker(.tokiConcealed),
               pasteboard.setPrivacyMarker(.tokiTransient) else {
             pasteboard.clearPairingBundle()
-            throw RemoteSyncSettingsError.clipboardWriteFailed
+            throw PairingBundleClipboardError.writeFailed
         }
         let expectedChangeCount = pasteboard.changeCount
         copiedPasteboardChangeCount = expectedChangeCount
