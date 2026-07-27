@@ -228,11 +228,15 @@ extension TokiAgentCommand {
         default:
             throw AgentCommandError.invalidMigrationArguments
         }
+        let ledgerURL = paths.stateDirectory.appendingPathComponent("hermes-usage-ledger.json")
+        if mode == .dryRun {
+            return try HermesUsageLedgerMigrator.migrate(fileURL: ledgerURL, mode: mode)
+        }
         try paths.prepare()
         let processLock = try AgentProcessLock.acquire(paths: paths)
         defer { _ = processLock }
         return try HermesUsageLedgerMigrator.migrate(
-            fileURL: paths.stateDirectory.appendingPathComponent("hermes-usage-ledger.json"),
+            fileURL: ledgerURL,
             mode: mode)
     }
 

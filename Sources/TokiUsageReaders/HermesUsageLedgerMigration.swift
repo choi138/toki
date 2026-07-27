@@ -23,6 +23,13 @@ public enum HermesUsageLedgerMigrator {
             guard let data = try DurableFileIO.readPrivate(
                 from: fileURL,
                 maximumByteCount: hermesUsageLedgerMaximumBytes) else {
+                if mode == .apply,
+                   pathExistsIncludingSymbolicLink(fileURL.deletingLastPathComponent()) {
+                    let legacyTemporaryURLs = try legacyTemporaryLedgerURLs(ledgerURL: fileURL)
+                    try removeLegacyArtifacts(
+                        ledgerURL: fileURL,
+                        temporaryURLs: legacyTemporaryURLs)
+                }
                 return .noLedger
             }
             source = data
@@ -226,6 +233,8 @@ private extension HermesUsageLedgerMigrator {
                 return
             }
             try DurableFileIO.writePrivate(Data(key.utf8), to: keyURL)
+        } catch DurableFileIOError.replacementCommittedDirectorySyncFailed {
+            throw HermesUsageLedgerError.durabilityNotConfirmed
         } catch let error as HermesUsageLedgerError {
             throw error
         } catch {
