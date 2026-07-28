@@ -196,11 +196,13 @@ private extension UsageAggregator {
         let unmergedOriginSlices = sortedResults.flatMap(\.originSlices)
         let originSlices = mergedOriginSlices(
             unmergedOriginSlices,
+            startDate: request.start,
             endDate: request.end)
 
         return UsageFetchSummary(
             usage: combinedUsage(
                 from: unmergedOriginSlices,
+                startDate: request.start,
                 endDate: request.end),
             readerStatuses: sortedResults.map(\.status),
             sourceStats: mergedSourceStats(
@@ -284,7 +286,10 @@ private func readerFetchResult(
             originSlices = try await partitionedReader.readUsageByOrigin(
                 from: startDate,
                 to: endDate)
-            usage = combinedUsage(from: originSlices, endDate: endDate)
+            usage = combinedUsage(
+                from: originSlices,
+                startDate: startDate,
+                endDate: endDate)
             fallbackSourceStats = if originSlices.allSatisfy(\.sourceStats.isEmpty) {
                 [sourceStat(
                     from: usage,
@@ -370,6 +375,7 @@ private struct SourceStatAggregate {
 
 private func combinedUsage(
     from slices: [UsageOriginSlice],
+    startDate: Date,
     endDate: Date) -> RawTokenUsage {
     var combined = RawTokenUsage()
 
@@ -379,6 +385,7 @@ private func combinedUsage(
 
     combined.perModelBySource = mergedModelSourceUsage(
         from: slices,
+        startDate: startDate,
         endDate: endDate)
     combined.recomputeMergedActiveEstimate(clippingEndDate: endDate)
     return combined
@@ -386,6 +393,7 @@ private func combinedUsage(
 
 private func mergedOriginSlices(
     _ slices: [UsageOriginSlice],
+    startDate: Date,
     endDate: Date) -> [UsageOriginSlice] {
     var aggregates: [UsageOriginID: OriginSliceAggregate] = [:]
 
@@ -402,6 +410,7 @@ private func mergedOriginSlices(
         var usage = aggregate.usage
         usage.perModelBySource = mergedModelSourceUsage(
             from: aggregate.slices,
+            startDate: startDate,
             endDate: endDate)
         usage.recomputeMergedActiveEstimate(clippingEndDate: endDate)
         return UsageOriginSlice(
@@ -469,6 +478,7 @@ private func sourceStat(from usage: RawTokenUsage, source: String, includeEmpty:
 
 private func mergedModelSourceUsage(
     from slices: [UsageOriginSlice],
+    startDate: Date,
     endDate: Date) -> [ModelSourceUsageKey: PerModelUsage] {
     var result: [ModelSourceUsageKey: PerModelUsage] = [:]
 
@@ -477,6 +487,7 @@ private func mergedModelSourceUsage(
             mergeRemoteModelUsage(
                 slice.usage,
                 source: fallbackSource(for: slice),
+                startDate: startDate,
                 endDate: endDate,
                 into: &result)
             continue
@@ -506,11 +517,15 @@ private func mergedModelSourceUsage(
 private func mergeRemoteModelUsage(
     _ usage: RawTokenUsage,
     source fallbackSource: String,
+    startDate: Date,
     endDate: Date,
     into result: inout [ModelSourceUsageKey: PerModelUsage]) {
     guard let fallbackSource = fallbackSource.trimmedNonEmpty else { return }
 
-    for model in UsageReportBuilder.buildModelStats(from: usage, endDate: endDate) {
+    for model in UsageReportBuilder.buildModelStats(
+        from: usage,
+        startDate: startDate,
+        endDate: endDate) {
         guard let modelID = model.modelID.trimmedNonEmpty else { continue }
         let sources = Set(model.sources.compactMap(\.trimmedNonEmpty))
         let source = sources.count == 1

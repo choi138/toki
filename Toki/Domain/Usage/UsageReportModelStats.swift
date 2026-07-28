@@ -36,7 +36,7 @@ private struct ModelSourceStatAggregate {
 extension UsageReportBuilder {
     static func buildModelStats(
         from usage: RawTokenUsage,
-        startDate: Date = .distantPast,
+        startDate: Date,
         endDate: Date,
         calendar: Calendar = .autoupdatingCurrent) -> [ModelStat] {
         let authoritativeStats = authoritativeModelSourceStats(from: usage)
