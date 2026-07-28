@@ -36,6 +36,11 @@ final class MenuBarPanelEventPolicyTests: XCTestCase {
             MenuBarPanelWindowPolicy.isRelatedTransientWindow(level: .normal))
     }
 
+    func test_openActionShowsOnlyWhenPanelIsHidden() {
+        XCTAssertTrue(MenuBarPanelPresentationPolicy.shouldShowPanel(isVisible: false))
+        XCTAssertFalse(MenuBarPanelPresentationPolicy.shouldShowPanel(isVisible: true))
+    }
+
     private func keyDownEvent(keyCode: UInt16) -> NSEvent? {
         NSEvent.keyEvent(
             with: .keyDown,

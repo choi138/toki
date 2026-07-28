@@ -38,6 +38,12 @@ enum MenuBarPanelWindowPolicy {
     }
 }
 
+enum MenuBarPanelPresentationPolicy {
+    static func shouldShowPanel(isVisible: Bool) -> Bool {
+        !isVisible
+    }
+}
+
 @MainActor
 final class MenuBarPanelController {
     private let tokenVelocityState: TokenVelocityState
@@ -80,12 +86,18 @@ final class MenuBarPanelController {
 
     func toggle(relativeTo view: NSStatusBarButton) {
         guard let panel else { return }
-        statusItemButton = view
         if panel.isVisible {
             closePanel()
         } else {
-            showPanel(relativeTo: view)
+            show(relativeTo: view)
         }
+    }
+
+    func show(relativeTo view: NSStatusBarButton) {
+        guard let panel,
+              MenuBarPanelPresentationPolicy.shouldShowPanel(isVisible: panel.isVisible) else { return }
+        statusItemButton = view
+        showPanel(relativeTo: view)
     }
 
     func stop() {

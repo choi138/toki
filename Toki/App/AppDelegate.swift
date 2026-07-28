@@ -61,11 +61,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         panelController.toggle(relativeTo: button)
     }
 
+    @objc private func openPanel() {
+        guard let button = statusItemController.button else { return }
+        panelController.show(relativeTo: button)
+    }
+
     private func makeStatusItemMenu() -> NSMenu {
         let menu = NSMenu()
         let openItem = NSMenuItem(
             title: "Open Usage Panel",
-            action: #selector(togglePanel),
+            action: #selector(openPanel),
             keyEquivalent: "")
         openItem.target = self
         menu.addItem(openItem)

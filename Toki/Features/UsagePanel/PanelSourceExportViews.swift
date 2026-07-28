@@ -124,6 +124,12 @@ func panelReaderStatuses(
     }
 }
 
+func panelReaderFailureNames(
+    _ statuses: [ReaderStatus],
+    for scope: UsageScope) -> [String] {
+    readerFailureNames(from: panelReaderStatuses(statuses, for: scope))
+}
+
 struct PanelDeviceBreakdownView: View {
     let reports: [UsageOriginReport]
     let onSelect: (UsageOriginID) -> Void

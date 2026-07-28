@@ -186,6 +186,12 @@ extension UsageOriginAggregationTests {
             panelReaderStatuses(statuses, for: .origin(.remote(deviceID: "remote-a"))).map(\.name),
             ["Remote Devices"])
         XCTAssertEqual(panelReaderStatuses(statuses, for: .all), statuses)
+        XCTAssertEqual(
+            panelReaderFailureNames(statuses, for: .origin(.local)),
+            ["Codex"])
+        XCTAssertEqual(
+            panelReaderFailureNames(statuses, for: .origin(.remote(deviceID: "remote-a"))),
+            [])
     }
 
     func test_duplicateDeviceMenuSubtitlesUseStableAliases() {

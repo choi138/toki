@@ -280,7 +280,7 @@ extension UsagePanelViewModel {
     }
 
     var failedReaderNames: [String] {
-        readerFailureNames(from: readerStatuses)
+        panelReaderFailureNames(readerStatuses, for: selectedUsageScope)
     }
 
     var readerStatuses: [ReaderStatus] {

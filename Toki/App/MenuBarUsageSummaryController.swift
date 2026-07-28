@@ -4,14 +4,22 @@ import Foundation
 struct MenuBarUsageSummary: Equatable {
     let totalTokens: Int
     let cost: Double
+    let hasUnpricedUsage: Bool
 }
 
 func menuBarUsageSummaryTitle(for summary: MenuBarUsageSummary) -> String {
-    summary.cost.formattedCost()
+    let cost = summary.cost.formattedCost()
+    return summary.hasUnpricedUsage ? "~\(cost)" : cost
 }
 
 func menuBarUsageToolTip(for summary: MenuBarUsageSummary) -> String {
-    "Toki — Today: \(summary.totalTokens.formattedTokens()) tokens · \(summary.cost.formattedCost())"
+    let estimate = "Estimated cost \(menuBarUsageSummaryTitle(for: summary))"
+    let unpricedNote = summary.hasUnpricedUsage ? " (excludes unpriced usage)" : ""
+    return "Toki — Today: \(summary.totalTokens.formattedTokens()) tokens · \(estimate)\(unpricedNote)"
+}
+
+func menuBarUsageContainsUnpricedModels(_ models: [ModelStat]) -> Bool {
+    models.contains { !$0.isPriceKnown && $0.totalTokens > 0 }
 }
 
 /// Keeps the status item's compact cost readout fresh while the panel is
@@ -88,7 +96,8 @@ final class MenuBarUsageSummaryController {
             let result = await aggregator.aggregateUsage(for: request)
             return MenuBarUsageSummary(
                 totalTokens: result.usageData.totalTokens,
-                cost: result.usageData.cost)
+                cost: result.usageData.cost,
+                hasUnpricedUsage: menuBarUsageContainsUnpricedModels(result.usageData.perModel))
         }
     }
 }
