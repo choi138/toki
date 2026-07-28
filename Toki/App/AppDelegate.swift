@@ -13,16 +13,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             self?.activityController.setPanelVisible(isVisible)
         }
 
+    private var pricingCatalogRefreshTask: Task<Void, Never>?
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         statusItemController.setup(target: self, action: #selector(togglePanel))
         panelController.setup()
         activityController.start()
+        startPricingCatalogRefreshLoop()
     }
 
     func applicationWillTerminate(_ notification: Notification) {
         panelController.stop()
         activityController.stop()
         statusItemController.stop()
+        pricingCatalogRefreshTask?.cancel()
+        pricingCatalogRefreshTask = nil
+    }
+
+    private func startPricingCatalogRefreshLoop() {
+        pricingCatalogRefreshTask = Task {
+            while !Task.isCancelled {
+                await RemotePricingCatalogUpdater.shared.refreshIfNeeded(
+                    isEnabled: UsagePanelSettings.isAutoUpdatePricingEnabled())
+                try? await Task.sleep(for: .seconds(3600))
+            }
+        }
     }
 
     @objc private func togglePanel() {

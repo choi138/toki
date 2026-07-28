@@ -43,6 +43,7 @@ struct PanelSettingsView: View {
                             isOn: Binding(
                                 get: { settings.showsZeroSourceRows },
                                 set: { settings.setShowsZeroSourceRows($0) }))
+                        autoUpdatePricingToggle
                         launchAtLoginToggle
                         if let errorMessage = launchAtLogin.errorMessage {
                             Text(errorMessage)
@@ -98,6 +99,26 @@ struct PanelSettingsView: View {
             }
             .pickerStyle(.segmented)
             .labelsHidden()
+        }
+    }
+
+    private var autoUpdatePricingToggle: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            settingsToggle(
+                "Update model pricing automatically",
+                isOn: Binding(
+                    get: { settings.autoUpdatesModelPricing },
+                    set: { isEnabled in
+                        settings.setAutoUpdatesModelPricing(isEnabled)
+                        Task {
+                            await RemotePricingCatalogUpdater.shared.refreshIfNeeded(isEnabled: isEnabled)
+                        }
+                    }))
+            Text("Downloads public pricing metadata daily. No usage data is sent.")
+                .font(.system(size: 10))
+                .foregroundColor(Color.white.opacity(0.35))
+                .padding(.horizontal, 10)
+                .padding(.bottom, 7)
         }
     }
 

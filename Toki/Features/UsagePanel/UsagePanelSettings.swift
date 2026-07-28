@@ -50,6 +50,12 @@ final class UsagePanelSettings: ObservableObject {
         }
     }
 
+    @Published var autoUpdatesModelPricing: Bool {
+        didSet {
+            defaults.set(autoUpdatesModelPricing, forKey: Keys.autoUpdatesModelPricing)
+        }
+    }
+
     private let defaults: UserDefaults
 
     init(defaults: UserDefaults = .standard, readerNames: [String] = UsagePanelSettings.defaultReaderNames) {
@@ -66,6 +72,8 @@ final class UsagePanelSettings: ObservableObject {
         } else {
             showsZeroSourceRows = defaults.bool(forKey: Keys.showsZeroSourceRows)
         }
+
+        autoUpdatesModelPricing = Self.isAutoUpdatePricingEnabled(defaults: defaults)
     }
 
     func isReaderEnabled(_ name: String) -> Bool {
@@ -82,6 +90,18 @@ final class UsagePanelSettings: ObservableObject {
         showsZeroSourceRows = isEnabled
     }
 
+    func setAutoUpdatesModelPricing(_ isEnabled: Bool) {
+        guard autoUpdatesModelPricing != isEnabled else { return }
+        autoUpdatesModelPricing = isEnabled
+    }
+
+    /// Reads the persisted flag without requiring a settings instance so the
+    /// app-level refresh loop can consult the latest value.
+    nonisolated static func isAutoUpdatePricingEnabled(defaults: UserDefaults = .standard) -> Bool {
+        guard defaults.object(forKey: Keys.autoUpdatesModelPricing) != nil else { return true }
+        return defaults.bool(forKey: Keys.autoUpdatesModelPricing)
+    }
+
     func enabledReaders(from readers: [any TokenReader]) -> [any TokenReader] {
         readers.filter { isReaderEnabled($0.name) }
     }
@@ -96,6 +116,7 @@ private extension UsagePanelSettings {
         static let refreshIntervalSeconds = "usagePanel.refreshIntervalSeconds"
         static let enabledReaderNames = "usagePanel.enabledReaderNames"
         static let showsZeroSourceRows = "usagePanel.showsZeroSourceRows"
+        static let autoUpdatesModelPricing = "usagePanel.autoUpdatesModelPricing"
     }
 
     static func normalizedRefreshInterval(_ seconds: Int) -> Int {

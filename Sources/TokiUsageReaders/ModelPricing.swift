@@ -8,6 +8,17 @@ public struct ModelPrice {
     public let cacheReadPerMillion: Double
     public let cacheWritePerMillion: Double
 
+    public init(
+        inputPerMillion: Double,
+        outputPerMillion: Double,
+        cacheReadPerMillion: Double,
+        cacheWritePerMillion: Double) {
+        self.inputPerMillion = inputPerMillion
+        self.outputPerMillion = outputPerMillion
+        self.cacheReadPerMillion = cacheReadPerMillion
+        self.cacheWritePerMillion = cacheWritePerMillion
+    }
+
     public func cost(
         input: Int,
         output: Int,
@@ -28,6 +39,7 @@ public struct ModelPriceLookup {
     public enum Match: Equatable {
         case exact(modelId: String)
         case prefix(prefix: String)
+        case supplement(modelId: String)
         case missing
     }
 
@@ -173,7 +185,7 @@ private func matchedPricingKey(for match: ModelPriceLookup.Match) -> String? {
         modelId
     case let .prefix(prefix):
         prefix
-    case .missing:
+    case .supplement, .missing:
         nil
     }
 }
@@ -224,6 +236,13 @@ private func baseModelPriceLookup(for modelId: String) -> ModelPriceLookup {
             modelId: modelId,
             price: match.value,
             match: .prefix(prefix: match.key))
+    }
+
+    if let price = ModelPricingSupplement.price(for: modelId) {
+        return ModelPriceLookup(
+            modelId: modelId,
+            price: price,
+            match: .supplement(modelId: modelId))
     }
 
     return ModelPriceLookup(
