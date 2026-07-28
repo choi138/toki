@@ -204,11 +204,14 @@ public struct HermesReader: TokenReader {
             guard counters.isValid() else {
                 throw HermesUsageLedgerError.invalidObservation
             }
+            // session_model_usage rows carry no event time; fall back to
+            // read-time pricing for the rare rows without a reported cost.
             let cost = hermesUsageCost(
                 model: model,
                 counters: counters,
                 estimatedCost: max(0, sqlite3_column_double(statement, 9)),
-                actualCost: max(0, sqlite3_column_double(statement, 10)))
+                actualCost: max(0, sqlite3_column_double(statement, 10)),
+                timestamp: nil)
             usageBySessionID[sessionID, default: []].append(
                 HermesSessionModelUsage(
                     model: model,
@@ -383,7 +386,8 @@ private struct HermesSessionUsageRow {
                 cacheWriteTokens: cacheWriteTokens,
                 reasoningTokens: reasoningTokens),
             estimatedCost: estimatedCost,
-            actualCost: actualCost)
+            actualCost: actualCost,
+            timestamp: startedAt)
 
         if sqlite3_column_type(statement, 12) == SQLITE_NULL {
             earliestActivityAt = nil

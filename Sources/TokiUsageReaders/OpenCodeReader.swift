@@ -114,16 +114,17 @@ public struct OpenCodeReader: TokenReader {
             result.cacheWriteTokens += cacheWrite
             result.reasoningTokens += reasoning
 
+            let messageDate = Date(timeIntervalSince1970: TimeInterval(timestamp) / 1000)
             activityEvents.append(
                 ActivityTimeEvent(
                     streamID: sessionID.isEmpty ? "opencode" : sessionID,
-                    timestamp: Date(timeIntervalSince1970: TimeInterval(timestamp) / 1000),
+                    timestamp: messageDate,
                     key: normalizedModelID(modelID)))
 
             let normalizedModel = normalizedModelID(modelID)
             let messageCost: Double
             if let priceLookupKey = normalizedModel ?? (!modelID.isEmpty ? modelID : nil),
-               let price = modelPrice(for: priceLookupKey) {
+               let price = modelPrice(for: priceLookupKey, at: messageDate) {
                 messageCost = price.cost(
                     input: input,
                     output: output + reasoning,

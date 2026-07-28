@@ -62,8 +62,8 @@ private let exactPricingTable: [String: ModelPrice] = [
     // fast-mode usage is under-estimated by this table.
     "claude-fable-5": price(10.0, 50.0, 1.00, 12.5),
     "claude-opus-5": price(5.0, 25.0, 0.50, 6.25),
-    // Introductory pricing through 2026-08-31; standard pricing from
-    // 2026-09-01 is 3.0 / 15.0 / 0.30 / 3.75.
+    // Introductory pricing through 2026-08-31 (UTC); the standard rate from
+    // 2026-09-01 is applied per usage timestamp via scheduledPriceChanges.
     "claude-sonnet-5": price(2.0, 10.0, 0.20, 2.50),
 
     // Claude Opus 4 (specific versions)
@@ -149,7 +149,69 @@ private let prefixPricingTable: [String: ModelPrice] = exactPricingTable.filter 
 private let sortedPrefixPricingKeys: [(key: String, value: ModelPrice)] =
     prefixPricingTable.sorted { $0.key.count > $1.key.count }
 
+// MARK: - Scheduled Price Changes
+
+private struct ScheduledPriceChange {
+    let effectiveFrom: Date
+    let price: ModelPrice
+}
+
+// claude-sonnet-5 standard pricing replaces the introductory rate at
+// 2026-09-01T00:00:00Z. Changes must be sorted by ascending effectiveFrom;
+// the base table entry applies before the earliest change.
+private let scheduledPriceChanges: [String: [ScheduledPriceChange]] = [
+    "claude-sonnet-5": [
+        ScheduledPriceChange(
+            effectiveFrom: Date(timeIntervalSince1970: 1_788_220_800),
+            price: price(3.0, 15.0, 0.30, 3.75)),
+    ],
+]
+
+private func matchedPricingKey(for match: ModelPriceLookup.Match) -> String? {
+    switch match {
+    case let .exact(modelId):
+        modelId
+    case let .prefix(prefix):
+        prefix
+    case .missing:
+        nil
+    }
+}
+
+// MARK: - Lookup
+
+/// Resolves the price effective at the given usage timestamp. Cost
+/// computation for usage events must pass the event timestamp so that
+/// scheduled price changes bill each event at its own effective rate.
+public func modelPriceLookup(for modelId: String, at timestamp: Date) -> ModelPriceLookup {
+    let lookup = baseModelPriceLookup(for: modelId)
+    guard let pricingKey = matchedPricingKey(for: lookup.match),
+          let change = scheduledPriceChanges[pricingKey]?
+          .last(where: { $0.effectiveFrom <= timestamp }) else {
+        return lookup
+    }
+    return ModelPriceLookup(
+        modelId: lookup.modelId,
+        price: change.price,
+        match: lookup.match)
+}
+
+/// Resolves the price effective now. Use for presence checks and
+/// read-time fallbacks without an event timestamp; per-event costs
+/// should use `modelPriceLookup(for:at:)` instead.
 public func modelPriceLookup(for modelId: String) -> ModelPriceLookup {
+    modelPriceLookup(for: modelId, at: Date())
+}
+
+public func modelPrice(for modelId: String, at timestamp: Date) -> ModelPrice? {
+    modelPriceLookup(for: modelId, at: timestamp).price
+}
+
+public func modelPrice(for modelId: String) -> ModelPrice? {
+    modelPriceLookup(for: modelId).price
+}
+
+private func baseModelPriceLookup(for modelId: String) -> ModelPriceLookup {
     if let price = exactPricingTable[modelId] {
         return ModelPriceLookup(
             modelId: modelId,
@@ -168,8 +230,4 @@ public func modelPriceLookup(for modelId: String) -> ModelPriceLookup {
         modelId: modelId,
         price: nil,
         match: .missing)
-}
-
-public func modelPrice(for modelId: String) -> ModelPrice? {
-    modelPriceLookup(for: modelId).price
 }

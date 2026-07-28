@@ -176,7 +176,7 @@ extension ClaudeCodeReader {
             let modelKey = normalizedModelID(entry.model)
             let entryCost: Double
             if let priceLookupKey = modelKey ?? entry.model,
-               let price = modelPrice(for: priceLookupKey) {
+               let price = modelPrice(for: priceLookupKey, at: entry.timestamp) {
                 entryCost = price.cost(
                     input: entry.input,
                     output: entry.output,

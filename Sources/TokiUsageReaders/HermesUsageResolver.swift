@@ -60,11 +60,12 @@ func hermesUsageCost(
     model: String?,
     counters: HermesTokenCounters,
     estimatedCost: Double,
-    actualCost: Double) -> Double {
+    actualCost: Double,
+    timestamp: Date?) -> Double {
     if actualCost > 0 { return actualCost }
     if estimatedCost > 0 { return estimatedCost }
 
-    guard let model, let price = modelPrice(for: model) else { return 0 }
+    guard let model, let price = modelPrice(for: model, at: timestamp ?? Date()) else { return 0 }
     return price.cost(
         input: counters.inputTokens,
         output: counters.outputTokens + counters.reasoningTokens,

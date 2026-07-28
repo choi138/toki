@@ -196,7 +196,7 @@ extension CodexReader {
             result.reasoningTokens += usage.reasoningTokens
 
             let entryCost: Double
-            if let normalizedModel, let price = modelPrice(for: normalizedModel) {
+            if let normalizedModel, let price = modelPrice(for: normalizedModel, at: entry.date) {
                 entryCost = price.cost(
                     input: usage.inputTokens,
                     output: usage.outputTokens + usage.reasoningTokens,
@@ -269,7 +269,7 @@ extension CodexReader {
                 result.activeSeconds += usage.activeSeconds
 
                 let entryCost: Double
-                if let normalizedModel, let price = modelPrice(for: normalizedModel) {
+                if let normalizedModel, let price = modelPrice(for: normalizedModel, at: currentDay) {
                     entryCost = price.cost(
                         input: usage.inputTokens,
                         output: usage.outputTokens + usage.reasoningTokens,
@@ -518,7 +518,9 @@ extension CodexReader {
                         let timestamp = Date(timeIntervalSince1970: event.timestamp)
                         guard timestamp >= startDate, timestamp < endDate else { return nil }
 
-                        let eventCost: Double = if let normalizedModel, let price = modelPrice(for: normalizedModel) {
+                        let eventCost: Double = if let normalizedModel, let price = modelPrice(
+                            for: normalizedModel,
+                            at: timestamp) {
                             price.cost(
                                 input: event.inputTokens,
                                 output: event.outputTokens + event.reasoningTokens,

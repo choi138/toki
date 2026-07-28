@@ -218,7 +218,7 @@ extension CursorReader {
             usage.outputTokens += output
 
             let requestCost: Double
-            if let modelID, let price = modelPrice(for: modelID) {
+            if let modelID, let price = modelPrice(for: modelID, at: createdAt) {
                 requestCost = price.cost(
                     input: input,
                     output: output,

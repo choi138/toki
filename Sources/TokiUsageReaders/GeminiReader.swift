@@ -118,7 +118,7 @@ public struct GeminiReader: TokenReader {
                     key: model))
 
             let entryCost: Double
-            if let model, let price = modelPrice(for: model) {
+            if let model, let price = modelPrice(for: model, at: date) {
                 entryCost = price.cost(
                     input: input,
                     output: output + reasoning,

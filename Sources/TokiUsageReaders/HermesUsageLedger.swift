@@ -205,7 +205,8 @@ private extension HermesUsageLedger {
         let cost = incrementalCost(
             observation: observation,
             previous: previous,
-            delta: delta)
+            delta: delta,
+            timestamp: timestamp)
         append(
             event(
                 identifier: identifier,
@@ -429,12 +430,13 @@ private extension HermesUsageLedger {
     private func incrementalCost(
         observation: HermesSessionObservation,
         previous: HermesUsageLedgerBaseline,
-        delta: HermesTokenCounters) -> Double {
+        delta: HermesTokenCounters,
+        timestamp: Date) -> Double {
         if observation.cost >= previous.cost {
             return observation.cost - previous.cost
         }
         guard let model = observation.model,
-              let price = modelPrice(for: model) else {
+              let price = modelPrice(for: model, at: timestamp) else {
             return 0
         }
         return price.cost(

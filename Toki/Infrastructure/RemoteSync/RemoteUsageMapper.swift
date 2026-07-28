@@ -114,7 +114,7 @@ struct RemoteUsageMapper {
     }
 
     private func tokenCost(for event: RemoteTokenEvent, model: String?) -> Double {
-        guard let model, let price = modelPrice(for: model) else { return 0 }
+        guard let model, let price = modelPrice(for: model, at: event.timestamp) else { return 0 }
         return price.cost(
             input: event.inputTokens,
             output: event.outputTokens + event.reasoningTokens,
