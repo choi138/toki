@@ -133,11 +133,81 @@ final class ModelPricingBehaviorTests: XCTestCase {
     }
 
     func test_modelPrice_doesNotFallbackFromBroadBaseKeysToUnknownVariants() {
-        XCTAssertNil(modelPrice(for: "claude-opus-4-7"))
         XCTAssertNil(modelPrice(for: "gpt-5-experimental"))
         XCTAssertNil(modelPrice(for: "gemini-3-ultra"))
         XCTAssertNil(modelPrice(for: "zai-org/GLM-5.2-Experimental"))
         XCTAssertNil(modelPrice(for: "zai-org/GLM-5.2-Batch-Experimental"))
+    }
+
+    func test_modelPrice_matchesClaude5Models() throws {
+        let expectedPrices: [String: ModelPrice] = [
+            "claude-fable-5": ModelPrice(
+                inputPerMillion: 10.0,
+                outputPerMillion: 50.0,
+                cacheReadPerMillion: 1.00,
+                cacheWritePerMillion: 12.5),
+            "claude-opus-5": ModelPrice(
+                inputPerMillion: 5.0,
+                outputPerMillion: 25.0,
+                cacheReadPerMillion: 0.50,
+                cacheWritePerMillion: 6.25),
+            "claude-sonnet-5": ModelPrice(
+                inputPerMillion: 2.0,
+                outputPerMillion: 10.0,
+                cacheReadPerMillion: 0.20,
+                cacheWritePerMillion: 2.50),
+        ]
+
+        for (modelID, expected) in expectedPrices {
+            let lookup = modelPriceLookup(for: modelID)
+            let price = try XCTUnwrap(lookup.price)
+
+            XCTAssertEqual(lookup.match, .exact(modelId: modelID))
+            XCTAssertEqual(price.inputPerMillion, expected.inputPerMillion, accuracy: 0.0001)
+            XCTAssertEqual(price.outputPerMillion, expected.outputPerMillion, accuracy: 0.0001)
+            XCTAssertEqual(price.cacheReadPerMillion, expected.cacheReadPerMillion, accuracy: 0.0001)
+            XCTAssertEqual(price.cacheWritePerMillion, expected.cacheWritePerMillion, accuracy: 0.0001)
+        }
+    }
+
+    func test_modelPrice_calculatesClaude5CostWithCacheRates() throws {
+        let expectedCosts: [(modelID: String, cost: Double)] = [
+            ("claude-fable-5", 73.5),
+            ("claude-opus-5", 36.75),
+            ("claude-sonnet-5", 14.7),
+        ]
+
+        for expected in expectedCosts {
+            let price = try XCTUnwrap(modelPrice(for: expected.modelID))
+            let cost = price.cost(
+                input: 1_000_000,
+                output: 1_000_000,
+                cacheRead: 1_000_000,
+                cacheWrite: 1_000_000)
+
+            XCTAssertEqual(cost, expected.cost, accuracy: 0.0001)
+        }
+    }
+
+    func test_modelPrice_treatsClaude5KeysAsExactOnly() {
+        // Claude 5 model IDs are fixed and carry no date suffixes, so the keys
+        // are exact-only: a future tier such as claude-opus-5-1 or a suffixed
+        // variant must stay unpriced instead of inheriting these rates.
+        XCTAssertNil(modelPrice(for: "claude-fable-5-preview"))
+        XCTAssertNil(modelPrice(for: "claude-opus-5-1"))
+        XCTAssertNil(modelPrice(for: "claude-opus-5-mini"))
+        XCTAssertNil(modelPrice(for: "claude-sonnet-5-1"))
+    }
+
+    func test_modelPrice_matchesClaudeOpus47And48() throws {
+        for modelID in ["claude-opus-4-7", "claude-opus-4-8"] {
+            let price = try XCTUnwrap(modelPrice(for: modelID))
+
+            XCTAssertEqual(price.inputPerMillion, 5.0, accuracy: 0.0001)
+            XCTAssertEqual(price.outputPerMillion, 25.0, accuracy: 0.0001)
+            XCTAssertEqual(price.cacheReadPerMillion, 0.50, accuracy: 0.0001)
+            XCTAssertEqual(price.cacheWritePerMillion, 6.25, accuracy: 0.0001)
+        }
     }
 
     func test_modelPrice_treatsGlm52AsExactOnly() {

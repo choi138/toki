@@ -55,7 +55,20 @@ private func price(
 }
 
 private let exactPricingTable: [String: ModelPrice] = [
+    // Claude 5 generation. These are fixed IDs without date suffixes, so they
+    // are exact-only (see exactOnlyPricingKeys): a future claude-opus-5-1 or
+    // claude-fable-5-mini tier must not silently inherit these rates.
+    // Fast mode on claude-opus-5 bills $10/$50 under the same model ID, so
+    // fast-mode usage is under-estimated by this table.
+    "claude-fable-5": price(10.0, 50.0, 1.00, 12.5),
+    "claude-opus-5": price(5.0, 25.0, 0.50, 6.25),
+    // Introductory pricing through 2026-08-31; standard pricing from
+    // 2026-09-01 is 3.0 / 15.0 / 0.30 / 3.75.
+    "claude-sonnet-5": price(2.0, 10.0, 0.20, 2.50),
+
     // Claude Opus 4 (specific versions)
+    "claude-opus-4-8": price(5.0, 25.0, 0.50, 6.25),
+    "claude-opus-4-7": price(5.0, 25.0, 0.50, 6.25),
     "claude-opus-4-5-thinking-high": price(5.0, 25.0, 0.50, 6.25),
     "claude-opus-4-6": price(5.0, 25.0, 0.50, 6.25),
     "claude-opus-4-5": price(5.0, 25.0, 0.50, 6.25),
@@ -117,6 +130,9 @@ private let exactPricingTable: [String: ModelPrice] = [
 ]
 
 private let exactOnlyPricingKeys: Set = [
+    "claude-fable-5",
+    "claude-opus-5",
+    "claude-sonnet-5",
     "claude-opus-4",
     "gpt-5",
     "gemini-3",
