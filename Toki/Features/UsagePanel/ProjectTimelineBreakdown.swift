@@ -12,6 +12,7 @@ struct ProjectTimelineBreakdown {
     let visibleProjects: [ProjectUsageStat]
     let otherProjects: ProjectUsageSummaryValues?
     let untrackedUsage: ProjectUsageSummaryValues?
+    let hiddenProjectCount: Int
 
     /// Maximum number of project rows shown individually before collapsing
     /// the remainder into "Other Projects".
@@ -32,17 +33,20 @@ struct ProjectUsageSummaryValues: Equatable {
 }
 
 extension ProjectTimelineBreakdown {
-    static func derive(from usage: UsageData) -> ProjectTimelineBreakdown {
+    static func derive(
+        from usage: UsageData,
+        visibleLimit: Int = ProjectTimelineBreakdown.visibleProjectLimit) -> ProjectTimelineBreakdown {
         let attributed = usage.projectStats.filter { $0.quality != .unknown }
-        let visible = Array(attributed.prefix(visibleProjectLimit))
-        let hidden = Array(attributed.dropFirst(visibleProjectLimit))
+        let visible = Array(attributed.prefix(visibleLimit))
+        let hidden = Array(attributed.dropFirst(visibleLimit))
 
         return ProjectTimelineBreakdown(
             visibleProjects: visible,
             otherProjects: otherProjectsSummary(from: hidden),
             untrackedUsage: untrackedUsageSummary(
                 usage: usage,
-                attributed: attributed))
+                attributed: attributed),
+            hiddenProjectCount: hidden.count)
     }
 
     private static func otherProjectsSummary(

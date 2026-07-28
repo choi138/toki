@@ -19,39 +19,60 @@ struct PanelSectionCaption: View {
 
 struct ModelStatRowView: View, Equatable {
     let stat: ModelStat
+    var share: Double = 0
 
     var body: some View {
-        HStack(alignment: .center, spacing: 6) {
-            Circle()
-                .fill(panelAccentColor(forModelID: stat.modelID).opacity(0.5))
-                .frame(width: 5, height: 5)
-            VStack(alignment: .leading, spacing: 3) {
-                Text(displayName)
-                    .font(.system(size: 11))
-                    .foregroundColor(Color.white.opacity(0.45))
+        VStack(spacing: 5) {
+            HStack(alignment: .center, spacing: 6) {
+                Circle()
+                    .fill(panelAccentColor(forModelID: stat.modelID).opacity(0.5))
+                    .frame(width: 5, height: 5)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(displayName)
+                        .font(.system(size: 11))
+                        .foregroundColor(Color.white.opacity(0.45))
+                        .lineLimit(1)
+                    Text(stat.panelTimeSummary)
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundColor(Color.white.opacity(0.3))
+                        .lineLimit(1)
+                }
+                Spacer()
+                Text(stat.totalTokens.formattedTokens())
+                    .font(.system(size: 11, weight: .semibold, design: .rounded))
+                    .foregroundColor(Color.white.opacity(0.7))
+                    .frame(width: 44, alignment: .trailing)
+                Text(stat.panelCostSummary)
+                    .font(.system(size: 11, weight: .semibold, design: .rounded))
+                    .foregroundColor(
+                        stat.hasKnownPanelCost
+                            ? Color(red: 0.4, green: 0.9, blue: 0.6)
+                            : Color.white.opacity(0.25))
+                    .frame(width: 56, alignment: .trailing)
                     .lineLimit(1)
-                Text(stat.panelTimeSummary)
-                    .font(.system(size: 10, weight: .medium))
-                    .foregroundColor(Color.white.opacity(0.3))
-                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
             }
-            Spacer()
-            Text(stat.totalTokens.formattedTokens())
-                .font(.system(size: 11, weight: .semibold, design: .rounded))
-                .foregroundColor(Color.white.opacity(0.7))
-                .frame(width: 44, alignment: .trailing)
-            Text(stat.panelCostSummary)
-                .font(.system(size: 11, weight: .semibold, design: .rounded))
-                .foregroundColor(
-                    stat.hasKnownPanelCost
-                        ? Color(red: 0.4, green: 0.9, blue: 0.6)
-                        : Color.white.opacity(0.25))
-                .frame(width: 56, alignment: .trailing)
-                .lineLimit(1)
-                .minimumScaleFactor(0.8)
+
+            if share > 0 {
+                tokenShareBar
+            }
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 7)
+    }
+
+    private var tokenShareBar: some View {
+        GeometryReader { proxy in
+            ZStack(alignment: .leading) {
+                RoundedRectangle(cornerRadius: 1.5, style: .continuous)
+                    .fill(Color.white.opacity(0.06))
+                RoundedRectangle(cornerRadius: 1.5, style: .continuous)
+                    .fill(panelAccentColor(forModelID: stat.modelID).opacity(0.45))
+                    .frame(width: max(2, proxy.size.width * min(1, share)))
+            }
+        }
+        .frame(height: 3)
+        .accessibilityHidden(true)
     }
 
     private var displayName: String {

@@ -4,9 +4,11 @@ import SwiftUI
 struct PanelHeaderView: View {
     let isLoading: Bool
     let lastFetchedAt: Date?
+    let failedReaderNames: [String]
     let onRefresh: () -> Void
     let onSecurityAudit: () -> Void
     let onSettings: () -> Void
+    let onShowFailedReaders: () -> Void
 
     private static let timeFormatter: DateFormatter = {
         let formatter = DateFormatter()
@@ -33,6 +35,19 @@ struct PanelHeaderView: View {
                 Text(Self.timeFormatter.string(from: fetchedAt))
                     .font(.system(size: 10))
                     .foregroundColor(Color.white.opacity(0.25))
+            }
+            if !failedReaderNames.isEmpty {
+                Button(action: onShowFailedReaders) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundColor(Color(red: 1.0, green: 0.72, blue: 0.30))
+                        .accessibilityHidden(true)
+                }
+                .buttonStyle(.plain)
+                .padding(.leading, 6)
+                .help(failedReadersSummary)
+                .accessibilityLabel(Text("Reader failures"))
+                .accessibilityValue(Text(failedReadersSummary))
             }
             Button(action: onSecurityAudit) {
                 Image(systemName: "shield.lefthalf.filled")
@@ -75,5 +90,9 @@ struct PanelHeaderView: View {
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 11)
+    }
+
+    private var failedReadersSummary: String {
+        "Failing readers: \(failedReaderNames.joined(separator: ", ")). Open Sources for details."
     }
 }

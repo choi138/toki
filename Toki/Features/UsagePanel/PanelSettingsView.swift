@@ -43,6 +43,11 @@ struct PanelSettingsView: View {
                             isOn: Binding(
                                 get: { settings.showsZeroSourceRows },
                                 set: { settings.setShowsZeroSourceRows($0) }))
+                        settingsToggle(
+                            "Show today's cost in menu bar",
+                            isOn: Binding(
+                                get: { settings.showsMenuBarCost },
+                                set: { settings.setShowsMenuBarCost($0) }))
                         autoUpdatePricingToggle
                         launchAtLoginToggle
                         if let errorMessage = launchAtLogin.errorMessage {

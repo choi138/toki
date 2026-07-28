@@ -25,7 +25,7 @@ struct PanelByModelView: View {
                 VStack(spacing: 0) {
                     if !usage.perModel.isEmpty {
                         ForEach(usage.perModel, id: \.id) { stat in
-                            ModelStatRowView(stat: stat)
+                            ModelStatRowView(stat: stat, share: tokenShare(for: stat))
                                 .equatable()
                         }
                     }
@@ -50,6 +50,12 @@ struct PanelByModelView: View {
                 .padding(.vertical, 6)
             }
         }
+    }
+
+    private func tokenShare(for stat: ModelStat) -> Double {
+        let totalTokens = usage.perModel.reduce(0) { $0 + $1.totalTokens }
+        guard totalTokens > 0 else { return 0 }
+        return Double(stat.totalTokens) / Double(totalTokens)
     }
 
     private func skeletonModelRow(labelWidth: CGFloat) -> some View {

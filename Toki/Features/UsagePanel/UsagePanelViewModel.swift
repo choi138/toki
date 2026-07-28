@@ -279,6 +279,10 @@ extension UsagePanelViewModel {
         snapshot.yesterdayTotalTokens
     }
 
+    var failedReaderNames: [String] {
+        readerFailureNames(from: readerStatuses)
+    }
+
     var readerStatuses: [ReaderStatus] {
         snapshot.readerStatuses
     }

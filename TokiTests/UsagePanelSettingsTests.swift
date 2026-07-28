@@ -17,7 +17,9 @@ final class UsagePanelSettingsTests: XCTestCase {
         XCTAssertEqual(settings.enabledReaderNames, ["Codex": true, "Cursor": true])
         XCTAssertFalse(settings.showsZeroSourceRows)
         XCTAssertTrue(settings.autoUpdatesModelPricing)
+        XCTAssertFalse(settings.showsMenuBarCost)
         XCTAssertTrue(UsagePanelSettings.isAutoUpdatePricingEnabled(defaults: defaults))
+        XCTAssertFalse(UsagePanelSettings.isMenuBarCostEnabled(defaults: defaults))
     }
 
     func test_persistsChanges() {
@@ -33,6 +35,7 @@ final class UsagePanelSettingsTests: XCTestCase {
         settings.setReader("Cursor", isEnabled: false)
         settings.showsZeroSourceRows = true
         settings.setAutoUpdatesModelPricing(false)
+        settings.setShowsMenuBarCost(true)
 
         let reloaded = UsagePanelSettings(defaults: defaults, readerNames: ["Codex", "Cursor"])
 
@@ -41,7 +44,9 @@ final class UsagePanelSettingsTests: XCTestCase {
         XCTAssertFalse(reloaded.isReaderEnabled("Cursor"))
         XCTAssertTrue(reloaded.showsZeroSourceRows)
         XCTAssertFalse(reloaded.autoUpdatesModelPricing)
+        XCTAssertTrue(reloaded.showsMenuBarCost)
         XCTAssertFalse(UsagePanelSettings.isAutoUpdatePricingEnabled(defaults: defaults))
+        XCTAssertTrue(UsagePanelSettings.isMenuBarCostEnabled(defaults: defaults))
     }
 
     func test_normalizesUnsupportedRefreshInterval() {

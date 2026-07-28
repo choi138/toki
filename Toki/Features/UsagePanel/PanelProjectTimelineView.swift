@@ -6,8 +6,15 @@ struct PanelProjectTimelineView: View {
     let usage: UsageData
     let isLoading: Bool
 
+    @State private var isShowingAllProjects = false
+    @State private var isShowingAllSessions = false
+
     private var breakdown: ProjectTimelineBreakdown {
-        .derive(from: usage)
+        .derive(
+            from: usage,
+            visibleLimit: isShowingAllProjects
+                ? usage.projectStats.count
+                : ProjectTimelineBreakdown.visibleProjectLimit)
     }
 
     var body: some View {
@@ -45,6 +52,15 @@ struct PanelProjectTimelineView: View {
                     if let otherProjectsSummary {
                         PanelProjectUsageSummaryRowView(summary: otherProjectsSummary)
                     }
+                    if breakdown.hiddenProjectCount > 0 {
+                        PanelShowMoreButton(title: "Show \(breakdown.hiddenProjectCount) more projects") {
+                            isShowingAllProjects = true
+                        }
+                    } else if isShowingAllProjects {
+                        PanelShowMoreButton(title: "Show fewer projects") {
+                            isShowingAllProjects = false
+                        }
+                    }
                     if let untrackedUsageSummary {
                         PanelProjectUsageSummaryRowView(summary: untrackedUsageSummary)
                     }
@@ -52,9 +68,18 @@ struct PanelProjectTimelineView: View {
 
                 if !usage.sessionStats.isEmpty {
                     PanelSectionCaption(title: "Sessions")
-                    ForEach(usage.sessionStats.prefix(Self.visibleSessionLimit)) { session in
+                    ForEach(usage.sessionStats.prefix(visibleSessionCount)) { session in
                         PanelSessionUsageRowView(session: session)
                             .equatable()
+                    }
+                    if hiddenSessionCount > 0 {
+                        PanelShowMoreButton(title: "Show \(hiddenSessionCount) more sessions") {
+                            isShowingAllSessions = true
+                        }
+                    } else if isShowingAllSessions, usage.sessionStats.count > Self.visibleSessionLimit {
+                        PanelShowMoreButton(title: "Show fewer sessions") {
+                            isShowingAllSessions = false
+                        }
                     }
                 }
             }
@@ -104,6 +129,14 @@ struct PanelProjectTimelineView: View {
 
     private var visibleProjects: [ProjectUsageStat] {
         breakdown.visibleProjects
+    }
+
+    private var visibleSessionCount: Int {
+        isShowingAllSessions ? usage.sessionStats.count : Self.visibleSessionLimit
+    }
+
+    private var hiddenSessionCount: Int {
+        max(0, usage.sessionStats.count - visibleSessionCount)
     }
 
     private var projectTotalLabel: String {

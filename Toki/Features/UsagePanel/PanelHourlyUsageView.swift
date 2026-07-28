@@ -2,8 +2,12 @@ import Foundation
 import SwiftUI
 
 struct PanelHourlyUsageView: View {
+    private static let visibleTopHourLimit = 5
+
     let usage: UsageData
     let isLoading: Bool
+
+    @State private var isShowingAllTopHours = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -25,6 +29,15 @@ struct PanelHourlyUsageView: View {
                         bucket: bucket,
                         rank: index + 1,
                         maxTokenCount: maxTopBucketTokens)
+                }
+                if hiddenTopHourCount > 0 {
+                    PanelShowMoreButton(title: "Show \(hiddenTopHourCount) more hours") {
+                        isShowingAllTopHours = true
+                    }
+                } else if isShowingAllTopHours, activeBuckets.count > Self.visibleTopHourLimit {
+                    PanelShowMoreButton(title: "Show fewer hours") {
+                        isShowingAllTopHours = false
+                    }
                 }
             }
         }
@@ -52,8 +65,12 @@ struct PanelHourlyUsageView: View {
                 }
                 return $0.startDate < $1.startDate
             }
-            .prefix(5)
+            .prefix(isShowingAllTopHours ? activeBuckets.count : Self.visibleTopHourLimit)
             .map { $0 }
+    }
+
+    private var hiddenTopHourCount: Int {
+        isShowingAllTopHours ? 0 : max(0, activeBuckets.count - Self.visibleTopHourLimit)
     }
 
     private var maxTopBucketTokens: Int {

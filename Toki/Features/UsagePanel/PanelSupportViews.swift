@@ -109,3 +109,22 @@ struct PanelFooterView: View {
         }
     }
 }
+
+struct PanelShowMoreButton: View {
+    let title: String
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Text(title)
+                .font(.system(size: 10, weight: .semibold))
+                .foregroundColor(Color.white.opacity(0.45))
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 6)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .padding(.horizontal, 16)
+        .accessibilityLabel(Text(title))
+    }
+}

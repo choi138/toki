@@ -28,11 +28,21 @@ final class ProjectTimelineBreakdownTests: XCTestCase {
         let usage = makeUsage(projectStats: stats, totalTokens: 700, cost: 7.0)
         let breakdown = ProjectTimelineBreakdown.derive(from: usage)
         XCTAssertEqual(breakdown.visibleProjects.count, 4)
+        XCTAssertEqual(breakdown.hiddenProjectCount, 3)
         let other = try XCTUnwrap(breakdown.otherProjects)
         XCTAssertEqual(other.totalTokens, 300)
         XCTAssertEqual(other.cost, 3.0, accuracy: 0.0001)
         XCTAssertTrue(other.detail.contains("3 projects"))
         XCTAssertNil(breakdown.untrackedUsage)
+    }
+
+    func test_expandedVisibleLimit_showsEveryAttributedProject() {
+        let stats = (0..<7).map { makeStat(name: "p\($0)", quality: .exact, tokens: 100, cost: 1.0) }
+        let usage = makeUsage(projectStats: stats, totalTokens: 700, cost: 7.0)
+        let breakdown = ProjectTimelineBreakdown.derive(from: usage, visibleLimit: stats.count)
+        XCTAssertEqual(breakdown.visibleProjects.count, 7)
+        XCTAssertEqual(breakdown.hiddenProjectCount, 0)
+        XCTAssertNil(breakdown.otherProjects)
     }
 
     func test_usageBeyondAttributedProjects_surfacesAsUntracked() throws {

@@ -199,6 +199,10 @@ enum ReaderStatusState: String {
     case failed
 }
 
+func readerFailureNames(from statuses: [ReaderStatus]) -> [String] {
+    statuses.filter { $0.state == .failed }.map(\.name)
+}
+
 struct ReaderStatus: Identifiable, Equatable {
     let name: String
     let state: ReaderStatusState

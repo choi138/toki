@@ -56,6 +56,12 @@ final class UsagePanelSettings: ObservableObject {
         }
     }
 
+    @Published var showsMenuBarCost: Bool {
+        didSet {
+            defaults.set(showsMenuBarCost, forKey: Keys.showsMenuBarCost)
+        }
+    }
+
     private let defaults: UserDefaults
     private let refreshPricingCatalog: (Bool) async -> Bool
     private var pricingCatalogRefreshTask: Task<Void, Never>?
@@ -83,6 +89,7 @@ final class UsagePanelSettings: ObservableObject {
         }
 
         autoUpdatesModelPricing = Self.isAutoUpdatePricingEnabled(defaults: defaults)
+        showsMenuBarCost = Self.isMenuBarCostEnabled(defaults: defaults)
     }
 
     func isReaderEnabled(_ name: String) -> Bool {
@@ -120,11 +127,23 @@ final class UsagePanelSettings: ObservableObject {
         }
     }
 
+    func setShowsMenuBarCost(_ isEnabled: Bool) {
+        guard showsMenuBarCost != isEnabled else { return }
+        showsMenuBarCost = isEnabled
+        NotificationCenter.default.post(name: .usagePanelMenuBarCostSettingDidChange, object: nil)
+    }
+
     /// Reads the persisted flag without requiring a settings instance so the
     /// app-level refresh loop can consult the latest value.
     nonisolated static func isAutoUpdatePricingEnabled(defaults: UserDefaults = .standard) -> Bool {
         guard defaults.object(forKey: Keys.autoUpdatesModelPricing) != nil else { return true }
         return defaults.bool(forKey: Keys.autoUpdatesModelPricing)
+    }
+
+    /// Reads the persisted flag without requiring a settings instance so the
+    /// menu bar summary loop can consult the latest value.
+    nonisolated static func isMenuBarCostEnabled(defaults: UserDefaults = .standard) -> Bool {
+        defaults.bool(forKey: Keys.showsMenuBarCost)
     }
 
     func enabledReaders(from readers: [any TokenReader]) -> [any TokenReader] {
@@ -147,6 +166,7 @@ private extension UsagePanelSettings {
         static let enabledReaderNames = "usagePanel.enabledReaderNames"
         static let showsZeroSourceRows = "usagePanel.showsZeroSourceRows"
         static let autoUpdatesModelPricing = "usagePanel.autoUpdatesModelPricing"
+        static let showsMenuBarCost = "usagePanel.showsMenuBarCost"
     }
 
     static func normalizedRefreshInterval(_ seconds: Int) -> Int {
@@ -161,4 +181,9 @@ private extension UsagePanelSettings {
             (name, stored[name] ?? true)
         })
     }
+}
+
+extension Notification.Name {
+    static let usagePanelMenuBarCostSettingDidChange =
+        Notification.Name("usagePanelMenuBarCostSettingDidChange")
 }

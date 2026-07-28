@@ -66,6 +66,7 @@
 		6751D862DC17A0DE9D1506BF /* MenuBarPanelEventPolicyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 397C529D1EF35B7EF722A1AD /* MenuBarPanelEventPolicyTests.swift */; };
 		6858D0524CF8B4E2AE04D3E5 /* Security.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 0B85308CE0483EBF29F028DD /* Security.framework */; };
 		6CFA95243695415B46ED9010 /* PanelByModelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 86C783AE85726291211C84FF /* PanelByModelView.swift */; };
+		6D753446EBD2D0C4D34CB728 /* PanelUXBehaviorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0ED2530F4E6EEF1D2BC72036 /* PanelUXBehaviorTests.swift */; };
 		6EEA4D7FD3B514CA968C1C84 /* MenuBarPanelController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1FB320EF0F3A7B12DC831BB4 /* MenuBarPanelController.swift */; };
 		6FA702A841904724B81370DC /* CodexReaderAdditionalTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6E340A3729BE52E196FCED49 /* CodexReaderAdditionalTests.swift */; };
 		73045EE128D0F58EE2BA5387 /* SecurityAuditScannerTestSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = A3BCD6B222FAE20E8AD17A13 /* SecurityAuditScannerTestSupport.swift */; };
@@ -104,6 +105,7 @@
 		A6C48427C457CFE820BF1F22 /* SecurityAuditSources.swift in Sources */ = {isa = PBXBuildFile; fileRef = 68C8E69152F69E73C1E2223B /* SecurityAuditSources.swift */; };
 		ACD47B7DF15BF86DE361B181 /* SecurityAuditFileDiscovery.swift in Sources */ = {isa = PBXBuildFile; fileRef = 90462ED4796DF8430B218A31 /* SecurityAuditFileDiscovery.swift */; };
 		AEFCAD47092D4DA5C27342A6 /* libsqlite3.tbd in Frameworks */ = {isa = PBXBuildFile; fileRef = 3BB2D1DD657FD734F8EC731D /* libsqlite3.tbd */; };
+		AF4E8FA1A1E2763EE9CE39E5 /* MenuBarUsageSummaryController.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7D982ED98F3C2AFC2321DD5 /* MenuBarUsageSummaryController.swift */; };
 		B286174B1C53D765BCAB029A /* RemoteSyncSettingsViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5012DD8BF341F42E263305CF /* RemoteSyncSettingsViewModel.swift */; };
 		B428BE62FCAE5AC78BE7F650 /* RemoteUsageMapper.swift in Sources */ = {isa = PBXBuildFile; fileRef = 818F5EF951A97C968090318D /* RemoteUsageMapper.swift */; };
 		B687786320038CE45473AA6C /* RemoteSnapshotModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 91D9A34521436540EE5B9A97 /* RemoteSnapshotModels.swift */; };
@@ -123,6 +125,7 @@
 		CB2B57AF9540E6D529CCFF0F /* PanelSupportViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6C7BC82ACA2362A5775D0BDD /* PanelSupportViews.swift */; };
 		CD348C3A9244BB297C1F7C81 /* SecurityAuditScannerCacheTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9BA9245A62D27EB82C373D8A /* SecurityAuditScannerCacheTests.swift */; };
 		CF177959CFC6AFC2D6B57957 /* UsageProjectTimelineReportTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 249A8147031075DB2B206742 /* UsageProjectTimelineReportTests.swift */; };
+		CFD2917F4D2CE53F9FBAF33D /* PanelDailyTokenChartView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DE2A56D1AEAA751DA34A3B6B /* PanelDailyTokenChartView.swift */; };
 		D06A0207C5CF3AC86FD35F75 /* UsageServiceDateSyncBehaviorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F6554A78E80C72A953671FD9 /* UsageServiceDateSyncBehaviorTests.swift */; };
 		D0BBAEBEBCC89867ABDFC019 /* RemoteSnapshotAnchorStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = F4227D216D8FE12E11E964C4 /* RemoteSnapshotAnchorStore.swift */; };
 		D1865BCE871FEDC1C4E86BFB /* TokenVelocityState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A24B75CC0D3F0E974190D1E /* TokenVelocityState.swift */; };
@@ -172,6 +175,7 @@
 		0B85308CE0483EBF29F028DD /* Security.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Security.framework; path = System/Library/Frameworks/Security.framework; sourceTree = SDKROOT; };
 		0C703C562F5F956BF2CFA97A /* SecurityAuditFindingListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SecurityAuditFindingListView.swift; sourceTree = "<group>"; };
 		0E640BFCC95D2085AA49840F /* rabbit_run_06.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = rabbit_run_06.png; sourceTree = "<group>"; };
+		0ED2530F4E6EEF1D2BC72036 /* PanelUXBehaviorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PanelUXBehaviorTests.swift; sourceTree = "<group>"; };
 		107B89D8C6829F00817A902B /* UsageAggregator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UsageAggregator.swift; sourceTree = "<group>"; };
 		128D492BD818BC76538BE7CA /* rabbit_run_02.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = rabbit_run_02.png; sourceTree = "<group>"; };
 		1956F137B4D8CF68B7086735 /* PanelHeaderView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PanelHeaderView.swift; sourceTree = "<group>"; };
@@ -289,9 +293,11 @@
 		D702F0DFD9821AED06502BFF /* UsageBehaviorTestSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UsageBehaviorTestSupport.swift; sourceTree = "<group>"; };
 		D70C25A2FDAD65D9ACC194CD /* SecurityAuditSQLiteScannerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SecurityAuditSQLiteScannerTests.swift; sourceTree = "<group>"; };
 		D793B660094D95240AF5DD23 /* RemoteUsageReaderFetchReuseTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteUsageReaderFetchReuseTests.swift; sourceTree = "<group>"; };
+		D7D982ED98F3C2AFC2321DD5 /* MenuBarUsageSummaryController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MenuBarUsageSummaryController.swift; sourceTree = "<group>"; };
 		DC2FC35F7A5F73582328D08F /* RemoteUsageReaderCacheTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteUsageReaderCacheTests.swift; sourceTree = "<group>"; };
 		DC7E73CAD1292B704B8F9896 /* TestSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TestSupport.swift; sourceTree = "<group>"; };
 		DD5B0DC4DAC585BF217B4C74 /* RemoteSnapshotCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteSnapshotCache.swift; sourceTree = "<group>"; };
+		DE2A56D1AEAA751DA34A3B6B /* PanelDailyTokenChartView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PanelDailyTokenChartView.swift; sourceTree = "<group>"; };
 		DFA2DBD8FE3B6B7D1F66DEC3 /* RemoteUsageReaderValidationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteUsageReaderValidationTests.swift; sourceTree = "<group>"; };
 		E1DA65F57500D6F6BB7793AD /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		E3B2DEB3544111BFB20E87AA /* PanelSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PanelSettingsView.swift; sourceTree = "<group>"; };
@@ -457,6 +463,7 @@
 				C08F6079C3FC989A7466B6E7 /* MenuBarActivityController.swift */,
 				1FB320EF0F3A7B12DC831BB4 /* MenuBarPanelController.swift */,
 				2A29762983DCCAA8DD498AE0 /* MenuBarStatusItemController.swift */,
+				D7D982ED98F3C2AFC2321DD5 /* MenuBarUsageSummaryController.swift */,
 				B6780BA4E1370D9DC631805A /* TokiApp.swift */,
 			);
 			path = App;
@@ -494,6 +501,7 @@
 			children = (
 				56BCB8B33ABBE36CC5C6008F /* LaunchAtLoginViewModel.swift */,
 				86C783AE85726291211C84FF /* PanelByModelView.swift */,
+				DE2A56D1AEAA751DA34A3B6B /* PanelDailyTokenChartView.swift */,
 				886292F54B9AB2C09482E836 /* PanelDatePickerView.swift */,
 				1956F137B4D8CF68B7086735 /* PanelHeaderView.swift */,
 				CA15B3EFD222050ECA620C03 /* PanelHeroComparisonContent.swift */,
@@ -603,6 +611,7 @@
 				5C9C1A5B27CF3EDA7779FCB1 /* ModelPricingBehaviorTests.swift */,
 				B60EB0929925CB9634708D25 /* OpenClawReaderTests.swift */,
 				3E3CFF960ADBCDC716F649D6 /* PanelHeroComparisonContentTests.swift */,
+				0ED2530F4E6EEF1D2BC72036 /* PanelUXBehaviorTests.swift */,
 				B4C3B0595A6C521B237BC8AE /* ProjectTimelineBreakdownTests.swift */,
 				36330D960147799B00A54231 /* RemotePricingCatalogReviewRegressionTests.swift */,
 				710D8EB8263EC4B8E8E34B63 /* RemotePricingCatalogTests.swift */,
@@ -769,9 +778,11 @@
 				DA4ED77DA328310AEF4E8C9A /* MenuBarActivityController.swift in Sources */,
 				6EEA4D7FD3B514CA968C1C84 /* MenuBarPanelController.swift in Sources */,
 				5DFCC5FAC2D4E5BA818C5BA9 /* MenuBarStatusItemController.swift in Sources */,
+				AF4E8FA1A1E2763EE9CE39E5 /* MenuBarUsageSummaryController.swift in Sources */,
 				85105FACCE20BBA33C54ED26 /* OriginPartitionedTokenReader.swift in Sources */,
 				C81FDB77EFDDB4D8D738F47B /* PairingBundleClipboard.swift in Sources */,
 				6CFA95243695415B46ED9010 /* PanelByModelView.swift in Sources */,
+				CFD2917F4D2CE53F9FBAF33D /* PanelDailyTokenChartView.swift in Sources */,
 				E0476E76B7CEA7BA6DDEAABD /* PanelDatePickerView.swift in Sources */,
 				9A4D33ED42435E4F7C557235 /* PanelHeaderView.swift in Sources */,
 				9DB0EC3623CB46939FD71FA3 /* PanelHeroComparisonContent.swift in Sources */,
@@ -854,6 +865,7 @@
 				473D552178FAD36261BEDE30 /* ModelPricingBehaviorTests.swift in Sources */,
 				9C02E53188EBB7673B1E3539 /* OpenClawReaderTests.swift in Sources */,
 				DC20285289381D0340F0AEEB /* PanelHeroComparisonContentTests.swift in Sources */,
+				6D753446EBD2D0C4D34CB728 /* PanelUXBehaviorTests.swift in Sources */,
 				8918E8E69CD59B38BB1E369C /* ProjectTimelineBreakdownTests.swift in Sources */,
 				4816D8234A1D5A401100A330 /* RemotePricingCatalogReviewRegressionTests.swift in Sources */,
 				F33BD3A41CA4185BA5D78D99 /* RemotePricingCatalogTests.swift in Sources */,

@@ -21,14 +21,43 @@ final class MenuBarStatusItemController {
 
     func setup(target: AnyObject, action: Selector) {
         guard statusItem == nil else { return }
-        let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
+        let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         statusItem = item
         staticIcon = NSImage(named: "MenuBarIcon")
         staticIcon?.isTemplate = true
         item.button?.image = staticIcon
+        item.button?.imagePosition = .imageOnly
         item.button?.action = action
         item.button?.target = target
+        item.button?.sendAction(on: [.leftMouseUp, .rightMouseUp])
+        item.button?.toolTip = "Toki"
         loadRunFrames()
+    }
+
+    /// Renders an optional compact summary (e.g. today's cost) next to the
+    /// icon and refreshes the hover tooltip.
+    func applySummary(title: String?, toolTip: String?) {
+        guard let button else { return }
+        if let title, !title.isEmpty {
+            button.attributedTitle = NSAttributedString(
+                string: " \(title)",
+                attributes: [.font: NSFont.monospacedDigitSystemFont(ofSize: 11, weight: .medium)])
+            button.imagePosition = .imageLeading
+        } else {
+            button.attributedTitle = NSAttributedString(string: "")
+            button.imagePosition = .imageOnly
+        }
+        button.toolTip = toolTip ?? "Toki"
+    }
+
+    /// Presents a context menu anchored to the status item. The menu is
+    /// detached immediately afterwards so plain clicks keep toggling the
+    /// panel.
+    func showContextMenu(_ menu: NSMenu) {
+        guard let statusItem else { return }
+        statusItem.menu = menu
+        statusItem.button?.performClick(nil)
+        statusItem.menu = nil
     }
 
     func applyActivityState(isActive: Bool, tokenVelocity: Double) {
