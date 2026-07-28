@@ -29,6 +29,7 @@ final class UsagePanelSettings: ObservableObject {
             guard storedRefreshIntervalSeconds != normalizedValue else { return }
             storedRefreshIntervalSeconds = normalizedValue
             defaults.set(normalizedValue, forKey: Keys.refreshIntervalSeconds)
+            NotificationCenter.default.post(name: .usagePanelRefreshIntervalDidChange, object: nil)
         }
     }
 
@@ -146,6 +147,10 @@ final class UsagePanelSettings: ObservableObject {
         defaults.bool(forKey: Keys.showsMenuBarCost)
     }
 
+    nonisolated static func currentRefreshIntervalSeconds(defaults: UserDefaults = .standard) -> Int {
+        normalizedRefreshInterval(defaults.integer(forKey: Keys.refreshIntervalSeconds))
+    }
+
     func enabledReaders(from readers: [any TokenReader]) -> [any TokenReader] {
         readers.filter { isReaderEnabled($0.name) }
     }
@@ -153,11 +158,6 @@ final class UsagePanelSettings: ObservableObject {
     func normalizedReaderSettings(for readerNames: [String]) -> [String: Bool] {
         Self.normalizedReaderSettings(enabledReaderNames, readerNames: readerNames)
     }
-}
-
-extension Notification.Name {
-    static let usagePanelModelPricingDidChange =
-        Notification.Name("usagePanelModelPricingDidChange")
 }
 
 private extension UsagePanelSettings {
@@ -169,7 +169,7 @@ private extension UsagePanelSettings {
         static let showsMenuBarCost = "usagePanel.showsMenuBarCost"
     }
 
-    static func normalizedRefreshInterval(_ seconds: Int) -> Int {
+    nonisolated static func normalizedRefreshInterval(_ seconds: Int) -> Int {
         guard refreshIntervalChoices.contains(seconds) else {
             return defaultRefreshIntervalSeconds
         }
@@ -186,4 +186,8 @@ private extension UsagePanelSettings {
 extension Notification.Name {
     static let usagePanelMenuBarCostSettingDidChange =
         Notification.Name("usagePanelMenuBarCostSettingDidChange")
+    static let usagePanelRefreshIntervalDidChange =
+        Notification.Name("usagePanelRefreshIntervalDidChange")
+    static let usagePanelModelPricingDidChange =
+        Notification.Name("usagePanelModelPricingDidChange")
 }

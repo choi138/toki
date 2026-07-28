@@ -60,6 +60,25 @@ final class UsagePanelSettingsTests: XCTestCase {
         XCTAssertEqual(settings.refreshIntervalSeconds, 180)
     }
 
+    func test_refreshIntervalChangePostsNotificationAndUpdatesStaticValue() {
+        let (suiteName, defaults) = makeDefaults()
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        var notificationCount = 0
+        let observer = NotificationCenter.default.addObserver(
+            forName: .usagePanelRefreshIntervalDidChange,
+            object: nil,
+            queue: nil) { _ in
+                notificationCount += 1
+            }
+        defer { NotificationCenter.default.removeObserver(observer) }
+        let settings = UsagePanelSettings(defaults: defaults, readerNames: ["Codex"])
+
+        settings.refreshIntervalSeconds = 60
+
+        XCTAssertEqual(notificationCount, 1)
+        XCTAssertEqual(UsagePanelSettings.currentRefreshIntervalSeconds(defaults: defaults), 60)
+    }
+
     func test_autoPricingSetterRefreshesCatalogAndPostsChangeNotification() async {
         let (suiteName, defaults) = makeDefaults()
         defer { defaults.removePersistentDomain(forName: suiteName) }

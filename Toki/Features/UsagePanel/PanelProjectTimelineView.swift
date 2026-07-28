@@ -18,7 +18,7 @@ struct PanelProjectTimelineView: View {
     }
 
     var body: some View {
-        VStack(spacing: 0) {
+        LazyVStack(spacing: 0) {
             if isLoading {
                 PanelProjectTimelineSummaryView(rows: loadingSummaryRows, isLoading: true)
                 PanelSectionCaption(title: "Top Projects")

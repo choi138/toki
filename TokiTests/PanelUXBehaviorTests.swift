@@ -6,7 +6,8 @@ final class PanelUXBehaviorTests: XCTestCase {
         let summary = MenuBarUsageSummary(
             totalTokens: 1_234_000,
             cost: 4.2,
-            hasUnpricedUsage: false)
+            hasUnpricedUsage: false,
+            hasReaderFailures: false)
 
         XCTAssertEqual(menuBarUsageSummaryTitle(for: summary), 4.2.formattedCost())
         let toolTip = menuBarUsageToolTip(for: summary)
@@ -21,19 +22,32 @@ final class PanelUXBehaviorTests: XCTestCase {
         let summary = MenuBarUsageSummary(
             totalTokens: 1_234_000,
             cost: 4.2,
-            hasUnpricedUsage: true)
+            hasUnpricedUsage: true,
+            hasReaderFailures: false)
 
         XCTAssertEqual(menuBarUsageSummaryTitle(for: summary), "~\(4.2.formattedCost())")
         XCTAssertTrue(menuBarUsageToolTip(for: summary).contains("excludes unpriced usage"))
     }
 
-    func test_menuBarUsageContainsUnpricedModels_ignoresEmptyModels() {
+    func test_menuBarUsageSummary_marksIncompleteCostWhenReadersFail() {
+        let summary = MenuBarUsageSummary(
+            totalTokens: 1_234_000,
+            cost: 4.2,
+            hasUnpricedUsage: false,
+            hasReaderFailures: true)
+
+        XCTAssertEqual(menuBarUsageSummaryTitle(for: summary), "~\(4.2.formattedCost())")
+        XCTAssertTrue(menuBarUsageToolTip(for: summary).contains("excludes data from failed readers"))
+    }
+
+    func test_menuBarUsageContainsUnpricedModels_ignoresEmptyModelsAndDetectsAttributionGaps() {
         let priced = makeModel(id: "priced", totalTokens: 10, isPriceKnown: true)
         let emptyUnpriced = makeModel(id: "empty", totalTokens: 0, isPriceKnown: false)
         let usedUnpriced = makeModel(id: "unpriced", totalTokens: 10, isPriceKnown: false)
 
-        XCTAssertFalse(menuBarUsageContainsUnpricedModels([priced, emptyUnpriced]))
-        XCTAssertTrue(menuBarUsageContainsUnpricedModels([priced, usedUnpriced]))
+        XCTAssertFalse(menuBarUsageContainsUnpricedModels([priced, emptyUnpriced], totalTokens: 10))
+        XCTAssertTrue(menuBarUsageContainsUnpricedModels([priced, usedUnpriced], totalTokens: 20))
+        XCTAssertTrue(menuBarUsageContainsUnpricedModels([priced], totalTokens: 100))
     }
 
     func test_readerFailureNames_returnsOnlyFailedReaders() {
@@ -70,6 +84,27 @@ final class PanelUXBehaviorTests: XCTestCase {
 
         XCTAssertEqual(readerFailureNames(from: statuses), ["Claude Code", "Cursor"])
         XCTAssertEqual(readerFailureNames(from: []), [])
+        XCTAssertTrue(menuBarUsageContainsReaderFailures(statuses))
+        XCTAssertFalse(menuBarUsageContainsReaderFailures(statuses.filter { $0.state != .failed }))
+    }
+
+    func test_menuBarSummaryPresentation_requiresActiveTaskAndEnabledSetting() {
+        XCTAssertTrue(MenuBarUsageSummaryPresentationPolicy.shouldApplySummary(
+            isCancelled: false,
+            isEnabled: true))
+        XCTAssertFalse(MenuBarUsageSummaryPresentationPolicy.shouldApplySummary(
+            isCancelled: true,
+            isEnabled: true))
+        XCTAssertFalse(MenuBarUsageSummaryPresentationPolicy.shouldApplySummary(
+            isCancelled: false,
+            isEnabled: false))
+    }
+
+    func test_modelTokenShareUsesReportTotalAndClampsInvalidValues() {
+        XCTAssertEqual(panelModelTokenShare(modelTokens: 10, reportTotalTokens: 100), 0.1, accuracy: 0.0001)
+        XCTAssertEqual(panelModelTokenShare(modelTokens: 10, reportTotalTokens: 10), 1, accuracy: 0.0001)
+        XCTAssertEqual(panelModelTokenShare(modelTokens: 20, reportTotalTokens: 10), 1, accuracy: 0.0001)
+        XCTAssertEqual(panelModelTokenShare(modelTokens: 10, reportTotalTokens: 0), 0, accuracy: 0.0001)
     }
 
     private func makeModel(id: String, totalTokens: Int, isPriceKnown: Bool) -> ModelStat {
