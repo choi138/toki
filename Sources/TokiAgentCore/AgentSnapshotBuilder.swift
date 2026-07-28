@@ -83,12 +83,14 @@ struct AgentSnapshotBuilder: AgentSnapshotBuilding {
         let readerUsages = try await readUsages(from: coveredFrom, to: coveredTo)
         let identifierHasher = try SnapshotCipher.makeOpaqueIdentifierHasher(
             key: configuration.encryptionKey)
+        let tokenReplacementCoverages = readerUsages.flatMap(\.usage.tokenReplacementCoverages)
 
         let tokenEvents = readerUsages
             .flatMap(\.usage.tokenEvents)
             .filter { event in
                 event.timestamp >= coveredFrom
                     && event.timestamp < coveredTo
+                    && !tokenReplacementCoverages.contains { $0.replaces(event) }
             }
             .compactMap(remoteTokenEvent)
             .sorted(by: tokenEventSort)

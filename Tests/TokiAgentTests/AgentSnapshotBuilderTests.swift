@@ -379,7 +379,7 @@ extension AgentSnapshotBuilderTests {
     }
 }
 
-private struct AgentSnapshotFixture {
+struct AgentSnapshotFixture {
     let root: URL
     let configuration: AgentConfiguration
     let now: Date
@@ -584,7 +584,7 @@ private struct AgentSnapshotFixture {
     }
 }
 
-private struct FixedTokenReader: TokenReader {
+struct FixedTokenReader: TokenReader {
     let name: String
     let usage: RawTokenUsage
 

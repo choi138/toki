@@ -216,6 +216,39 @@ struct HermesUsageLedgerPrivateDocument: Codable, Equatable {
     }
 }
 
+struct HermesUsageLedgerUnboundPrivateDocument: Codable, Equatable {
+    let schemaVersion: Int
+    let accurateSince: Date?
+    var lastSuccessfulObservationAt: Date?
+    var baselines: [String: HermesUsageLedgerPrivateBaseline]
+    var unattributed: [String: HermesUsageLedgerCarryover]
+    var events: [HermesUsageLedgerPrivateEvent]
+
+    func document(identifierKey: String) -> HermesUsageLedgerDocument {
+        HermesUsageLedgerDocument(
+            schemaVersion: schemaVersion,
+            identifierKey: identifierKey,
+            accurateSince: accurateSince,
+            lastSuccessfulObservationAt: lastSuccessfulObservationAt,
+            baselines: baselines.mapValues { $0.baseline },
+            unattributed: unattributed,
+            events: events.map(\.event))
+    }
+}
+
+struct HermesUsageLedgerPrivateBindingProbe: Decodable {
+    let hasKeyFingerprint: Bool
+
+    private enum CodingKeys: String, CodingKey {
+        case keyFingerprint
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        hasKeyFingerprint = container.contains(.keyFingerprint)
+    }
+}
+
 private func hermesUsageLedgerKeyFingerprint(_ key: String) -> String {
     SnapshotCipher.digest("toki.hermes-ledger.identifier-key.v1:\(key)")
 }

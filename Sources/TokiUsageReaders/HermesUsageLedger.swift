@@ -253,32 +253,54 @@ private extension HermesUsageLedger {
         }
         switch schemaVersion {
         case hermesUsageLedgerSchemaVersion:
-            let decoded: HermesUsageLedgerPrivateDocument
-            do {
-                decoded = try JSONDecoder().decode(HermesUsageLedgerPrivateDocument.self, from: data)
-            } catch {
-                throw HermesUsageLedgerError.invalidLedger
+            if try currentLedgerIsUnbound(data) {
+                try migrateAndReload()
+                return
             }
-            let current = try decoded.document(identifierKey: loadIdentifierKey())
-            try validate(current)
-            if automaticallyMigrateLegacy {
-                _ = try HermesUsageLedgerMigrator.migrate(fileURL: fileURL, mode: .apply)
-            }
-            document = current
+            document = try currentDocument(from: data)
         case hermesUsageLedgerPreviousSchemaVersion, hermesUsageLedgerLegacySchemaVersion:
-            guard automaticallyMigrateLegacy else {
-                throw HermesUsageLedgerError.migrationRequired
-            }
-            let result = try legacyMigrationHandler(fileURL, .apply)
-            guard result == .migrated || result == .notRequired else {
-                throw HermesUsageLedgerError.invalidLedger
-            }
-            try loadIfNeeded()
+            try migrateAndReload()
             return
         default:
             throw HermesUsageLedgerError.invalidLedger
         }
         isLoaded = true
+    }
+
+    private func currentLedgerIsUnbound(_ data: Data) throws -> Bool {
+        do {
+            return try !JSONDecoder().decode(
+                HermesUsageLedgerPrivateBindingProbe.self,
+                from: data).hasKeyFingerprint
+        } catch {
+            throw HermesUsageLedgerError.invalidLedger
+        }
+    }
+
+    private func currentDocument(from data: Data) throws -> HermesUsageLedgerDocument {
+        let decoded: HermesUsageLedgerPrivateDocument
+        do {
+            decoded = try JSONDecoder().decode(HermesUsageLedgerPrivateDocument.self, from: data)
+        } catch {
+            throw HermesUsageLedgerError.invalidLedger
+        }
+        let current = try decoded.document(identifierKey: loadIdentifierKey())
+        try validate(current)
+        if automaticallyMigrateLegacy {
+            _ = try HermesUsageLedgerMigrator.migrate(fileURL: fileURL, mode: .apply)
+        }
+        return current
+    }
+
+    private func migrateAndReload() throws {
+        guard automaticallyMigrateLegacy else {
+            throw HermesUsageLedgerError.migrationRequired
+        }
+        let result = try legacyMigrationHandler(fileURL, .apply)
+        guard result == .migrated || result == .notRequired else {
+            throw HermesUsageLedgerError.invalidLedger
+        }
+        try loadIfNeeded()
     }
 
     private func persist(_ candidate: HermesUsageLedgerDocument) throws {

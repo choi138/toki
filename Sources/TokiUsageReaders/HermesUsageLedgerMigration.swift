@@ -48,22 +48,34 @@ public enum HermesUsageLedgerMigrator {
         } catch {
             throw HermesUsageLedgerError.invalidLedger
         }
+        let plannedMigration: Migration
         if schemaVersion == hermesUsageLedgerSchemaVersion {
-            try validateCurrentLedger(source, fileURL: fileURL)
-            if mode == .apply {
-                try removeLegacyArtifacts(
-                    ledgerURL: fileURL,
-                    temporaryURLs: legacyTemporaryURLs)
+            let bindingProbe: HermesUsageLedgerPrivateBindingProbe
+            do {
+                bindingProbe = try JSONDecoder().decode(
+                    HermesUsageLedgerPrivateBindingProbe.self,
+                    from: source)
+            } catch {
+                throw HermesUsageLedgerError.invalidLedger
             }
-            return .notRequired
+            if bindingProbe.hasKeyFingerprint {
+                try validateCurrentLedger(source, fileURL: fileURL)
+                if mode == .apply {
+                    try removeLegacyArtifacts(
+                        ledgerURL: fileURL,
+                        temporaryURLs: legacyTemporaryURLs)
+                }
+                return .notRequired
+            }
+            plannedMigration = try bindCurrentLedger(source, fileURL: fileURL)
+        } else {
+            plannedMigration = try migration(source: source, schemaVersion: schemaVersion)
         }
-
-        let migration = try migration(source: source, schemaVersion: schemaVersion)
         guard mode == .apply else { return .migrationRequired }
 
-        try writeIdentifierKeyIfNeeded(migration.identifierKey, ledgerURL: fileURL)
+        try writeIdentifierKeyIfNeeded(plannedMigration.identifierKey, ledgerURL: fileURL)
         do {
-            try DurableFileIO.writePrivate(migration.ledger, to: fileURL)
+            try DurableFileIO.writePrivate(plannedMigration.ledger, to: fileURL)
         } catch DurableFileIOError.replacementCommittedDirectorySyncFailed {
             throw HermesUsageLedgerError.durabilityNotConfirmed
         } catch {
@@ -80,6 +92,18 @@ private extension HermesUsageLedgerMigrator {
     struct Migration {
         let identifierKey: String
         let ledger: Data
+    }
+
+    static func bindCurrentLedger(_ source: Data, fileURL: URL) throws -> Migration {
+        let unbound: HermesUsageLedgerUnboundPrivateDocument
+        do {
+            unbound = try JSONDecoder().decode(HermesUsageLedgerUnboundPrivateDocument.self, from: source)
+        } catch {
+            throw HermesUsageLedgerError.invalidLedger
+        }
+        let document = try unbound.document(identifierKey: readIdentifierKey(ledgerURL: fileURL))
+        try validate(document)
+        return try migration(document)
     }
 
     static func migration(source: Data, schemaVersion: Int) throws -> Migration {
@@ -107,6 +131,10 @@ private extension HermesUsageLedgerMigrator {
             throw HermesUsageLedgerError.invalidLedger
         }
         try validate(document)
+        return try migration(document)
+    }
+
+    static func migration(_ document: HermesUsageLedgerDocument) throws -> Migration {
         let encoded: Data
         do {
             let encoder = JSONEncoder()

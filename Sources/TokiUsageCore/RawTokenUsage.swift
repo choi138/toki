@@ -143,6 +143,24 @@ public struct TokenUsageEvent: Equatable, Codable {
     }
 }
 
+package struct TokenReplacementCoverage: Equatable {
+    package let coveredFrom: Date
+    package let coveredTo: Date
+    package let sources: Set<String>
+
+    package init(coveredFrom: Date, coveredTo: Date, sources: Set<String>) {
+        self.coveredFrom = coveredFrom
+        self.coveredTo = coveredTo
+        self.sources = sources
+    }
+
+    package func replaces(_ event: TokenUsageEvent) -> Bool {
+        sources.contains(event.source)
+            && event.timestamp >= coveredFrom
+            && event.timestamp < coveredTo
+    }
+}
+
 public struct WorkTimeMetrics: Equatable {
     public var agentSeconds: TimeInterval
     public var mainAgentSeconds: TimeInterval
@@ -222,6 +240,7 @@ public struct RawTokenUsage {
     public var perModelBySource: [ModelSourceUsageKey: PerModelUsage]
     public var activityEvents: [ActivityTimeEvent<String>]
     public var tokenEvents: [TokenUsageEvent]
+    package var tokenReplacementCoverages: [TokenReplacementCoverage]
     public var fallbackActiveSeconds: TimeInterval
     public var fallbackActiveSecondsByModel: [String: TimeInterval]
     public var fallbackWorkTime: WorkTimeMetrics
@@ -256,6 +275,7 @@ public struct RawTokenUsage {
         self.perModelBySource = perModelBySource
         self.activityEvents = activityEvents
         self.tokenEvents = tokenEvents
+        tokenReplacementCoverages = []
         self.fallbackActiveSeconds = fallbackActiveSeconds
         self.fallbackActiveSecondsByModel = fallbackActiveSecondsByModel
         self.fallbackWorkTime = fallbackWorkTime
@@ -369,6 +389,7 @@ public func += (lhs: inout RawTokenUsage, rhs: RawTokenUsage) {
     lhs.activeSeconds += rhs.activeSeconds
     lhs.activityEvents.append(contentsOf: rhs.activityEvents)
     lhs.tokenEvents.append(contentsOf: rhs.tokenEvents)
+    lhs.tokenReplacementCoverages.append(contentsOf: rhs.tokenReplacementCoverages)
     lhs.fallbackActiveSeconds += rhs.fallbackActiveSeconds
 
     if rhs.activityEvents.isEmpty, rhs.activeSeconds > 0 {
