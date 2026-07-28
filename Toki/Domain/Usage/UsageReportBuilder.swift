@@ -22,6 +22,7 @@ enum UsageReportBuilder {
             workTime: usage.resolvedWorkTime,
             perModel: buildModelStats(
                 from: usage,
+                startDate: date,
                 endDate: endDate),
             sourceStats: sourceStats,
             timeBuckets: buildTimeBuckets(

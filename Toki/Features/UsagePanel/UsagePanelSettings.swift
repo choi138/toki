@@ -57,9 +57,18 @@ final class UsagePanelSettings: ObservableObject {
     }
 
     private let defaults: UserDefaults
+    private let refreshPricingCatalog: (Bool) async -> Bool
+    private var pricingCatalogRefreshTask: Task<Void, Never>?
+    private var pricingRefreshGeneration = 0
 
-    init(defaults: UserDefaults = .standard, readerNames: [String] = UsagePanelSettings.defaultReaderNames) {
+    init(
+        defaults: UserDefaults = .standard,
+        readerNames: [String] = UsagePanelSettings.defaultReaderNames,
+        refreshPricingCatalog: @escaping (Bool) async -> Bool = { isEnabled in
+            await RemotePricingCatalogUpdater.shared.refreshIfNeeded(isEnabled: isEnabled)
+        }) {
         self.defaults = defaults
+        self.refreshPricingCatalog = refreshPricingCatalog
 
         let storedInterval = defaults.integer(forKey: Keys.refreshIntervalSeconds)
         storedRefreshIntervalSeconds = Self.normalizedRefreshInterval(storedInterval)
@@ -93,6 +102,22 @@ final class UsagePanelSettings: ObservableObject {
     func setAutoUpdatesModelPricing(_ isEnabled: Bool) {
         guard autoUpdatesModelPricing != isEnabled else { return }
         autoUpdatesModelPricing = isEnabled
+        pricingCatalogRefreshTask?.cancel()
+        pricingRefreshGeneration += 1
+        let generation = pricingRefreshGeneration
+        let refreshPricingCatalog = refreshPricingCatalog
+        pricingCatalogRefreshTask = Task { @MainActor [weak self] in
+            guard !Task.isCancelled else { return }
+            let didChangePricing = await refreshPricingCatalog(isEnabled)
+            guard let self,
+                  !Task.isCancelled,
+                  pricingRefreshGeneration == generation,
+                  autoUpdatesModelPricing == isEnabled else { return }
+            pricingCatalogRefreshTask = nil
+            if didChangePricing {
+                NotificationCenter.default.post(name: .usagePanelModelPricingDidChange, object: nil)
+            }
+        }
     }
 
     /// Reads the persisted flag without requiring a settings instance so the
@@ -109,6 +134,11 @@ final class UsagePanelSettings: ObservableObject {
     func normalizedReaderSettings(for readerNames: [String]) -> [String: Bool] {
         Self.normalizedReaderSettings(enabledReaderNames, readerNames: readerNames)
     }
+}
+
+extension Notification.Name {
+    static let usagePanelModelPricingDidChange =
+        Notification.Name("usagePanelModelPricingDidChange")
 }
 
 private extension UsagePanelSettings {

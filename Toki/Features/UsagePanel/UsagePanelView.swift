@@ -152,6 +152,9 @@ struct UsagePanelView: View {
         .onReceive(viewModel.settings.refreshIntervalPublisher.dropFirst()) { _ in
             startRefreshLoop(refreshImmediately: false)
         }
+        .onReceive(NotificationCenter.default.publisher(for: .usagePanelModelPricingDidChange)) { _ in
+            scheduleSettingsRefresh()
+        }
     }
 
     @ViewBuilder

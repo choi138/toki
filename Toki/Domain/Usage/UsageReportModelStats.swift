@@ -7,6 +7,7 @@ private struct ModelSourceStatAggregate {
     var cost: Double = 0
     var activeSeconds: TimeInterval = 0
     var sources = Set<String>()
+    var isPriceKnown = true
 
     init() {}
 
@@ -20,10 +21,11 @@ private struct ModelSourceStatAggregate {
         }
     }
 
-    mutating func accumulate(_ event: TokenUsageEvent) {
+    mutating func accumulate(_ event: TokenUsageEvent, modelID: String) {
         totalTokens += event.totalTokens
         cost += event.cost
         sources.insert(event.source)
+        isPriceKnown = isPriceKnown && modelPriceLookup(for: modelID, at: event.timestamp).isPriced
     }
 
     var hasReportableData: Bool {
@@ -34,6 +36,7 @@ private struct ModelSourceStatAggregate {
 extension UsageReportBuilder {
     static func buildModelStats(
         from usage: RawTokenUsage,
+        startDate: Date = .distantPast,
         endDate: Date,
         calendar: Calendar = .autoupdatingCurrent) -> [ModelStat] {
         let authoritativeStats = authoritativeModelSourceStats(from: usage)
@@ -61,6 +64,9 @@ extension UsageReportBuilder {
         let sourceCountByModel = Dictionary(
             grouping: reportableAggregates.keys,
             by: \.modelID).mapValues(\.count)
+        let pricingInterval = DateInterval(
+            start: min(startDate, endDate),
+            end: max(startDate, endDate))
 
         return reportableAggregates.map { key, aggregate in
             let sources = aggregate.sources.sorted()
@@ -74,7 +80,11 @@ extension UsageReportBuilder {
                 cost: aggregate.cost,
                 activeSeconds: aggregate.activeSeconds,
                 sources: sources,
-                isPriceKnown: modelPriceLookup(for: key.modelID).isPriced)
+                isPriceKnown: priceIsKnown(
+                    for: key,
+                    aggregate: aggregate,
+                    eventStats: eventStats,
+                    pricingInterval: pricingInterval))
         }
         .sorted(by: modelStatSort)
     }
@@ -119,7 +129,7 @@ extension UsageReportBuilder {
                 continue
             }
             let key = ModelSourceUsageKey(modelID: modelID, source: source)
-            aggregates[key, default: ModelSourceStatAggregate()].accumulate(event)
+            aggregates[key, default: ModelSourceStatAggregate()].accumulate(event, modelID: modelID)
             activityEventsBySource[source, default: []].append(
                 ActivityTimeEvent(
                     streamID: modelSourceStreamID(for: event, calendar: calendar),
@@ -194,6 +204,19 @@ extension UsageReportBuilder {
             return lhs.modelID < rhs.modelID
         }
         return lhs.sources.joined(separator: ",") < rhs.sources.joined(separator: ",")
+    }
+
+    private static func priceIsKnown(
+        for key: ModelSourceUsageKey,
+        aggregate: ModelSourceStatAggregate,
+        eventStats: [ModelSourceUsageKey: ModelSourceStatAggregate],
+        pricingInterval: DateInterval) -> Bool {
+        if let eventStat = eventStats[key],
+           eventStat.totalTokens == aggregate.totalTokens,
+           abs(eventStat.cost - aggregate.cost) < 0.000_000_001 {
+            return eventStat.isPriceKnown
+        }
+        return modelPriceIsKnown(for: key.modelID, throughout: pricingInterval)
     }
 }
 

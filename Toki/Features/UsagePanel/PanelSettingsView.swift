@@ -108,12 +108,7 @@ struct PanelSettingsView: View {
                 "Update model pricing automatically",
                 isOn: Binding(
                     get: { settings.autoUpdatesModelPricing },
-                    set: { isEnabled in
-                        settings.setAutoUpdatesModelPricing(isEnabled)
-                        Task {
-                            await RemotePricingCatalogUpdater.shared.refreshIfNeeded(isEnabled: isEnabled)
-                        }
-                    }))
+                    set: { settings.setAutoUpdatesModelPricing($0) }))
             Text("Downloads public pricing metadata daily. No usage data is sent.")
                 .font(.system(size: 10))
                 .foregroundColor(Color.white.opacity(0.35))
