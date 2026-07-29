@@ -59,6 +59,8 @@ final class MenuBarUsageSummaryController {
     private let refreshIntervalSeconds: () -> Int
     private var loopTask: Task<Void, Never>?
     private var refreshObservers: [NSObjectProtocol] = []
+    private var isStarted = false
+    private var isPanelVisible = false
 
     init(
         statusItemController: MenuBarStatusItemController,
@@ -74,6 +76,8 @@ final class MenuBarUsageSummaryController {
     }
 
     func start() {
+        guard !isStarted else { return }
+        isStarted = true
         restartLoop()
         let notificationNames: [Notification.Name] = [
             .usagePanelMenuBarCostSettingDidChange,
@@ -95,6 +99,7 @@ final class MenuBarUsageSummaryController {
     }
 
     func stop() {
+        isStarted = false
         loopTask?.cancel()
         loopTask = nil
         for observer in refreshObservers {
@@ -103,8 +108,16 @@ final class MenuBarUsageSummaryController {
         refreshObservers.removeAll()
     }
 
+    func setPanelVisible(_ isVisible: Bool) {
+        guard isPanelVisible != isVisible else { return }
+        isPanelVisible = isVisible
+        restartLoop()
+    }
+
     private func restartLoop() {
         loopTask?.cancel()
+        loopTask = nil
+        guard isStarted, !isPanelVisible else { return }
         loopTask = Task { @MainActor [weak self] in
             while !Task.isCancelled {
                 await self?.tick()

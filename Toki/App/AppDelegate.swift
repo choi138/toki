@@ -11,6 +11,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private lazy var panelController = MenuBarPanelController(
         tokenVelocityState: tokenVelocityState) { [weak self] isVisible in
             self?.activityController.setPanelVisible(isVisible)
+            self?.summaryController.setPanelVisible(isVisible)
         }
 
     private lazy var summaryController = MenuBarUsageSummaryController(
@@ -27,9 +28,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        summaryController.stop()
         panelController.stop()
         activityController.stop()
-        summaryController.stop()
         statusItemController.stop()
         pricingCatalogRefreshTask?.cancel()
         pricingCatalogRefreshTask = nil

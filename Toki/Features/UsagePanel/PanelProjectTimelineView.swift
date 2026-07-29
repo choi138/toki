@@ -1,5 +1,13 @@
 import SwiftUI
 
+enum PanelProjectExpansionPolicy {
+    static func shouldShowCollapseControl(
+        isExpanded: Bool,
+        collapsedHiddenProjectCount: Int) -> Bool {
+        isExpanded && collapsedHiddenProjectCount > 0
+    }
+}
+
 struct PanelProjectTimelineView: View {
     private static let visibleSessionLimit = 8
 
@@ -60,7 +68,9 @@ struct PanelProjectTimelineView: View {
                         PanelShowMoreButton(title: "Show \(listBreakdown.hiddenProjectCount) more projects") {
                             isShowingAllProjects = true
                         }
-                    } else if isShowingAllProjects {
+                    } else if PanelProjectExpansionPolicy.shouldShowCollapseControl(
+                        isExpanded: isShowingAllProjects,
+                        collapsedHiddenProjectCount: summaryBreakdown.hiddenProjectCount) {
                         PanelShowMoreButton(title: "Show fewer projects") {
                             isShowingAllProjects = false
                         }

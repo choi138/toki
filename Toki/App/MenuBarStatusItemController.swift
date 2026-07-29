@@ -39,12 +39,12 @@ final class MenuBarStatusItemController {
     func applySummary(title: String?, toolTip: String?) {
         guard let button else { return }
         if let title, !title.isEmpty {
-            button.attributedTitle = NSAttributedString(
-                string: " \(title)",
-                attributes: [.font: NSFont.monospacedDigitSystemFont(ofSize: 11, weight: .medium)])
+            button.title = " \(title)"
+            button.font = NSFont.monospacedDigitSystemFont(ofSize: 11, weight: .medium)
             button.imagePosition = .imageLeading
         } else {
-            button.attributedTitle = NSAttributedString(string: "")
+            button.title = ""
+            button.font = nil
             button.imagePosition = .imageOnly
         }
         button.toolTip = toolTip ?? "Toki"

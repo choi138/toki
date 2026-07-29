@@ -100,6 +100,18 @@ final class PanelUXBehaviorTests: XCTestCase {
             isEnabled: false))
     }
 
+    func test_projectCollapseControl_requiresExpandedHiddenProjects() {
+        XCTAssertTrue(PanelProjectExpansionPolicy.shouldShowCollapseControl(
+            isExpanded: true,
+            collapsedHiddenProjectCount: 3))
+        XCTAssertFalse(PanelProjectExpansionPolicy.shouldShowCollapseControl(
+            isExpanded: true,
+            collapsedHiddenProjectCount: 0))
+        XCTAssertFalse(PanelProjectExpansionPolicy.shouldShowCollapseControl(
+            isExpanded: false,
+            collapsedHiddenProjectCount: 3))
+    }
+
     @MainActor
     func test_menuBarSummaryRestartsAfterReaderSettingsChange() async {
         let notificationCenter = NotificationCenter()
@@ -181,5 +193,44 @@ final class PanelUXBehaviorTests: XCTestCase {
             activeSeconds: 0,
             sources: ["Test"],
             isPriceKnown: isPriceKnown)
+    }
+}
+
+final class MenuBarSummaryPanelVisibilityTests: XCTestCase {
+    @MainActor
+    func test_menuBarSummarySuspendsWhilePanelIsVisibleAndRestartsWhenHidden() async {
+        let firstFetch = expectation(description: "Initial menu bar summary fetch")
+        let firstFetchCancelled = expectation(description: "Panel visibility cancels summary fetch")
+        let replacementFetch = expectation(description: "Panel dismissal restarts summary fetch")
+        var fetchCount = 0
+        let controller = MenuBarUsageSummaryController(
+            statusItemController: MenuBarStatusItemController(),
+            fetchSummary: {
+                fetchCount += 1
+                guard fetchCount == 1 else {
+                    replacementFetch.fulfill()
+                    return nil
+                }
+                firstFetch.fulfill()
+                do {
+                    try await Task.sleep(for: .seconds(3600))
+                } catch {
+                    firstFetchCancelled.fulfill()
+                }
+                return nil
+            },
+            isMenuBarCostEnabled: { true },
+            refreshIntervalSeconds: { 3600 })
+        controller.start()
+        defer { controller.stop() }
+
+        await fulfillment(of: [firstFetch], timeout: 1)
+        controller.setPanelVisible(true)
+        await fulfillment(of: [firstFetchCancelled], timeout: 1)
+        XCTAssertEqual(fetchCount, 1)
+
+        controller.setPanelVisible(false)
+        await fulfillment(of: [replacementFetch], timeout: 1)
+        XCTAssertEqual(fetchCount, 2)
     }
 }
