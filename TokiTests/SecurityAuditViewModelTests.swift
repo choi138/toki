@@ -91,7 +91,7 @@ final class SecurityAuditViewModelTests: XCTestCase {
         let viewModel = SecurityAuditViewModel(scanner: scanner)
 
         viewModel.startScan()
-        await waitUntil { viewModel.isScanning }
+        await waitUntil { scanner.callCount == 1 && viewModel.isScanning }
 
         viewModel.cancelScan()
         viewModel.startScan()
