@@ -9,7 +9,11 @@ struct PanelProjectTimelineView: View {
     @State private var isShowingAllProjects = false
     @State private var isShowingAllSessions = false
 
-    private var breakdown: ProjectTimelineBreakdown {
+    private var summaryBreakdown: ProjectTimelineBreakdown {
+        .derive(from: usage)
+    }
+
+    private var listBreakdown: ProjectTimelineBreakdown {
         .derive(
             from: usage,
             visibleLimit: isShowingAllProjects
@@ -52,8 +56,8 @@ struct PanelProjectTimelineView: View {
                     if let otherProjectsSummary {
                         PanelProjectUsageSummaryRowView(summary: otherProjectsSummary)
                     }
-                    if breakdown.hiddenProjectCount > 0 {
-                        PanelShowMoreButton(title: "Show \(breakdown.hiddenProjectCount) more projects") {
+                    if listBreakdown.hiddenProjectCount > 0 {
+                        PanelShowMoreButton(title: "Show \(listBreakdown.hiddenProjectCount) more projects") {
                             isShowingAllProjects = true
                         }
                     } else if isShowingAllProjects {
@@ -128,7 +132,7 @@ struct PanelProjectTimelineView: View {
     }
 
     private var visibleProjects: [ProjectUsageStat] {
-        breakdown.visibleProjects
+        listBreakdown.visibleProjects
     }
 
     private var visibleSessionCount: Int {
@@ -143,23 +147,23 @@ struct PanelProjectTimelineView: View {
         // Same "attributed" basis as `UsageData.attributedCost`
         // (project rows whose quality is not .unknown), so this token total
         // and the Attributed % below describe the same set of rows.
-        let total = breakdown.visibleProjects.reduce(0) { $0 + $1.totalTokens }
-            + (breakdown.otherProjects?.totalTokens ?? 0)
+        let total = summaryBreakdown.visibleProjects.reduce(0) { $0 + $1.totalTokens }
+            + (summaryBreakdown.otherProjects?.totalTokens ?? 0)
         return total > 0 ? total.formattedTokens() : "-"
     }
 
     private var otherProjectsLabel: String {
-        guard let total = breakdown.otherProjects?.totalTokens else { return "-" }
+        guard let total = summaryBreakdown.otherProjects?.totalTokens else { return "-" }
         return total.formattedTokens()
     }
 
     private var otherProjectsSummary: ProjectUsageSummary? {
-        guard let values = breakdown.otherProjects else { return nil }
+        guard let values = listBreakdown.otherProjects else { return nil }
         return ProjectUsageSummary(from: values, accent: Color.white.opacity(0.5))
     }
 
     private var untrackedUsageSummary: ProjectUsageSummary? {
-        guard let values = breakdown.untrackedUsage else { return nil }
+        guard let values = listBreakdown.untrackedUsage else { return nil }
         return ProjectUsageSummary(from: values, accent: Color.white.opacity(0.35))
     }
 

@@ -45,6 +45,20 @@ final class ProjectTimelineBreakdownTests: XCTestCase {
         XCTAssertNil(breakdown.otherProjects)
     }
 
+    func test_expandedList_keepsFixedSummaryOtherProjectsTotal() throws {
+        let stats = (0..<7).map { makeStat(name: "p\($0)", quality: .exact, tokens: 100, cost: 1.0) }
+        let usage = makeUsage(projectStats: stats, totalTokens: 700, cost: 7.0)
+
+        let summaryBreakdown = ProjectTimelineBreakdown.derive(from: usage)
+        let expandedListBreakdown = ProjectTimelineBreakdown.derive(
+            from: usage,
+            visibleLimit: stats.count)
+
+        XCTAssertEqual(expandedListBreakdown.visibleProjects.count, 7)
+        XCTAssertNil(expandedListBreakdown.otherProjects)
+        XCTAssertEqual(try XCTUnwrap(summaryBreakdown.otherProjects).totalTokens, 300)
+    }
+
     func test_usageBeyondAttributedProjects_surfacesAsUntracked() throws {
         let stats = [makeStat(name: "p0", quality: .exact, tokens: 100, cost: 1.0)]
         let usage = makeUsage(projectStats: stats, totalTokens: 350, cost: 3.5)
