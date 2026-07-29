@@ -10,10 +10,11 @@ Toki is a local-first macOS menu bar app for tracking token usage, cost,
 project attribution, and AI work time across Claude Code, Codex, Hermes,
 Cursor, Gemini CLI, GJC, OpenCode, and OpenClaw.
 
-It reads each tool's local usage store and gives you a single popover for daily
-totals, date ranges, exports, and security checks. Optional end-to-end encrypted
-remote sync can add those same supported local sources from Linux/Ubuntu or
-other macOS computers without giving Toki SSH or filesystem access.
+It reads each tool's local usage store and gives you a six-tab popover for daily
+totals, date ranges, projects, models, sources, work time, hourly usage, exports,
+and security checks. Optional end-to-end encrypted remote sync can add those
+same supported local sources from Linux/Ubuntu or other macOS computers without
+giving Toki SSH or filesystem access.
 
 ---
 
@@ -21,11 +22,11 @@ other macOS computers without giving Toki SSH or filesystem access.
 
 | Overview | Projects | Models |
 | --- | --- | --- |
-| <img src="Screenshots/screenshot_overview.png" width="220" alt="Overview view showing total tokens and period totals" /> | <img src="Screenshots/screenshot_projects.png" width="220" alt="Projects view showing attributed cost and sessions" /> | <img src="Screenshots/screenshot_models.png" width="220" alt="Models view showing token and cost breakdown by model, including GJC" /> |
+| <img src="Screenshots/screenshot_overview.png" width="220" alt="Overview tab showing total tokens and seven-day, thirty-day, and all-time totals" /> | <img src="Screenshots/screenshot_projects.png" width="220" alt="Projects tab showing attribution summary and top project usage" /> | <img src="Screenshots/screenshot_models.png" width="220" alt="Models tab showing token and cost breakdown with relative token-share bars" /> |
 
-| Sources | Time | Hourly |
-| --- | --- | --- |
-| <img src="Screenshots/screenshot_sources.png" width="220" alt="Sources view with CSV and JSON export controls and GJC reader status" /> | <img src="Screenshots/screenshot_time.png" width="220" alt="Time view comparing direct, delegated, wall-clock, and parallel work time" /> | <img src="Screenshots/screenshot_hourly.png" width="220" alt="Hourly view with hourly usage chart and peak hour summary" /> |
+| Sources | Time | Hourly | Settings |
+| --- | --- | --- | --- |
+| <img src="Screenshots/screenshot_sources.png" width="220" alt="Sources tab with CSV and JSON export controls, per-tool usage, and reader status" /> | <img src="Screenshots/screenshot_time.png" width="220" alt="Time tab comparing direct, delegated, wall-clock, and parallel work time" /> | <img src="Screenshots/screenshot_hourly.png" width="220" alt="Hourly tab with usage chart and peak-hour summary" /> | <img src="Screenshots/screenshot_settings.png" width="220" alt="Settings display controls for zero rows, menu bar cost, pricing updates, and launch at login" /> |
 
 ---
 
@@ -33,12 +34,14 @@ other macOS computers without giving Toki SSH or filesystem access.
 
 - **Daily and ranged usage**: total, input, output, cache read/write, reasoning
   tokens, cache hit rate, and estimated cost.
-- **Projects and sessions**: cost and token attribution when logs expose enough
-  project or session context.
+- **Six focused views**: Overview, Projects, Models, Sources, Time, and Hourly
+  stay one click away in the compact tab bar.
+- **Projects and sessions**: cost and token attribution with expandable project
+  and session lists when logs expose enough context.
 - **Models**: per-model token totals, cost estimates, active time, and
-  unpriced/context-only rows.
+  proportional token-share bars, plus unpriced/context-only rows.
 - **Sources**: per-agent totals, reader status diagnostics, and CSV/JSON copy
-  exports.
+  exports. Reader failures also surface as a header badge that opens Sources.
 - **Work time**: direct main-agent time, delegated subagent time, wall-clock
   overlap, stream counts, and parallel multiplier.
 - **Hourly usage**: active hours, peak hour, average active hour, and top-hour
@@ -76,24 +79,35 @@ rotation, and the full threat model.
 
 ## Privacy And Data Notes
 
-- Local readers do not make network requests. Remote sync is disabled until a
-  Hub is explicitly configured.
+- Local usage collection stays on-device. Automatic model-pricing updates
+  (enabled by default) download LiteLLM's public pricing catalog at most once
+  every 24 hours; no usage data is sent. Remote sync remains opt-in.
 - Remote sync uploads only authenticated encrypted usage snapshots; raw logs,
   databases, prompts/responses, paths, and audit findings remain on the source
   computer.
 - Security audit evidence is masked in the UI.
-- Costs are estimates from bundled model pricing. Unknown prices remain visible
-  as unpriced rows instead of being silently folded into totals.
+- Cost estimates prefer curated bundled prices and use downloaded prices only
+  as a fallback for otherwise unknown models.
+- Unknown prices remain visible as unpriced rows instead of being silently
+  folded into totals.
 - Project/session attribution depends on what each agent records locally; rows
   with weaker attribution are marked as inferred or unknown.
 
 ## Controls
 
-- Click the menu bar icon to open the usage popover.
+- Click the menu bar icon to open the usage popover; right-click it for
+  **Open Usage Panel** and **Quit Toki**.
+- Enable `Show today's cost in menu bar` to keep the estimated daily cost beside
+  the icon. Hover it for today's token total and pricing/reader caveats.
+- Switch among Overview, Projects, Models, Sources, Time, and Hourly from the
+  six-tab navigation bar.
 - Use the date picker for a single day or custom date range.
 - Use the shield button to run the local security audit.
+- Use the amber reader-failure badge to jump directly to Sources diagnostics.
 - Use settings to choose a refresh interval, enable or disable readers, show
-  zero-value source rows, and launch Toki at login.
+  zero-value source rows, and launch Toki at login. Keep
+  `Update model pricing automatically` enabled to refresh fallback pricing once
+  per day.
 - Use the Remote Sync settings to connect a Hub, provision/revoke devices, and
   choose each Agent's retention and interval.
 - Use the refresh button for an immediate read; otherwise Toki refreshes on the
