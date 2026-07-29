@@ -454,18 +454,32 @@ private extension HermesUsageLedger {
         previous: HermesUsageLedgerBaseline,
         delta: HermesTokenCounters,
         timestamp: Date) -> Double {
+        if observation.costIsDerivedFromModelPricing {
+            return modelPricedCost(
+                counters: delta,
+                model: observation.model,
+                timestamp: timestamp)
+        }
         if observation.cost >= previous.cost {
             return observation.cost - previous.cost
         }
-        guard let model = observation.model,
-              let price = modelPrice(for: model, at: timestamp) else {
-            return 0
-        }
+        return modelPricedCost(
+            counters: delta,
+            model: observation.model,
+            timestamp: timestamp)
+    }
+
+    private func modelPricedCost(
+        counters: HermesTokenCounters,
+        model: String?,
+        timestamp: Date) -> Double {
+        guard let model,
+              let price = modelPrice(for: model, at: timestamp) else { return 0 }
         return price.cost(
-            input: delta.inputTokens,
-            output: delta.outputTokens + delta.reasoningTokens,
-            cacheRead: delta.cacheReadTokens,
-            cacheWrite: delta.cacheWriteTokens)
+            input: counters.inputTokens,
+            output: counters.outputTokens + counters.reasoningTokens,
+            cacheRead: counters.cacheReadTokens,
+            cacheWrite: counters.cacheWriteTokens)
     }
 
     private func event(

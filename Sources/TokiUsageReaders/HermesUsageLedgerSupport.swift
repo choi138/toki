@@ -19,8 +19,32 @@ struct HermesSessionObservation {
     let model: String?
     let counters: HermesTokenCounters
     let cost: Double
+    let costIsDerivedFromModelPricing: Bool
     let projectName: String?
     let attributionQuality: AttributionQuality
+
+    init(
+        sessionID: String,
+        startedAt: Date,
+        earliestActivityAt: Date?,
+        latestActivityAt: Date?,
+        model: String?,
+        counters: HermesTokenCounters,
+        cost: Double,
+        costIsDerivedFromModelPricing: Bool = false,
+        projectName: String?,
+        attributionQuality: AttributionQuality) {
+        self.sessionID = sessionID
+        self.startedAt = startedAt
+        self.earliestActivityAt = earliestActivityAt
+        self.latestActivityAt = latestActivityAt
+        self.model = model
+        self.counters = counters
+        self.cost = cost
+        self.costIsDerivedFromModelPricing = costIsDerivedFromModelPricing
+        self.projectName = projectName
+        self.attributionQuality = attributionQuality
+    }
 }
 
 struct HermesTokenCounters: Codable, Equatable {

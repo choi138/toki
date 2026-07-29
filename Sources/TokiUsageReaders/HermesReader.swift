@@ -206,7 +206,7 @@ public struct HermesReader: TokenReader {
             }
             // session_model_usage rows carry no event time; fall back to
             // read-time pricing for the rare rows without a reported cost.
-            let cost = hermesUsageCost(
+            let resolvedCost = hermesUsageCost(
                 model: model,
                 counters: counters,
                 estimatedCost: max(0, sqlite3_column_double(statement, 9)),
@@ -216,7 +216,8 @@ public struct HermesReader: TokenReader {
                 HermesSessionModelUsage(
                     model: model,
                     counters: counters,
-                    cost: cost))
+                    cost: resolvedCost.value,
+                    costIsDerivedFromModelPricing: resolvedCost.isDerivedFromModelPricing))
             let hasReportedTokens = counters.inputTokens > 0
                 || counters.outputTokens > 0
                 || counters.cacheReadTokens > 0
@@ -360,6 +361,7 @@ private struct HermesSessionUsageRow {
     let cacheWriteTokens: Int
     let reasoningTokens: Int
     let cost: Double
+    let costIsDerivedFromModelPricing: Bool
     let projectName: String?
     let attributionQuality: AttributionQuality
 
@@ -377,7 +379,7 @@ private struct HermesSessionUsageRow {
 
         let estimatedCost = max(0, sqlite3_column_double(statement, 10))
         let actualCost = max(0, sqlite3_column_double(statement, 11))
-        cost = hermesUsageCost(
+        let resolvedCost = hermesUsageCost(
             model: model,
             counters: HermesTokenCounters(
                 inputTokens: inputTokens,
@@ -388,6 +390,8 @@ private struct HermesSessionUsageRow {
             estimatedCost: estimatedCost,
             actualCost: actualCost,
             timestamp: startedAt)
+        cost = resolvedCost.value
+        costIsDerivedFromModelPricing = resolvedCost.isDerivedFromModelPricing
 
         if sqlite3_column_type(statement, 12) == SQLITE_NULL {
             earliestActivityAt = nil
@@ -420,6 +424,7 @@ private struct HermesSessionUsageRow {
                 cacheWriteTokens: cacheWriteTokens,
                 reasoningTokens: reasoningTokens),
             cost: cost,
+            costIsDerivedFromModelPricing: costIsDerivedFromModelPricing,
             projectName: projectName,
             attributionQuality: attributionQuality)
     }

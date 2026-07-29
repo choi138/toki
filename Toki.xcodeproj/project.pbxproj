@@ -47,6 +47,7 @@
 		425A029E55287884FADADEF6 /* rabbit_run_00.png in Resources */ = {isa = PBXBuildFile; fileRef = 913CCF13950428ECD3F610B8 /* rabbit_run_00.png */; };
 		43110D2C1421F86D10C82DE1 /* rabbit_run_03.png in Resources */ = {isa = PBXBuildFile; fileRef = 3B23FF3ABE5C9B83999FF4FA /* rabbit_run_03.png */; };
 		473D552178FAD36261BEDE30 /* ModelPricingBehaviorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5C9C1A5B27CF3EDA7779FCB1 /* ModelPricingBehaviorTests.swift */; };
+		4816D8234A1D5A401100A330 /* RemotePricingCatalogReviewRegressionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 36330D960147799B00A54231 /* RemotePricingCatalogReviewRegressionTests.swift */; };
 		4B839910E91F0713B625741E /* RemoteSnapshotAnchorStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E6983027F86373FC63DB8EC3 /* RemoteSnapshotAnchorStoreTests.swift */; };
 		4EC51C6946C5CE1E5A83105E /* LaunchAtLoginViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 56BCB8B33ABBE36CC5C6008F /* LaunchAtLoginViewModel.swift */; };
 		4F126E2832914FC8D7CEB111 /* rabbit_run_04.png in Resources */ = {isa = PBXBuildFile; fileRef = 9F0D700BB18FFF007E749E42 /* rabbit_run_04.png */; };
@@ -140,6 +141,7 @@
 		E5F6B418F6066E72F501BA39 /* UsagePanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FAFF55F8B3E56A04BFDB27F6 /* UsagePanelView.swift */; };
 		E5FF669CC57F9472B0ECC364 /* ActivityMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1BA3C46F1641ED01FE347AD /* ActivityMonitor.swift */; };
 		E6BEA6D7A66A6F0F186C7443 /* PanelPalette.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9FEFA10FD73480C5807AA39E /* PanelPalette.swift */; };
+		E71545EEA12908D204F6C4B3 /* HermesPricingRefreshTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2BE1C427456BB8200627AEE4 /* HermesPricingRefreshTests.swift */; };
 		F33BD3A41CA4185BA5D78D99 /* RemotePricingCatalogTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 710D8EB8263EC4B8E8E34B63 /* RemotePricingCatalogTests.swift */; };
 		F3611A5CE3B2AB9CB5ED9354 /* TokiUsageReaders in Frameworks */ = {isa = PBXBuildFile; productRef = F4BE0251B7B4E79530DD4D78 /* TokiUsageReaders */; };
 		F55183F1A32D854F0D81E015 /* SecurityAuditSQLiteIntegrationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7D0D1C68FBAE1FD7A594D933 /* SecurityAuditSQLiteIntegrationTests.swift */; };
@@ -189,7 +191,9 @@
 		2911A1E6546BEA285E0D8956 /* SecurityAuditScannerCancellationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SecurityAuditScannerCancellationTests.swift; sourceTree = "<group>"; };
 		2A29762983DCCAA8DD498AE0 /* MenuBarStatusItemController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MenuBarStatusItemController.swift; sourceTree = "<group>"; };
 		2B2E791E9576F6E07FBEAD30 /* RemoteSyncLifecycleTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteSyncLifecycleTests.swift; sourceTree = "<group>"; };
+		2BE1C427456BB8200627AEE4 /* HermesPricingRefreshTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HermesPricingRefreshTests.swift; sourceTree = "<group>"; };
 		3542FE2DBB444D4843D16F5D /* UsageServiceBehaviorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UsageServiceBehaviorTests.swift; sourceTree = "<group>"; };
+		36330D960147799B00A54231 /* RemotePricingCatalogReviewRegressionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemotePricingCatalogReviewRegressionTests.swift; sourceTree = "<group>"; };
 		397C529D1EF35B7EF722A1AD /* MenuBarPanelEventPolicyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MenuBarPanelEventPolicyTests.swift; sourceTree = "<group>"; };
 		3B23FF3ABE5C9B83999FF4FA /* rabbit_run_03.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = rabbit_run_03.png; sourceTree = "<group>"; };
 		3BB2D1DD657FD734F8EC731D /* libsqlite3.tbd */ = {isa = PBXFileReference; lastKnownFileType = "sourcecode.text-based-dylib-definition"; name = libsqlite3.tbd; path = usr/lib/libsqlite3.tbd; sourceTree = SDKROOT; };
@@ -589,6 +593,7 @@
 				A4692734D41D5DC621C0BF7F /* CodexReaderTestSupport.swift */,
 				A2648C9A747404CF8E5E81E0 /* CursorReaderTests.swift */,
 				62EA09E68E4376A474428CB6 /* GJCReaderTests.swift */,
+				2BE1C427456BB8200627AEE4 /* HermesPricingRefreshTests.swift */,
 				69D48CA6EC643C2709E6D33B /* HermesReaderTests.swift */,
 				49A389CCF7078D7AC751E73B /* HermesUsageLedgerTests.swift */,
 				521CF88CBD64339B062AD498 /* LaunchAtLoginViewModelTests.swift */,
@@ -599,6 +604,7 @@
 				B60EB0929925CB9634708D25 /* OpenClawReaderTests.swift */,
 				3E3CFF960ADBCDC716F649D6 /* PanelHeroComparisonContentTests.swift */,
 				B4C3B0595A6C521B237BC8AE /* ProjectTimelineBreakdownTests.swift */,
+				36330D960147799B00A54231 /* RemotePricingCatalogReviewRegressionTests.swift */,
 				710D8EB8263EC4B8E8E34B63 /* RemotePricingCatalogTests.swift */,
 				E6983027F86373FC63DB8EC3 /* RemoteSnapshotAnchorStoreTests.swift */,
 				20A4CB8DBC72401651CB6784 /* RemoteSnapshotCacheTests.swift */,
@@ -838,6 +844,7 @@
 				B8FE2901E73920CC3A9075BE /* CodexReaderTests.swift in Sources */,
 				0F7159AD505B6504367C7BAE /* CursorReaderTests.swift in Sources */,
 				BBBA1E0981491A3D5D6000B8 /* GJCReaderTests.swift in Sources */,
+				E71545EEA12908D204F6C4B3 /* HermesPricingRefreshTests.swift in Sources */,
 				7DC42416F57E69C032FD29A9 /* HermesReaderTests.swift in Sources */,
 				3104187E8985A798DED36814 /* HermesUsageLedgerTests.swift in Sources */,
 				73930074EEEE14894A8E5002 /* LaunchAtLoginViewModelTests.swift in Sources */,
@@ -848,6 +855,7 @@
 				9C02E53188EBB7673B1E3539 /* OpenClawReaderTests.swift in Sources */,
 				DC20285289381D0340F0AEEB /* PanelHeroComparisonContentTests.swift in Sources */,
 				8918E8E69CD59B38BB1E369C /* ProjectTimelineBreakdownTests.swift in Sources */,
+				4816D8234A1D5A401100A330 /* RemotePricingCatalogReviewRegressionTests.swift in Sources */,
 				F33BD3A41CA4185BA5D78D99 /* RemotePricingCatalogTests.swift in Sources */,
 				4B839910E91F0713B625741E /* RemoteSnapshotAnchorStoreTests.swift in Sources */,
 				A03917A29FCFD41ED70C5776 /* RemoteSnapshotCacheTests.swift in Sources */,

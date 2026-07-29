@@ -1,3 +1,4 @@
+import CoreFoundation
 import Foundation
 import TokiUsageReaders
 
@@ -64,6 +65,19 @@ struct RemotePricingCatalogSnapshot: Codable, Equatable {
                 PriceVersion(effectiveFrom: fetchedAt, price: prices[modelID]))
         }
         return RemotePricingCatalogSnapshot(fetchedAt: fetchedAt, priceHistories: updatedHistories)
+    }
+
+    func recoveringFutureDatedHistory(
+        fetchedAt: Date,
+        prices: [String: Entry]) -> RemotePricingCatalogSnapshot {
+        let retainedHistories = priceHistories.compactMapValues { versions in
+            let retained = versions.filter { $0.effectiveFrom <= fetchedAt }
+            return retained.isEmpty ? nil : retained
+        }
+        return RemotePricingCatalogSnapshot(
+            fetchedAt: fetchedAt,
+            priceHistories: retainedHistories)
+            .updating(fetchedAt: fetchedAt, prices: prices)
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -238,9 +252,12 @@ enum RemotePricingCatalogParser {
     }
 
     private static func validPerTokenCost(_ rawValue: Any?) -> Double? {
-        guard let value = rawValue as? Double,
-              value.isFinite,
-              value >= 0 else { return nil }
+        guard let number = rawValue as? NSNumber,
+              CFGetTypeID(number) != CFBooleanGetTypeID() else { return nil }
+        let value = number.doubleValue
+        guard
+            value.isFinite,
+            value >= 0 else { return nil }
         return value
     }
 
@@ -388,13 +405,22 @@ actor RemotePricingCatalogUpdater {
         var didChangePricing = false
 
         let cached = store.load()
-        if !hasInstalledCachedCatalog, let cached {
+        let currentDate = now()
+        let cacheAge = cached.map { currentDate.timeIntervalSince($0.fetchedAt) }
+        let isFutureDatedCache = cacheAge.map { $0 < 0 } ?? false
+        if isFutureDatedCache {
+            if hasInstalledCachedCatalog || ModelPricingSupplement.installedCount > 0 {
+                ModelPricingSupplement.install([:])
+                didChangePricing = true
+            }
+            hasInstalledCachedCatalog = false
+        } else if !hasInstalledCachedCatalog, let cached {
             ModelPricingSupplement.install(priceHistories: cached.modelPriceHistories)
             hasInstalledCachedCatalog = true
             didChangePricing = true
         }
 
-        let isCacheFresh = cached.map { now().timeIntervalSince($0.fetchedAt) < Self.refreshInterval } ?? false
+        let isCacheFresh = cacheAge.map { $0 >= 0 && $0 < Self.refreshInterval } ?? false
         guard !isCacheFresh else { return didChangePricing }
 
         guard let data = try? await fetch(Self.catalogURL) else { return didChangePricing }
@@ -403,10 +429,16 @@ actor RemotePricingCatalogUpdater {
         guard !prices.isEmpty else { return didChangePricing }
 
         let fetchedAt = now()
-        let snapshot = cached?.updating(fetchedAt: fetchedAt, prices: prices)
-            ?? RemotePricingCatalogSnapshot(fetchedAt: fetchedAt, prices: prices)
+        let snapshot: RemotePricingCatalogSnapshot = if let cached, isFutureDatedCache {
+            cached.recoveringFutureDatedHistory(
+                fetchedAt: fetchedAt,
+                prices: prices)
+        } else {
+            cached?.updating(fetchedAt: fetchedAt, prices: prices)
+                ?? RemotePricingCatalogSnapshot(fetchedAt: fetchedAt, prices: prices)
+        }
         store.save(snapshot)
-        if cached?.prices != prices || !hasInstalledCachedCatalog {
+        if isFutureDatedCache || cached?.prices != prices || !hasInstalledCachedCatalog {
             ModelPricingSupplement.install(priceHistories: snapshot.modelPriceHistories)
             hasInstalledCachedCatalog = true
             didChangePricing = true
