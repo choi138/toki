@@ -80,6 +80,7 @@ final class MenuBarUsageSummaryController {
             .usagePanelReaderSettingsDidChange,
             .usagePanelRefreshIntervalDidChange,
             .usagePanelModelPricingDidChange,
+            .usagePanelRemoteSyncDidChange,
         ]
         refreshObservers = notificationNames.map { name in
             notificationCenter.addObserver(

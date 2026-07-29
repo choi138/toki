@@ -130,6 +130,42 @@ final class PanelUXBehaviorTests: XCTestCase {
         XCTAssertEqual(fetchCount, 2)
     }
 
+    @MainActor
+    func test_menuBarSummaryCancelsAndRestartsAfterRemoteSyncChange() async {
+        let notificationCenter = NotificationCenter()
+        let firstFetch = expectation(description: "Initial menu bar summary fetch")
+        let firstFetchCancelled = expectation(description: "Initial fetch cancelled")
+        let replacementFetch = expectation(description: "Remote sync replacement fetch")
+        var fetchCount = 0
+        let controller = MenuBarUsageSummaryController(
+            statusItemController: MenuBarStatusItemController(),
+            fetchSummary: {
+                fetchCount += 1
+                guard fetchCount == 1 else {
+                    replacementFetch.fulfill()
+                    return nil
+                }
+                firstFetch.fulfill()
+                do {
+                    try await Task.sleep(for: .seconds(3600))
+                } catch {
+                    firstFetchCancelled.fulfill()
+                }
+                return nil
+            },
+            notificationCenter: notificationCenter,
+            isMenuBarCostEnabled: { true },
+            refreshIntervalSeconds: { 3600 })
+        controller.start()
+        defer { controller.stop() }
+
+        await fulfillment(of: [firstFetch], timeout: 1)
+        notificationCenter.post(name: .usagePanelRemoteSyncDidChange, object: nil)
+        await fulfillment(of: [firstFetchCancelled, replacementFetch], timeout: 1)
+
+        XCTAssertEqual(fetchCount, 2)
+    }
+
     func test_modelTokenShareUsesReportTotalAndClampsInvalidValues() {
         XCTAssertEqual(panelModelTokenShare(modelTokens: 10, reportTotalTokens: 100), 0.1, accuracy: 0.0001)
         XCTAssertEqual(panelModelTokenShare(modelTokens: 10, reportTotalTokens: 10), 1, accuracy: 0.0001)

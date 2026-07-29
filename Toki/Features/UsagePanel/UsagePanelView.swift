@@ -236,6 +236,7 @@ struct UsagePanelView: View {
     }
 
     private func handleRemoteSyncChange() {
+        NotificationCenter.default.post(name: .usagePanelRemoteSyncDidChange, object: nil)
         Task { await viewModel.refreshAfterRemoteSyncChange() }
     }
 

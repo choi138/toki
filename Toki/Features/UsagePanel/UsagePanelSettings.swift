@@ -193,4 +193,6 @@ extension Notification.Name {
         Notification.Name("usagePanelRefreshIntervalDidChange")
     static let usagePanelModelPricingDidChange =
         Notification.Name("usagePanelModelPricingDidChange")
+    static let usagePanelRemoteSyncDidChange =
+        Notification.Name("usagePanelRemoteSyncDidChange")
 }
