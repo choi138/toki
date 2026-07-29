@@ -542,7 +542,7 @@ private func createMixedCostHermesPricingDatabase(
         ])
 }
 
-private func removeHermesCostBreakdownFromBaselines(at ledgerURL: URL) throws {
+func removeHermesCostBreakdownFromBaselines(at ledgerURL: URL) throws {
     guard var document = try JSONSerialization.jsonObject(
         with: Data(contentsOf: ledgerURL)) as? [String: Any],
         var baselines = document["baselines"] as? [String: Any],
