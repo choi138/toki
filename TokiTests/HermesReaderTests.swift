@@ -834,6 +834,43 @@ func updateHermesSession(
     }
 }
 
+func updateHermesSessionReportedUsage(
+    databaseURL: URL,
+    id: String,
+    inputTokens: Int,
+    estimatedCost: Double,
+    actualCost: Double) throws {
+    var database: OpaquePointer?
+    guard sqlite3_open(databaseURL.path, &database) == SQLITE_OK, let database else {
+        throw NSError(domain: "HermesReaderTests", code: 23)
+    }
+    defer { sqlite3_close(database) }
+
+    var statement: OpaquePointer?
+    guard sqlite3_prepare_v2(
+        database,
+        """
+        UPDATE sessions
+        SET input_tokens = ?, estimated_cost_usd = ?, actual_cost_usd = ?
+        WHERE id = ?
+        """,
+        -1,
+        &statement,
+        nil) == SQLITE_OK, let statement else {
+        throw NSError(domain: "HermesReaderTests", code: 24)
+    }
+    defer { sqlite3_finalize(statement) }
+
+    guard sqlite3_bind_int64(statement, 1, Int64(inputTokens)) == SQLITE_OK,
+          sqlite3_bind_double(statement, 2, estimatedCost) == SQLITE_OK,
+          sqlite3_bind_double(statement, 3, actualCost) == SQLITE_OK,
+          sqlite3_bind_text(statement, 4, id, -1, hermesTestSQLiteTransient) == SQLITE_OK,
+          sqlite3_step(statement) == SQLITE_DONE,
+          sqlite3_changes(database) == 1 else {
+        throw NSError(domain: "HermesReaderTests", code: 25)
+    }
+}
+
 func insertHermesMessage(
     databaseURL: URL,
     sessionID: String,
