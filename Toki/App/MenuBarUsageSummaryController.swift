@@ -117,7 +117,12 @@ final class MenuBarUsageSummaryController {
     private func restartLoop() {
         loopTask?.cancel()
         loopTask = nil
-        guard isStarted, !isPanelVisible else { return }
+        guard isStarted else { return }
+        guard isMenuBarCostEnabled() else {
+            statusItemController.applySummary(title: nil, toolTip: nil)
+            return
+        }
+        guard !isPanelVisible else { return }
         loopTask = Task { @MainActor [weak self] in
             while !Task.isCancelled {
                 await self?.tick()

@@ -1,5 +1,10 @@
+import AppKit
 import XCTest
 @testable import Toki
+
+private final class StatusItemActionTarget: NSObject {
+    @objc func performAction(_: Any?) {}
+}
 
 final class PanelUXBehaviorTests: XCTestCase {
     func test_menuBarUsageSummary_formatsTitleAndToolTip() {
@@ -232,5 +237,47 @@ final class MenuBarSummaryPanelVisibilityTests: XCTestCase {
         controller.setPanelVisible(false)
         await fulfillment(of: [replacementFetch], timeout: 1)
         XCTAssertEqual(fetchCount, 2)
+    }
+
+    @MainActor
+    func test_menuBarSummaryClearsDisabledCostWhilePanelIsVisible() async {
+        let notificationCenter = NotificationCenter()
+        let statusItemController = MenuBarStatusItemController()
+        let actionTarget = StatusItemActionTarget()
+        statusItemController.setup(
+            target: actionTarget,
+            action: #selector(StatusItemActionTarget.performAction(_:)))
+        defer {
+            if let statusItem = statusItemController.statusItem {
+                NSStatusBar.system.removeStatusItem(statusItem)
+            }
+        }
+        statusItemController.applySummary(title: "$4.20", toolTip: "Current cost")
+
+        let disabledSettingRead = expectation(description: "Disabled menu bar setting read")
+        var isMenuBarCostEnabled = true
+        let controller = MenuBarUsageSummaryController(
+            statusItemController: statusItemController,
+            fetchSummary: { nil },
+            notificationCenter: notificationCenter,
+            isMenuBarCostEnabled: {
+                if !isMenuBarCostEnabled {
+                    disabledSettingRead.fulfill()
+                }
+                return isMenuBarCostEnabled
+            },
+            refreshIntervalSeconds: { 3600 })
+        controller.start()
+        defer { controller.stop() }
+
+        controller.setPanelVisible(true)
+        XCTAssertEqual(statusItemController.button?.title, " $4.20")
+
+        isMenuBarCostEnabled = false
+        notificationCenter.post(name: .usagePanelMenuBarCostSettingDidChange, object: nil)
+        await fulfillment(of: [disabledSettingRead], timeout: 1)
+
+        XCTAssertEqual(statusItemController.button?.title, "")
+        XCTAssertEqual(statusItemController.button?.toolTip, "Toki")
     }
 }
