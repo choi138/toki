@@ -156,6 +156,7 @@ private func boundLedgerData(
         model: "gpt-test",
         counters: counters,
         cost: 0.25,
+        modelPricingCounters: nil,
         projectName: nil,
         attributionQuality: .exact)
     let event = HermesUsageLedgerEvent(
