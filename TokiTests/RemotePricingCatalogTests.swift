@@ -130,6 +130,24 @@ final class RemotePricingCatalogTests: RemotePricingCatalogTestCase {
         XCTAssertEqual(providerQualified.inputPerMillion, 9.0, accuracy: 0.0001)
     }
 
+    func test_parser_preservesNestedModelIDWhenDerivingProviderAlias() {
+        let fixture = """
+        {
+            "provider/org/nested-model": {
+                "input_cost_per_token": 0.000003,
+                "output_cost_per_token": 0.000012,
+                "mode": "chat"
+            }
+        }
+        """
+
+        let prices = RemotePricingCatalogParser.parse(Data(fixture.utf8))
+
+        XCTAssertEqual(Set(prices.keys), ["provider/org/nested-model", "org/nested-model"])
+        XCTAssertNil(prices["nested-model"])
+        XCTAssertEqual(prices["provider/org/nested-model"], prices["org/nested-model"])
+    }
+
     func test_parser_omitsAmbiguousAliasesButPreservesCanonicalKeys() throws {
         let fixture = """
         {

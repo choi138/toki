@@ -195,8 +195,8 @@ enum RemotePricingCatalogParser {
                   let entry = entry(from: rawEntry) else { continue }
 
             canonicalPrices[key] = entry
-            if let bareKey = bareModelKey(from: key) {
-                registerAlias(bareKey, canonicalKey: key, entry: entry)
+            if let providerStrippedKey = providerStrippedModelKey(from: key) {
+                registerAlias(providerStrippedKey, canonicalKey: key, entry: entry)
             }
             for case let alias as String in rawEntry["aliases"] as? [Any] ?? [] {
                 registerAlias(alias, canonicalKey: key, entry: entry)
@@ -254,10 +254,12 @@ enum RemotePricingCatalogParser {
         return value.isFinite ? value : nil
     }
 
-    private static func bareModelKey(from key: String) -> String? {
-        guard key.contains("/") else { return nil }
-        let suffix = key.split(separator: "/").last.map(String.init) ?? ""
-        return suffix.isEmpty ? nil : suffix
+    private static func providerStrippedModelKey(from key: String) -> String? {
+        guard let separator = key.firstIndex(of: "/"),
+              separator != key.startIndex else { return nil }
+        let modelIDStart = key.index(after: separator)
+        guard modelIDStart != key.endIndex else { return nil }
+        return String(key[modelIDStart...])
     }
 }
 
