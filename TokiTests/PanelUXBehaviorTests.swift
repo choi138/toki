@@ -100,6 +100,36 @@ final class PanelUXBehaviorTests: XCTestCase {
             isEnabled: false))
     }
 
+    @MainActor
+    func test_menuBarSummaryRestartsAfterReaderSettingsChange() async {
+        let notificationCenter = NotificationCenter()
+        let firstFetch = expectation(description: "Initial menu bar summary fetch")
+        let secondFetch = expectation(description: "Reader change menu bar summary fetch")
+        var fetchCount = 0
+        let controller = MenuBarUsageSummaryController(
+            statusItemController: MenuBarStatusItemController(),
+            fetchSummary: {
+                fetchCount += 1
+                if fetchCount == 1 {
+                    firstFetch.fulfill()
+                } else if fetchCount == 2 {
+                    secondFetch.fulfill()
+                }
+                return nil
+            },
+            notificationCenter: notificationCenter,
+            isMenuBarCostEnabled: { true },
+            refreshIntervalSeconds: { 3600 })
+        controller.start()
+        defer { controller.stop() }
+
+        await fulfillment(of: [firstFetch], timeout: 1)
+        notificationCenter.post(name: .usagePanelReaderSettingsDidChange, object: nil)
+        await fulfillment(of: [secondFetch], timeout: 1)
+
+        XCTAssertEqual(fetchCount, 2)
+    }
+
     func test_modelTokenShareUsesReportTotalAndClampsInvalidValues() {
         XCTAssertEqual(panelModelTokenShare(modelTokens: 10, reportTotalTokens: 100), 0.1, accuracy: 0.0001)
         XCTAssertEqual(panelModelTokenShare(modelTokens: 10, reportTotalTokens: 10), 1, accuracy: 0.0001)

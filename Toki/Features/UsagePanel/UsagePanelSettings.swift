@@ -100,6 +100,7 @@ final class UsagePanelSettings: ObservableObject {
     func setReader(_ name: String, isEnabled: Bool) {
         guard enabledReaderNames[name] != isEnabled else { return }
         enabledReaderNames[name] = isEnabled
+        NotificationCenter.default.post(name: .usagePanelReaderSettingsDidChange, object: nil)
     }
 
     func setShowsZeroSourceRows(_ isEnabled: Bool) {
@@ -186,6 +187,8 @@ private extension UsagePanelSettings {
 extension Notification.Name {
     static let usagePanelMenuBarCostSettingDidChange =
         Notification.Name("usagePanelMenuBarCostSettingDidChange")
+    static let usagePanelReaderSettingsDidChange =
+        Notification.Name("usagePanelReaderSettingsDidChange")
     static let usagePanelRefreshIntervalDidChange =
         Notification.Name("usagePanelRefreshIntervalDidChange")
     static let usagePanelModelPricingDidChange =
