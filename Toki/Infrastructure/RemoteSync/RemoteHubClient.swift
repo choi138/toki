@@ -270,7 +270,7 @@ struct RemoteResponseAccumulator {
     }
 }
 
-private final class RemoteBoundedResponseLoader: NSObject, URLSessionDataDelegate, @unchecked Sendable {
+final class RemoteBoundedResponseLoader: NSObject, URLSessionDataDelegate, @unchecked Sendable {
     private typealias ResponseContinuation = CheckedContinuation<RemoteBoundedHTTPResponse, Error>
 
     private let sessionConfiguration: URLSessionConfiguration

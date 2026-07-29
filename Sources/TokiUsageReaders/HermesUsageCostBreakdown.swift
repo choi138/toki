@@ -74,7 +74,6 @@ func hermesIncrementalCost(
                 return cost.isFinite ? cost : nil
             }
             guard reportedCost == 0,
-                  previousReportedCost == 0,
                   observation.costIsDerivedFromModelPricing,
                   observation.model != nil else {
                 return nil

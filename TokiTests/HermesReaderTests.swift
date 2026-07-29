@@ -394,6 +394,76 @@ final class HermesReaderTests: XCTestCase {
     }
 }
 
+extension HermesReaderTests {
+    func test_hermesReader_pricesTokenDeltaWhenReportedCostSwitchesToDerivedPricing() async throws {
+        let tempDir = try makeHermesTemporaryDirectory()
+        defer {
+            ModelPricingSupplement.install([:])
+            try? FileManager.default.removeItem(at: tempDir)
+        }
+        let model = "reported-to-derived-hermes-model"
+        let price = ModelPrice(
+            inputPerMillion: 10,
+            outputPerMillion: 10,
+            cacheReadPerMillion: 10,
+            cacheWritePerMillion: 10)
+        ModelPricingSupplement.install([model: price])
+
+        let dbURL = tempDir.appendingPathComponent("state.db")
+        let ledgerURL = tempDir.appendingPathComponent("hermes-usage-ledger.json")
+        try createHermesStateDB(
+            at: dbURL,
+            rows: [
+                HermesSessionFixture(
+                    id: "reported-to-derived-session",
+                    startedAt: "2026-04-09T08:00:00Z",
+                    model: model,
+                    inputTokens: 100,
+                    outputTokens: 0,
+                    cacheReadTokens: 0,
+                    cacheWriteTokens: 0,
+                    reasoningTokens: 0,
+                    cwd: nil,
+                    gitRepoRoot: nil,
+                    estimatedCost: 1,
+                    actualCost: nil),
+            ])
+        let initialLedger = HermesUsageLedger(fileURL: ledgerURL)
+        try await initialLedger.refresh(
+            observations: [],
+            observedAt: tokiTestISODate("2026-04-09T09:00:00Z"))
+        let initialUsage = try await HermesReader(
+            dbPathOverride: dbURL.path,
+            usageLedger: initialLedger,
+            now: { tokiTestISODate("2026-04-09T10:00:00Z") })
+            .readUsage(
+                from: tokiTestISODate("2026-04-09T00:00:00Z"),
+                to: tokiTestISODate("2026-04-10T00:00:00Z"))
+        XCTAssertEqual(initialUsage.totalTokens, 0)
+
+        try updateHermesSessionReportedUsage(
+            databaseURL: dbURL,
+            id: "reported-to-derived-session",
+            inputTokens: 160,
+            estimatedCost: 0,
+            actualCost: 0)
+        let increment = try await HermesReader(
+            dbPathOverride: dbURL.path,
+            usageLedger: HermesUsageLedger(fileURL: ledgerURL),
+            now: { tokiTestISODate("2026-04-10T10:00:00Z") })
+            .readUsage(
+                from: tokiTestISODate("2026-04-10T00:00:00Z"),
+                to: tokiTestISODate("2026-04-11T00:00:00Z"))
+
+        XCTAssertEqual(increment.inputTokens, 60)
+        XCTAssertEqual(increment.totalTokens, 60)
+        XCTAssertEqual(
+            increment.cost,
+            price.cost(input: 60, output: 0, cacheRead: 0, cacheWrite: 0),
+            accuracy: 0.000001)
+    }
+}
+
 private func hermesUsageFixtureRows() -> [HermesSessionFixture] {
     [
         HermesSessionFixture(

@@ -191,6 +191,10 @@ enum RemotePricingCatalogParser {
             return [:]
         }
 
+        let reservedCanonicalKeys = Set(root.keys.compactMap { rawKey -> String? in
+            let key = rawKey.trimmingCharacters(in: .whitespacesAndNewlines)
+            return key.isEmpty ? nil : key
+        })
         var canonicalPrices: [String: RemotePricingCatalogSnapshot.Entry] = [:]
         var aliasCandidates: [String: RemotePricingCatalogSnapshot.Entry] = [:]
         var ambiguousAliases = Set<String>()
@@ -202,7 +206,7 @@ enum RemotePricingCatalogParser {
             canonicalKey: String,
             entry: RemotePricingCatalogSnapshot.Entry) {
             let alias = rawAlias.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !alias.isEmpty else { return }
+            guard !alias.isEmpty, !reservedCanonicalKeys.contains(alias) else { return }
             if let existingOwner = aliasOwners[alias], existingOwner != canonicalKey {
                 ambiguousAliases.insert(alias)
             } else {
@@ -212,17 +216,17 @@ enum RemotePricingCatalogParser {
         }
 
         for key in root.keys.sorted() {
-            let isSpecDocumentation = key == "sample_spec"
-            if isSpecDocumentation { continue }
+            let canonicalKey = key.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !canonicalKey.isEmpty, canonicalKey != "sample_spec" else { continue }
             guard let rawEntry = root[key] as? [String: Any],
                   let entry = entry(from: rawEntry) else { continue }
 
-            canonicalPrices[key] = entry
-            if let providerStrippedKey = providerStrippedModelKey(from: key) {
-                registerAlias(providerStrippedKey, canonicalKey: key, entry: entry)
+            canonicalPrices[canonicalKey] = entry
+            if let providerStrippedKey = providerStrippedModelKey(from: canonicalKey) {
+                registerAlias(providerStrippedKey, canonicalKey: canonicalKey, entry: entry)
             }
             for case let alias as String in rawEntry["aliases"] as? [Any] ?? [] {
-                registerAlias(alias, canonicalKey: key, entry: entry)
+                registerAlias(alias, canonicalKey: canonicalKey, entry: entry)
             }
         }
 
@@ -316,15 +320,21 @@ struct RemotePricingCatalogStore {
         return try? decoder.decode(RemotePricingCatalogSnapshot.self, from: data)
     }
 
-    func save(_ snapshot: RemotePricingCatalogSnapshot) {
+    @discardableResult
+    func save(_ snapshot: RemotePricingCatalogSnapshot) -> Bool {
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
         encoder.outputFormatting = [.sortedKeys]
-        guard let data = try? encoder.encode(snapshot) else { return }
-        try? fileManager.createDirectory(
-            at: fileURL.deletingLastPathComponent(),
-            withIntermediateDirectories: true)
-        try? data.write(to: fileURL, options: .atomic)
+        do {
+            let data = try encoder.encode(snapshot)
+            try fileManager.createDirectory(
+                at: fileURL.deletingLastPathComponent(),
+                withIntermediateDirectories: true)
+            try data.write(to: fileURL, options: .atomic)
+            return true
+        } catch {
+            return false
+        }
     }
 
     static func defaultCatalogURL(fileManager: FileManager = .default) -> URL {
@@ -348,6 +358,7 @@ actor RemotePricingCatalogUpdater {
     static let catalogURL = URL(
         string: "https://raw.githubusercontent.com/BerriAI/litellm/main/model_prices_and_context_window.json")!
     static let refreshInterval: TimeInterval = 24 * 60 * 60
+    static let maximumResponseBytes = 8 * 1024 * 1024
 
     private let store: RemotePricingCatalogStore
     private let fetch: (URL) async throws -> Data
@@ -356,16 +367,28 @@ actor RemotePricingCatalogUpdater {
     private var isCatalogEnabled = false
     private var isRefreshing = false
     private var refreshGeneration = 0
+    private var lastSuccessfulFetchAt: Date?
     private var refreshCompletionWaiters: [CheckedContinuation<Void, Never>] = []
 
     init(
         store: RemotePricingCatalogStore = RemotePricingCatalogStore(),
+        sessionConfiguration: URLSessionConfiguration = .ephemeral,
+        maximumResponseBytes: Int = RemotePricingCatalogUpdater.maximumResponseBytes,
         fetch: ((URL) async throws -> Data)? = nil,
         now: @escaping () -> Date = Date.init) {
+        precondition(maximumResponseBytes > 0)
         self.store = store
         self.fetch = fetch ?? { url in
-            let (data, _) = try await URLSession.shared.data(from: url)
-            return data
+            var request = URLRequest(url: url)
+            request.setValue("application/json", forHTTPHeaderField: "Accept")
+            request.cachePolicy = .reloadIgnoringLocalCacheData
+            let loader = RemoteBoundedResponseLoader(
+                expectedURL: url,
+                maximumBytes: maximumResponseBytes,
+                allowedStatusCodes: [200],
+                emptyBodyStatusCodes: [],
+                sessionConfiguration: sessionConfiguration)
+            return try await loader.load(request).data
         }
         self.now = now
     }
@@ -382,6 +405,7 @@ actor RemotePricingCatalogUpdater {
         guard isEnabled else {
             let didClearPricing = ModelPricingSupplement.installedCount > 0
             hasInstalledCachedCatalog = false
+            lastSuccessfulFetchAt = nil
             ModelPricingSupplement.install([:])
             return didClearPricing
         }
@@ -437,12 +461,19 @@ actor RemotePricingCatalogUpdater {
         }
 
         let isCacheFresh = cacheAge.map { $0 >= 0 && $0 < Self.refreshInterval } ?? false
-        guard !isCacheFresh else { return didChangePricing }
+        let memoryFetchAge = lastSuccessfulFetchAt.map { currentDate.timeIntervalSince($0) }
+        let isMemoryFetchFresh = memoryFetchAge.map { $0 >= 0 && $0 < Self.refreshInterval } ?? false
+        guard !isCacheFresh, !isMemoryFetchFresh else { return didChangePricing }
 
         guard let data = try? await fetch(Self.catalogURL) else { return didChangePricing }
         guard isCatalogEnabled, refreshGeneration == generation else { return didChangePricing }
         let prices = RemotePricingCatalogParser.parse(data)
         guard !prices.isEmpty else { return didChangePricing }
+        if let cached,
+           !isFutureDatedCache,
+           prices.count * 2 < cached.prices.count {
+            return didChangePricing
+        }
 
         let fetchedAt = now()
         let snapshot: RemotePricingCatalogSnapshot = if let cached, isFutureDatedCache {
@@ -453,7 +484,8 @@ actor RemotePricingCatalogUpdater {
             cached?.updating(fetchedAt: fetchedAt, prices: prices)
                 ?? RemotePricingCatalogSnapshot(fetchedAt: fetchedAt, prices: prices)
         }
-        store.save(snapshot)
+        let didPersistSnapshot = store.save(snapshot)
+        lastSuccessfulFetchAt = didPersistSnapshot ? nil : fetchedAt
         if isFutureDatedCache || cached?.prices != prices || !hasInstalledCachedCatalog {
             ModelPricingSupplement.install(priceHistories: snapshot.modelPriceHistories)
             hasInstalledCachedCatalog = true
