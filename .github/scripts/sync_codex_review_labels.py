@@ -30,9 +30,19 @@ CODEX_CLEAN_RE = re.compile(
 )
 CODEX_FINDING_RE = re.compile(r"(?:\bP[0-3]\s+Badge\b|badge/P[0-3]-|(?m:(?:^|\n)\s*(?:\*\*)?(?:\[P[0-3]\]|P[0-3]\b)))")
 SUCCESS_CHECK_STATES = {"SUCCESS", "NEUTRAL", "SKIPPED"}
-FAIL_CHECK_STATES = {"ACTION_REQUIRED", "CANCELLED", "ERROR", "FAILURE", "STALE", "TIMED_OUT"}
-PENDING_CHECK_STATES = {"EXPECTED", "IN_PROGRESS", "PENDING", "QUEUED", "REQUESTED", "WAITING"}
-UNMERGEABLE_STATES = {"DIRTY", "BLOCKED"}
+FAIL_CHECK_STATES = {"CANCELLED", "ERROR", "FAILURE", "STALE", "TIMED_OUT"}
+# Fork workflows awaiting maintainer approval remain pending. This automation
+# observes that gate but never approves untrusted workflow runs.
+PENDING_CHECK_STATES = {
+    "ACTION_REQUIRED",
+    "EXPECTED",
+    "IN_PROGRESS",
+    "PENDING",
+    "QUEUED",
+    "REQUESTED",
+    "WAITING",
+}
+UNMERGEABLE_STATES = {"DIRTY", "BLOCKED", "DRAFT"}
 TOKI_REQUIRED_CHECKS = frozenset(
     {
         "Build",
@@ -100,6 +110,7 @@ query($owner: String!, $name: String!, $number: Int!, $before: String) {
           }
           ... on PullRequestReview {
             databaseId
+            state
             author {
               login
             }
@@ -174,7 +185,6 @@ class SyncDecision:
     checks_state: str
     merge_state: str
     trigger_codex_review: bool
-    approve_workflow_run_ids: tuple[int, ...]
 
 
 def run_gh(args: list[str], *, input_json: Any | None = None, timeout_seconds: int = 30) -> Any:
@@ -294,6 +304,13 @@ def review_node_commit_oid(node: dict[str, Any]) -> str | None:
 def review_node_database_id(node: dict[str, Any]) -> int | None:
     value = node.get("databaseId")
     return value if isinstance(value, int) else None
+
+
+def is_dismissed_review(node: dict[str, Any]) -> bool:
+    return (
+        node.get("__typename") == "PullRequestReview"
+        and str(node.get("state") or "").upper() == "DISMISSED"
+    )
 
 
 def node_body(node: dict[str, Any]) -> str:
@@ -485,7 +502,11 @@ def merge_review_comment_nodes(
         review_id = review_node_database_id(node)
         if review_id is None:
             continue
-        for comment in comments_by_review_id.get(review_id, []):
+        review_comments = comments_by_review_id.get(review_id, [])
+        if is_dismissed_review(node):
+            placed_ids.update(id(comment) for comment in review_comments)
+            continue
+        for comment in review_comments:
             merged.append(comment)
             placed_ids.add(id(comment))
 
@@ -538,6 +559,8 @@ def find_current_head_codex_review_state(
             continue
 
         if node.get("__typename") == "PullRequestReview":
+            if is_dismissed_review(node):
+                continue
             body = node_body(node)
             commit_oid = review_node_commit_oid(node)
             if commit_oid != head_sha and not body_mentions_head(body, head_sha):
@@ -593,7 +616,9 @@ def has_codex_news_after_current_head(
             head_index = index
 
     if head_index is None:
-        return False
+        # Without a current-head anchor, absence of Codex activity cannot be
+        # proven. Fail closed so scheduled runs cannot repeatedly post reviews.
+        return True
 
     for node in timeline_nodes[head_index + 1 :]:
         if is_codex_review_request_comment(node):
@@ -601,6 +626,8 @@ def has_codex_news_after_current_head(
         if not is_timeline_codex_author(node, allowed_authors):
             continue
         if node.get("__typename") == "PullRequestReview":
+            if is_dismissed_review(node):
+                continue
             body = node_body(node)
             commit_oid = review_node_commit_oid(node)
             if commit_oid != head_sha and not body_mentions_head(body, head_sha):
@@ -852,20 +879,6 @@ def pr_merge_state(repo: str, number: int) -> str:
     return merge_state or "UNKNOWN"
 
 
-def workflow_runs_requiring_approval(repo: str, head_sha: str) -> tuple[int, ...]:
-    runs = paged_api(f"/repos/{repo}/actions/runs?event=pull_request&head_sha={head_sha}")
-    run_ids: list[int] = []
-    for run in runs:
-        status = str(run.get("status") or "").lower()
-        conclusion = str(run.get("conclusion") or "").lower()
-        run_id = run.get("id")
-        if not isinstance(run_id, int):
-            continue
-        if status == "action_required" or conclusion == "action_required":
-            run_ids.append(run_id)
-    return tuple(run_ids)
-
-
 def unresolved_codex_finding_thread_urls(
     repo: str,
     number: int,
@@ -1081,10 +1094,10 @@ def decide_pr(
     if not ignore_checks and checks_state != "success":
         wants_ok_label = False
         reason_parts.append(f"checks are {checks_state}")
-    if not ignore_checks and merge_state in UNMERGEABLE_STATES | {"CONFLICTING"}:
+    if merge_state in UNMERGEABLE_STATES | {"CONFLICTING"}:
         wants_ok_label = False
         reason_parts.append(f"merge state is {merge_state.lower()}")
-    if not ignore_checks and merge_state == "UNKNOWN" and not has_ok_label:
+    if merge_state == "UNKNOWN" and not has_ok_label:
         wants_ok_label = False
         reason_parts.append("merge state is still unknown")
 
@@ -1097,19 +1110,6 @@ def decide_pr(
     )
     if trigger_codex_review:
         reason_parts.append("current-head CI is green and no Codex news exists after head")
-
-    approve_workflow_run_ids: tuple[int, ...] = ()
-    if (
-        review_state == "clean"
-        and not unresolved_finding_urls
-        and merge_state not in UNMERGEABLE_STATES | {"CONFLICTING"}
-        and merge_state != "UNKNOWN"
-    ):
-        approve_workflow_run_ids = workflow_runs_requiring_approval(repo, head_sha)
-        if approve_workflow_run_ids:
-            reason_parts.append(
-                "workflow runs need approval: " + ",".join(str(run_id) for run_id in approve_workflow_run_ids)
-            )
 
     if wants_ok_label and not has_ok_label:
         ok_action = "add"
@@ -1145,7 +1145,6 @@ def decide_pr(
         checks_state=checks_state,
         merge_state=merge_state,
         trigger_codex_review=trigger_codex_review,
-        approve_workflow_run_ids=approve_workflow_run_ids,
     )
 
 
@@ -1231,24 +1230,6 @@ def trigger_codex_review(
     return (warning,) if warning else ()
 
 
-def approve_workflow_runs(
-    decision: SyncDecision,
-    *,
-    tolerate_permission_errors: bool = False,
-) -> tuple[str, ...]:
-    warnings: list[str] = []
-    for run_id in decision.approve_workflow_run_ids:
-        warning = gh_api_write(
-            f"/repos/{decision.repo}/actions/runs/{run_id}/approve",
-            method="POST",
-            tolerate_permission_errors=tolerate_permission_errors,
-            action=f"approve workflow run {run_id} for {decision.repo}#{decision.number}",
-        )
-        if warning:
-            warnings.append(warning)
-    return tuple(warnings)
-
-
 def parse_args(argv: list[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=("Idempotently sync GitHub Codex review labels based on current-head Codex review state.")
@@ -1261,14 +1242,6 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
         "--no-trigger-missing-codex",
         action="store_true",
         help="Do not post @codex review when current-head CI is green and Codex has no current-head news.",
-    )
-    parser.add_argument(
-        "--no-approve-workflow-runs",
-        action="store_true",
-        help=(
-            "Do not approve action_required fork workflow runs after a current-head "
-            "clean Codex review on a mergeable PR."
-        ),
     )
     parser.add_argument(
         "--codex-review-command",
@@ -1285,7 +1258,7 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
         action="store_true",
         help=(
             "Log and continue when GitHub returns Resource not accessible by integration "
-            "for label/comment/approval writes. Read/classification errors still fail."
+            "for label/comment writes. Read/classification errors still fail."
         ),
     )
     parser.add_argument(
@@ -1337,8 +1310,11 @@ def main(argv: list[str] | None = None) -> int:
             print(f"warning: {warning}", file=sys.stderr, flush=True)
         numbers = list_open_pr_numbers(repo) if args.all_open else list(args.pr or [])
         if not numbers:
-            print(f"{repo}: no PRs selected; pass --pr or --all-open", file=sys.stderr)
-            had_error = True
+            if args.all_open:
+                print(f"{repo}: no open PRs; nothing to sync", flush=True)
+            else:
+                print(f"{repo}: no PRs selected; pass --pr or --all-open", file=sys.stderr)
+                had_error = True
             continue
 
         classified_count = 0
@@ -1371,13 +1347,6 @@ def main(argv: list[str] | None = None) -> int:
                             tolerate_permission_errors=args.tolerate_write_permission_errors,
                         )
                     )
-                    if decision.approve_workflow_run_ids and not args.no_approve_workflow_runs:
-                        accumulated_warnings.extend(
-                            approve_workflow_runs(
-                                decision,
-                                tolerate_permission_errors=args.tolerate_write_permission_errors,
-                            )
-                        )
                     if decision.trigger_codex_review and not args.no_trigger_missing_codex:
                         accumulated_warnings.extend(
                             trigger_codex_review(
@@ -1396,7 +1365,6 @@ def main(argv: list[str] | None = None) -> int:
                     f"needs_work={decision.has_needs_work_label}->{decision.wants_needs_work_label}/"
                     f"{decision.needs_work_action} "
                     f"legacy={','.join(sorted(decision.legacy_labels)) or '-'} "
-                    f"approve_runs={','.join(str(run_id) for run_id in decision.approve_workflow_run_ids) or '-'} "
                     f"trigger_codex={decision.trigger_codex_review and not args.no_trigger_missing_codex} "
                     f"reason={decision.reason}",
                     flush=True,
