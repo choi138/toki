@@ -176,6 +176,15 @@ private extension RemotePricingCatalogSnapshot.Entry {
 /// (`model_prices_and_context_window.json`) into per-million-token prices.
 enum RemotePricingCatalogParser {
     private static let allowedModes: Set = ["chat", "responses", "completion"]
+    // One dollar per token is already far beyond public catalog rates and
+    // keeps every supported token-count multiplication finite.
+    private static let maximumPerTokenCost = 1.0
+    private static let unsupportedTieredRatePrefixes = [
+        "input_cost_per_token_above_",
+        "output_cost_per_token_above_",
+        "cache_read_input_token_cost_above_",
+        "cache_creation_input_token_cost_above_",
+    ]
 
     static func parse(_ data: Data) -> [String: RemotePricingCatalogSnapshot.Entry] {
         guard let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
@@ -229,6 +238,7 @@ enum RemotePricingCatalogParser {
     private static func entry(from rawEntry: [String: Any]) -> RemotePricingCatalogSnapshot.Entry? {
         let mode = rawEntry["mode"] as? String ?? ""
         guard allowedModes.contains(mode),
+              !hasUnsupportedTieredRates(rawEntry),
               let inputPerToken = validPerTokenCost(rawEntry["input_cost_per_token"]),
               let outputPerToken = validPerTokenCost(rawEntry["output_cost_per_token"]),
               let cacheReadPerToken = validOptionalPerTokenCost(
@@ -257,7 +267,7 @@ enum RemotePricingCatalogParser {
         let value = number.doubleValue
         guard
             value.isFinite,
-            value >= 0 else { return nil }
+            (0...maximumPerTokenCost).contains(value) else { return nil }
         return value
     }
 
@@ -269,6 +279,12 @@ enum RemotePricingCatalogParser {
     private static func perMillionCost(_ perTokenCost: Double) -> Double? {
         let value = perTokenCost * 1_000_000
         return value.isFinite ? value : nil
+    }
+
+    private static func hasUnsupportedTieredRates(_ rawEntry: [String: Any]) -> Bool {
+        rawEntry.keys.contains { key in
+            unsupportedTieredRatePrefixes.contains { key.hasPrefix($0) }
+        }
     }
 
     private static func providerStrippedModelKey(from key: String) -> String? {

@@ -21,6 +21,12 @@ struct HermesResolvedUsageCost {
     let isDerivedFromModelPricing: Bool
 }
 
+private struct HermesResolvedSessionCost {
+    let value: Double
+    let isDerivedFromModelPricing: Bool
+    let modelPricingCounters: [String: HermesTokenCounters]?
+}
+
 enum HermesUsageResolver {
     static func resolve(
         session: HermesSessionObservation,
@@ -28,6 +34,7 @@ enum HermesUsageResolver {
         var modelCounters = HermesTokenCounters.zero
         var modelCost = 0.0
         var modelCostIsDerivedFromModelPricing = true
+        var modelPricingCounters: [String: HermesTokenCounters] = [:]
         var models: Set<String> = []
 
         for usage in modelUsage {
@@ -43,6 +50,13 @@ enum HermesUsageResolver {
             modelCostIsDerivedFromModelPricing =
                 modelCostIsDerivedFromModelPricing && usage.costIsDerivedFromModelPricing
             if usage.counters.totalTokens > 0, let model = usage.model {
+                let existingCounters = modelPricingCounters[model] ?? .zero
+                guard existingCounters.canAdd(
+                    usage.counters,
+                    maximum: hermesLedgerMaximumCumulativeTokens) else {
+                    throw HermesUsageLedgerError.invalidObservation
+                }
+                modelPricingCounters[model] = existingCounters.adding(usage.counters)
                 models.insert(model)
             }
         }
@@ -51,19 +65,12 @@ enum HermesUsageResolver {
             models.insert(model)
         }
         let resolvedModel = models.count == 1 ? models.first : (models.isEmpty ? session.model : nil)
-        let resolvedCost: Double
-        let costIsDerivedFromModelPricing: Bool
-        if modelUsage.isEmpty || session.cost > modelCost {
-            resolvedCost = session.cost
-            costIsDerivedFromModelPricing = session.costIsDerivedFromModelPricing
-        } else if modelCost > session.cost {
-            resolvedCost = modelCost
-            costIsDerivedFromModelPricing = modelCostIsDerivedFromModelPricing
-        } else {
-            resolvedCost = session.cost
-            costIsDerivedFromModelPricing =
-                session.costIsDerivedFromModelPricing && modelCostIsDerivedFromModelPricing
-        }
+        let resolvedCost = resolveCost(
+            session: session,
+            hasModelUsage: !modelUsage.isEmpty,
+            modelCost: modelCost,
+            modelCostIsDerivedFromModelPricing: modelCostIsDerivedFromModelPricing,
+            modelPricingCounters: modelPricingCounters.isEmpty ? nil : modelPricingCounters)
 
         return HermesSessionObservation(
             sessionID: session.sessionID,
@@ -72,10 +79,52 @@ enum HermesUsageResolver {
             latestActivityAt: session.latestActivityAt,
             model: resolvedModel,
             counters: session.counters.maximum(modelCounters),
-            cost: resolvedCost,
-            costIsDerivedFromModelPricing: costIsDerivedFromModelPricing,
+            cost: resolvedCost.value,
+            costIsDerivedFromModelPricing: resolvedCost.isDerivedFromModelPricing,
+            modelPricingCounters: resolvedCost.modelPricingCounters,
             projectName: session.projectName,
             attributionQuality: session.attributionQuality)
+    }
+
+    private static func resolveCost(
+        session: HermesSessionObservation,
+        hasModelUsage: Bool,
+        modelCost: Double,
+        modelCostIsDerivedFromModelPricing: Bool,
+        modelPricingCounters: [String: HermesTokenCounters]?) -> HermesResolvedSessionCost {
+        let sessionPricingCounters = session.costIsDerivedFromModelPricing
+            ? pricingCounters(model: session.model, counters: session.counters)
+            : nil
+        if !hasModelUsage || session.cost > modelCost {
+            return HermesResolvedSessionCost(
+                value: session.cost,
+                isDerivedFromModelPricing: session.costIsDerivedFromModelPricing,
+                modelPricingCounters: sessionPricingCounters)
+        }
+        if modelCost > session.cost {
+            return HermesResolvedSessionCost(
+                value: modelCost,
+                isDerivedFromModelPricing: modelCostIsDerivedFromModelPricing,
+                modelPricingCounters: modelCostIsDerivedFromModelPricing
+                    ? modelPricingCounters
+                    : nil)
+        }
+
+        let isDerivedFromModelPricing =
+            session.costIsDerivedFromModelPricing && modelCostIsDerivedFromModelPricing
+        return HermesResolvedSessionCost(
+            value: session.cost,
+            isDerivedFromModelPricing: isDerivedFromModelPricing,
+            modelPricingCounters: isDerivedFromModelPricing
+                ? modelPricingCounters ?? sessionPricingCounters
+                : nil)
+    }
+
+    private static func pricingCounters(
+        model: String?,
+        counters: HermesTokenCounters) -> [String: HermesTokenCounters]? {
+        guard let model, counters.totalTokens > 0 else { return nil }
+        return [model: counters]
     }
 }
 

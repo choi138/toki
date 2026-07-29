@@ -405,6 +405,7 @@ private extension HermesUsageLedger {
             model: observation.model,
             counters: observation.counters,
             cost: observation.cost,
+            modelPricingCounters: observation.modelPricingCounters,
             projectName: observation.projectName,
             attributionQuality: observation.attributionQuality)
     }
@@ -455,7 +456,14 @@ private extension HermesUsageLedger {
         delta: HermesTokenCounters,
         timestamp: Date) -> Double {
         if observation.costIsDerivedFromModelPricing {
-            return modelPricedCost(
+            if let detailedCost = hermesModelPricedDeltaCost(
+                current: observation.modelPricingCounters,
+                previous: previous.modelPricingCounters,
+                maximumDelta: delta,
+                timestamp: timestamp) {
+                return detailedCost
+            }
+            return hermesModelPricedCost(
                 counters: delta,
                 model: observation.model,
                 timestamp: timestamp)
@@ -463,23 +471,10 @@ private extension HermesUsageLedger {
         if observation.cost >= previous.cost {
             return observation.cost - previous.cost
         }
-        return modelPricedCost(
+        return hermesModelPricedCost(
             counters: delta,
             model: observation.model,
             timestamp: timestamp)
-    }
-
-    private func modelPricedCost(
-        counters: HermesTokenCounters,
-        model: String?,
-        timestamp: Date) -> Double {
-        guard let model,
-              let price = modelPrice(for: model, at: timestamp) else { return 0 }
-        return price.cost(
-            input: counters.inputTokens,
-            output: counters.outputTokens + counters.reasoningTokens,
-            cacheRead: counters.cacheReadTokens,
-            cacheWrite: counters.cacheWriteTokens)
     }
 
     private func event(
@@ -568,6 +563,11 @@ private extension HermesUsageLedger {
               observation.counters.isValid(),
               observation.cost.isFinite,
               observation.cost >= 0,
+              observation.modelPricingCounters == nil
+              || observation.costIsDerivedFromModelPricing,
+              hermesModelPricingCountersAreValid(
+                  observation.modelPricingCounters,
+                  within: observation.counters),
               observation.model?.utf8.count ?? 0 <= 512,
               observation.projectName?.utf8.count ?? 0 <= 512 else {
             throw HermesUsageLedgerError.invalidObservation

@@ -43,6 +43,82 @@ final class RemotePricingCatalogBooleanTests: RemotePricingCatalogTestCase {
     }
 }
 
+final class RemotePricingCatalogCostSafetyTests: RemotePricingCatalogTestCase {
+    func test_parser_rejectsRatesThatCanOverflowLaterCostMultiplication() throws {
+        let fixture = """
+        {
+            "valid-model": {
+                "input_cost_per_token": 0.000001,
+                "output_cost_per_token": 0.000002,
+                "mode": "chat"
+            },
+            "maximum-model": {
+                "input_cost_per_token": 1,
+                "output_cost_per_token": 1,
+                "mode": "chat"
+            },
+            "excessive-model": {
+                "input_cost_per_token": 1e300,
+                "output_cost_per_token": 0.000002,
+                "mode": "chat"
+            }
+        }
+        """
+
+        let prices = RemotePricingCatalogParser.parse(Data(fixture.utf8))
+
+        XCTAssertEqual(Set(prices.keys), ["maximum-model", "valid-model"])
+        let maximum = try XCTUnwrap(prices["maximum-model"])
+        let cost = ModelPrice(
+            inputPerMillion: maximum.inputPerMillion,
+            outputPerMillion: maximum.outputPerMillion,
+            cacheReadPerMillion: maximum.cacheReadPerMillion,
+            cacheWritePerMillion: maximum.cacheWritePerMillion)
+            .cost(input: 1000, output: 1000, cacheRead: 1000, cacheWrite: 1000)
+        XCTAssertTrue(cost.isFinite)
+    }
+
+    func test_parser_rejectsContextTieredTokenRates() {
+        let fixture = """
+        {
+            "valid-model": {
+                "input_cost_per_token": 0.000001,
+                "output_cost_per_token": 0.000002,
+                "mode": "chat"
+            },
+            "tiered-input": {
+                "input_cost_per_token": 0.000001,
+                "input_cost_per_token_above_128k_tokens": 0.000002,
+                "output_cost_per_token": 0.000002,
+                "mode": "chat"
+            },
+            "tiered-output": {
+                "input_cost_per_token": 0.000001,
+                "output_cost_per_token": 0.000002,
+                "output_cost_per_token_above_272k_tokens": 0.000004,
+                "mode": "responses"
+            },
+            "tiered-cache-read": {
+                "input_cost_per_token": 0.000001,
+                "output_cost_per_token": 0.000002,
+                "cache_read_input_token_cost_above_200k_tokens": 0.0000002,
+                "mode": "chat"
+            },
+            "tiered-cache-write": {
+                "input_cost_per_token": 0.000001,
+                "output_cost_per_token": 0.000002,
+                "cache_creation_input_token_cost_above_512k_tokens": 0.000003,
+                "mode": "completion"
+            }
+        }
+        """
+
+        let prices = RemotePricingCatalogParser.parse(Data(fixture.utf8))
+
+        XCTAssertEqual(Set(prices.keys), ["valid-model"])
+    }
+}
+
 final class RemotePricingCatalogFutureCacheTests: RemotePricingCatalogTestCase {
     func test_updater_refetchesAndRebasesFutureDatedCache() async throws {
         let fixture = try temporaryCatalogURL()

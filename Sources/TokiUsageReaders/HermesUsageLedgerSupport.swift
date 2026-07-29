@@ -20,6 +20,7 @@ struct HermesSessionObservation {
     let counters: HermesTokenCounters
     let cost: Double
     let costIsDerivedFromModelPricing: Bool
+    let modelPricingCounters: [String: HermesTokenCounters]?
     let projectName: String?
     let attributionQuality: AttributionQuality
 
@@ -32,6 +33,7 @@ struct HermesSessionObservation {
         counters: HermesTokenCounters,
         cost: Double,
         costIsDerivedFromModelPricing: Bool = false,
+        modelPricingCounters: [String: HermesTokenCounters]? = nil,
         projectName: String?,
         attributionQuality: AttributionQuality) {
         self.sessionID = sessionID
@@ -42,6 +44,7 @@ struct HermesSessionObservation {
         self.counters = counters
         self.cost = cost
         self.costIsDerivedFromModelPricing = costIsDerivedFromModelPricing
+        self.modelPricingCounters = modelPricingCounters
         self.projectName = projectName
         self.attributionQuality = attributionQuality
     }
@@ -143,6 +146,70 @@ struct HermesTokenCounters: Codable, Equatable {
         }
         return chunks
     }
+}
+
+func hermesModelPricingCountersAreValid(
+    _ modelPricingCounters: [String: HermesTokenCounters]?,
+    within totalCounters: HermesTokenCounters) -> Bool {
+    guard let modelPricingCounters else { return true }
+
+    var combinedCounters = HermesTokenCounters.zero
+    for (model, counters) in modelPricingCounters {
+        guard !model.isEmpty,
+              model.utf8.count <= 512,
+              counters.isValid(),
+              combinedCounters.canAdd(
+                  counters,
+                  maximum: hermesLedgerMaximumCumulativeTokens) else {
+            return false
+        }
+        combinedCounters = combinedCounters.adding(counters)
+    }
+    return !totalCounters.hasDecrease(comparedTo: combinedCounters)
+}
+
+func hermesModelPricedCost(
+    counters: HermesTokenCounters,
+    model: String?,
+    timestamp: Date) -> Double {
+    guard let model,
+          let price = modelPrice(for: model, at: timestamp) else { return 0 }
+    return price.cost(
+        input: counters.inputTokens,
+        output: counters.outputTokens + counters.reasoningTokens,
+        cacheRead: counters.cacheReadTokens,
+        cacheWrite: counters.cacheWriteTokens)
+}
+
+func hermesModelPricedDeltaCost(
+    current: [String: HermesTokenCounters]?,
+    previous: [String: HermesTokenCounters]?,
+    maximumDelta: HermesTokenCounters,
+    timestamp: Date) -> Double? {
+    guard let current, let previous else { return nil }
+
+    var combinedDelta = HermesTokenCounters.zero
+    var cost = 0.0
+    for model in Set(current.keys).union(previous.keys) {
+        let currentCounters = current[model] ?? .zero
+        let previousCounters = previous[model] ?? .zero
+        guard !currentCounters.hasDecrease(comparedTo: previousCounters) else { return nil }
+        let delta = currentCounters.subtracting(previousCounters)
+        guard combinedDelta.canAdd(
+            delta,
+            maximum: hermesLedgerMaximumCumulativeTokens) else {
+            return nil
+        }
+        combinedDelta = combinedDelta.adding(delta)
+        let modelCost = hermesModelPricedCost(
+            counters: delta,
+            model: model,
+            timestamp: timestamp)
+        guard modelCost.isFinite, (cost + modelCost).isFinite else { return nil }
+        cost += modelCost
+    }
+    guard !maximumDelta.hasDecrease(comparedTo: combinedDelta) else { return nil }
+    return cost
 }
 
 struct HermesUsageLedgerEvent: Codable, Equatable {
@@ -284,6 +351,7 @@ struct HermesUsageLedgerPrivateBaseline: Codable, Equatable {
     let model: String?
     let counters: HermesTokenCounters
     let cost: Double
+    let modelPricingCounters: [String: HermesTokenCounters]?
     let attributionQuality: AttributionQuality
 
     init(_ baseline: HermesUsageLedgerBaseline) {
@@ -293,6 +361,7 @@ struct HermesUsageLedgerPrivateBaseline: Codable, Equatable {
         model = baseline.model
         counters = baseline.counters
         cost = baseline.cost
+        modelPricingCounters = baseline.modelPricingCounters
         attributionQuality = baseline.attributionQuality
     }
 
@@ -304,6 +373,7 @@ struct HermesUsageLedgerPrivateBaseline: Codable, Equatable {
             model: model,
             counters: counters,
             cost: cost,
+            modelPricingCounters: modelPricingCounters,
             projectName: nil,
             attributionQuality: attributionQuality)
     }
@@ -356,6 +426,7 @@ struct HermesUsageLedgerBaseline: Codable, Equatable {
     let model: String?
     let counters: HermesTokenCounters
     let cost: Double
+    let modelPricingCounters: [String: HermesTokenCounters]?
     let projectName: String?
     let attributionQuality: AttributionQuality
 
@@ -368,6 +439,7 @@ struct HermesUsageLedgerBaseline: Codable, Equatable {
             && counters.isValid()
             && cost.isFinite
             && cost >= 0
+            && hermesModelPricingCountersAreValid(modelPricingCounters, within: counters)
             && model?.utf8.count ?? 0 <= 512
             && projectName?.utf8.count ?? 0 <= 512
     }
@@ -376,6 +448,7 @@ struct HermesUsageLedgerBaseline: Codable, Equatable {
         model != previous.model
             || counters != previous.counters
             || cost != previous.cost
+            || modelPricingCounters != previous.modelPricingCounters
             || attributionQuality != previous.attributionQuality
     }
 }
