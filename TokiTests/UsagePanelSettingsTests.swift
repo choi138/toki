@@ -1,3 +1,4 @@
+import TokiUsageReaders
 import XCTest
 @testable import Toki
 
@@ -79,6 +80,68 @@ final class UsagePanelSettingsTests: XCTestCase {
         XCTAssertFalse(settings.autoUpdatesModelPricing)
     }
 
+    func test_reenabledAutoPricingOwnsQueuedRefreshAndPostsChangeNotification() async {
+        let (suiteName, defaults) = makeDefaults()
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        defaults.set(false, forKey: "usagePanel.autoUpdatesModelPricing")
+
+        let fixture = FileManager.default.temporaryDirectory
+            .appendingPathComponent("toki-settings-pricing-tests-\(UUID().uuidString)", isDirectory: true)
+            .appendingPathComponent("RemotePricingCatalog.json")
+        defer {
+            ModelPricingSupplement.install([:])
+            try? FileManager.default.removeItem(at: fixture.deletingLastPathComponent())
+        }
+
+        let staleResponse = Data(
+            """
+            {"stale-model": {"input_cost_per_token": 0.000004, "output_cost_per_token": 0.00002, "mode": "chat"}}
+            """.utf8)
+        let freshResponse = Data(
+            """
+            {"fresh-model": {"input_cost_per_token": 0.000005, "output_cost_per_token": 0.000025, "mode": "chat"}}
+            """.utf8)
+        let gate = SettingsPricingFetchGate(subsequentResponse: freshResponse)
+        let updater = RemotePricingCatalogUpdater(
+            store: RemotePricingCatalogStore(fileURL: fixture),
+            fetch: { _ in await gate.fetch() },
+            now: { Date(timeIntervalSince1970: 1_785_000_000) })
+
+        let disabledRefreshFinished = expectation(description: "Disabled pricing refresh finished")
+        let pricingChanged = expectation(description: "Re-enabled pricing change notification")
+        let observer = NotificationCenter.default.addObserver(
+            forName: .usagePanelModelPricingDidChange,
+            object: nil,
+            queue: nil) { _ in
+                pricingChanged.fulfill()
+            }
+        defer { NotificationCenter.default.removeObserver(observer) }
+
+        let settings = UsagePanelSettings(
+            defaults: defaults,
+            readerNames: ["Codex"],
+            refreshPricingCatalog: { isEnabled in
+                let didChangePricing = await updater.refreshIfNeeded(isEnabled: isEnabled)
+                if !isEnabled {
+                    disabledRefreshFinished.fulfill()
+                }
+                return didChangePricing
+            })
+
+        settings.setAutoUpdatesModelPricing(true)
+        await gate.waitUntilFirstRequestStarts()
+        settings.setAutoUpdatesModelPricing(false)
+        await fulfillment(of: [disabledRefreshFinished], timeout: 1)
+        settings.setAutoUpdatesModelPricing(true)
+        await gate.releaseFirstRequest(with: staleResponse)
+
+        await fulfillment(of: [pricingChanged], timeout: 1)
+        let requestCount = await gate.requestCount
+        XCTAssertEqual(requestCount, 2)
+        XCTAssertNil(modelPrice(for: "stale-model"))
+        XCTAssertNotNil(modelPrice(for: "fresh-model"))
+    }
+
     func test_defaultReaderNamesMatchAggregatorReaders() {
         let settingsReaderNames = UsagePanelSettings.defaultReaderNames
         XCTAssertEqual(settingsReaderNames, UsageAggregator.defaultReaders.map(\.name))
@@ -91,5 +154,38 @@ final class UsagePanelSettingsTests: XCTestCase {
         let suiteName = "UsagePanelSettingsTests.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suiteName)!
         return (suiteName, defaults)
+    }
+}
+
+private actor SettingsPricingFetchGate {
+    private let subsequentResponse: Data
+    private var firstRequestContinuation: CheckedContinuation<Data, Never>?
+    private var firstRequestWaiters: [CheckedContinuation<Void, Never>] = []
+    private(set) var requestCount = 0
+
+    init(subsequentResponse: Data) {
+        self.subsequentResponse = subsequentResponse
+    }
+
+    func fetch() async -> Data {
+        requestCount += 1
+        guard requestCount == 1 else { return subsequentResponse }
+        return await withCheckedContinuation { continuation in
+            firstRequestContinuation = continuation
+            firstRequestWaiters.forEach { $0.resume() }
+            firstRequestWaiters.removeAll()
+        }
+    }
+
+    func waitUntilFirstRequestStarts() async {
+        guard firstRequestContinuation == nil else { return }
+        await withCheckedContinuation { continuation in
+            firstRequestWaiters.append(continuation)
+        }
+    }
+
+    func releaseFirstRequest(with data: Data) {
+        firstRequestContinuation?.resume(returning: data)
+        firstRequestContinuation = nil
     }
 }

@@ -323,7 +323,7 @@ actor RemotePricingCatalogUpdater {
     private var isCatalogEnabled = false
     private var isRefreshing = false
     private var refreshGeneration = 0
-    private var shouldRefreshAfterCurrentRun = false
+    private var refreshCompletionWaiters: [CheckedContinuation<Void, Never>] = []
 
     init(
         store: RemotePricingCatalogStore = RemotePricingCatalogStore(),
@@ -344,35 +344,44 @@ actor RemotePricingCatalogUpdater {
             isCatalogEnabled = isEnabled
             refreshGeneration &+= 1
         }
+        let generation = refreshGeneration
 
         guard isEnabled else {
-            shouldRefreshAfterCurrentRun = false
             let didClearPricing = ModelPricingSupplement.installedCount > 0
             hasInstalledCachedCatalog = false
             ModelPricingSupplement.install([:])
             return didClearPricing
         }
 
-        guard !isRefreshing else {
-            if didChangeEnabledState {
-                shouldRefreshAfterCurrentRun = true
-            }
-            return false
+        while isRefreshing {
+            guard didChangeEnabledState,
+                  !Task.isCancelled,
+                  isCatalogEnabled,
+                  refreshGeneration == generation else { return false }
+            await waitForCurrentRefreshToFinish()
         }
+        guard !Task.isCancelled,
+              isCatalogEnabled,
+              refreshGeneration == generation else { return false }
 
         isRefreshing = true
-        defer { isRefreshing = false }
+        defer { finishCurrentRefresh() }
 
-        var didChangePricing = false
-        repeat {
-            shouldRefreshAfterCurrentRun = false
-            let generation = refreshGeneration
-            if await refreshOnce(generation: generation) {
-                didChangePricing = true
-            }
-        } while isCatalogEnabled && shouldRefreshAfterCurrentRun
+        return await refreshOnce(generation: generation)
+    }
 
-        return didChangePricing
+    private func waitForCurrentRefreshToFinish() async {
+        guard isRefreshing else { return }
+        await withCheckedContinuation { continuation in
+            refreshCompletionWaiters.append(continuation)
+        }
+    }
+
+    private func finishCurrentRefresh() {
+        isRefreshing = false
+        let waiters = refreshCompletionWaiters
+        refreshCompletionWaiters.removeAll()
+        waiters.forEach { $0.resume() }
     }
 
     private func refreshOnce(generation: Int) async -> Bool {

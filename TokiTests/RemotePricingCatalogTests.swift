@@ -532,11 +532,15 @@ final class RemotePricingCatalogUpdaterTests: RemotePricingCatalogTestCase {
         let refresh = Task { await updater.refreshIfNeeded(isEnabled: true) }
         await gate.waitUntilFirstRequestStarts()
         _ = await updater.refreshIfNeeded(isEnabled: false)
-        _ = await updater.refreshIfNeeded(isEnabled: true)
+        let reenabledRefresh = Task { await updater.refreshIfNeeded(isEnabled: true) }
+        refresh.cancel()
         await gate.releaseFirstRequest(with: staleResponse)
-        _ = await refresh.value
+        let staleRefreshDidChangePricing = await refresh.value
+        let reenabledRefreshDidChangePricing = await reenabledRefresh.value
         let requestCount = await gate.requestCount
 
+        XCTAssertFalse(staleRefreshDidChangePricing)
+        XCTAssertTrue(reenabledRefreshDidChangePricing)
         XCTAssertEqual(requestCount, 2)
         XCTAssertNil(modelPrice(for: "stale-model"))
         XCTAssertNotNil(modelPrice(for: "fresh-model"))
