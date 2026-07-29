@@ -33,8 +33,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func startPricingCatalogRefreshLoop() {
         pricingCatalogRefreshTask = Task {
             while !Task.isCancelled {
-                await RemotePricingCatalogUpdater.shared.refreshIfNeeded(
+                let didChangePricing = await RemotePricingCatalogUpdater.shared.refreshIfNeeded(
                     isEnabled: UsagePanelSettings.isAutoUpdatePricingEnabled())
+                if didChangePricing, !Task.isCancelled {
+                    NotificationCenter.default.post(name: .usagePanelModelPricingDidChange, object: nil)
+                }
                 try? await Task.sleep(for: .seconds(3600))
             }
         }
