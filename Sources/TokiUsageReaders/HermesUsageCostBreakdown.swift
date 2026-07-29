@@ -91,11 +91,14 @@ func hermesIncrementalCost(
         }
 
         guard let reportedCost = observation.reportedCost,
-              reportedCost == 0,
-              previous.reportedCost == nil,
-              observation.costIsDerivedFromModelPricing else {
+              previous.reportedCost == nil else {
             return nil
         }
+        if reportedCost > 0 {
+            guard observation.cost >= previous.cost else { return nil }
+            return observation.cost - previous.cost
+        }
+        guard observation.costIsDerivedFromModelPricing else { return nil }
         if let detailedCost = hermesModelPricedDeltaCost(
             current: observation.modelPricingCounters,
             previous: previous.modelPricingCounters,
