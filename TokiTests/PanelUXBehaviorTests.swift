@@ -253,6 +253,7 @@ final class MenuBarSummaryPanelVisibilityTests: XCTestCase {
             }
         }
         statusItemController.applySummary(title: "$4.20", toolTip: "Current cost")
+        XCTAssertEqual(statusItemController.statusItem?.length, NSStatusItem.variableLength)
 
         let disabledSettingRead = expectation(description: "Disabled menu bar setting read")
         var isMenuBarCostEnabled = true
@@ -279,5 +280,6 @@ final class MenuBarSummaryPanelVisibilityTests: XCTestCase {
 
         XCTAssertEqual(statusItemController.button?.title, "")
         XCTAssertEqual(statusItemController.button?.toolTip, "Toki")
+        XCTAssertEqual(statusItemController.statusItem?.length, NSStatusItem.squareLength)
     }
 }
