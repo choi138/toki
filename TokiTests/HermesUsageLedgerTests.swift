@@ -1,3 +1,4 @@
+// swiftlint:disable file_length
 import TokiSyncProtocol
 import TokiUsageCore
 import XCTest
@@ -59,6 +60,142 @@ final class HermesUsageLedgerTests: XCTestCase {
             to: tokiTestISODate("2026-04-11T00:00:00Z"))
         XCTAssertEqual(afterRestart.totalTokens, 95)
         try assertHermesLedgerPrivacy(at: fixture.ledgerURL)
+    }
+
+    func test_hermesUsageLedger_splitsMixedModelUsageAndKeepsOnlyResidualUnattributed() async throws {
+        let tempDir = try makeHermesTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+        let ledger = HermesUsageLedger(fileURL: tempDir.appendingPathComponent("hermes-usage-ledger.json"))
+        let baselineAt = tokiTestISODate("2026-04-10T08:00:00Z")
+        let startedAt = tokiTestISODate("2026-04-10T09:00:00Z")
+        let observedAt = tokiTestISODate("2026-04-10T10:00:00Z")
+        try await ledger.refresh(observations: [], observedAt: baselineAt)
+
+        try await ledger.refresh(
+            observations: [HermesSessionObservation(
+                sessionID: "mixed-model-session",
+                startedAt: startedAt,
+                earliestActivityAt: startedAt,
+                latestActivityAt: observedAt,
+                model: nil,
+                counters: HermesTokenCounters(
+                    inputTokens: 150,
+                    outputTokens: 0,
+                    cacheReadTokens: 0,
+                    cacheWriteTokens: 0,
+                    reasoningTokens: 0),
+                modelCounters: [
+                    "gpt-5.6-sol": HermesTokenCounters(
+                        inputTokens: 100,
+                        outputTokens: 0,
+                        cacheReadTokens: 0,
+                        cacheWriteTokens: 0,
+                        reasoningTokens: 0),
+                    "kr/claude-opus-5": HermesTokenCounters(
+                        inputTokens: 30,
+                        outputTokens: 0,
+                        cacheReadTokens: 0,
+                        cacheWriteTokens: 0,
+                        reasoningTokens: 0),
+                ],
+                cost: 0,
+                projectName: nil,
+                attributionQuality: .unknown)],
+            observedAt: observedAt)
+
+        let events = try await ledger.events(
+            from: baselineAt,
+            to: observedAt.addingTimeInterval(1))
+        let tokensByModel = events.reduce(into: [String: Int]()) { result, event in
+            result[event.model ?? "Mixed / Unattributed", default: 0] += event.counters.totalTokens
+        }
+
+        XCTAssertEqual(tokensByModel, [
+            "gpt-5.6-sol": 100,
+            "kr/claude-opus-5": 30,
+            "Mixed / Unattributed": 20,
+        ])
+        XCTAssertEqual(events.reduce(0) { $0 + $1.counters.totalTokens }, 150)
+    }
+
+    func test_hermesUsageLedger_establishesModelBaselineBeforeSplittingLegacySessionDeltas() async throws {
+        let tempDir = try makeHermesTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+        let ledger = HermesUsageLedger(fileURL: tempDir.appendingPathComponent("hermes-usage-ledger.json"))
+        let baselineAt = tokiTestISODate("2026-04-10T08:00:00Z")
+        let startedAt = tokiTestISODate("2026-04-09T08:00:00Z")
+        try await ledger.refresh(observations: [], observedAt: baselineAt)
+
+        func observation(
+            inputTokens: Int,
+            modelCounters: [String: HermesTokenCounters]?) -> HermesSessionObservation {
+            HermesSessionObservation(
+                sessionID: "legacy-mixed-session",
+                startedAt: startedAt,
+                earliestActivityAt: nil,
+                latestActivityAt: nil,
+                model: nil,
+                counters: HermesTokenCounters(
+                    inputTokens: inputTokens,
+                    outputTokens: 0,
+                    cacheReadTokens: 0,
+                    cacheWriteTokens: 0,
+                    reasoningTokens: 0),
+                modelCounters: modelCounters,
+                cost: 0,
+                projectName: nil,
+                attributionQuality: .unknown)
+        }
+
+        try await ledger.refresh(
+            observations: [observation(inputTokens: 100, modelCounters: nil)],
+            observedAt: tokiTestISODate("2026-04-10T09:00:00Z"))
+        try await ledger.refresh(
+            observations: [observation(inputTokens: 130, modelCounters: [
+                "gpt-5.6-sol": HermesTokenCounters(
+                    inputTokens: 80,
+                    outputTokens: 0,
+                    cacheReadTokens: 0,
+                    cacheWriteTokens: 0,
+                    reasoningTokens: 0),
+                "kr/claude-opus-5": HermesTokenCounters(
+                    inputTokens: 50,
+                    outputTokens: 0,
+                    cacheReadTokens: 0,
+                    cacheWriteTokens: 0,
+                    reasoningTokens: 0),
+            ])],
+            observedAt: tokiTestISODate("2026-04-10T10:00:00Z"))
+        try await ledger.refresh(
+            observations: [observation(inputTokens: 160, modelCounters: [
+                "gpt-5.6-sol": HermesTokenCounters(
+                    inputTokens: 90,
+                    outputTokens: 0,
+                    cacheReadTokens: 0,
+                    cacheWriteTokens: 0,
+                    reasoningTokens: 0),
+                "kr/claude-opus-5": HermesTokenCounters(
+                    inputTokens: 70,
+                    outputTokens: 0,
+                    cacheReadTokens: 0,
+                    cacheWriteTokens: 0,
+                    reasoningTokens: 0),
+            ])],
+            observedAt: tokiTestISODate("2026-04-10T11:00:00Z"))
+
+        let events = try await ledger.events(
+            from: baselineAt,
+            to: tokiTestISODate("2026-04-10T12:00:00Z"))
+        let tokensByModel = events.reduce(into: [String: Int]()) { result, event in
+            result[event.model ?? "Mixed / Unattributed", default: 0] += event.counters.totalTokens
+        }
+
+        XCTAssertEqual(tokensByModel, [
+            "Mixed / Unattributed": 30,
+            "gpt-5.6-sol": 10,
+            "kr/claude-opus-5": 20,
+        ])
+        XCTAssertEqual(events.reduce(0) { $0 + $1.counters.totalTokens }, 60)
     }
 
     func test_hermesReader_rebaselinesCounterDecreaseWithoutNegativeOrDuplicateUsage() async throws {

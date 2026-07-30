@@ -30,21 +30,15 @@ func hermesModelPricedDeltaCost(
     previous: [String: HermesTokenCounters]?,
     maximumDelta: HermesTokenCounters,
     timestamp: Date) -> Double? {
-    guard let current, let previous else { return nil }
+    guard let deltas = hermesModelCounterDeltas(
+        current: current,
+        previous: previous,
+        maximumDelta: maximumDelta) else {
+        return nil
+    }
 
-    var combinedDelta = HermesTokenCounters.zero
     var cost = 0.0
-    for model in Set(current.keys).union(previous.keys) {
-        let currentCounters = current[model] ?? .zero
-        let previousCounters = previous[model] ?? .zero
-        guard !currentCounters.hasDecrease(comparedTo: previousCounters) else { return nil }
-        let delta = currentCounters.subtracting(previousCounters)
-        guard combinedDelta.canAdd(
-            delta,
-            maximum: hermesLedgerMaximumCumulativeTokens) else {
-            return nil
-        }
-        combinedDelta = combinedDelta.adding(delta)
+    for (model, delta) in deltas {
         let modelCost = hermesModelPricedCost(
             counters: delta,
             model: model,
@@ -52,7 +46,6 @@ func hermesModelPricedDeltaCost(
         guard modelCost.isFinite, (cost + modelCost).isFinite else { return nil }
         cost += modelCost
     }
-    guard !maximumDelta.hasDecrease(comparedTo: combinedDelta) else { return nil }
     return cost
 }
 

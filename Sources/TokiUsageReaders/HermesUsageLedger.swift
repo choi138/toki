@@ -154,31 +154,13 @@ private extension HermesUsageLedger {
             previous: previous)
 
         guard let previous else {
-            guard observation.counters.totalTokens > 0 else { return false }
-            candidate.baselines[identifier] = currentBaseline
-            if initialUsageIsDated(
+            return try applyInitial(
                 observation,
-                after: previousSuccessfulObservationAt,
-                observedAt: observedAt) {
-                append(
-                    event(
-                        identifier: identifier,
-                        timestamp: initialTimestamp(
-                            observation: observation,
-                            observedAt: observedAt),
-                        observation: observation,
-                        counters: observation.counters,
-                        cost: observation.cost),
-                    to: &candidate.events)
-            } else {
-                try addUnattributed(
-                    identifier: identifier,
-                    counters: observation.counters,
-                    cost: observation.cost,
-                    observedAt: observedAt,
-                    to: &candidate.unattributed)
-            }
-            return true
+                currentBaseline: currentBaseline,
+                identifier: identifier,
+                previousSuccessfulObservationAt: previousSuccessfulObservationAt,
+                observedAt: observedAt,
+                to: &candidate)
         }
 
         if observation.counters.hasDecrease(comparedTo: previous.counters) {
@@ -216,15 +198,57 @@ private extension HermesUsageLedger {
                 to: &candidate.unattributed)
             return true
         }
-        append(
-            event(
-                identifier: identifier,
-                timestamp: timestamp,
-                observation: observation,
-                counters: delta,
-                cost: cost),
-            to: &candidate.events)
+        for event in hermesUsageEvents(
+            identifier: identifier,
+            timestamp: timestamp,
+            observation: observation,
+            previousModelCounters: previous.modelCounters,
+            previousModelPricingCounters: previous.modelPricingCounters,
+            counters: delta,
+            cost: cost) {
+            append(
+                event,
+                to: &candidate.events)
+        }
         candidate.baselines[identifier] = currentBaseline
+        return true
+    }
+
+    func applyInitial(
+        _ observation: HermesSessionObservation,
+        currentBaseline: HermesUsageLedgerBaseline,
+        identifier: String,
+        previousSuccessfulObservationAt: Date?,
+        observedAt: Date,
+        to candidate: inout HermesUsageLedgerDocument) throws -> Bool {
+        guard observation.counters.totalTokens > 0 else { return false }
+        candidate.baselines[identifier] = currentBaseline
+        if initialUsageIsDated(
+            observation,
+            after: previousSuccessfulObservationAt,
+            observedAt: observedAt) {
+            for event in hermesUsageEvents(
+                identifier: identifier,
+                timestamp: initialTimestamp(
+                    observation: observation,
+                    observedAt: observedAt),
+                observation: observation,
+                previousModelCounters: observation.modelCounters.map { _ in [:] },
+                previousModelPricingCounters: observation.modelPricingCounters.map { _ in [:] },
+                counters: observation.counters,
+                cost: observation.cost) {
+                append(
+                    event,
+                    to: &candidate.events)
+            }
+        } else {
+            try addUnattributed(
+                identifier: identifier,
+                counters: observation.counters,
+                cost: observation.cost,
+                observedAt: observedAt,
+                to: &candidate.unattributed)
+        }
         return true
     }
 
@@ -413,6 +437,7 @@ private extension HermesUsageLedger {
             lastObservedAt: observedAt,
             model: observation.model,
             counters: observation.counters,
+            modelCounters: observation.modelCounters,
             cost: observation.cost,
             reportedCost: observation.reportedCost,
             modelPricingCounters: observation.modelPricingCounters,
@@ -458,22 +483,6 @@ private extension HermesUsageLedger {
             observation.latestActivityAt,
             startedAt: observation.startedAt,
             observedAt: observedAt) ?? observation.startedAt
-    }
-
-    private func event(
-        identifier: String,
-        timestamp: Date,
-        observation: HermesSessionObservation,
-        counters: HermesTokenCounters,
-        cost: Double) -> HermesUsageLedgerEvent {
-        HermesUsageLedgerEvent(
-            sessionIdentifier: identifier,
-            timestamp: timestamp,
-            model: observation.model,
-            counters: counters,
-            cost: cost,
-            projectName: observation.projectName,
-            attributionQuality: observation.attributionQuality)
     }
 
     private func append(
@@ -555,6 +564,9 @@ private extension HermesUsageLedger {
               || observation.costIsDerivedFromModelPricing,
               hermesModelPricingCountersAreValid(
                   observation.modelPricingCounters,
+                  within: observation.counters),
+              hermesModelPricingCountersAreValid(
+                  observation.modelCounters,
                   within: observation.counters),
               observation.model?.utf8.count ?? 0 <= 512,
               observation.projectName?.utf8.count ?? 0 <= 512 else {

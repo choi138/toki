@@ -1,3 +1,4 @@
+// swiftlint:disable file_length
 import TokiUsageCore
 import XCTest
 @testable import TokiUsageReaders
@@ -151,10 +152,16 @@ final class HermesPricingRefreshTests: XCTestCase {
         XCTAssertEqual(increment.inputTokens, 100)
         XCTAssertEqual(increment.totalTokens, 100)
         XCTAssertEqual(increment.cost, expectedCost, accuracy: 0.000001)
+        XCTAssertEqual(increment.perModel[firstModel]?.totalTokens, 60)
+        XCTAssertEqual(increment.perModel[secondModel]?.totalTokens, 40)
+        XCTAssertEqual(
+            hermesEventTokenTotalsByModel(in: increment.tokenEvents),
+            [firstModel: 60, secondModel: 40])
     }
 }
 
 extension HermesPricingRefreshTests {
+    // swiftlint:disable:next function_body_length
     func test_hermesReader_pricesOnlyDerivedPartOfMixedCostAfterRateChange() async throws {
         let tempDir = try makeHermesTemporaryDirectory()
         defer {
@@ -163,9 +170,13 @@ extension HermesPricingRefreshTests {
         }
         let reportedModel = "reported-hermes-model"
         let derivedModel = "derived-hermes-model"
+        let reportedCatalogPrice = uniformHermesModelPrice(perMillion: 50)
         let initialPrice = uniformHermesModelPrice(perMillion: 1)
         let updatedPrice = uniformHermesModelPrice(perMillion: 10)
-        ModelPricingSupplement.install([derivedModel: initialPrice])
+        ModelPricingSupplement.install([
+            reportedModel: reportedCatalogPrice,
+            derivedModel: initialPrice,
+        ])
 
         let dbURL = tempDir.appendingPathComponent("state.db")
         let ledgerURL = tempDir.appendingPathComponent("hermes-usage-ledger.json")
@@ -187,6 +198,11 @@ extension HermesPricingRefreshTests {
         XCTAssertEqual(initialUsage.totalTokens, 0)
 
         ModelPricingSupplement.install(priceHistories: [
+            reportedModel: [
+                ModelPricingSupplement.PriceVersion(
+                    effectiveFrom: .distantPast,
+                    price: reportedCatalogPrice),
+            ],
             derivedModel: [
                 ModelPricingSupplement.PriceVersion(
                     effectiveFrom: .distantPast,
@@ -201,6 +217,12 @@ extension HermesPricingRefreshTests {
             sessionID: "mixed-cost-session",
             task: "derived",
             inputTokens: 160)
+        try updateHermesModelUsage(
+            databaseURL: dbURL,
+            sessionID: "mixed-cost-session",
+            task: "reported",
+            inputTokens: 160,
+            actualCost: 1.6)
 
         let increment = try await HermesReader(
             dbPathOverride: dbURL.path,
@@ -210,11 +232,27 @@ extension HermesPricingRefreshTests {
                 from: tokiTestISODate("2026-04-10T00:00:00Z"),
                 to: tokiTestISODate("2026-04-11T00:00:00Z"))
 
-        XCTAssertEqual(increment.inputTokens, 60)
-        XCTAssertEqual(increment.totalTokens, 60)
+        let expectedReportedCost = 0.6
+        let expectedDerivedCost = updatedPrice.cost(
+            input: 60,
+            output: 0,
+            cacheRead: 0,
+            cacheWrite: 0)
+        XCTAssertEqual(increment.inputTokens, 120)
+        XCTAssertEqual(increment.totalTokens, 120)
         XCTAssertEqual(
             increment.cost,
-            updatedPrice.cost(input: 60, output: 0, cacheRead: 0, cacheWrite: 0),
+            expectedReportedCost + expectedDerivedCost,
+            accuracy: 0.000001)
+        XCTAssertEqual(increment.perModel[reportedModel]?.totalTokens, 60)
+        XCTAssertEqual(increment.perModel[derivedModel]?.totalTokens, 60)
+        XCTAssertEqual(
+            increment.perModel[reportedModel]?.cost ?? -1,
+            expectedReportedCost,
+            accuracy: 0.000001)
+        XCTAssertEqual(
+            increment.perModel[derivedModel]?.cost ?? -1,
+            expectedDerivedCost,
             accuracy: 0.000001)
     }
 
@@ -400,6 +438,14 @@ private func uniformHermesModelPrice(perMillion: Double) -> ModelPrice {
         outputPerMillion: perMillion,
         cacheReadPerMillion: perMillion,
         cacheWritePerMillion: perMillion)
+}
+
+private func hermesEventTokenTotalsByModel(
+    in events: [TokenUsageEvent]) -> [String: Int] {
+    events.reduce(into: [String: Int]()) { result, event in
+        guard let model = event.model else { return }
+        result[model, default: 0] += event.totalTokens
+    }
 }
 
 private func createHermesPricingRefreshDatabase(

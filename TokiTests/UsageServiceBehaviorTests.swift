@@ -229,6 +229,33 @@ final class UsageServiceBehaviorTests: XCTestCase {
     }
 }
 
+extension UsageServiceBehaviorTests {
+    func test_usageService_surfacesUnattributedTokenEventsInByModelBreakdown() async {
+        let recorder = MockReaderRecorder()
+        let reader = MockReader(name: "Hermes", recorder: recorder) { _, _ in
+            var usage = RawTokenUsage(inputTokens: 120)
+            usage.recordTokenEvent(
+                timestamp: behaviorTestISODate("2026-04-10T09:00:00Z"),
+                source: "Hermes",
+                model: nil,
+                inputTokens: 120,
+                outputTokens: 0)
+            return usage
+        }
+
+        let service = await MainActor.run { UsageService(readers: [reader]) }
+        await MainActor.run { service.selectDay(behaviorTestISODate("2026-04-10T12:00:00Z")) }
+        await service.refresh()
+
+        let usageData = await MainActor.run { service.usageData }
+        let unattributed = usageData.perModel.first { $0.modelID == "Mixed / Unattributed" }
+
+        XCTAssertEqual(unattributed?.totalTokens, 120)
+        XCTAssertEqual(unattributed?.sources, ["Hermes"])
+        XCTAssertEqual(unattributed?.isPriceKnown, false)
+    }
+}
+
 final class UsageServicePeriodTotalsConcurrencyTests: XCTestCase {
     func test_usageService_remoteSyncChangeRejectsSupersededPeriodTokenTotalsLoad() async throws {
         let suiteName = "UsageServicePeriodTotalsConcurrencyTests.\(UUID().uuidString)"

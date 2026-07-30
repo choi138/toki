@@ -32,9 +32,9 @@ public struct HermesReader: TokenReader {
     }
 
     public func readUsage(from startDate: Date, to endDate: Date) async throws -> RawTokenUsage {
-        if let database = try openDatabase() {
-            defer { sqlite3_close(database) }
-            let observations = try readSessionObservations(from: database)
+        if let observations = try readDatabaseSnapshot({ database in
+            try readSessionObservations(from: database)
+        }) {
             try await usageLedger.refresh(
                 observations: observations,
                 observedAt: now())
@@ -45,25 +45,29 @@ public struct HermesReader: TokenReader {
     }
 
     public func coverageStatus() throws -> HermesUsageCoverageStatus {
-        guard let database = try openDatabase() else {
-            return HermesUsageCoverageStatus(unmeteredMainAPICallCount: 0)
-        }
-        defer { sqlite3_close(database) }
-        return try readSessionModelUsage(from: database).coverage
+        try readDatabaseSnapshot { database in
+            try readSessionModelUsage(from: database).coverage
+        } ?? HermesUsageCoverageStatus(unmeteredMainAPICallCount: 0)
     }
 
-    private func openDatabase() throws -> OpaquePointer? {
-        guard FileManager.default.fileExists(atPath: dbPath) else { return nil }
-
-        var database: OpaquePointer?
-        guard sqlite3_open_v2(dbPath, &database, SQLITE_OPEN_READONLY, nil) == SQLITE_OK else {
-            let error = HermesSQLiteError(operation: "open", database: database)
-            sqlite3_close(database)
-            throw error
+    private func readDatabaseSnapshot<Value>(
+        _ read: (OpaquePointer) throws -> Value) throws -> Value? {
+        for attempt in 0..<2 {
+            guard let connection = try HermesSQLiteConnection.open(atPath: dbPath) else {
+                return nil
+            }
+            let value = try read(connection.database)
+            if connection.isSourceStateCurrent {
+                return value
+            }
+            guard attempt == 0 else {
+                throw HermesSQLiteError(
+                    operation: "read snapshot",
+                    message: "database changed during read",
+                    code: SQLITE_BUSY)
+            }
         }
-
-        sqlite3_busy_timeout(database, 2000)
-        return database
+        return nil
     }
 
     private func readSessionObservations(from database: OpaquePointer) throws -> [HermesSessionObservation] {
@@ -427,24 +431,6 @@ private struct HermesSessionUsageRow {
             costIsDerivedFromModelPricing: costIsDerivedFromModelPricing,
             projectName: projectName,
             attributionQuality: attributionQuality)
-    }
-}
-
-private struct HermesSQLiteError: LocalizedError {
-    let operation: String
-    let message: String
-
-    init(operation: String, database: OpaquePointer?) {
-        self.operation = operation
-        if let database, let errorMessage = sqlite3_errmsg(database) {
-            message = String(cString: errorMessage)
-        } else {
-            message = "unknown SQLite error"
-        }
-    }
-
-    var errorDescription: String? {
-        "Hermes SQLite \(operation) failed: \(message)"
     }
 }
 

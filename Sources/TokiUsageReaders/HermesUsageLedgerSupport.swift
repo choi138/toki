@@ -18,6 +18,7 @@ struct HermesSessionObservation {
     let latestActivityAt: Date?
     let model: String?
     let counters: HermesTokenCounters
+    let modelCounters: [String: HermesTokenCounters]?
     let cost: Double
     let costIsDerivedFromModelPricing: Bool
     let reportedCost: Double?
@@ -32,6 +33,7 @@ struct HermesSessionObservation {
         latestActivityAt: Date?,
         model: String?,
         counters: HermesTokenCounters,
+        modelCounters: [String: HermesTokenCounters]? = nil,
         cost: Double,
         costIsDerivedFromModelPricing: Bool = false,
         reportedCost: Double? = nil,
@@ -44,6 +46,7 @@ struct HermesSessionObservation {
         self.latestActivityAt = latestActivityAt
         self.model = model
         self.counters = counters
+        self.modelCounters = modelCounters
         self.cost = cost
         self.costIsDerivedFromModelPricing = costIsDerivedFromModelPricing
         self.reportedCost = reportedCost
@@ -169,6 +172,34 @@ func hermesModelPricingCountersAreValid(
         combinedCounters = combinedCounters.adding(counters)
     }
     return !totalCounters.hasDecrease(comparedTo: combinedCounters)
+}
+
+func hermesModelCounterDeltas(
+    current: [String: HermesTokenCounters]?,
+    previous: [String: HermesTokenCounters]?,
+    maximumDelta: HermesTokenCounters) -> [String: HermesTokenCounters]? {
+    guard let current, let previous else { return nil }
+
+    var combinedDelta = HermesTokenCounters.zero
+    var deltas: [String: HermesTokenCounters] = [:]
+    for model in Set(current.keys).union(previous.keys) {
+        let currentCounters = current[model] ?? .zero
+        let previousCounters = previous[model] ?? .zero
+        guard !currentCounters.hasDecrease(comparedTo: previousCounters) else { return nil }
+
+        let delta = currentCounters.subtracting(previousCounters)
+        guard combinedDelta.canAdd(
+            delta,
+            maximum: hermesLedgerMaximumCumulativeTokens) else {
+            return nil
+        }
+        combinedDelta = combinedDelta.adding(delta)
+        if delta.totalTokens > 0 {
+            deltas[model] = delta
+        }
+    }
+    guard !maximumDelta.hasDecrease(comparedTo: combinedDelta) else { return nil }
+    return deltas
 }
 
 struct HermesUsageLedgerEvent: Codable, Equatable {
@@ -309,6 +340,7 @@ struct HermesUsageLedgerPrivateBaseline: Codable, Equatable {
     let lastObservedAt: Date
     let model: String?
     let counters: HermesTokenCounters
+    let modelCounters: [String: HermesTokenCounters]?
     let cost: Double
     let reportedCost: Double?
     let modelPricingCounters: [String: HermesTokenCounters]?
@@ -320,6 +352,7 @@ struct HermesUsageLedgerPrivateBaseline: Codable, Equatable {
         lastObservedAt = baseline.lastObservedAt
         model = baseline.model
         counters = baseline.counters
+        modelCounters = baseline.modelCounters
         cost = baseline.cost
         reportedCost = baseline.reportedCost
         modelPricingCounters = baseline.modelPricingCounters
@@ -333,6 +366,7 @@ struct HermesUsageLedgerPrivateBaseline: Codable, Equatable {
             lastObservedAt: lastObservedAt,
             model: model,
             counters: counters,
+            modelCounters: modelCounters,
             cost: cost,
             reportedCost: reportedCost,
             modelPricingCounters: modelPricingCounters,
@@ -387,6 +421,7 @@ struct HermesUsageLedgerBaseline: Codable, Equatable {
     let lastObservedAt: Date
     let model: String?
     let counters: HermesTokenCounters
+    let modelCounters: [String: HermesTokenCounters]?
     let cost: Double
     let reportedCost: Double?
     let modelPricingCounters: [String: HermesTokenCounters]?
@@ -399,6 +434,7 @@ struct HermesUsageLedgerBaseline: Codable, Equatable {
         lastObservedAt: Date,
         model: String?,
         counters: HermesTokenCounters,
+        modelCounters: [String: HermesTokenCounters]? = nil,
         cost: Double,
         reportedCost: Double? = nil,
         modelPricingCounters: [String: HermesTokenCounters]? = nil,
@@ -409,6 +445,7 @@ struct HermesUsageLedgerBaseline: Codable, Equatable {
         self.lastObservedAt = lastObservedAt
         self.model = model
         self.counters = counters
+        self.modelCounters = modelCounters
         self.cost = cost
         self.reportedCost = reportedCost
         self.modelPricingCounters = modelPricingCounters
@@ -423,6 +460,7 @@ struct HermesUsageLedgerBaseline: Codable, Equatable {
             && lastActivityAt >= startedAt
             && lastObservedAt >= startedAt
             && counters.isValid()
+            && hermesModelPricingCountersAreValid(modelCounters, within: counters)
             && cost.isFinite
             && cost >= 0
             && hermesReportedCostBreakdownIsValid(
@@ -437,6 +475,7 @@ struct HermesUsageLedgerBaseline: Codable, Equatable {
     func metadataDiffers(from previous: Self) -> Bool {
         model != previous.model
             || counters != previous.counters
+            || modelCounters != previous.modelCounters
             || cost != previous.cost
             || reportedCost != previous.reportedCost
             || modelPricingCounters != previous.modelPricingCounters

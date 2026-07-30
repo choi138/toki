@@ -36,6 +36,7 @@ enum HermesUsageResolver {
         var modelCost = 0.0
         var modelReportedCost = 0.0
         var modelCostIsDerivedFromModelPricing = true
+        var attributedModelCounters: [String: HermesTokenCounters] = [:]
         var modelPricingCounters: [String: HermesTokenCounters] = [:]
         var models: Set<String> = []
 
@@ -55,14 +56,21 @@ enum HermesUsageResolver {
                 modelReportedCost += usage.cost
             }
             if usage.counters.totalTokens > 0, let model = usage.model {
+                let existingCounters = attributedModelCounters[model] ?? .zero
+                guard existingCounters.canAdd(
+                    usage.counters,
+                    maximum: hermesLedgerMaximumCumulativeTokens) else {
+                    throw HermesUsageLedgerError.invalidObservation
+                }
+                attributedModelCounters[model] = existingCounters.adding(usage.counters)
                 if usage.costIsDerivedFromModelPricing {
-                    let existingCounters = modelPricingCounters[model] ?? .zero
-                    guard existingCounters.canAdd(
+                    let existingPricingCounters = modelPricingCounters[model] ?? .zero
+                    guard existingPricingCounters.canAdd(
                         usage.counters,
                         maximum: hermesLedgerMaximumCumulativeTokens) else {
                         throw HermesUsageLedgerError.invalidObservation
                     }
-                    modelPricingCounters[model] = existingCounters.adding(usage.counters)
+                    modelPricingCounters[model] = existingPricingCounters.adding(usage.counters)
                 }
                 models.insert(model)
             }
@@ -87,6 +95,7 @@ enum HermesUsageResolver {
             latestActivityAt: session.latestActivityAt,
             model: resolvedModel,
             counters: session.counters.maximum(modelCounters),
+            modelCounters: modelUsage.isEmpty ? nil : attributedModelCounters,
             cost: resolvedCost.value,
             costIsDerivedFromModelPricing: resolvedCost.isDerivedFromModelPricing,
             reportedCost: resolvedCost.reportedValue,

@@ -392,6 +392,123 @@ final class HermesReaderTests: XCTestCase {
             XCTAssertTrue(error.localizedDescription.contains("Hermes SQLite prepare failed"))
         }
     }
+
+    func test_hermesReader_readsCheckpointedWALWithoutSidecarsFromReadOnlyDirectory() async throws {
+        let fileManager = FileManager.default
+        let tempDir = try makeHermesTemporaryDirectory()
+        let databaseDirectory = tempDir.appendingPathComponent("database", isDirectory: true)
+        try fileManager.createDirectory(
+            at: databaseDirectory,
+            withIntermediateDirectories: false,
+            attributes: [.posixPermissions: 0o700])
+        defer {
+            try? fileManager.setAttributes(
+                [.posixPermissions: 0o700],
+                ofItemAtPath: databaseDirectory.path)
+            try? fileManager.removeItem(at: tempDir)
+        }
+
+        let dbURL = databaseDirectory.appendingPathComponent("state.db")
+        try createHermesStateDB(
+            at: dbURL,
+            rows: [hermesSingleCounterFixture(id: "checkpointed-wal", inputTokens: 123)])
+        try convertHermesDatabaseToWALWithoutSidecars(databaseURL: dbURL)
+        XCTAssertFalse(fileManager.fileExists(atPath: "\(dbURL.path)-wal"))
+        XCTAssertFalse(fileManager.fileExists(atPath: "\(dbURL.path)-shm"))
+
+        try fileManager.setAttributes(
+            [.posixPermissions: 0o500],
+            ofItemAtPath: databaseDirectory.path)
+
+        do {
+            let connection = try XCTUnwrap(HermesSQLiteConnection.open(atPath: dbURL.path))
+            XCTAssertTrue(connection.isUsingImmutableSnapshot)
+        }
+
+        let ledger = HermesUsageLedger(fileURL: tempDir.appendingPathComponent("hermes-usage-ledger.json"))
+        try await ledger.refresh(
+            observations: [],
+            observedAt: tokiTestISODate("2026-04-09T07:00:00Z"))
+        let reader = HermesReader(
+            dbPathOverride: dbURL.path,
+            usageLedger: ledger,
+            now: { tokiTestISODate("2026-04-10T12:00:00Z") })
+
+        let usage = try await reader.readUsage(
+            from: tokiTestISODate("2026-04-09T00:00:00Z"),
+            to: tokiTestISODate("2026-04-11T00:00:00Z"))
+
+        XCTAssertEqual(usage.inputTokens, 123)
+    }
+
+    func test_hermesReader_readsUncheckpointedUsageFromLiveWAL() async throws {
+        let fileManager = FileManager.default
+        let tempDir = try makeHermesTemporaryDirectory()
+        defer { try? fileManager.removeItem(at: tempDir) }
+
+        let dbURL = tempDir.appendingPathComponent("state.db")
+        try createHermesStateDB(
+            at: dbURL,
+            rows: [hermesSingleCounterFixture(id: "live-wal", inputTokens: 123)])
+
+        var writer: OpaquePointer?
+        guard sqlite3_open(dbURL.path, &writer) == SQLITE_OK, let writer else {
+            throw NSError(domain: "HermesReaderTests", code: 26)
+        }
+        defer { sqlite3_close(writer) }
+        guard sqlite3_exec(
+            writer,
+            """
+            PRAGMA journal_mode=WAL;
+            PRAGMA wal_autocheckpoint=0;
+            UPDATE sessions SET input_tokens = 777 WHERE id = 'live-wal';
+            """,
+            nil,
+            nil,
+            nil) == SQLITE_OK,
+            sqlite3_changes(writer) == 1 else {
+            throw NSError(domain: "HermesReaderTests", code: 27)
+        }
+        XCTAssertTrue(fileManager.fileExists(atPath: "\(dbURL.path)-wal"))
+        XCTAssertTrue(fileManager.fileExists(atPath: "\(dbURL.path)-shm"))
+
+        do {
+            let connection = try XCTUnwrap(HermesSQLiteConnection.open(atPath: dbURL.path))
+            XCTAssertFalse(connection.isUsingImmutableSnapshot)
+        }
+
+        let ledger = HermesUsageLedger(fileURL: tempDir.appendingPathComponent("hermes-usage-ledger.json"))
+        try await ledger.refresh(
+            observations: [],
+            observedAt: tokiTestISODate("2026-04-09T07:00:00Z"))
+        let reader = HermesReader(
+            dbPathOverride: dbURL.path,
+            usageLedger: ledger,
+            now: { tokiTestISODate("2026-04-10T12:00:00Z") })
+
+        let usage = try await reader.readUsage(
+            from: tokiTestISODate("2026-04-09T00:00:00Z"),
+            to: tokiTestISODate("2026-04-11T00:00:00Z"))
+
+        XCTAssertEqual(usage.inputTokens, 777)
+    }
+
+    func test_hermesDatabaseSourceSnapshotDetectsSidecarAppearance() throws {
+        let fileManager = FileManager.default
+        let tempDir = try makeHermesTemporaryDirectory()
+        defer { try? fileManager.removeItem(at: tempDir) }
+
+        let dbURL = tempDir.appendingPathComponent("state.db")
+        try createHermesStateDB(
+            at: dbURL,
+            rows: [hermesSingleCounterFixture(id: "snapshot", inputTokens: 1)])
+        let snapshot = try XCTUnwrap(
+            HermesDatabaseSourceSnapshot.captureForImmutableFallback(databaseURL: dbURL))
+
+        try Data().write(to: URL(fileURLWithPath: "\(dbURL.path)-wal"))
+
+        XCTAssertFalse(snapshot.isCurrent())
+    }
 }
 
 extension HermesReaderTests {
@@ -909,6 +1026,31 @@ func createHermesStateDB(
     }
 }
 
+func convertHermesDatabaseToWALWithoutSidecars(databaseURL: URL) throws {
+    var database: OpaquePointer?
+    guard sqlite3_open(databaseURL.path, &database) == SQLITE_OK, let database else {
+        throw NSError(domain: "HermesReaderTests", code: 28)
+    }
+    guard sqlite3_exec(
+        database,
+        "PRAGMA journal_mode=WAL; PRAGMA wal_checkpoint(TRUNCATE);",
+        nil,
+        nil,
+        nil) == SQLITE_OK else {
+        sqlite3_close(database)
+        throw NSError(domain: "HermesReaderTests", code: 29)
+    }
+    sqlite3_close(database)
+
+    let fileManager = FileManager.default
+    for suffix in ["-wal", "-shm"] {
+        let sidecarURL = URL(fileURLWithPath: "\(databaseURL.path)\(suffix)")
+        if fileManager.fileExists(atPath: sidecarURL.path) {
+            try fileManager.removeItem(at: sidecarURL)
+        }
+    }
+}
+
 func insertHermesModelUsage(
     databaseURL: URL,
     rows: [HermesModelUsageFixture]) throws {
@@ -1026,7 +1168,8 @@ func updateHermesModelUsage(
     databaseURL: URL,
     sessionID: String,
     task: String,
-    inputTokens: Int) throws {
+    inputTokens: Int,
+    actualCost: Double? = nil) throws {
     var database: OpaquePointer?
     guard sqlite3_open(databaseURL.path, &database) == SQLITE_OK, let database else {
         throw NSError(domain: "HermesReaderTests", code: 18)
@@ -1038,7 +1181,7 @@ func updateHermesModelUsage(
         database,
         """
         UPDATE session_model_usage
-        SET input_tokens = ?
+        SET input_tokens = ?, actual_cost_usd = COALESCE(?, actual_cost_usd)
         WHERE session_id = ? AND task = ?
         """,
         -1,
@@ -1049,8 +1192,9 @@ func updateHermesModelUsage(
     defer { sqlite3_finalize(statement) }
 
     guard sqlite3_bind_int64(statement, 1, Int64(inputTokens)) == SQLITE_OK,
-          sqlite3_bind_text(statement, 2, sessionID, -1, hermesTestSQLiteTransient) == SQLITE_OK,
-          sqlite3_bind_text(statement, 3, task, -1, hermesTestSQLiteTransient) == SQLITE_OK,
+          bindHermesDouble(actualCost, at: 2, in: statement),
+          sqlite3_bind_text(statement, 3, sessionID, -1, hermesTestSQLiteTransient) == SQLITE_OK,
+          sqlite3_bind_text(statement, 4, task, -1, hermesTestSQLiteTransient) == SQLITE_OK,
           sqlite3_step(statement) == SQLITE_DONE,
           sqlite3_changes(database) == 1 else {
         throw NSError(domain: "HermesReaderTests", code: 20)
