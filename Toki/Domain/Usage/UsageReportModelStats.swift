@@ -25,7 +25,10 @@ private struct ModelSourceStatAggregate {
         totalTokens += event.totalTokens
         cost += event.cost
         sources.insert(event.source)
-        isPriceKnown = isPriceKnown && modelPriceLookup(for: modelID, at: event.timestamp).isPriced
+        if event.totalTokens > 0 {
+            isPriceKnown = isPriceKnown
+                && (event.cost > 0 || modelPriceLookup(for: modelID, at: event.timestamp).isPriced)
+        }
     }
 
     var hasReportableData: Bool {
@@ -123,7 +126,7 @@ extension UsageReportBuilder {
         var aggregates: [ModelSourceUsageKey: ModelSourceStatAggregate] = [:]
         var activityEventsBySource: [String: [ActivityTimeEvent<String>]] = [:]
 
-        for event in events where event.totalTokens > 0 {
+        for event in events where event.totalTokens > 0 || event.cost > 0 {
             guard let source = event.source.trimmedNonEmpty else {
                 continue
             }
@@ -131,11 +134,13 @@ extension UsageReportBuilder {
                 ?? UsageModelGrouping.mixedOrUnattributedKey
             let key = ModelSourceUsageKey(modelID: modelID, source: source)
             aggregates[key, default: ModelSourceStatAggregate()].accumulate(event, modelID: modelID)
-            activityEventsBySource[source, default: []].append(
-                ActivityTimeEvent(
-                    streamID: modelSourceStreamID(for: event, calendar: calendar),
-                    timestamp: event.timestamp,
-                    key: modelID))
+            if event.totalTokens > 0 {
+                activityEventsBySource[source, default: []].append(
+                    ActivityTimeEvent(
+                        streamID: modelSourceStreamID(for: event, calendar: calendar),
+                        timestamp: event.timestamp,
+                        key: modelID))
+            }
         }
 
         for (source, activityEvents) in activityEventsBySource {

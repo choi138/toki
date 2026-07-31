@@ -32,7 +32,9 @@ func hermesUsageEvents(
         observation: observation,
         previousModelCounters: previousModelCounters,
         counters: counters,
-        includeCostOnlyResidual: unattributedReportedCostDelta.map { $0 > 0 } ?? false)
+        costOnlyModels: Set(modelReportedCostDeltas?.keys.map { $0 } ?? []),
+        includeCostOnlyResidual: unattributedReportedCostDelta.map { $0 > 0 } ?? false,
+        includeCostOnlyFallback: cost > 0)
     let modelPricingDeltas = hermesModelCounterDeltas(
         current: observation.modelPricingCounters,
         previous: previousModelPricingCounters,
@@ -63,11 +65,22 @@ private func hermesUsageEventParts(
     observation: HermesSessionObservation,
     previousModelCounters: [String: HermesTokenCounters]?,
     counters: HermesTokenCounters,
-    includeCostOnlyResidual: Bool) -> [HermesUsageEventPart] {
+    costOnlyModels: Set<String>,
+    includeCostOnlyResidual: Bool,
+    includeCostOnlyFallback: Bool) -> [HermesUsageEventPart] {
     guard let modelDeltas = hermesModelCounterDeltas(
         current: observation.modelCounters,
         previous: previousModelCounters,
         maximumDelta: counters) else {
+        if counters.totalTokens == 0, !costOnlyModels.isEmpty {
+            var parts = costOnlyModels.sorted().map {
+                HermesUsageEventPart(model: $0, counters: .zero)
+            }
+            if includeCostOnlyResidual {
+                parts.append(HermesUsageEventPart(model: nil, counters: .zero))
+            }
+            return parts
+        }
         return [HermesUsageEventPart(model: observation.model, counters: counters)]
     }
 
@@ -78,12 +91,19 @@ private func hermesUsageEventParts(
         combinedCounters = combinedCounters.adding(modelCounters)
         parts.append(HermesUsageEventPart(model: model, counters: modelCounters))
     }
+    let representedModels = Set(parts.compactMap(\.model))
+    for model in costOnlyModels.subtracting(representedModels).sorted() {
+        parts.append(HermesUsageEventPart(model: model, counters: .zero))
+    }
 
     let residual = counters.subtracting(combinedCounters)
     if residual.totalTokens > 0 {
         parts.append(HermesUsageEventPart(model: nil, counters: residual))
     } else if includeCostOnlyResidual {
         parts.append(HermesUsageEventPart(model: nil, counters: .zero))
+    }
+    if parts.isEmpty, includeCostOnlyFallback {
+        parts.append(HermesUsageEventPart(model: observation.model, counters: .zero))
     }
     return parts
 }
@@ -121,6 +141,13 @@ private func hermesAllocatedUsageCosts(
     var remainderTokenCounts = basis.remainderTokenCounts
     if !remainderTokenCounts.contains(where: { $0 > 0 }) {
         remainderTokenCounts = parts.map(\.counters.totalTokens)
+        if !remainderTokenCounts.contains(where: { $0 > 0 }) {
+            let fallbackRecipient = parts.lastIndex(where: { $0.model == nil })
+                ?? (parts.count == 1 ? parts.startIndex : nil)
+            if let fallbackRecipient {
+                remainderTokenCounts[fallbackRecipient] = 1
+            }
+        }
     }
     let recipientIndices = remainderTokenCounts.indices.filter {
         remainderTokenCounts[$0] > 0

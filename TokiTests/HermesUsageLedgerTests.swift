@@ -570,6 +570,164 @@ extension HermesUsageLedgerTests {
     }
 }
 
+extension HermesUsageLedgerTests {
+    func test_hermesUsageLedger_usesCompleteLegacyV3PricingCountersAsModelBaseline() async throws {
+        let tempDir = try makeHermesTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+        let ledgerURL = tempDir.appendingPathComponent("hermes-usage-ledger.json")
+        let startedAt = tokiTestISODate("2026-04-09T08:00:00Z")
+        let initialModelCounters = [
+            "legacy-model-a": hermesInputCounters(60),
+            "legacy-model-b": hermesInputCounters(40),
+        ]
+        let ledger = HermesUsageLedger(fileURL: ledgerURL)
+        try await ledger.refresh(
+            observations: [hermesLegacyV3Observation(
+                startedAt: startedAt,
+                modelCounters: initialModelCounters,
+                modelPricingCounters: initialModelCounters)],
+            observedAt: tokiTestISODate("2026-04-09T09:00:00Z"))
+        try removeHermesModelCountersFromBaselines(at: ledgerURL)
+
+        let currentModelCounters = [
+            "legacy-model-a": hermesInputCounters(80),
+            "legacy-model-b": hermesInputCounters(50),
+        ]
+        let restartedLedger = HermesUsageLedger(fileURL: ledgerURL)
+        try await restartedLedger.refresh(
+            observations: [hermesLegacyV3Observation(
+                startedAt: startedAt,
+                modelCounters: currentModelCounters,
+                modelPricingCounters: currentModelCounters)],
+            observedAt: tokiTestISODate("2026-04-10T10:00:00Z"))
+        let events = try await restartedLedger.events(
+            from: tokiTestISODate("2026-04-10T00:00:00Z"),
+            to: tokiTestISODate("2026-04-11T00:00:00Z"))
+
+        XCTAssertEqual(
+            Dictionary(uniqueKeysWithValues: events.map { ($0.model ?? "Mixed", $0.counters.inputTokens) }),
+            [
+                "legacy-model-a": 20,
+                "legacy-model-b": 10,
+            ])
+    }
+
+    func test_hermesUsageLedger_keepsLegacyV3DeltaMixedWhenPricingCountersArePartial() async throws {
+        let tempDir = try makeHermesTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+        let ledgerURL = tempDir.appendingPathComponent("hermes-usage-ledger.json")
+        let startedAt = tokiTestISODate("2026-04-09T08:00:00Z")
+        let ledger = HermesUsageLedger(fileURL: ledgerURL)
+        try await ledger.refresh(
+            observations: [hermesLegacyV3Observation(
+                startedAt: startedAt,
+                modelCounters: [
+                    "legacy-model-a": hermesInputCounters(60),
+                    "legacy-model-b": hermesInputCounters(40),
+                ],
+                modelPricingCounters: [
+                    "legacy-model-a": hermesInputCounters(60),
+                ])],
+            observedAt: tokiTestISODate("2026-04-09T09:00:00Z"))
+        try removeHermesModelCountersFromBaselines(at: ledgerURL)
+
+        let restartedLedger = HermesUsageLedger(fileURL: ledgerURL)
+        try await restartedLedger.refresh(
+            observations: [hermesLegacyV3Observation(
+                startedAt: startedAt,
+                modelCounters: [
+                    "legacy-model-a": hermesInputCounters(80),
+                    "legacy-model-b": hermesInputCounters(50),
+                ],
+                modelPricingCounters: [
+                    "legacy-model-a": hermesInputCounters(80),
+                ])],
+            observedAt: tokiTestISODate("2026-04-10T10:00:00Z"))
+        let events = try await restartedLedger.events(
+            from: tokiTestISODate("2026-04-10T00:00:00Z"),
+            to: tokiTestISODate("2026-04-11T00:00:00Z"))
+
+        XCTAssertEqual(events.count, 1)
+        XCTAssertNil(events.first?.model)
+        XCTAssertEqual(events.first?.counters.inputTokens, 30)
+    }
+
+    func test_hermesUsageLedger_recordsDatedInitialCostOnlyObservation() async throws {
+        let tempDir = try makeHermesTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+        let ledger = HermesUsageLedger(
+            fileURL: tempDir.appendingPathComponent("hermes-usage-ledger.json"))
+        let baselineAt = tokiTestISODate("2026-04-10T08:00:00Z")
+        let startedAt = tokiTestISODate("2026-04-10T09:00:00Z")
+        try await ledger.refresh(observations: [], observedAt: baselineAt)
+
+        try await ledger.refresh(
+            observations: [hermesCostOnlyObservation(
+                sessionID: "dated-cost-only",
+                startedAt: startedAt,
+                activityAt: startedAt,
+                cost: 1.25)],
+            observedAt: tokiTestISODate("2026-04-10T10:00:00Z"))
+        let events = try await ledger.events(
+            from: baselineAt,
+            to: tokiTestISODate("2026-04-11T00:00:00Z"))
+
+        XCTAssertEqual(events.count, 1)
+        XCTAssertEqual(events.first?.counters, .zero)
+        XCTAssertEqual(events.first?.cost ?? -1, 1.25, accuracy: 0.000_001)
+    }
+
+    func test_hermesUsageLedger_persistsUndatedInitialCostOnlyCarryover() async throws {
+        let tempDir = try makeHermesTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+        let ledgerURL = tempDir.appendingPathComponent("hermes-usage-ledger.json")
+        let ledger = HermesUsageLedger(fileURL: ledgerURL)
+
+        try await ledger.refresh(
+            observations: [hermesCostOnlyObservation(
+                sessionID: "undated-cost-only",
+                startedAt: tokiTestISODate("2026-04-09T08:00:00Z"),
+                cost: 0.75)],
+            observedAt: tokiTestISODate("2026-04-10T10:00:00Z"))
+        let restartedLedger = HermesUsageLedger(fileURL: ledgerURL)
+        let status = try await restartedLedger.status()
+        let events = try await restartedLedger.events(
+            from: tokiTestISODate("2026-04-09T00:00:00Z"),
+            to: tokiTestISODate("2026-04-11T00:00:00Z"))
+
+        XCTAssertEqual(status.unattributedSessionCount, 1)
+        XCTAssertEqual(status.unattributedTokens, 0)
+        XCTAssertTrue(events.isEmpty)
+    }
+
+    func test_hermesUsageLedger_recordsIncrementalCostOnlyModelUpdate() async throws {
+        let tempDir = try makeHermesTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+        let ledger = HermesUsageLedger(
+            fileURL: tempDir.appendingPathComponent("hermes-usage-ledger.json"))
+        let startedAt = tokiTestISODate("2026-04-09T08:00:00Z")
+        try await ledger.refresh(
+            observations: [hermesReportedModelObservation(
+                startedAt: startedAt,
+                cost: 1)],
+            observedAt: tokiTestISODate("2026-04-09T09:00:00Z"))
+
+        try await ledger.refresh(
+            observations: [hermesReportedModelObservation(
+                startedAt: startedAt,
+                cost: 2)],
+            observedAt: tokiTestISODate("2026-04-10T10:00:00Z"))
+        let events = try await ledger.events(
+            from: tokiTestISODate("2026-04-10T00:00:00Z"),
+            to: tokiTestISODate("2026-04-11T00:00:00Z"))
+
+        XCTAssertEqual(events.count, 1)
+        XCTAssertEqual(events.first?.model, "reported-cost-model")
+        XCTAssertEqual(events.first?.counters, .zero)
+        XCTAssertEqual(events.first?.cost ?? -1, 1, accuracy: 0.000_001)
+    }
+}
+
 private struct HermesUsageLedgerV1Fixture: Encodable {
     let schemaVersion: Int
     let identifierKey: String
@@ -662,4 +820,91 @@ private func assertHermesLedgerPrivacy(at ledgerURL: URL) throws {
     let ledgerPermissions = try XCTUnwrap(
         FileManager.default.attributesOfItem(atPath: ledgerURL.path)[.posixPermissions] as? NSNumber)
     XCTAssertEqual(ledgerPermissions.intValue & 0o077, 0)
+}
+
+private func hermesInputCounters(_ inputTokens: Int) -> HermesTokenCounters {
+    HermesTokenCounters(
+        inputTokens: inputTokens,
+        outputTokens: 0,
+        cacheReadTokens: 0,
+        cacheWriteTokens: 0,
+        reasoningTokens: 0)
+}
+
+private func hermesLegacyV3Observation(
+    startedAt: Date,
+    modelCounters: [String: HermesTokenCounters],
+    modelPricingCounters: [String: HermesTokenCounters]) -> HermesSessionObservation {
+    let counters = modelCounters.values.reduce(HermesTokenCounters.zero) {
+        $0.adding($1)
+    }
+    return HermesSessionObservation(
+        sessionID: "legacy-v3-model-session",
+        startedAt: startedAt,
+        earliestActivityAt: nil,
+        latestActivityAt: nil,
+        model: nil,
+        counters: counters,
+        modelCounters: modelCounters,
+        cost: 0,
+        costIsDerivedFromModelPricing: true,
+        modelPricingCounters: modelPricingCounters,
+        projectName: nil,
+        attributionQuality: .unknown)
+}
+
+private func removeHermesModelCountersFromBaselines(at ledgerURL: URL) throws {
+    guard var document = try JSONSerialization.jsonObject(
+        with: Data(contentsOf: ledgerURL)) as? [String: Any],
+        var baselines = document["baselines"] as? [String: Any],
+        !baselines.isEmpty else {
+        throw NSError(domain: "HermesUsageLedgerTests", code: 1)
+    }
+    for (identifier, value) in baselines {
+        guard var baseline = value as? [String: Any] else {
+            throw NSError(domain: "HermesUsageLedgerTests", code: 2)
+        }
+        baseline.removeValue(forKey: "modelCounters")
+        baselines[identifier] = baseline
+    }
+    document["baselines"] = baselines
+    let data = try JSONSerialization.data(withJSONObject: document, options: [.sortedKeys])
+    try writePrivateHermesTestData(data, to: ledgerURL)
+}
+
+private func hermesCostOnlyObservation(
+    sessionID: String,
+    startedAt: Date,
+    activityAt: Date? = nil,
+    cost: Double) -> HermesSessionObservation {
+    HermesSessionObservation(
+        sessionID: sessionID,
+        startedAt: startedAt,
+        earliestActivityAt: activityAt,
+        latestActivityAt: activityAt,
+        model: "cost-only-model",
+        counters: .zero,
+        cost: cost,
+        projectName: nil,
+        attributionQuality: .unknown)
+}
+
+private func hermesReportedModelObservation(
+    startedAt: Date,
+    cost: Double) -> HermesSessionObservation {
+    let counters = hermesInputCounters(100)
+    return HermesSessionObservation(
+        sessionID: "reported-cost-session",
+        startedAt: startedAt,
+        earliestActivityAt: nil,
+        latestActivityAt: nil,
+        model: "reported-cost-model",
+        counters: counters,
+        modelCounters: ["reported-cost-model": counters],
+        cost: cost,
+        reportedCost: cost,
+        modelReportedCosts: ["reported-cost-model": cost],
+        modelPricingCounters: [:],
+        projectName: nil,
+        attributionQuality: .unknown)
 }

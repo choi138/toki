@@ -131,7 +131,7 @@ struct RemoteUsageMapper {
             eventsBySource[event.source, default: []].append(ActivityTimeEvent(
                 streamID: "\(snapshot.device.id):\(event.streamID)",
                 timestamp: event.timestamp,
-                key: normalizedModelID(event.model),
+                key: activityModelID(event.model),
                 agentKind: event.agentKind == .subagent ? .subagent : .main))
         }
         return eventsBySource
@@ -146,7 +146,7 @@ struct RemoteUsageMapper {
             return ActivityTimeEvent(
                 streamID: "\(snapshot.device.id):\(event.streamID)",
                 timestamp: event.timestamp,
-                key: normalizedModelID(event.model),
+                key: activityModelID(event.model),
                 agentKind: event.agentKind == .subagent ? .subagent : .main)
         }
     }
@@ -157,13 +157,17 @@ struct RemoteUsageMapper {
         endDate: Date,
         usage: inout RawTokenUsage) {
         for event in snapshot.activityEvents where event.timestamp >= startDate && event.timestamp < endDate {
-            guard let model = normalizedModelID(event.model),
-                  usage.perModel[model] != nil else {
+            let model = activityModelID(event.model)
+            guard usage.perModel[model] != nil else {
                 continue
             }
             usage.perModel[model]?.sources.insert(
                 deviceSource(event.source, deviceName: snapshot.device.name))
         }
+    }
+
+    private func activityModelID(_ model: String?) -> String {
+        normalizedModelID(model) ?? UsageModelGrouping.mixedOrUnattributedKey
     }
 
     private func deviceSource(_ source: String, deviceName: String) -> String {

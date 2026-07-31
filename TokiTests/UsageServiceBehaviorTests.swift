@@ -258,6 +258,46 @@ extension UsageServiceBehaviorTests {
         XCTAssertEqual(unattributed?.isPriceKnown, false)
     }
 
+    func test_usageService_exportsReportedCostOnlyUnattributedEventAsKnownPrice() async throws {
+        let recorder = MockReaderRecorder()
+        let reader = MockReader(name: "Hermes", recorder: recorder) { _, _ in
+            var usage = RawTokenUsage(
+                cost: 1,
+                perModel: [
+                    UsageModelGrouping.mixedOrUnattributedKey: PerModelUsage(
+                        cost: 1,
+                        sources: ["Hermes"]),
+                ])
+            usage.recordTokenEvent(
+                timestamp: behaviorTestISODate("2026-04-10T09:00:00Z"),
+                source: "Hermes",
+                model: nil,
+                inputTokens: 0,
+                outputTokens: 0,
+                cost: 1)
+            return usage
+        }
+
+        let service = await MainActor.run { UsageService(readers: [reader]) }
+        await MainActor.run { service.selectDay(behaviorTestISODate("2026-04-10T12:00:00Z")) }
+        await service.refresh()
+
+        let usageData = await MainActor.run { service.usageData }
+        let unattributed = try XCTUnwrap(usageData.perModel.first {
+            $0.modelID == UsageModelGrouping.mixedOrUnattributedKey
+        })
+        let modelCSVRow = try XCTUnwrap(
+            UsageExport.csvString(for: usageData)
+                .split(separator: "\n")
+                .first { $0.hasPrefix("model,") })
+
+        XCTAssertEqual(unattributed.totalTokens, 0)
+        XCTAssertEqual(unattributed.cost, 1, accuracy: 0.000_001)
+        XCTAssertEqual(unattributed.activeSeconds, 0)
+        XCTAssertTrue(unattributed.isPriceKnown)
+        XCTAssertTrue(modelCSVRow.contains(",1.000000,"))
+    }
+
     func test_usageService_surfacesMixedModelActivityInUnattributedBreakdown() async {
         let recorder = MockReaderRecorder()
         let timestamp = behaviorTestISODate("2026-04-10T09:00:00Z")

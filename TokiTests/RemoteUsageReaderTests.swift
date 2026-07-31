@@ -131,6 +131,38 @@ final class RemoteUsageReaderTests: XCTestCase {
         XCTAssertEqual(grouped["Claude"]?.count, 1)
         XCTAssertEqual(grouped.values.flatMap { $0 }.count, 3)
     }
+
+    func test_unattributedRemoteActivityRestoresCanonicalMixedModelTime() throws {
+        let fixture = try makeFixture()
+        let original = try SnapshotCipher.open(fixture.envelope, key: fixture.encryptionKey)
+        let snapshot = RemoteUsageSnapshot(
+            device: original.device,
+            generatedAt: original.generatedAt,
+            coveredFrom: original.coveredFrom,
+            coveredTo: original.coveredTo,
+            tokenEvents: [],
+            activityEvents: [
+                RemoteActivityEvent(
+                    timestamp: fixture.start.addingTimeInterval(60),
+                    source: "Hermes",
+                    model: nil,
+                    streamID: "mixed-model-session",
+                    agentKind: .main),
+            ])
+
+        let slice = try XCTUnwrap(RemoteUsageMapper().usageSlice(
+            from: snapshot,
+            startDate: fixture.start,
+            endDate: fixture.end))
+        let mixedUsage = try XCTUnwrap(
+            slice.usage.perModel[UsageModelGrouping.mixedOrUnattributedKey])
+
+        XCTAssertEqual(
+            slice.usage.activityEvents.first?.key,
+            UsageModelGrouping.mixedOrUnattributedKey)
+        XCTAssertEqual(mixedUsage.activeSeconds, 30)
+        XCTAssertEqual(mixedUsage.sources, ["Hermes · build-server"])
+    }
 }
 
 extension RemoteUsageReaderTests {

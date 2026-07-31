@@ -175,11 +175,6 @@ private extension HermesUsageLedger {
         }
 
         let delta = observation.counters.subtracting(previous.counters)
-        guard delta.totalTokens > 0 else {
-            guard currentBaseline.metadataDiffers(from: previous) else { return false }
-            candidate.baselines[identifier] = currentBaseline
-            return true
-        }
         let timestamp = incrementalTimestamp(
             observation: observation,
             previous: previous,
@@ -190,6 +185,9 @@ private extension HermesUsageLedger {
             previous: previous,
             delta: delta,
             pricingTimestamp: pricingTimestamp) else {
+            guard delta.totalTokens > 0 || currentBaseline.metadataDiffers(from: previous) else {
+                return false
+            }
             candidate.baselines[identifier] = currentBaseline
             try addUnattributed(
                 identifier: identifier,
@@ -199,11 +197,20 @@ private extension HermesUsageLedger {
                 to: &candidate.unattributed)
             return true
         }
+        guard delta.totalTokens > 0 || cost > 0 else {
+            guard currentBaseline.metadataDiffers(from: previous) else { return false }
+            candidate.baselines[identifier] = currentBaseline
+            return true
+        }
+        let previousModelCounters = previous.modelCounters
+            ?? hermesCompleteModelCounters(
+                previous.modelPricingCounters,
+                matching: previous.counters)
         for event in hermesUsageEvents(
             identifier: identifier,
             timestamp: timestamp,
             observation: observation,
-            previousModelCounters: previous.modelCounters,
+            previousModelCounters: previousModelCounters,
             previousReportedCost: previous.reportedCost,
             previousModelReportedCosts: previous.modelReportedCosts,
             previousModelPricingCounters: previous.modelPricingCounters,
@@ -225,7 +232,7 @@ private extension HermesUsageLedger {
         previousSuccessfulObservationAt: Date?,
         observedAt: Date,
         to candidate: inout HermesUsageLedgerDocument) throws -> Bool {
-        guard observation.counters.totalTokens > 0 else { return false }
+        guard observation.counters.totalTokens > 0 || observation.cost > 0 else { return false }
         candidate.baselines[identifier] = currentBaseline
         if initialUsageIsDated(
             observation,
@@ -538,7 +545,7 @@ private extension HermesUsageLedger {
         cost: Double,
         observedAt: Date,
         to carryovers: inout [String: HermesUsageLedgerCarryover]) throws {
-        guard counters.totalTokens > 0 else { return }
+        guard counters.totalTokens > 0 || cost > 0 else { return }
         guard let existing = carryovers[identifier] else {
             carryovers[identifier] = HermesUsageLedgerCarryover(
                 counters: counters,

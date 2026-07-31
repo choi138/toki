@@ -129,6 +129,20 @@ func hermesModelPricingCountersAreValid(
     return !totalCounters.hasDecrease(comparedTo: combinedCounters)
 }
 
+func hermesCompleteModelCounters(
+    _ modelCounters: [String: HermesTokenCounters]?,
+    matching totalCounters: HermesTokenCounters) -> [String: HermesTokenCounters]? {
+    guard let modelCounters,
+          hermesModelPricingCountersAreValid(modelCounters, within: totalCounters) else {
+        return nil
+    }
+
+    let combinedCounters = modelCounters.values.reduce(HermesTokenCounters.zero) {
+        $0.adding($1)
+    }
+    return combinedCounters == totalCounters ? modelCounters : nil
+}
+
 func hermesModelCounterDeltas(
     current: [String: HermesTokenCounters]?,
     previous: [String: HermesTokenCounters]?,
@@ -453,7 +467,7 @@ struct HermesUsageLedgerCarryover: Codable, Equatable {
 
     var isValid: Bool {
         counters.isValid()
-            && counters.totalTokens > 0
+            && (counters.totalTokens > 0 || cost > 0)
             && cost.isFinite
             && cost >= 0
             && hermesDateIsValid(firstObservedAt)

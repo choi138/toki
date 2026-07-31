@@ -424,6 +424,7 @@ private extension AgentSnapshotBuilder {
 
     private func remoteModel(_ model: String?) -> String? {
         guard let model,
+              model != UsageModelGrouping.mixedOrUnattributedKey,
               TokiSyncValidation.isSafeDisplayText(
                   model,
                   maximumLength: RemoteUsageSnapshotValidator.maximumModelLength) else {

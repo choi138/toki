@@ -5,6 +5,30 @@ import XCTest
 @testable import TokiUsageReaders
 
 final class AgentSnapshotModelAttributionTests: XCTestCase {
+    func test_snapshotEncodesCanonicalMixedActivityAsUnattributedRemoteModel() async throws {
+        let now = Date(timeIntervalSince1970: 1_784_200_000)
+        let eventDate = now.addingTimeInterval(-60)
+        let usage = RawTokenUsage(activityEvents: [
+            ActivityTimeEvent(
+                streamID: "mixed-model-session",
+                timestamp: eventDate,
+                key: UsageModelGrouping.mixedOrUnattributedKey),
+        ])
+        let descriptor = LocalUsageReaderDescriptor(
+            reader: FixedTokenReader(name: "Hermes", usage: usage),
+            sourceLocations: [])
+        let fixture = try AgentSnapshotFixture()
+        defer { fixture.remove() }
+        let builder = AgentSnapshotBuilder(
+            home: fixture.root,
+            readerDescriptors: [descriptor])
+
+        let snapshot = try await builder.build(configuration: fixture.configuration, now: now)
+
+        XCTAssertEqual(snapshot.activityEvents.count, 1)
+        XCTAssertNil(snapshot.activityEvents.first?.model)
+    }
+
     func test_snapshotPreservesMixedHermesModelAttributionAndResidual() async throws {
         let now = Date(timeIntervalSince1970: 1_784_200_000)
         let eventDate = now.addingTimeInterval(-60)
