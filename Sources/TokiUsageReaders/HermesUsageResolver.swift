@@ -42,10 +42,9 @@ private struct HermesSessionModelUsageAccumulator {
     var pricingCountersByModel: [String: HermesTokenCounters] = [:]
     var pricingTimestamp: Date?
     var models = Set<String>()
-    var hasUnattributedReportedCost = false
 
     var resolvedReportedCostsByModel: [String: Double]? {
-        hasUnattributedReportedCost ? nil : reportedCostsByModel
+        reportedCostsByModel
     }
 
     var hasResolvedReportedCostBreakdown: Bool {
@@ -86,7 +85,6 @@ private struct HermesSessionModelUsageAccumulator {
         reportedCost += usage.cost
         guard usage.cost > 0 else { return }
         guard let model = usage.model, usage.counters.totalTokens > 0 else {
-            hasUnattributedReportedCost = true
             return
         }
         let existingCost = reportedCostsByModel[model] ?? 0
@@ -161,12 +159,25 @@ enum HermesUsageResolver {
             ? pricingCounters(model: session.model, counters: session.counters)
             : [:]
         let sessionReportedCost = session.costIsDerivedFromModelPricing ? 0 : session.cost
-        if !hasModelUsage || session.cost > modelUsage.cost {
+        if !hasModelUsage {
             return HermesResolvedSessionCost(
                 value: session.cost,
                 isDerivedFromModelPricing: session.costIsDerivedFromModelPricing,
                 reportedValue: sessionReportedCost,
                 modelReportedCosts: nil,
+                modelPricingCounters: sessionPricingCounters,
+                modelPricingTimestamp: session.modelPricingTimestamp)
+        }
+        if session.cost > modelUsage.cost {
+            let modelReportedCosts = !session.costIsDerivedFromModelPricing
+                && modelUsage.hasResolvedReportedCostBreakdown
+                ? modelUsage.resolvedReportedCostsByModel
+                : nil
+            return HermesResolvedSessionCost(
+                value: session.cost,
+                isDerivedFromModelPricing: session.costIsDerivedFromModelPricing,
+                reportedValue: sessionReportedCost,
+                modelReportedCosts: modelReportedCosts,
                 modelPricingCounters: sessionPricingCounters,
                 modelPricingTimestamp: session.modelPricingTimestamp)
         }

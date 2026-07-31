@@ -32,12 +32,13 @@ public struct HermesReader: TokenReader {
     }
 
     public func readUsage(from startDate: Date, to endDate: Date) async throws -> RawTokenUsage {
-        let observedAt = now()
+        let modelPricingTimestamp = now()
         if let observations = try readDatabaseSnapshot({ database in
             try readSessionObservations(
                 from: database,
-                modelPricingTimestamp: observedAt)
+                modelPricingTimestamp: modelPricingTimestamp)
         }) {
+            let observedAt = max(modelPricingTimestamp, now())
             try await usageLedger.refresh(
                 observations: observations,
                 observedAt: observedAt)
@@ -323,11 +324,10 @@ public struct HermesReader: TokenReader {
             result.reasoningTokens += counters.reasoningTokens
             result.cost += event.cost
 
-            if let model = event.model {
-                result.perModel[model, default: PerModelUsage()].totalTokens += counters.totalTokens
-                result.perModel[model, default: PerModelUsage()].cost += event.cost
-                result.perModel[model, default: PerModelUsage()].sources.insert(name)
-            }
+            let modelGroupingKey = event.model ?? UsageModelGrouping.mixedOrUnattributedKey
+            result.perModel[modelGroupingKey, default: PerModelUsage()].totalTokens += counters.totalTokens
+            result.perModel[modelGroupingKey, default: PerModelUsage()].cost += event.cost
+            result.perModel[modelGroupingKey, default: PerModelUsage()].sources.insert(name)
 
             result.recordTokenEvent(
                 timestamp: event.timestamp,
@@ -352,14 +352,16 @@ public struct HermesReader: TokenReader {
 
     private static func activityEvents(
         from events: [HermesUsageLedgerEvent]) -> [ActivityTimeEvent<String>] {
-        Dictionary(grouping: events) { event in
+        Dictionary(grouping: events.filter { $0.counters.totalTokens > 0 }) { event in
             HermesActivityEventIdentity(
                 streamID: event.sessionIdentifier,
                 timestamp: event.timestamp)
         }
         .map { identity, groupedEvents in
             let models = Set(groupedEvents.map(\.model))
-            let model = models.count == 1 ? models.first ?? nil : nil
+            let model = models.count == 1
+                ? models.first ?? nil
+                : UsageModelGrouping.mixedOrUnattributedKey
             return ActivityTimeEvent(
                 streamID: identity.streamID,
                 timestamp: identity.timestamp,

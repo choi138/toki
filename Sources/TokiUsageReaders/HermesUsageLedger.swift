@@ -204,6 +204,7 @@ private extension HermesUsageLedger {
             timestamp: timestamp,
             observation: observation,
             previousModelCounters: previous.modelCounters,
+            previousReportedCost: previous.reportedCost,
             previousModelReportedCosts: previous.modelReportedCosts,
             previousModelPricingCounters: previous.modelPricingCounters,
             counters: delta,
@@ -238,6 +239,7 @@ private extension HermesUsageLedger {
                 timestamp: timestamp,
                 observation: observation,
                 previousModelCounters: observation.modelCounters.map { _ in [:] },
+                previousReportedCost: observation.reportedCost.map { _ in 0 },
                 previousModelReportedCosts: observation.modelReportedCosts.map { _ in [:] },
                 previousModelPricingCounters: observation.modelPricingCounters.map { _ in [:] },
                 counters: observation.counters,
@@ -495,6 +497,10 @@ private extension HermesUsageLedger {
     private func append(
         _ event: HermesUsageLedgerEvent,
         to events: inout [HermesUsageLedgerEvent]) {
+        guard event.counters.totalTokens > 0 else {
+            appendSingle(event, to: &events)
+            return
+        }
         let chunks = event.counters.chunks(maximum: hermesUsageLedgerMaximumEventTokenCount)
         var remainingCost = event.cost
         for (index, counters) in chunks.enumerated() {

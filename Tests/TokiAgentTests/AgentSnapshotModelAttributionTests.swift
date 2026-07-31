@@ -38,13 +38,16 @@ final class AgentSnapshotModelAttributionTests: XCTestCase {
 
         let snapshot = try await builder.build(configuration: fixture.configuration, now: now)
         let tokensByModel = snapshot.tokenEvents.reduce(into: [String: Int]()) { result, event in
-            result[event.model ?? "Mixed / Unattributed", default: 0] += event.totalTokens
+            result[
+                event.model ?? UsageModelGrouping.mixedOrUnattributedLabel,
+                default: 0
+            ] += event.totalTokens
         }
 
         XCTAssertEqual(tokensByModel, [
             "gpt-5.6-sol": 100,
             "kr/claude-opus-5": 30,
-            "Mixed / Unattributed": 20,
+            UsageModelGrouping.mixedOrUnattributedLabel: 20,
         ])
     }
 }

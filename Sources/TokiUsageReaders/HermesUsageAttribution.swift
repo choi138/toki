@@ -15,30 +15,40 @@ func hermesUsageEvents(
     timestamp: Date,
     observation: HermesSessionObservation,
     previousModelCounters: [String: HermesTokenCounters]?,
+    previousReportedCost: Double?,
     previousModelReportedCosts: [String: Double]?,
     previousModelPricingCounters: [String: HermesTokenCounters]?,
     counters: HermesTokenCounters,
     cost: Double,
     pricingTimestamp: Date) -> [HermesUsageLedgerEvent] {
+    let modelReportedCostDeltas = hermesModelReportedCostDeltas(
+        current: observation.modelReportedCosts,
+        previous: previousModelReportedCosts)
+    let unattributedReportedCostDelta = hermesUnattributedReportedCostDelta(
+        currentReportedCost: observation.reportedCost,
+        previousReportedCost: previousReportedCost,
+        modelReportedCostDeltas: modelReportedCostDeltas)
     let parts = hermesUsageEventParts(
         observation: observation,
         previousModelCounters: previousModelCounters,
-        counters: counters)
+        counters: counters,
+        includeCostOnlyResidual: unattributedReportedCostDelta.map { $0 > 0 } ?? false)
     let modelPricingDeltas = hermesModelCounterDeltas(
         current: observation.modelPricingCounters,
         previous: previousModelPricingCounters,
         maximumDelta: counters)
-    let modelReportedCostDeltas = hermesModelReportedCostDeltas(
-        current: observation.modelReportedCosts,
-        previous: previousModelReportedCosts)
     let costs = hermesAllocatedUsageCosts(
         totalCost: cost,
         parts: parts,
         modelPricingDeltas: modelPricingDeltas,
         modelReportedCostDeltas: modelReportedCostDeltas,
+        unattributedReportedCostDelta: unattributedReportedCostDelta,
         pricingTimestamp: pricingTimestamp)
-    return zip(parts, costs).map { part, allocatedCost in
-        HermesUsageLedgerEvent(
+    return zip(parts, costs).compactMap { part, allocatedCost in
+        guard part.counters.totalTokens > 0 || allocatedCost > 0 else {
+            return nil
+        }
+        return HermesUsageLedgerEvent(
             sessionIdentifier: identifier,
             timestamp: timestamp,
             model: part.model,
@@ -52,7 +62,8 @@ func hermesUsageEvents(
 private func hermesUsageEventParts(
     observation: HermesSessionObservation,
     previousModelCounters: [String: HermesTokenCounters]?,
-    counters: HermesTokenCounters) -> [HermesUsageEventPart] {
+    counters: HermesTokenCounters,
+    includeCostOnlyResidual: Bool) -> [HermesUsageEventPart] {
     guard let modelDeltas = hermesModelCounterDeltas(
         current: observation.modelCounters,
         previous: previousModelCounters,
@@ -71,6 +82,8 @@ private func hermesUsageEventParts(
     let residual = counters.subtracting(combinedCounters)
     if residual.totalTokens > 0 {
         parts.append(HermesUsageEventPart(model: nil, counters: residual))
+    } else if includeCostOnlyResidual {
+        parts.append(HermesUsageEventPart(model: nil, counters: .zero))
     }
     return parts
 }
@@ -80,6 +93,7 @@ private func hermesAllocatedUsageCosts(
     parts: [HermesUsageEventPart],
     modelPricingDeltas: [String: HermesTokenCounters]?,
     modelReportedCostDeltas: [String: Double]?,
+    unattributedReportedCostDelta: Double?,
     pricingTimestamp: Date) -> [Double] {
     guard totalCost > 0, !parts.isEmpty else {
         return Array(repeating: 0, count: parts.count)
@@ -92,6 +106,7 @@ private func hermesAllocatedUsageCosts(
         parts: parts,
         modelPricingDeltas: modelPricingDeltas,
         modelReportedCostDeltas: modelReportedCostDeltas,
+        unattributedReportedCostDelta: unattributedReportedCostDelta,
         pricingTimestamp: pricingTimestamp) ?? fallbackBasis
     let assignedTotal = basis.assignedCosts.reduce(0, +)
     if assignedTotal > totalCost, assignedTotal > 0 {
@@ -133,6 +148,7 @@ private func hermesUsageCostAllocationBasis(
     parts: [HermesUsageEventPart],
     modelPricingDeltas: [String: HermesTokenCounters]?,
     modelReportedCostDeltas: [String: Double]?,
+    unattributedReportedCostDelta: Double?,
     pricingTimestamp: Date) -> HermesUsageCostAllocationBasis? {
     guard modelPricingDeltas != nil || modelReportedCostDeltas != nil else {
         return nil
@@ -142,10 +158,19 @@ private func hermesUsageCostAllocationBasis(
     var unmatchedReportedModels = Set(modelReportedCostDeltas?.keys.map { $0 } ?? [])
     var assignedCosts: [Double] = []
     var remainderTokenCounts: [Int] = []
+    var unattributedCostWasAssigned = unattributedReportedCostDelta.map { $0 <= 0 } ?? true
     for part in parts {
         guard let model = part.model else {
-            assignedCosts.append(0)
-            remainderTokenCounts.append(part.counters.totalTokens)
+            let unattributedCost = unattributedReportedCostDelta ?? 0
+            guard unattributedCost.isFinite, unattributedCost >= 0 else {
+                return nil
+            }
+            assignedCosts.append(unattributedCost)
+            remainderTokenCounts.append(
+                modelReportedCostDeltas == nil
+                    ? part.counters.totalTokens
+                    : max(1, part.counters.totalTokens))
+            unattributedCostWasAssigned = true
             continue
         }
 
@@ -178,7 +203,8 @@ private func hermesUsageCostAllocationBasis(
                 : 0)
     }
     guard unmatchedPricingModels.isEmpty,
-          unmatchedReportedModels.isEmpty else {
+          unmatchedReportedModels.isEmpty,
+          unattributedCostWasAssigned else {
         return nil
     }
 

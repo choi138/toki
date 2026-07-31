@@ -450,6 +450,52 @@ final class HermesReaderTests: XCTestCase {
         XCTAssertFalse(hermesSQLiteShouldRetryImmutableFallback(after: SQLITE_BUSY))
     }
 
+    func test_hermesReader_capturesObservationTimeAfterReadingSnapshot() async throws {
+        let tempDir = try makeHermesTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let startedAt = tokiTestISODate("2026-04-10T10:00:01Z")
+        let dbURL = tempDir.appendingPathComponent("state.db")
+        try createHermesStateDB(
+            at: dbURL,
+            rows: [HermesSessionFixture(
+                id: "snapshot-race",
+                startedAt: "2026-04-10T10:00:01Z",
+                model: "gpt-5.5",
+                inputTokens: 123,
+                outputTokens: 0,
+                cacheReadTokens: 0,
+                cacheWriteTokens: 0,
+                reasoningTokens: 0,
+                cwd: nil,
+                gitRepoRoot: nil,
+                estimatedCost: 0,
+                actualCost: nil)])
+        try insertHermesMessage(
+            databaseURL: dbURL,
+            sessionID: "snapshot-race",
+            timestamp: startedAt)
+        let ledger = HermesUsageLedger(
+            fileURL: tempDir.appendingPathComponent("hermes-usage-ledger.json"))
+        try await ledger.refresh(
+            observations: [],
+            observedAt: tokiTestISODate("2026-04-10T09:00:00Z"))
+        let nowSequence = HermesNowSequence([
+            tokiTestISODate("2026-04-10T10:00:00Z"),
+            tokiTestISODate("2026-04-10T10:00:02Z"),
+        ])
+
+        let usage = try await HermesReader(
+            dbPathOverride: dbURL.path,
+            usageLedger: ledger,
+            now: { nowSequence.next() })
+            .readUsage(
+                from: tokiTestISODate("2026-04-10T00:00:00Z"),
+                to: tokiTestISODate("2026-04-11T00:00:00Z"))
+
+        XCTAssertEqual(usage.inputTokens, 123)
+    }
+
     func test_hermesReader_readsUncheckpointedUsageFromLiveWAL() async throws {
         let fileManager = FileManager.default
         let tempDir = try makeHermesTemporaryDirectory()
@@ -517,6 +563,20 @@ final class HermesReaderTests: XCTestCase {
         try Data().write(to: URL(fileURLWithPath: "\(dbURL.path)-wal"))
 
         XCTAssertFalse(snapshot.isCurrent())
+    }
+
+    func test_hermesDatabaseSourceSnapshotRejectsRollbackJournal() throws {
+        let tempDir = try makeHermesTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let dbURL = tempDir.appendingPathComponent("state.db")
+        try createHermesStateDB(
+            at: dbURL,
+            rows: [hermesSingleCounterFixture(id: "rollback-journal", inputTokens: 1)])
+        try Data().write(to: URL(fileURLWithPath: "\(dbURL.path)-journal"))
+
+        XCTAssertNil(
+            HermesDatabaseSourceSnapshot.captureForImmutableFallback(databaseURL: dbURL))
     }
 }
 
@@ -1338,4 +1398,23 @@ private func bindHermesDouble(_ value: Double?, at index: Int32, in statement: O
         return sqlite3_bind_null(statement, index) == SQLITE_OK
     }
     return sqlite3_bind_double(statement, index, value) == SQLITE_OK
+}
+
+private final class HermesNowSequence: @unchecked Sendable {
+    private let lock = NSLock()
+    private let values: [Date]
+    private var index = 0
+
+    init(_ values: [Date]) {
+        precondition(!values.isEmpty)
+        self.values = values
+    }
+
+    func next() -> Date {
+        lock.lock()
+        defer { lock.unlock() }
+        let value = values[min(index, values.index(before: values.endIndex))]
+        index += 1
+        return value
+    }
 }

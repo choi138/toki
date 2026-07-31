@@ -12,6 +12,11 @@ public enum UsageQuality: String {
     case derived
 }
 
+public enum UsageModelGrouping {
+    public static let mixedOrUnattributedKey = "\u{0}toki:mixed-or-unattributed"
+    public static let mixedOrUnattributedLabel = "Mixed / Unattributed"
+}
+
 public enum AttributionQuality: String, Codable {
     case exact
     case inferred

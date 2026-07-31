@@ -248,11 +248,49 @@ extension UsageServiceBehaviorTests {
         await service.refresh()
 
         let usageData = await MainActor.run { service.usageData }
-        let unattributed = usageData.perModel.first { $0.modelID == "Mixed / Unattributed" }
+        let unattributed = usageData.perModel.first {
+            $0.modelID == UsageModelGrouping.mixedOrUnattributedLabel
+        }
 
         XCTAssertEqual(unattributed?.totalTokens, 120)
         XCTAssertEqual(unattributed?.sources, ["Hermes"])
         XCTAssertEqual(unattributed?.isPriceKnown, false)
+    }
+
+    func test_usageService_surfacesMixedModelActivityInUnattributedBreakdown() async {
+        let recorder = MockReaderRecorder()
+        let timestamp = behaviorTestISODate("2026-04-10T09:00:00Z")
+        let reader = MockReader(name: "Hermes", recorder: recorder) { _, _ in
+            RawTokenUsage(
+                inputTokens: 200,
+                activeSeconds: 30,
+                perModel: [
+                    "model-a": PerModelUsage(totalTokens: 100, sources: ["Hermes"]),
+                    "model-b": PerModelUsage(totalTokens: 100, sources: ["Hermes"]),
+                    UsageModelGrouping.mixedOrUnattributedKey: PerModelUsage(
+                        activeSeconds: 30,
+                        sources: ["Hermes"]),
+                ],
+                activityEvents: [
+                    ActivityTimeEvent(
+                        streamID: "mixed-session",
+                        timestamp: timestamp,
+                        key: UsageModelGrouping.mixedOrUnattributedKey),
+                ])
+        }
+
+        let service = await MainActor.run { UsageService(readers: [reader]) }
+        await MainActor.run { service.selectDay(behaviorTestISODate("2026-04-10T12:00:00Z")) }
+        await service.refresh()
+
+        let usageData = await MainActor.run { service.usageData }
+        let unattributed = usageData.perModel.first {
+            $0.modelID == UsageModelGrouping.mixedOrUnattributedLabel
+        }
+
+        XCTAssertEqual(unattributed?.totalTokens, 0)
+        XCTAssertEqual(unattributed?.activeSeconds, 30)
+        XCTAssertEqual(unattributed?.sources, ["Hermes"])
     }
 }
 

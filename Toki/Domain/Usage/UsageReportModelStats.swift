@@ -2,8 +2,6 @@ import Foundation
 import TokiUsageCore
 import TokiUsageReaders
 
-private let unattributedModelID = "Mixed / Unattributed"
-
 private struct ModelSourceStatAggregate {
     var totalTokens = 0
     var cost: Double = 0
@@ -75,9 +73,12 @@ extension UsageReportBuilder {
             let rowID = sourceCountByModel[key.modelID, default: 0] > 1
                 ? "\(key.modelID)|\(key.source)"
                 : key.modelID
+            let displayModelID = key.modelID == UsageModelGrouping.mixedOrUnattributedKey
+                ? UsageModelGrouping.mixedOrUnattributedLabel
+                : key.modelID
             return ModelStat(
                 id: rowID,
-                modelID: key.modelID,
+                modelID: displayModelID,
                 totalTokens: aggregate.totalTokens,
                 cost: aggregate.cost,
                 activeSeconds: aggregate.activeSeconds,
@@ -129,7 +130,8 @@ extension UsageReportBuilder {
             guard let source = event.source.trimmedNonEmpty else {
                 continue
             }
-            let modelID = event.model?.trimmedNonEmpty ?? unattributedModelID
+            let modelID = event.model?.trimmedNonEmpty
+                ?? UsageModelGrouping.mixedOrUnattributedKey
             let key = ModelSourceUsageKey(modelID: modelID, source: source)
             aggregates[key, default: ModelSourceStatAggregate()].accumulate(event, modelID: modelID)
             activityEventsBySource[source, default: []].append(

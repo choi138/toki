@@ -191,7 +191,7 @@ struct HermesUsageLedgerEvent: Codable, Equatable {
         hermesIdentifierIsValid(sessionIdentifier)
             && hermesDateIsValid(timestamp)
             && counters.isValid(maximum: hermesUsageLedgerMaximumEventTokenCount)
-            && counters.totalTokens > 0
+            && (counters.totalTokens > 0 || cost > 0)
             && cost.isFinite
             && cost >= 0
             && model?.utf8.count ?? 0 <= 512

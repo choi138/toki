@@ -535,7 +535,13 @@ extension HermesPricingRefreshTests {
             tokiTestISODate("2026-04-10T09:00:00Z"),
         ])
         XCTAssertEqual(usage.activityEvents.count, 1)
-        XCTAssertNil(usage.activityEvents.first?.key)
+        XCTAssertEqual(
+            usage.activityEvents.first?.key,
+            UsageModelGrouping.mixedOrUnattributedKey)
+        XCTAssertEqual(
+            usage.perModel[UsageModelGrouping.mixedOrUnattributedKey]?.activeSeconds ?? -1,
+            30,
+            accuracy: 0.001)
         XCTAssertEqual(usage.activeSeconds, 30, accuracy: 0.001)
     }
 
@@ -553,7 +559,7 @@ extension HermesPricingRefreshTests {
                 id: "reported-mixed-session",
                 startedAt: "2026-04-10T09:00:00Z",
                 model: nil,
-                inputTokens: 200,
+                inputTokens: 250,
                 outputTokens: 0,
                 cacheReadTokens: 0,
                 cacheWriteTokens: 0,
@@ -561,7 +567,7 @@ extension HermesPricingRefreshTests {
                 cwd: nil,
                 gitRepoRoot: nil,
                 estimatedCost: 0,
-                actualCost: 11)])
+                actualCost: 12)])
         try insertHermesModelUsage(
             databaseURL: dbURL,
             rows: [
@@ -601,10 +607,21 @@ extension HermesPricingRefreshTests {
             .readUsage(
                 from: tokiTestISODate("2026-04-10T00:00:00Z"),
                 to: tokiTestISODate("2026-04-10T10:30:00Z"))
+        XCTAssertEqual(initialUsage.inputTokens, 250)
+        XCTAssertEqual(initialUsage.cost, 12, accuracy: 0.000001)
         XCTAssertEqual(initialUsage.perModel[expensiveModel]?.cost ?? -1, 10, accuracy: 0.000001)
         XCTAssertEqual(initialUsage.perModel[cheapModel]?.cost ?? -1, 1, accuracy: 0.000001)
+        XCTAssertEqual(
+            initialUsage.perModel[UsageModelGrouping.mixedOrUnattributedKey]?.totalTokens,
+            50)
+        XCTAssertEqual(
+            initialUsage.perModel[UsageModelGrouping.mixedOrUnattributedKey]?.cost ?? -1,
+            1,
+            accuracy: 0.000001)
         XCTAssertEqual(initialUsage.activityEvents.count, 1)
-        XCTAssertNil(initialUsage.activityEvents.first?.key)
+        XCTAssertEqual(
+            initialUsage.activityEvents.first?.key,
+            UsageModelGrouping.mixedOrUnattributedKey)
 
         try updateHermesModelUsage(
             databaseURL: dbURL,
@@ -618,6 +635,12 @@ extension HermesPricingRefreshTests {
             task: "cheap",
             inputTokens: 200,
             actualCost: 2)
+        try updateHermesSessionReportedUsage(
+            databaseURL: dbURL,
+            id: "reported-mixed-session",
+            inputTokens: 450,
+            estimatedCost: 0,
+            actualCost: 24)
         let increment = try await HermesReader(
             dbPathOverride: dbURL.path,
             usageLedger: HermesUsageLedger(fileURL: ledgerURL),
@@ -627,13 +650,26 @@ extension HermesPricingRefreshTests {
                 to: tokiTestISODate("2026-04-10T12:00:00Z"))
 
         XCTAssertEqual(increment.inputTokens, 200)
-        XCTAssertEqual(increment.cost, 11, accuracy: 0.000001)
+        XCTAssertEqual(increment.cost, 12, accuracy: 0.000001)
         XCTAssertEqual(increment.perModel[expensiveModel]?.totalTokens, 100)
         XCTAssertEqual(increment.perModel[cheapModel]?.totalTokens, 100)
         XCTAssertEqual(increment.perModel[expensiveModel]?.cost ?? -1, 10, accuracy: 0.000001)
         XCTAssertEqual(increment.perModel[cheapModel]?.cost ?? -1, 1, accuracy: 0.000001)
+        XCTAssertEqual(
+            increment.perModel[UsageModelGrouping.mixedOrUnattributedKey]?.totalTokens,
+            0)
+        XCTAssertEqual(
+            increment.perModel[UsageModelGrouping.mixedOrUnattributedKey]?.cost ?? -1,
+            1,
+            accuracy: 0.000001)
+        XCTAssertEqual(
+            increment.perModel[UsageModelGrouping.mixedOrUnattributedKey]?.activeSeconds ?? -1,
+            30,
+            accuracy: 0.001)
         XCTAssertEqual(increment.activityEvents.count, 1)
-        XCTAssertNil(increment.activityEvents.first?.key)
+        XCTAssertEqual(
+            increment.activityEvents.first?.key,
+            UsageModelGrouping.mixedOrUnattributedKey)
     }
 }
 

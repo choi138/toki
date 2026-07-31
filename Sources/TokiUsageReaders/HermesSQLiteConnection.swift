@@ -150,6 +150,7 @@ struct HermesDatabaseSourceSnapshot: Equatable {
         let path = databaseURL.path
         return fileManager.fileExists(atPath: "\(path)-wal")
             || fileManager.fileExists(atPath: "\(path)-shm")
+            || fileManager.fileExists(atPath: "\(path)-journal")
     }
 }
 

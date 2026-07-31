@@ -38,6 +38,37 @@ func hermesModelReportedCostDeltas(
     return deltas
 }
 
+func hermesUnattributedReportedCostDelta(
+    currentReportedCost: Double?,
+    previousReportedCost: Double?,
+    modelReportedCostDeltas: [String: Double]?) -> Double? {
+    guard let currentReportedCost,
+          let previousReportedCost,
+          let modelReportedCostDeltas,
+          currentReportedCost.isFinite,
+          previousReportedCost.isFinite,
+          currentReportedCost >= previousReportedCost else {
+        return nil
+    }
+
+    let reportedCostDelta = currentReportedCost - previousReportedCost
+    var attributedCostDelta = 0.0
+    for cost in modelReportedCostDeltas.values {
+        guard cost.isFinite,
+              cost >= 0,
+              (attributedCostDelta + cost).isFinite else {
+            return nil
+        }
+        attributedCostDelta += cost
+    }
+    let tolerance = 0.000_000_001 * max(1, reportedCostDelta)
+    guard attributedCostDelta <= reportedCostDelta + tolerance else {
+        return nil
+    }
+    let residual = max(0, reportedCostDelta - attributedCostDelta)
+    return residual <= tolerance ? 0 : residual
+}
+
 private func hermesModelReportedCostsAreValid(
     _ modelReportedCosts: [String: Double]?,
     totalReportedCost: Double) -> Bool {
@@ -55,7 +86,7 @@ private func hermesModelReportedCostsAreValid(
         combinedCost += cost
     }
     let tolerance = 0.000_000_001 * max(1, totalReportedCost)
-    return abs(combinedCost - totalReportedCost) <= tolerance
+    return combinedCost <= totalReportedCost + tolerance
 }
 
 func hermesModelPricedCost(
