@@ -851,6 +851,143 @@ extension HermesPricingRefreshTests {
     }
 }
 
+extension HermesPricingRefreshTests {
+    func test_resolverRetainsReportedModelCostsWhenDerivedSessionTotalWins() throws {
+        let timestamp = tokiTestISODate("2026-04-10T10:00:00Z")
+        let expensiveModel = "reported-detail-expensive"
+        let cheapModel = "reported-detail-cheap"
+        let expensiveCounters = HermesTokenCounters(
+            inputTokens: 100,
+            outputTokens: 0,
+            cacheReadTokens: 0,
+            cacheWriteTokens: 0,
+            reasoningTokens: 0)
+        let cheapCounters = HermesTokenCounters(
+            inputTokens: 100,
+            outputTokens: 0,
+            cacheReadTokens: 0,
+            cacheWriteTokens: 0,
+            reasoningTokens: 0)
+        let sessionCounters = expensiveCounters.adding(cheapCounters)
+        let session = HermesSessionObservation(
+            sessionID: "derived-session-total-wins",
+            startedAt: timestamp,
+            earliestActivityAt: timestamp,
+            latestActivityAt: timestamp,
+            model: nil,
+            counters: sessionCounters,
+            cost: 20,
+            costIsDerivedFromModelPricing: true,
+            modelPricingTimestamp: timestamp,
+            projectName: nil,
+            attributionQuality: .exact)
+        let resolved = try HermesUsageResolver.resolve(
+            session: session,
+            modelUsage: [
+                HermesSessionModelUsage(
+                    model: expensiveModel,
+                    counters: expensiveCounters,
+                    cost: 10,
+                    costIsDerivedFromModelPricing: false,
+                    modelPricingTimestamp: nil),
+                HermesSessionModelUsage(
+                    model: cheapModel,
+                    counters: cheapCounters,
+                    cost: 1,
+                    costIsDerivedFromModelPricing: false,
+                    modelPricingTimestamp: nil),
+            ])
+
+        let events = hermesUsageEvents(
+            identifier: "derived-session-total-wins",
+            timestamp: timestamp,
+            observation: resolved,
+            previousModelCounters: [:],
+            previousReportedCost: 0,
+            previousModelReportedCosts: [:],
+            previousModelPricingCounters: [:],
+            counters: resolved.counters,
+            cost: resolved.cost,
+            pricingTimestamp: timestamp)
+
+        XCTAssertEqual(resolved.cost, 20, accuracy: 0.000001)
+        XCTAssertEqual(resolved.reportedCost ?? -1, 20, accuracy: 0.000001)
+        XCTAssertEqual(resolved.modelReportedCosts?[expensiveModel] ?? -1, 10, accuracy: 0.000001)
+        XCTAssertEqual(resolved.modelReportedCosts?[cheapModel] ?? -1, 1, accuracy: 0.000001)
+        XCTAssertEqual(events.first { $0.model == expensiveModel }?.cost ?? -1, 10, accuracy: 0.000001)
+        XCTAssertEqual(events.first { $0.model == cheapModel }?.cost ?? -1, 1, accuracy: 0.000001)
+        XCTAssertEqual(events.first { $0.model == nil }?.cost ?? -1, 9, accuracy: 0.000001)
+    }
+
+    func test_resolverRetainsDetailedPricingWhenReportedSessionTotalTies() throws {
+        let timestamp = tokiTestISODate("2026-04-10T10:00:00Z")
+        let expensiveModel = "derived-detail-expensive"
+        let cheapModel = "derived-detail-cheap"
+        defer { ModelPricingSupplement.install([:]) }
+        ModelPricingSupplement.install([
+            expensiveModel: uniformHermesModelPrice(perMillion: 10),
+            cheapModel: uniformHermesModelPrice(perMillion: 1),
+        ])
+        let expensiveCounters = HermesTokenCounters(
+            inputTokens: 1_000_000,
+            outputTokens: 0,
+            cacheReadTokens: 0,
+            cacheWriteTokens: 0,
+            reasoningTokens: 0)
+        let cheapCounters = HermesTokenCounters(
+            inputTokens: 1_000_000,
+            outputTokens: 0,
+            cacheReadTokens: 0,
+            cacheWriteTokens: 0,
+            reasoningTokens: 0)
+        let session = HermesSessionObservation(
+            sessionID: "reported-session-total-ties",
+            startedAt: timestamp,
+            earliestActivityAt: timestamp,
+            latestActivityAt: timestamp,
+            model: nil,
+            counters: expensiveCounters.adding(cheapCounters),
+            cost: 11,
+            projectName: nil,
+            attributionQuality: .exact)
+        let resolved = try HermesUsageResolver.resolve(
+            session: session,
+            modelUsage: [
+                HermesSessionModelUsage(
+                    model: expensiveModel,
+                    counters: expensiveCounters,
+                    cost: 10,
+                    costIsDerivedFromModelPricing: true,
+                    modelPricingTimestamp: timestamp),
+                HermesSessionModelUsage(
+                    model: cheapModel,
+                    counters: cheapCounters,
+                    cost: 1,
+                    costIsDerivedFromModelPricing: true,
+                    modelPricingTimestamp: timestamp),
+            ])
+
+        let events = hermesUsageEvents(
+            identifier: "reported-session-total-ties",
+            timestamp: timestamp,
+            observation: resolved,
+            previousModelCounters: [:],
+            previousReportedCost: 0,
+            previousModelReportedCosts: [:],
+            previousModelPricingCounters: [:],
+            counters: resolved.counters,
+            cost: resolved.cost,
+            pricingTimestamp: timestamp)
+
+        XCTAssertEqual(resolved.cost, 11, accuracy: 0.000001)
+        XCTAssertEqual(resolved.reportedCost ?? -1, 0, accuracy: 0.000001)
+        XCTAssertEqual(resolved.modelPricingCounters?.count, 2)
+        XCTAssertEqual(events.first { $0.model == expensiveModel }?.cost ?? -1, 10, accuracy: 0.000001)
+        XCTAssertEqual(events.first { $0.model == cheapModel }?.cost ?? -1, 1, accuracy: 0.000001)
+        XCTAssertNil(events.first { $0.model == nil })
+    }
+}
+
 private func uniformHermesModelPrice(perMillion: Double) -> ModelPrice {
     ModelPrice(
         inputPerMillion: perMillion,

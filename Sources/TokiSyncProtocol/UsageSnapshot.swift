@@ -59,6 +59,24 @@ public struct RemoteTokenEvent: Codable, Equatable, Sendable {
     }
 }
 
+public struct RemoteCostEvent: Codable, Equatable, Sendable {
+    public let timestamp: Date
+    public let source: String
+    public let model: String?
+    public let cost: Double
+
+    public init(
+        timestamp: Date,
+        source: String,
+        model: String?,
+        cost: Double) {
+        self.timestamp = timestamp
+        self.source = source
+        self.model = model
+        self.cost = cost
+    }
+}
+
 private func saturatingTokenSum(_ total: Int, _ value: Int) -> Int {
     let (sum, overflow) = total.addingReportingOverflow(value)
     guard overflow else { return sum }
@@ -95,6 +113,7 @@ public struct RemoteUsageSnapshot: Codable, Equatable, Sendable {
     public let coveredFrom: Date
     public let coveredTo: Date
     public let tokenEvents: [RemoteTokenEvent]
+    public let costEvents: [RemoteCostEvent]?
     public let activityEvents: [RemoteActivityEvent]
 
     public init(
@@ -104,6 +123,7 @@ public struct RemoteUsageSnapshot: Codable, Equatable, Sendable {
         coveredFrom: Date,
         coveredTo: Date,
         tokenEvents: [RemoteTokenEvent],
+        costEvents: [RemoteCostEvent]? = nil,
         activityEvents: [RemoteActivityEvent]) {
         self.schemaVersion = schemaVersion
         self.device = device
@@ -111,6 +131,7 @@ public struct RemoteUsageSnapshot: Codable, Equatable, Sendable {
         self.coveredFrom = coveredFrom
         self.coveredTo = coveredTo
         self.tokenEvents = tokenEvents
+        self.costEvents = costEvents
         self.activityEvents = activityEvents
     }
 }

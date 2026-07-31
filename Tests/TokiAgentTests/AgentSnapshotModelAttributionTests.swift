@@ -51,12 +51,12 @@ final class AgentSnapshotModelAttributionTests: XCTestCase {
             readerDescriptors: [descriptor])
 
         let snapshot = try await builder.build(configuration: fixture.configuration, now: now)
-        let event = try XCTUnwrap(snapshot.tokenEvents.first)
+        let event = try XCTUnwrap(snapshot.costEvents?.first)
 
-        XCTAssertEqual(snapshot.tokenEvents.count, 1)
-        XCTAssertEqual(event.totalTokens, 0)
+        XCTAssertTrue(snapshot.tokenEvents.isEmpty)
+        XCTAssertEqual(snapshot.costEvents?.count, 1)
         XCTAssertNil(event.model)
-        XCTAssertEqual(event.cost ?? -1, 1.25, accuracy: 0.000001)
+        XCTAssertEqual(event.cost, 1.25, accuracy: 0.000001)
         XCTAssertNoThrow(try RemoteUsageSnapshotValidator.validate(snapshot, now: now))
     }
 

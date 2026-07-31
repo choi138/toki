@@ -31,6 +31,12 @@ struct RemoteUsageMapper {
                 to: &sourceUsage)
             usageBySource[event.source] = sourceUsage
         }
+        appendCostEvents(
+            from: snapshot,
+            startDate: startDate,
+            endDate: endDate,
+            usage: &usage,
+            usageBySource: &usageBySource)
 
         usage.activityEvents.append(contentsOf: mappedActivityEvents(
             from: snapshot,
@@ -124,6 +130,25 @@ struct RemoteUsageMapper {
             cacheWrite: event.cacheWriteTokens)
     }
 
+    private func appendCostEvent(
+        _ event: RemoteCostEvent,
+        model: String?,
+        source: String,
+        to result: inout RawTokenUsage) {
+        result.cost += event.cost
+        let modelGroupingKey = model ?? UsageModelGrouping.mixedOrUnattributedKey
+        result.perModel[modelGroupingKey, default: PerModelUsage()].cost += event.cost
+        result.perModel[modelGroupingKey, default: PerModelUsage()].sources.insert(source)
+
+        result.recordTokenEvent(
+            timestamp: event.timestamp,
+            source: source,
+            model: model,
+            inputTokens: 0,
+            outputTokens: 0,
+            cost: event.cost)
+    }
+
     func mappedActivityEventsBySource(
         from snapshot: RemoteUsageSnapshot,
         startDate: Date,
@@ -174,5 +199,31 @@ struct RemoteUsageMapper {
 
     private func deviceSource(_ source: String, deviceName: String) -> String {
         "\(source) · \(deviceName)"
+    }
+}
+
+private extension RemoteUsageMapper {
+    func appendCostEvents(
+        from snapshot: RemoteUsageSnapshot,
+        startDate: Date,
+        endDate: Date,
+        usage: inout RawTokenUsage,
+        usageBySource: inout [String: RawTokenUsage]) {
+        for event in snapshot.costEvents ?? [] where event.timestamp >= startDate && event.timestamp < endDate {
+            let model = normalizedModelID(event.model)
+            appendCostEvent(
+                event,
+                model: model,
+                source: deviceSource(event.source, deviceName: snapshot.device.name),
+                to: &usage)
+
+            var sourceUsage = usageBySource[event.source] ?? RawTokenUsage()
+            appendCostEvent(
+                event,
+                model: model,
+                source: event.source,
+                to: &sourceUsage)
+            usageBySource[event.source] = sourceUsage
+        }
     }
 }

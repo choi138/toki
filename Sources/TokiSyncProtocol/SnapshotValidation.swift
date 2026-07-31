@@ -2,6 +2,7 @@ import Foundation
 
 public enum RemoteUsageSnapshotValidator {
     public static let maximumTokenEventCount = 200_000
+    public static let maximumCostEventCount = 200_000
     public static let maximumActivityEventCount = 200_000
     public static let maximumTokenCountPerBucket = 1_000_000_000
     public static let maximumCostPerEvent = 1_000_000_000.0
@@ -29,6 +30,9 @@ public enum RemoteUsageSnapshotValidator {
         guard snapshot.tokenEvents.count <= maximumTokenEventCount else {
             throw RemoteUsageSnapshotValidationError.tooManyEvents
         }
+        guard (snapshot.costEvents?.count ?? 0) <= maximumCostEventCount else {
+            throw RemoteUsageSnapshotValidationError.tooManyEvents
+        }
         guard snapshot.activityEvents.count <= maximumActivityEventCount else {
             throw RemoteUsageSnapshotValidationError.tooManyEvents
         }
@@ -44,8 +48,19 @@ public enum RemoteUsageSnapshotValidator {
                   validTokenCount(event.cacheWriteTokens),
                   validTokenCount(event.reasoningTokens),
                   event.cost.map(validCost) ?? true,
-                  event.totalTokens > 0 || (event.cost ?? 0) > 0 else {
+                  event.totalTokens > 0 else {
                 throw RemoteUsageSnapshotValidationError.invalidTokenEvent
+            }
+        }
+
+        for event in snapshot.costEvents ?? [] {
+            guard event.timestamp >= snapshot.coveredFrom,
+                  event.timestamp < snapshot.coveredTo,
+                  TokiSyncValidation.isSafeDisplayText(event.source, maximumLength: 40),
+                  isOptionalBoundedText(event.model, maximumLength: maximumModelLength),
+                  validCost(event.cost),
+                  event.cost > 0 else {
+                throw RemoteUsageSnapshotValidationError.invalidCostEvent
             }
         }
 
@@ -84,6 +99,7 @@ public enum RemoteUsageSnapshotValidationError: LocalizedError {
     case invalidDateRange
     case tooManyEvents
     case invalidTokenEvent
+    case invalidCostEvent
     case invalidActivityEvent
 
     public var errorDescription: String? {
@@ -98,6 +114,8 @@ public enum RemoteUsageSnapshotValidationError: LocalizedError {
             "The remote snapshot contains too many events."
         case .invalidTokenEvent:
             "The remote snapshot contains an invalid token event."
+        case .invalidCostEvent:
+            "The remote snapshot contains an invalid cost event."
         case .invalidActivityEvent:
             "The remote snapshot contains an invalid activity event."
         }

@@ -172,16 +172,12 @@ final class RemoteUsageReaderTests: XCTestCase {
             generatedAt: original.generatedAt,
             coveredFrom: original.coveredFrom,
             coveredTo: original.coveredTo,
-            tokenEvents: [
-                RemoteTokenEvent(
+            tokenEvents: [],
+            costEvents: [
+                RemoteCostEvent(
                     timestamp: fixture.start.addingTimeInterval(60),
                     source: "Hermes",
                     model: nil,
-                    inputTokens: 0,
-                    outputTokens: 0,
-                    cacheReadTokens: 0,
-                    cacheWriteTokens: 0,
-                    reasoningTokens: 0,
                     cost: 1.25),
             ],
             activityEvents: [])

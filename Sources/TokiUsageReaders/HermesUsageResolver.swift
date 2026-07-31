@@ -48,10 +48,6 @@ private struct HermesSessionModelUsageAccumulator {
         reportedCostsByModel
     }
 
-    var hasResolvedReportedCostBreakdown: Bool {
-        resolvedReportedCostsByModel?.isEmpty == false
-    }
-
     mutating func add(_ usage: HermesSessionModelUsage) throws {
         guard usage.counters.isValid(),
               counters.canAdd(usage.counters, maximum: hermesLedgerMaximumCumulativeTokens),
@@ -172,27 +168,17 @@ enum HermesUsageResolver {
                 incrementalModelPricingTimestamp: nil)
         }
         if session.cost > modelUsage.cost {
-            if !session.costIsDerivedFromModelPricing {
-                let retainedModelPricingCost = max(
-                    0,
-                    modelUsage.cost - modelUsage.reportedCost)
-                return HermesResolvedSessionCost(
-                    value: session.cost,
-                    isDerivedFromModelPricing: false,
-                    reportedValue: session.cost - retainedModelPricingCost,
-                    modelReportedCosts: modelUsage.resolvedReportedCostsByModel,
-                    modelPricingCounters: modelUsage.pricingCountersByModel,
-                    modelPricingTimestamp: modelUsage.pricingTimestamp,
-                    incrementalModelPricingTimestamp: modelUsage.pricingTimestamp)
-            }
+            let retainedModelPricingCost = max(
+                0,
+                modelUsage.cost - modelUsage.reportedCost)
             return HermesResolvedSessionCost(
                 value: session.cost,
-                isDerivedFromModelPricing: session.costIsDerivedFromModelPricing,
-                reportedValue: sessionReportedCost,
-                modelReportedCosts: nil,
-                modelPricingCounters: sessionPricingCounters,
-                modelPricingTimestamp: session.modelPricingTimestamp,
-                incrementalModelPricingTimestamp: nil)
+                isDerivedFromModelPricing: false,
+                reportedValue: session.cost - retainedModelPricingCost,
+                modelReportedCosts: modelUsage.resolvedReportedCostsByModel,
+                modelPricingCounters: modelUsage.pricingCountersByModel,
+                modelPricingTimestamp: modelUsage.pricingTimestamp,
+                incrementalModelPricingTimestamp: modelUsage.pricingTimestamp)
         }
         if modelUsage.cost > session.cost {
             return HermesResolvedSessionCost(
@@ -205,17 +191,6 @@ enum HermesUsageResolver {
                 incrementalModelPricingTimestamp: modelUsage.pricingTimestamp)
         }
 
-        if !session.costIsDerivedFromModelPricing,
-           !modelUsage.hasResolvedReportedCostBreakdown {
-            return HermesResolvedSessionCost(
-                value: session.cost,
-                isDerivedFromModelPricing: false,
-                reportedValue: sessionReportedCost,
-                modelReportedCosts: nil,
-                modelPricingCounters: sessionPricingCounters,
-                modelPricingTimestamp: session.modelPricingTimestamp,
-                incrementalModelPricingTimestamp: nil)
-        }
         return HermesResolvedSessionCost(
             value: modelUsage.cost,
             isDerivedFromModelPricing: modelUsage.costIsDerivedFromModelPricing,

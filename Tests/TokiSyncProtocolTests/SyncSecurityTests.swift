@@ -141,6 +141,50 @@ final class SyncSecurityTests: XCTestCase {
     }
 }
 
+extension SyncSecurityTests {
+    func test_v1SnapshotsKeepCostEventsBackwardCompatible() throws {
+        let generatedAt = Date(timeIntervalSince1970: 1_750_000_000)
+        let device = RemoteDeviceDescriptor(id: "device-1", name: "ubuntu", platform: "linux")
+        let legacySnapshot = LegacyRemoteUsageSnapshot(
+            schemaVersion: TokiSyncProtocolVersion.current,
+            device: device,
+            generatedAt: generatedAt,
+            coveredFrom: generatedAt.addingTimeInterval(-3600),
+            coveredTo: generatedAt.addingTimeInterval(1),
+            tokenEvents: [],
+            activityEvents: [])
+        let encoder = TokiSyncCoding.makeEncoder()
+        let decoder = TokiSyncCoding.makeDecoder()
+
+        let decodedCurrentSnapshot = try decoder.decode(
+            RemoteUsageSnapshot.self,
+            from: encoder.encode(legacySnapshot))
+        XCTAssertNil(decodedCurrentSnapshot.costEvents)
+
+        let currentSnapshot = RemoteUsageSnapshot(
+            device: device,
+            generatedAt: generatedAt,
+            coveredFrom: generatedAt.addingTimeInterval(-3600),
+            coveredTo: generatedAt.addingTimeInterval(1),
+            tokenEvents: [],
+            costEvents: [
+                RemoteCostEvent(
+                    timestamp: generatedAt.addingTimeInterval(-60),
+                    source: "Hermes",
+                    model: nil,
+                    cost: 1.25),
+            ],
+            activityEvents: [])
+        let decodedLegacySnapshot = try decoder.decode(
+            LegacyRemoteUsageSnapshot.self,
+            from: encoder.encode(currentSnapshot))
+
+        XCTAssertEqual(decodedLegacySnapshot.schemaVersion, TokiSyncProtocolVersion.current)
+        XCTAssertTrue(decodedLegacySnapshot.tokenEvents.isEmpty)
+        XCTAssertNoThrow(try RemoteUsageSnapshotValidator.validate(currentSnapshot, now: generatedAt))
+    }
+}
+
 private struct OversizedEncodable: Encodable {
     let value: String
 }
@@ -157,7 +201,7 @@ private struct LegacyRemoteDeviceSummary: Encodable {
     let latestSequence: UInt64?
 }
 
-private struct LegacyRemoteTokenEvent: Encodable {
+private struct LegacyRemoteTokenEvent: Codable {
     let timestamp: Date
     let source: String
     let model: String?
@@ -166,6 +210,16 @@ private struct LegacyRemoteTokenEvent: Encodable {
     let cacheReadTokens: Int
     let cacheWriteTokens: Int
     let reasoningTokens: Int
+}
+
+private struct LegacyRemoteUsageSnapshot: Codable {
+    let schemaVersion: Int
+    let device: RemoteDeviceDescriptor
+    let generatedAt: Date
+    let coveredFrom: Date
+    let coveredTo: Date
+    let tokenEvents: [LegacyRemoteTokenEvent]
+    let activityEvents: [RemoteActivityEvent]
 }
 
 private struct LegacyAgentPairingBundle: Encodable {
