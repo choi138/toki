@@ -48,6 +48,54 @@ final class UsageProjectTimelineReportTests: XCTestCase {
         XCTAssertEqual(report.attributedCost, 0.30, accuracy: 0.000001)
     }
 
+    func test_usageReportIncludesCostOnlyEventsInEveryAttributedBreakdown() {
+        let startDate = tokiTestISODate("2026-04-10T00:00:00Z")
+        let endDate = tokiTestISODate("2026-04-11T00:00:00Z")
+        let attribution = UsageAttribution(
+            projectPath: "/Users/example/Toki",
+            sessionID: "cost-only-session",
+            quality: .exact)
+        var rawUsage = RawTokenUsage(
+            inputTokens: 200,
+            cost: 12)
+        rawUsage.recordTokenEvent(
+            timestamp: tokiTestISODate("2026-04-10T10:00:00Z"),
+            source: "Hermes",
+            model: "reported-model",
+            inputTokens: 100,
+            outputTokens: 0,
+            cost: 10,
+            attribution: attribution)
+        rawUsage.recordTokenEvent(
+            timestamp: tokiTestISODate("2026-04-10T10:00:00Z"),
+            source: "Hermes",
+            model: "derived-model",
+            inputTokens: 100,
+            outputTokens: 0,
+            cost: 1,
+            attribution: attribution)
+        rawUsage.recordTokenEvent(
+            timestamp: tokiTestISODate("2026-04-10T10:00:00Z"),
+            source: "Hermes",
+            model: nil,
+            inputTokens: 0,
+            outputTokens: 0,
+            cost: 1,
+            attribution: attribution)
+
+        let report = UsageReportBuilder.report(
+            from: rawUsage,
+            date: startDate,
+            endDate: endDate,
+            sourceStats: [])
+
+        XCTAssertEqual(rawUsage.tokenEvents.count, 3)
+        XCTAssertEqual(report.timeBuckets.reduce(0) { $0 + $1.cost }, 12, accuracy: 0.000001)
+        XCTAssertEqual(report.projectStats.first?.cost ?? -1, 12, accuracy: 0.000001)
+        XCTAssertEqual(report.sessionStats.first?.cost ?? -1, 12, accuracy: 0.000001)
+        XCTAssertEqual(report.attributedCost, 12, accuracy: 0.000001)
+    }
+
     func test_usageReportUsesUniqueIDsForPathlessProjectStats() {
         let startDate = tokiTestISODate("2026-04-10T00:00:00Z")
         let endDate = tokiTestISODate("2026-04-11T00:00:00Z")

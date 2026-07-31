@@ -73,12 +73,9 @@ extension UsageReportBuilder {
             let rowID = sourceCountByModel[key.modelID, default: 0] > 1
                 ? "\(key.modelID)|\(key.source)"
                 : key.modelID
-            let displayModelID = key.modelID == UsageModelGrouping.mixedOrUnattributedKey
-                ? UsageModelGrouping.mixedOrUnattributedLabel
-                : key.modelID
             return ModelStat(
                 id: rowID,
-                modelID: displayModelID,
+                modelID: key.modelID,
                 totalTokens: aggregate.totalTokens,
                 cost: aggregate.cost,
                 activeSeconds: aggregate.activeSeconds,
@@ -204,8 +201,8 @@ extension UsageReportBuilder {
         if lhs.cost != rhs.cost {
             return lhs.cost > rhs.cost
         }
-        if lhs.modelID != rhs.modelID {
-            return lhs.modelID < rhs.modelID
+        if lhs.displayModelID != rhs.displayModelID {
+            return lhs.displayModelID < rhs.displayModelID
         }
         return lhs.sources.joined(separator: ",") < rhs.sources.joined(separator: ",")
     }

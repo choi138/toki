@@ -307,6 +307,61 @@ final class HermesReaderTests: XCTestCase {
         XCTAssertEqual(coverage.unmeteredMainAPICallCount, 3)
     }
 
+    func test_hermesReader_usesSessionModelWhenDetailRowsHaveNoTokens() async throws {
+        let tempDir = try makeHermesTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let model = "gpt-5.5"
+        let dbURL = tempDir.appendingPathComponent("state.db")
+        let ledger = HermesUsageLedger(
+            fileURL: tempDir.appendingPathComponent("hermes-usage-ledger.json"))
+        try createHermesStateDB(
+            at: dbURL,
+            rows: [HermesSessionFixture(
+                id: "zero-token-detail",
+                startedAt: "2026-04-10T09:00:00Z",
+                model: model,
+                inputTokens: 100,
+                outputTokens: 0,
+                cacheReadTokens: 0,
+                cacheWriteTokens: 0,
+                reasoningTokens: 0,
+                cwd: nil,
+                gitRepoRoot: nil,
+                estimatedCost: 0,
+                actualCost: 1)])
+        try insertHermesModelUsage(
+            databaseURL: dbURL,
+            rows: [HermesModelUsageFixture(
+                sessionID: "zero-token-detail",
+                model: model,
+                task: "",
+                apiCallCount: 1,
+                inputTokens: 0,
+                outputTokens: 0,
+                cacheReadTokens: 0,
+                cacheWriteTokens: 0,
+                reasoningTokens: 0,
+                estimatedCost: 0,
+                actualCost: 0)])
+        try await ledger.refresh(
+            observations: [],
+            observedAt: tokiTestISODate("2026-04-10T08:00:00Z"))
+
+        let usage = try await HermesReader(
+            dbPathOverride: dbURL.path,
+            usageLedger: ledger,
+            now: { tokiTestISODate("2026-04-10T10:00:00Z") })
+            .readUsage(
+                from: tokiTestISODate("2026-04-10T00:00:00Z"),
+                to: tokiTestISODate("2026-04-11T00:00:00Z"))
+
+        XCTAssertEqual(usage.inputTokens, 100)
+        XCTAssertEqual(usage.perModel[model]?.totalTokens, 100)
+        XCTAssertEqual(usage.perModel[model]?.cost ?? -1, 1, accuracy: 0.000001)
+        XCTAssertNil(usage.perModel[UsageModelGrouping.mixedOrUnattributedKey])
+    }
+
     func test_hermesReader_tokenHelpersUseSameRangeAndZeroTokenFilters() async throws {
         let tempDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)

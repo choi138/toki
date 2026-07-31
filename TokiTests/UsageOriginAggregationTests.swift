@@ -108,6 +108,56 @@ final class UsageOriginAggregationTests: XCTestCase {
         XCTAssertEqual(Set(remoteRows.map(\.sources)), [["Codex"], ["Claude Code"]])
         XCTAssertEqual(Set(remoteRows.map(\.totalTokens)), [10, 20])
     }
+
+    func test_unattributedModelKeyStaysCanonicalAcrossLocalAndRemoteAggregation() async throws {
+        let interval = testInterval
+        let groupingKey = UsageModelGrouping.mixedOrUnattributedKey
+        let localUsage = RawTokenUsage(
+            inputTokens: 10,
+            perModel: [
+                groupingKey: PerModelUsage(
+                    totalTokens: 10,
+                    sources: ["Hermes"]),
+            ])
+        let remoteUsage = RawTokenUsage(
+            inputTokens: 20,
+            perModel: [
+                groupingKey: PerModelUsage(
+                    totalTokens: 20,
+                    sources: ["Hermes"]),
+            ])
+        let remoteSlice = UsageOriginSlice(
+            origin: .remote(
+                deviceID: "remote-a",
+                name: "worker",
+                platform: "linux",
+                lastUpdatedAt: interval.start),
+            usage: remoteUsage,
+            sourceStats: [
+                SourceStat(
+                    source: "Hermes",
+                    inputTokens: 20,
+                    outputTokens: 0,
+                    cacheReadTokens: 0,
+                    cacheWriteTokens: 0,
+                    reasoningTokens: 0,
+                    cost: 0,
+                    activeSeconds: 0),
+            ])
+        let aggregator = UsageAggregator(readers: [
+            FixedUsageReader(name: "Hermes", usage: localUsage),
+            FixedOriginReader(name: "Remote Devices", slices: [remoteSlice]),
+        ])
+
+        let result = await aggregator.aggregateUsage(for: makeRequest(interval: interval))
+        let rows = result.usageData.perModel.filter { $0.modelID == groupingKey }
+        let row = try XCTUnwrap(rows.first)
+
+        XCTAssertEqual(rows.count, 1)
+        XCTAssertEqual(row.totalTokens, 30)
+        XCTAssertEqual(row.displayModelID, UsageModelGrouping.mixedOrUnattributedLabel)
+        XCTAssertEqual(row.sources, ["Hermes"])
+    }
 }
 
 extension UsageOriginAggregationTests {

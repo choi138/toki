@@ -115,7 +115,7 @@ private struct UsageExportModel: Encodable {
     let isPriceKnown: Bool
 
     init(model: ModelStat) {
-        self.model = model.modelID
+        self.model = model.displayModelID
         totalTokens = model.totalTokens
         cost = model.cost
         activeSeconds = model.activeSeconds
@@ -269,9 +269,9 @@ private extension UsageExport {
         usage.perModel.map { model in
             [
                 "model",
-                model.modelID,
+                model.displayModelID,
                 model.sources.joined(separator: ";"),
-                model.modelID,
+                model.displayModelID,
                 "",
                 "",
                 "",

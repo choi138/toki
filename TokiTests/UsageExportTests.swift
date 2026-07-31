@@ -1,3 +1,4 @@
+import TokiUsageCore
 import XCTest
 @testable import Toki
 
@@ -118,5 +119,39 @@ final class UsageExportTests: XCTestCase {
         XCTAssertEqual(models.first?["isPriceKnown"] as? Bool, false)
         XCTAssertTrue(projects.isEmpty)
         XCTAssertTrue(sessions.isEmpty)
+    }
+
+    func test_exportsUseDisplayLabelForCanonicalUnattributedModelKey() throws {
+        let usage = UsageData(
+            date: tokiTestISODate("2026-04-10T00:00:00Z"),
+            endDate: tokiTestISODate("2026-04-11T00:00:00Z"),
+            inputTokens: 1,
+            outputTokens: 0,
+            cacheReadTokens: 0,
+            cacheWriteTokens: 0,
+            reasoningTokens: 0,
+            cost: 0,
+            activeSeconds: 0,
+            perModel: [
+                ModelStat(
+                    id: UsageModelGrouping.mixedOrUnattributedKey,
+                    totalTokens: 1,
+                    cost: 0,
+                    activeSeconds: 0,
+                    sources: ["Hermes"],
+                    isPriceKnown: false),
+            ])
+
+        let csv = UsageExport.csvString(for: usage)
+        let data = try XCTUnwrap(UsageExport.jsonString(for: usage).data(using: .utf8))
+        let object = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: data) as? [String: Any])
+        let models = try XCTUnwrap(object["models"] as? [[String: Any]])
+
+        XCTAssertTrue(csv.contains(UsageModelGrouping.mixedOrUnattributedLabel))
+        XCTAssertFalse(csv.contains(UsageModelGrouping.mixedOrUnattributedKey))
+        XCTAssertEqual(
+            models.first?["model"] as? String,
+            UsageModelGrouping.mixedOrUnattributedLabel)
     }
 }

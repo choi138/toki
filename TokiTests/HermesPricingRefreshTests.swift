@@ -256,6 +256,101 @@ extension HermesPricingRefreshTests {
             accuracy: 0.000001)
     }
 
+    // swiftlint:disable:next function_body_length
+    func test_hermesReader_preservesDerivedModelCostWhenReportedSessionTotalWins() async throws {
+        let tempDir = try makeHermesTemporaryDirectory()
+        defer {
+            ModelPricingSupplement.install([:])
+            try? FileManager.default.removeItem(at: tempDir)
+        }
+        let reportedModel = "reported-session-winner-model"
+        let derivedModel = "derived-session-winner-model"
+        let derivedPrice = uniformHermesModelPrice(perMillion: 10000)
+        ModelPricingSupplement.install([derivedModel: derivedPrice])
+
+        let dbURL = tempDir.appendingPathComponent("state.db")
+        let ledgerURL = tempDir.appendingPathComponent("hermes-usage-ledger.json")
+        try createHermesStateDB(
+            at: dbURL,
+            rows: [HermesSessionFixture(
+                id: "session-total-wins",
+                startedAt: "2026-04-10T09:00:00Z",
+                model: nil,
+                inputTokens: 200,
+                outputTokens: 0,
+                cacheReadTokens: 0,
+                cacheWriteTokens: 0,
+                reasoningTokens: 0,
+                cwd: nil,
+                gitRepoRoot: nil,
+                estimatedCost: 0,
+                actualCost: 12)])
+        try insertHermesModelUsage(
+            databaseURL: dbURL,
+            rows: [
+                HermesModelUsageFixture(
+                    sessionID: "session-total-wins",
+                    model: reportedModel,
+                    task: "reported",
+                    apiCallCount: 1,
+                    inputTokens: 100,
+                    outputTokens: 0,
+                    cacheReadTokens: 0,
+                    cacheWriteTokens: 0,
+                    reasoningTokens: 0,
+                    estimatedCost: 0,
+                    actualCost: 10),
+                HermesModelUsageFixture(
+                    sessionID: "session-total-wins",
+                    model: derivedModel,
+                    task: "derived",
+                    apiCallCount: 1,
+                    inputTokens: 100,
+                    outputTokens: 0,
+                    cacheReadTokens: 0,
+                    cacheWriteTokens: 0,
+                    reasoningTokens: 0,
+                    estimatedCost: 0,
+                    actualCost: 0),
+            ])
+        let ledger = HermesUsageLedger(fileURL: ledgerURL)
+        try await ledger.refresh(
+            observations: [],
+            observedAt: tokiTestISODate("2026-04-10T08:00:00Z"))
+
+        let usage = try await HermesReader(
+            dbPathOverride: dbURL.path,
+            usageLedger: ledger,
+            now: { tokiTestISODate("2026-04-10T10:00:00Z") })
+            .readUsage(
+                from: tokiTestISODate("2026-04-10T00:00:00Z"),
+                to: tokiTestISODate("2026-04-11T00:00:00Z"))
+
+        let expectedDerivedCost = derivedPrice.cost(
+            input: 100,
+            output: 0,
+            cacheRead: 0,
+            cacheWrite: 0)
+        let costOnlyEvents = usage.tokenEvents.filter { $0.totalTokens == 0 }
+        XCTAssertEqual(usage.inputTokens, 200)
+        XCTAssertEqual(usage.cost, 12, accuracy: 0.000001)
+        XCTAssertEqual(usage.perModel[reportedModel]?.cost ?? -1, 10, accuracy: 0.000001)
+        XCTAssertEqual(
+            usage.perModel[derivedModel]?.cost ?? -1,
+            expectedDerivedCost,
+            accuracy: 0.000001)
+        XCTAssertEqual(
+            usage.perModel[UsageModelGrouping.mixedOrUnattributedKey]?.totalTokens,
+            0)
+        XCTAssertEqual(
+            usage.perModel[UsageModelGrouping.mixedOrUnattributedKey]?.cost ?? -1,
+            1,
+            accuracy: 0.000001)
+        XCTAssertEqual(costOnlyEvents.count, 1)
+        XCTAssertEqual(costOnlyEvents.first?.cost ?? -1, 1, accuracy: 0.000001)
+        XCTAssertEqual(usage.tokenEvents.reduce(0) { $0 + $1.cost }, 12, accuracy: 0.000001)
+    }
+
     func test_hermesReader_preservesTokenDeltaWhenActualCostDropsBelowEstimate() async throws {
         let tempDir = try makeHermesTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: tempDir) }

@@ -338,7 +338,7 @@ public struct RawTokenUsage {
             reasoningTokens: reasoningTokens,
             cost: cost,
             attribution: attribution)
-        guard event.totalTokens > 0 else { return }
+        guard event.totalTokens > 0 || event.cost > 0 else { return }
         tokenEvents.append(event)
     }
 }

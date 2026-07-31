@@ -127,10 +127,11 @@ enum HermesUsageResolver {
         if session.counters.totalTokens > 0, let model = session.model {
             models.insert(model)
         }
+        let hasTokenModelUsage = accumulatedModelUsage.counters.totalTokens > 0
         let resolvedModel = models.count == 1 ? models.first : (models.isEmpty ? session.model : nil)
         let resolvedCost = resolveCost(
             session: session,
-            hasModelUsage: !modelUsage.isEmpty,
+            hasModelUsage: hasTokenModelUsage,
             modelUsage: accumulatedModelUsage)
 
         return HermesSessionObservation(
@@ -140,7 +141,7 @@ enum HermesUsageResolver {
             latestActivityAt: session.latestActivityAt,
             model: resolvedModel,
             counters: session.counters.maximum(accumulatedModelUsage.counters),
-            modelCounters: modelUsage.isEmpty ? nil : accumulatedModelUsage.countersByModel,
+            modelCounters: hasTokenModelUsage ? accumulatedModelUsage.countersByModel : nil,
             cost: resolvedCost.value,
             costIsDerivedFromModelPricing: resolvedCost.isDerivedFromModelPricing,
             reportedCost: resolvedCost.reportedValue,
@@ -169,15 +170,23 @@ enum HermesUsageResolver {
                 modelPricingTimestamp: session.modelPricingTimestamp)
         }
         if session.cost > modelUsage.cost {
-            let modelReportedCosts = !session.costIsDerivedFromModelPricing
-                && modelUsage.hasResolvedReportedCostBreakdown
-                ? modelUsage.resolvedReportedCostsByModel
-                : nil
+            if !session.costIsDerivedFromModelPricing {
+                let retainedModelPricingCost = max(
+                    0,
+                    modelUsage.cost - modelUsage.reportedCost)
+                return HermesResolvedSessionCost(
+                    value: session.cost,
+                    isDerivedFromModelPricing: false,
+                    reportedValue: session.cost - retainedModelPricingCost,
+                    modelReportedCosts: modelUsage.resolvedReportedCostsByModel,
+                    modelPricingCounters: modelUsage.pricingCountersByModel,
+                    modelPricingTimestamp: modelUsage.pricingTimestamp)
+            }
             return HermesResolvedSessionCost(
                 value: session.cost,
                 isDerivedFromModelPricing: session.costIsDerivedFromModelPricing,
                 reportedValue: sessionReportedCost,
-                modelReportedCosts: modelReportedCosts,
+                modelReportedCosts: nil,
                 modelPricingCounters: sessionPricingCounters,
                 modelPricingTimestamp: session.modelPricingTimestamp)
         }

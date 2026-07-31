@@ -222,7 +222,7 @@ private extension UsageReportBuilder {
         let calendar = Calendar.autoupdatingCurrent
         let attributionBySession = bestAttributionsBySession(from: events, calendar: calendar)
 
-        for event in events where event.totalTokens > 0 {
+        for event in events where event.totalTokens > 0 || event.cost > 0 {
             let eventSessionKey = sessionGroupingKey(for: event, calendar: calendar)
             let sessionKey = SessionAggregateKey(source: event.source, sessionKey: eventSessionKey)
             let attribution = attributionBySession[sessionKey] ?? event.attribution
@@ -259,7 +259,7 @@ private extension UsageReportBuilder {
         calendar: Calendar) -> [SessionUsageStat] {
         var aggregates: [SessionAggregateKey: SessionStatAggregate] = [:]
 
-        for event in events where event.totalTokens > 0 {
+        for event in events where event.totalTokens > 0 || event.cost > 0 {
             let attribution = event.attribution
             let sessionKey = sessionGroupingKey(for: event, calendar: calendar)
             let key = SessionAggregateKey(source: event.source, sessionKey: sessionKey)

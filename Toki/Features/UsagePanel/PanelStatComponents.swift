@@ -76,7 +76,8 @@ struct ModelStatRowView: View, Equatable {
     }
 
     private var displayName: String {
-        let baseName = stat.modelID.hasPrefix("claude-") ? String(stat.modelID.dropFirst(7)) : stat.modelID
+        let modelID = stat.displayModelID
+        let baseName = modelID.hasPrefix("claude-") ? String(modelID.dropFirst(7)) : modelID
         guard !stat.sources.isEmpty else { return baseName }
         return "\(baseName) · \(sourceLabel)"
     }

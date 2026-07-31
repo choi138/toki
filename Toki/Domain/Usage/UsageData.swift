@@ -87,6 +87,12 @@ struct ModelStat: Equatable {
         self.sources = sources
         self.isPriceKnown = isPriceKnown
     }
+
+    var displayModelID: String {
+        modelID == UsageModelGrouping.mixedOrUnattributedKey
+            ? UsageModelGrouping.mixedOrUnattributedLabel
+            : modelID
+    }
 }
 
 struct SourceStat: Equatable {

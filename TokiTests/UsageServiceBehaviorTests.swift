@@ -249,10 +249,11 @@ extension UsageServiceBehaviorTests {
 
         let usageData = await MainActor.run { service.usageData }
         let unattributed = usageData.perModel.first {
-            $0.modelID == UsageModelGrouping.mixedOrUnattributedLabel
+            $0.modelID == UsageModelGrouping.mixedOrUnattributedKey
         }
 
         XCTAssertEqual(unattributed?.totalTokens, 120)
+        XCTAssertEqual(unattributed?.displayModelID, UsageModelGrouping.mixedOrUnattributedLabel)
         XCTAssertEqual(unattributed?.sources, ["Hermes"])
         XCTAssertEqual(unattributed?.isPriceKnown, false)
     }
@@ -285,10 +286,11 @@ extension UsageServiceBehaviorTests {
 
         let usageData = await MainActor.run { service.usageData }
         let unattributed = usageData.perModel.first {
-            $0.modelID == UsageModelGrouping.mixedOrUnattributedLabel
+            $0.modelID == UsageModelGrouping.mixedOrUnattributedKey
         }
 
         XCTAssertEqual(unattributed?.totalTokens, 0)
+        XCTAssertEqual(unattributed?.displayModelID, UsageModelGrouping.mixedOrUnattributedLabel)
         XCTAssertEqual(unattributed?.activeSeconds, 30)
         XCTAssertEqual(unattributed?.sources, ["Hermes"])
     }
