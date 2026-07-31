@@ -432,6 +432,211 @@ extension HermesPricingRefreshTests {
     }
 }
 
+extension HermesPricingRefreshTests {
+    // swiftlint:disable:next function_body_length
+    func test_hermesReader_allocatesInitialDerivedCostsAtModelUsagePricingInstant() async throws {
+        let tempDir = try makeHermesTemporaryDirectory()
+        defer {
+            ModelPricingSupplement.install([:])
+            try? FileManager.default.removeItem(at: tempDir)
+        }
+        let firstModel = "dated-hermes-model-a"
+        let secondModel = "dated-hermes-model-b"
+        let initialFirstPrice = uniformHermesModelPrice(perMillion: 1)
+        let updatedFirstPrice = uniformHermesModelPrice(perMillion: 10)
+        let secondPrice = uniformHermesModelPrice(perMillion: 2)
+        ModelPricingSupplement.install(priceHistories: [
+            firstModel: [
+                ModelPricingSupplement.PriceVersion(
+                    effectiveFrom: .distantPast,
+                    price: initialFirstPrice),
+                ModelPricingSupplement.PriceVersion(
+                    effectiveFrom: tokiTestISODate("2026-04-10T10:00:00Z"),
+                    price: updatedFirstPrice),
+            ],
+            secondModel: [
+                ModelPricingSupplement.PriceVersion(
+                    effectiveFrom: .distantPast,
+                    price: secondPrice),
+            ],
+        ])
+
+        let dbURL = tempDir.appendingPathComponent("state.db")
+        let ledgerURL = tempDir.appendingPathComponent("hermes-usage-ledger.json")
+        try createHermesStateDB(
+            at: dbURL,
+            rows: [HermesSessionFixture(
+                id: "dated-mixed-session",
+                startedAt: "2026-04-10T08:30:00Z",
+                model: nil,
+                inputTokens: 0,
+                outputTokens: 0,
+                cacheReadTokens: 0,
+                cacheWriteTokens: 0,
+                reasoningTokens: 0,
+                cwd: nil,
+                gitRepoRoot: nil,
+                estimatedCost: 0,
+                actualCost: nil)])
+        try insertHermesMessage(
+            databaseURL: dbURL,
+            sessionID: "dated-mixed-session",
+            timestamp: tokiTestISODate("2026-04-10T09:00:00Z"))
+        try insertHermesModelUsage(
+            databaseURL: dbURL,
+            rows: [
+                HermesModelUsageFixture(
+                    sessionID: "dated-mixed-session",
+                    model: firstModel,
+                    task: "first",
+                    apiCallCount: 1,
+                    inputTokens: 100,
+                    outputTokens: 0,
+                    cacheReadTokens: 0,
+                    cacheWriteTokens: 0,
+                    reasoningTokens: 0,
+                    estimatedCost: 0,
+                    actualCost: 0),
+                HermesModelUsageFixture(
+                    sessionID: "dated-mixed-session",
+                    model: secondModel,
+                    task: "second",
+                    apiCallCount: 1,
+                    inputTokens: 100,
+                    outputTokens: 0,
+                    cacheReadTokens: 0,
+                    cacheWriteTokens: 0,
+                    reasoningTokens: 0,
+                    estimatedCost: 0,
+                    actualCost: 0),
+            ])
+        let ledger = HermesUsageLedger(fileURL: ledgerURL)
+        try await ledger.refresh(
+            observations: [],
+            observedAt: tokiTestISODate("2026-04-10T08:00:00Z"))
+
+        let usage = try await HermesReader(
+            dbPathOverride: dbURL.path,
+            usageLedger: ledger,
+            now: { tokiTestISODate("2026-04-10T11:00:00Z") })
+            .readUsage(
+                from: tokiTestISODate("2026-04-10T00:00:00Z"),
+                to: tokiTestISODate("2026-04-11T00:00:00Z"))
+
+        XCTAssertEqual(
+            usage.perModel[firstModel]?.cost ?? -1,
+            updatedFirstPrice.cost(input: 100, output: 0, cacheRead: 0, cacheWrite: 0),
+            accuracy: 0.000001)
+        XCTAssertEqual(
+            usage.perModel[secondModel]?.cost ?? -1,
+            secondPrice.cost(input: 100, output: 0, cacheRead: 0, cacheWrite: 0),
+            accuracy: 0.000001)
+        XCTAssertEqual(Set(usage.tokenEvents.map(\.timestamp)), [
+            tokiTestISODate("2026-04-10T09:00:00Z"),
+        ])
+        XCTAssertEqual(usage.activityEvents.count, 1)
+        XCTAssertNil(usage.activityEvents.first?.key)
+        XCTAssertEqual(usage.activeSeconds, 30, accuracy: 0.001)
+    }
+
+    // swiftlint:disable:next function_body_length
+    func test_hermesReader_preservesReportedCostByModelAcrossRestart() async throws {
+        let tempDir = try makeHermesTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+        let expensiveModel = "reported-expensive-model"
+        let cheapModel = "reported-cheap-model"
+        let dbURL = tempDir.appendingPathComponent("state.db")
+        let ledgerURL = tempDir.appendingPathComponent("hermes-usage-ledger.json")
+        try createHermesStateDB(
+            at: dbURL,
+            rows: [HermesSessionFixture(
+                id: "reported-mixed-session",
+                startedAt: "2026-04-10T09:00:00Z",
+                model: nil,
+                inputTokens: 200,
+                outputTokens: 0,
+                cacheReadTokens: 0,
+                cacheWriteTokens: 0,
+                reasoningTokens: 0,
+                cwd: nil,
+                gitRepoRoot: nil,
+                estimatedCost: 0,
+                actualCost: 11)])
+        try insertHermesModelUsage(
+            databaseURL: dbURL,
+            rows: [
+                HermesModelUsageFixture(
+                    sessionID: "reported-mixed-session",
+                    model: expensiveModel,
+                    task: "expensive",
+                    apiCallCount: 1,
+                    inputTokens: 100,
+                    outputTokens: 0,
+                    cacheReadTokens: 0,
+                    cacheWriteTokens: 0,
+                    reasoningTokens: 0,
+                    estimatedCost: 0,
+                    actualCost: 10),
+                HermesModelUsageFixture(
+                    sessionID: "reported-mixed-session",
+                    model: cheapModel,
+                    task: "cheap",
+                    apiCallCount: 1,
+                    inputTokens: 100,
+                    outputTokens: 0,
+                    cacheReadTokens: 0,
+                    cacheWriteTokens: 0,
+                    reasoningTokens: 0,
+                    estimatedCost: 0,
+                    actualCost: 1),
+            ])
+        let ledger = HermesUsageLedger(fileURL: ledgerURL)
+        try await ledger.refresh(
+            observations: [],
+            observedAt: tokiTestISODate("2026-04-10T08:00:00Z"))
+        let initialUsage = try await HermesReader(
+            dbPathOverride: dbURL.path,
+            usageLedger: ledger,
+            now: { tokiTestISODate("2026-04-10T10:00:00Z") })
+            .readUsage(
+                from: tokiTestISODate("2026-04-10T00:00:00Z"),
+                to: tokiTestISODate("2026-04-10T10:30:00Z"))
+        XCTAssertEqual(initialUsage.perModel[expensiveModel]?.cost ?? -1, 10, accuracy: 0.000001)
+        XCTAssertEqual(initialUsage.perModel[cheapModel]?.cost ?? -1, 1, accuracy: 0.000001)
+        XCTAssertEqual(initialUsage.activityEvents.count, 1)
+        XCTAssertNil(initialUsage.activityEvents.first?.key)
+
+        try updateHermesModelUsage(
+            databaseURL: dbURL,
+            sessionID: "reported-mixed-session",
+            task: "expensive",
+            inputTokens: 200,
+            actualCost: 20)
+        try updateHermesModelUsage(
+            databaseURL: dbURL,
+            sessionID: "reported-mixed-session",
+            task: "cheap",
+            inputTokens: 200,
+            actualCost: 2)
+        let increment = try await HermesReader(
+            dbPathOverride: dbURL.path,
+            usageLedger: HermesUsageLedger(fileURL: ledgerURL),
+            now: { tokiTestISODate("2026-04-10T11:00:00Z") })
+            .readUsage(
+                from: tokiTestISODate("2026-04-10T10:30:00Z"),
+                to: tokiTestISODate("2026-04-10T12:00:00Z"))
+
+        XCTAssertEqual(increment.inputTokens, 200)
+        XCTAssertEqual(increment.cost, 11, accuracy: 0.000001)
+        XCTAssertEqual(increment.perModel[expensiveModel]?.totalTokens, 100)
+        XCTAssertEqual(increment.perModel[cheapModel]?.totalTokens, 100)
+        XCTAssertEqual(increment.perModel[expensiveModel]?.cost ?? -1, 10, accuracy: 0.000001)
+        XCTAssertEqual(increment.perModel[cheapModel]?.cost ?? -1, 1, accuracy: 0.000001)
+        XCTAssertEqual(increment.activityEvents.count, 1)
+        XCTAssertNil(increment.activityEvents.first?.key)
+    }
+}
+
 private func uniformHermesModelPrice(perMillion: Double) -> ModelPrice {
     ModelPrice(
         inputPerMillion: perMillion,
@@ -600,6 +805,7 @@ func removeHermesCostBreakdownFromBaselines(at ledgerURL: URL) throws {
             throw NSError(domain: "HermesPricingRefreshTests", code: 2)
         }
         baseline.removeValue(forKey: "reportedCost")
+        baseline.removeValue(forKey: "modelReportedCosts")
         baseline.removeValue(forKey: "modelPricingCounters")
         baselines[identifier] = baseline
     }

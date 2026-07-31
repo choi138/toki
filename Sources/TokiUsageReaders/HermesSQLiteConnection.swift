@@ -42,7 +42,7 @@ final class HermesSQLiteConnection {
                 immutableSnapshot: nil)
         } catch let error as HermesSQLiteError {
             let databaseURL = URL(fileURLWithPath: path)
-            guard error.code == SQLITE_CANTOPEN,
+            guard hermesSQLiteShouldRetryImmutableFallback(after: error.code),
                   let snapshot = HermesDatabaseSourceSnapshot.captureForImmutableFallback(
                       databaseURL: databaseURL,
                       fileManager: fileManager) else {
@@ -108,6 +108,12 @@ final class HermesSQLiteConnection {
     private static func immutableDatabaseURI(for databaseURL: URL) -> String {
         "\(databaseURL.absoluteString)?mode=ro&immutable=1"
     }
+}
+
+func hermesSQLiteShouldRetryImmutableFallback(after resultCode: Int32) -> Bool {
+    let primaryResultCode = resultCode & 0xFF
+    return primaryResultCode == SQLITE_CANTOPEN
+        || primaryResultCode == SQLITE_READONLY
 }
 
 struct HermesDatabaseSourceSnapshot: Equatable {

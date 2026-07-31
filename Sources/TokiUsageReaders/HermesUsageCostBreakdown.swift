@@ -3,13 +3,59 @@ import TokiUsageCore
 
 func hermesReportedCostBreakdownIsValid(
     _ reportedCost: Double?,
+    modelReportedCosts: [String: Double]? = nil,
     modelPricingCounters: [String: HermesTokenCounters]?,
     totalCost: Double) -> Bool {
-    guard let reportedCost else { return true }
+    guard let reportedCost else { return modelReportedCosts == nil }
     return reportedCost.isFinite
         && reportedCost >= 0
         && reportedCost <= totalCost
         && modelPricingCounters != nil
+        && hermesModelReportedCostsAreValid(
+            modelReportedCosts,
+            totalReportedCost: reportedCost)
+}
+
+func hermesModelReportedCostDeltas(
+    current: [String: Double]?,
+    previous: [String: Double]?) -> [String: Double]? {
+    guard let current, let previous else { return nil }
+
+    var deltas: [String: Double] = [:]
+    for model in Set(current.keys).union(previous.keys) {
+        let currentCost = current[model] ?? 0
+        let previousCost = previous[model] ?? 0
+        guard currentCost.isFinite,
+              previousCost.isFinite,
+              currentCost >= previousCost else {
+            return nil
+        }
+        let delta = currentCost - previousCost
+        if delta > 0 {
+            deltas[model] = delta
+        }
+    }
+    return deltas
+}
+
+private func hermesModelReportedCostsAreValid(
+    _ modelReportedCosts: [String: Double]?,
+    totalReportedCost: Double) -> Bool {
+    guard let modelReportedCosts else { return true }
+
+    var combinedCost = 0.0
+    for (model, cost) in modelReportedCosts {
+        guard !model.isEmpty,
+              model.utf8.count <= 512,
+              cost.isFinite,
+              cost >= 0,
+              (combinedCost + cost).isFinite else {
+            return false
+        }
+        combinedCost += cost
+    }
+    let tolerance = 0.000_000_001 * max(1, totalReportedCost)
+    return abs(combinedCost - totalReportedCost) <= tolerance
 }
 
 func hermesModelPricedCost(
@@ -53,7 +99,7 @@ func hermesIncrementalCost(
     observation: HermesSessionObservation,
     previous: HermesUsageLedgerBaseline,
     delta: HermesTokenCounters,
-    timestamp: Date) -> Double? {
+    pricingTimestamp: Date) -> Double? {
     if observation.reportedCost != nil || previous.reportedCost != nil {
         if let reportedCost = observation.reportedCost,
            let previousReportedCost = previous.reportedCost {
@@ -62,7 +108,7 @@ func hermesIncrementalCost(
                 current: observation.modelPricingCounters,
                 previous: previous.modelPricingCounters,
                 maximumDelta: delta,
-                timestamp: timestamp) {
+                timestamp: pricingTimestamp) {
                 let cost = reportedCostDelta + pricedCost
                 return cost.isFinite ? cost : nil
             }
@@ -80,7 +126,7 @@ func hermesIncrementalCost(
             return hermesModelPricedCost(
                 counters: delta,
                 model: model,
-                timestamp: timestamp)
+                timestamp: pricingTimestamp)
         }
 
         guard let reportedCost = observation.reportedCost,
@@ -96,14 +142,14 @@ func hermesIncrementalCost(
             current: observation.modelPricingCounters,
             previous: previous.modelPricingCounters,
             maximumDelta: delta,
-            timestamp: timestamp) {
+            timestamp: pricingTimestamp) {
             return detailedCost
         }
         guard let model = observation.model else { return nil }
         return hermesModelPricedCost(
             counters: delta,
             model: model,
-            timestamp: timestamp)
+            timestamp: pricingTimestamp)
     }
 
     if observation.costIsDerivedFromModelPricing {
@@ -111,13 +157,13 @@ func hermesIncrementalCost(
             current: observation.modelPricingCounters,
             previous: previous.modelPricingCounters,
             maximumDelta: delta,
-            timestamp: timestamp) {
+            timestamp: pricingTimestamp) {
             return detailedCost
         }
         return hermesModelPricedCost(
             counters: delta,
             model: observation.model,
-            timestamp: timestamp)
+            timestamp: pricingTimestamp)
     }
     if observation.cost >= previous.cost {
         return observation.cost - previous.cost
@@ -125,5 +171,5 @@ func hermesIncrementalCost(
     return hermesModelPricedCost(
         counters: delta,
         model: observation.model,
-        timestamp: timestamp)
+        timestamp: pricingTimestamp)
 }

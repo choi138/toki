@@ -441,6 +441,15 @@ final class HermesReaderTests: XCTestCase {
         XCTAssertEqual(usage.inputTokens, 123)
     }
 
+    func test_hermesSQLiteConnection_retriesImmutableFallbackAfterReadOnlyProbeFailure() {
+        XCTAssertTrue(hermesSQLiteShouldRetryImmutableFallback(after: SQLITE_CANTOPEN))
+        XCTAssertTrue(hermesSQLiteShouldRetryImmutableFallback(after: SQLITE_READONLY))
+        XCTAssertTrue(
+            hermesSQLiteShouldRetryImmutableFallback(
+                after: SQLITE_READONLY | Int32(2 << 8)))
+        XCTAssertFalse(hermesSQLiteShouldRetryImmutableFallback(after: SQLITE_BUSY))
+    }
+
     func test_hermesReader_readsUncheckpointedUsageFromLiveWAL() async throws {
         let fileManager = FileManager.default
         let tempDir = try makeHermesTemporaryDirectory()

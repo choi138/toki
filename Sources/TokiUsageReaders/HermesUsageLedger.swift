@@ -145,7 +145,7 @@ private extension HermesUsageLedger {
         previousSuccessfulObservationAt: Date?,
         identifierHasher: SnapshotOpaqueIdentifierHasher,
         to candidate: inout HermesUsageLedgerDocument) throws -> Bool {
-        try validate(observation, observedAt: observedAt)
+        try validateHermesUsageObservation(observation, observedAt: observedAt)
         let identifier = identifierHasher.identifier(for: observation.sessionID)
         let previous = candidate.baselines[identifier]
         let currentBaseline = baseline(
@@ -184,11 +184,12 @@ private extension HermesUsageLedger {
             observation: observation,
             previous: previous,
             observedAt: observedAt)
+        let pricingTimestamp = observation.modelPricingTimestamp ?? timestamp
         guard let cost = hermesIncrementalCost(
             observation: observation,
             previous: previous,
             delta: delta,
-            timestamp: timestamp) else {
+            pricingTimestamp: pricingTimestamp) else {
             candidate.baselines[identifier] = currentBaseline
             try addUnattributed(
                 identifier: identifier,
@@ -203,9 +204,11 @@ private extension HermesUsageLedger {
             timestamp: timestamp,
             observation: observation,
             previousModelCounters: previous.modelCounters,
+            previousModelReportedCosts: previous.modelReportedCosts,
             previousModelPricingCounters: previous.modelPricingCounters,
             counters: delta,
-            cost: cost) {
+            cost: cost,
+            pricingTimestamp: pricingTimestamp) {
             append(
                 event,
                 to: &candidate.events)
@@ -227,16 +230,19 @@ private extension HermesUsageLedger {
             observation,
             after: previousSuccessfulObservationAt,
             observedAt: observedAt) {
+            let timestamp = initialTimestamp(
+                observation: observation,
+                observedAt: observedAt)
             for event in hermesUsageEvents(
                 identifier: identifier,
-                timestamp: initialTimestamp(
-                    observation: observation,
-                    observedAt: observedAt),
+                timestamp: timestamp,
                 observation: observation,
                 previousModelCounters: observation.modelCounters.map { _ in [:] },
+                previousModelReportedCosts: observation.modelReportedCosts.map { _ in [:] },
                 previousModelPricingCounters: observation.modelPricingCounters.map { _ in [:] },
                 counters: observation.counters,
-                cost: observation.cost) {
+                cost: observation.cost,
+                pricingTimestamp: observation.modelPricingTimestamp ?? timestamp) {
                 append(
                     event,
                     to: &candidate.events)
@@ -440,6 +446,7 @@ private extension HermesUsageLedger {
             modelCounters: observation.modelCounters,
             cost: observation.cost,
             reportedCost: observation.reportedCost,
+            modelReportedCosts: observation.modelReportedCosts,
             modelPricingCounters: observation.modelPricingCounters,
             projectName: observation.projectName,
             attributionQuality: observation.attributionQuality)
@@ -541,37 +548,6 @@ private extension HermesUsageLedger {
             counters: existing.counters.adding(counters),
             cost: existing.cost + cost,
             firstObservedAt: min(existing.firstObservedAt, observedAt))
-    }
-
-    private func validate(
-        _ observation: HermesSessionObservation,
-        observedAt: Date) throws {
-        guard !observation.sessionID.isEmpty,
-              observation.sessionID.utf8.count <= 4096,
-              hermesDateIsValid(observation.startedAt),
-              observation.startedAt <= observedAt,
-              observation.earliestActivityAt.map(hermesDateIsValid) ?? true,
-              observation.latestActivityAt.map(hermesDateIsValid) ?? true,
-              observation.counters.isValid(),
-              observation.cost.isFinite,
-              observation.cost >= 0,
-              hermesReportedCostBreakdownIsValid(
-                  observation.reportedCost,
-                  modelPricingCounters: observation.modelPricingCounters,
-                  totalCost: observation.cost),
-              observation.reportedCost != nil
-              || observation.modelPricingCounters == nil
-              || observation.costIsDerivedFromModelPricing,
-              hermesModelPricingCountersAreValid(
-                  observation.modelPricingCounters,
-                  within: observation.counters),
-              hermesModelPricingCountersAreValid(
-                  observation.modelCounters,
-                  within: observation.counters),
-              observation.model?.utf8.count ?? 0 <= 512,
-              observation.projectName?.utf8.count ?? 0 <= 512 else {
-            throw HermesUsageLedgerError.invalidObservation
-        }
     }
 
     private func validate(_ document: HermesUsageLedgerDocument) throws {
