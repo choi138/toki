@@ -179,7 +179,7 @@ private extension HermesUsageLedger {
             observation: observation,
             previous: previous,
             observedAt: observedAt)
-        let pricingTimestamp = observation.modelPricingTimestamp ?? timestamp
+        let pricingTimestamp = observation.incrementalModelPricingTimestamp ?? timestamp
         guard let cost = hermesIncrementalCost(
             observation: observation,
             previous: previous,

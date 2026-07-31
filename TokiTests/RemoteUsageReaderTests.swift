@@ -163,6 +163,45 @@ final class RemoteUsageReaderTests: XCTestCase {
         XCTAssertEqual(mixedUsage.activeSeconds, 30)
         XCTAssertEqual(mixedUsage.sources, ["Hermes · build-server"])
     }
+
+    func test_costOnlyRemoteEventPreservesOverallSourceAndMixedModelCost() throws {
+        let fixture = try makeFixture()
+        let original = try SnapshotCipher.open(fixture.envelope, key: fixture.encryptionKey)
+        let snapshot = RemoteUsageSnapshot(
+            device: original.device,
+            generatedAt: original.generatedAt,
+            coveredFrom: original.coveredFrom,
+            coveredTo: original.coveredTo,
+            tokenEvents: [
+                RemoteTokenEvent(
+                    timestamp: fixture.start.addingTimeInterval(60),
+                    source: "Hermes",
+                    model: nil,
+                    inputTokens: 0,
+                    outputTokens: 0,
+                    cacheReadTokens: 0,
+                    cacheWriteTokens: 0,
+                    reasoningTokens: 0,
+                    cost: 1.25),
+            ],
+            activityEvents: [])
+
+        let slice = try XCTUnwrap(RemoteUsageMapper().usageSlice(
+            from: snapshot,
+            startDate: fixture.start,
+            endDate: fixture.end))
+        let mixedUsage = try XCTUnwrap(
+            slice.usage.perModel[UsageModelGrouping.mixedOrUnattributedKey])
+
+        XCTAssertEqual(slice.usage.totalTokens, 0)
+        XCTAssertEqual(slice.usage.cost, 1.25, accuracy: 0.000001)
+        XCTAssertEqual(slice.usage.tokenEvents.count, 1)
+        XCTAssertEqual(slice.usage.tokenEvents.first?.cost ?? -1, 1.25, accuracy: 0.000001)
+        XCTAssertEqual(mixedUsage.totalTokens, 0)
+        XCTAssertEqual(mixedUsage.cost, 1.25, accuracy: 0.000001)
+        XCTAssertEqual(mixedUsage.sources, ["Hermes · build-server"])
+        XCTAssertEqual(slice.sourceStats.first?.cost ?? -1, 1.25, accuracy: 0.000001)
+    }
 }
 
 extension RemoteUsageReaderTests {

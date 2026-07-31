@@ -104,6 +104,25 @@ final class SyncSecurityTests: XCTestCase {
         XCTAssertEqual(summary.syncIntervalSeconds, TokiSyncLimits.defaultSyncIntervalSeconds)
     }
 
+    func test_v1TokenEventsDefaultMissingCost() throws {
+        let timestamp = Date(timeIntervalSince1970: 1_750_000_000)
+        let data = try TokiSyncCoding.makeEncoder().encode(LegacyRemoteTokenEvent(
+            timestamp: timestamp,
+            source: "Codex",
+            model: "gpt-5",
+            inputTokens: 10,
+            outputTokens: 3,
+            cacheReadTokens: 2,
+            cacheWriteTokens: 0,
+            reasoningTokens: 1))
+
+        let event = try TokiSyncCoding.makeDecoder().decode(RemoteTokenEvent.self, from: data)
+
+        XCTAssertEqual(event.timestamp, timestamp)
+        XCTAssertEqual(event.totalTokens, 16)
+        XCTAssertNil(event.cost)
+    }
+
     func test_v1PairingBundleDefaultsMissingRetentionAndSyncInterval() throws {
         let hubURL = try XCTUnwrap(URL(string: "https://hub.example.test"))
         let data = try TokiSyncCoding.makeEncoder().encode(LegacyAgentPairingBundle(
@@ -136,6 +155,17 @@ private struct LegacyRemoteDeviceSummary: Encodable {
     let createdAt: Date
     let lastSeenAt: Date?
     let latestSequence: UInt64?
+}
+
+private struct LegacyRemoteTokenEvent: Encodable {
+    let timestamp: Date
+    let source: String
+    let model: String?
+    let inputTokens: Int
+    let outputTokens: Int
+    let cacheReadTokens: Int
+    let cacheWriteTokens: Int
+    let reasoningTokens: Int
 }
 
 private struct LegacyAgentPairingBundle: Encodable {

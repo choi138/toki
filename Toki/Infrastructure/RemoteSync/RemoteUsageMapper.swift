@@ -95,11 +95,10 @@ struct RemoteUsageMapper {
         result.cacheWriteTokens += event.cacheWriteTokens
         result.reasoningTokens += event.reasoningTokens
         result.cost += cost
-        if let model {
-            result.perModel[model, default: PerModelUsage()].totalTokens += event.totalTokens
-            result.perModel[model, default: PerModelUsage()].cost += cost
-            result.perModel[model, default: PerModelUsage()].sources.insert(source)
-        }
+        let modelGroupingKey = model ?? UsageModelGrouping.mixedOrUnattributedKey
+        result.perModel[modelGroupingKey, default: PerModelUsage()].totalTokens += event.totalTokens
+        result.perModel[modelGroupingKey, default: PerModelUsage()].cost += cost
+        result.perModel[modelGroupingKey, default: PerModelUsage()].sources.insert(source)
 
         result.recordTokenEvent(
             timestamp: event.timestamp,
@@ -114,6 +113,9 @@ struct RemoteUsageMapper {
     }
 
     private func tokenCost(for event: RemoteTokenEvent, model: String?) -> Double {
+        if let cost = event.cost, cost.isFinite, cost >= 0 {
+            return cost
+        }
         guard let model, let price = modelPrice(for: model, at: event.timestamp) else { return 0 }
         return price.cost(
             input: event.inputTokens,

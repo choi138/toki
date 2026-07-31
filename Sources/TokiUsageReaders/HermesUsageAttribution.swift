@@ -72,16 +72,24 @@ private func hermesUsageEventParts(
         current: observation.modelCounters,
         previous: previousModelCounters,
         maximumDelta: counters) else {
-        if counters.totalTokens == 0, !costOnlyModels.isEmpty {
-            var parts = costOnlyModels.sorted().map {
-                HermesUsageEventPart(model: $0, counters: .zero)
-            }
-            if includeCostOnlyResidual {
-                parts.append(HermesUsageEventPart(model: nil, counters: .zero))
-            }
-            return parts
+        var parts: [HermesUsageEventPart] = []
+        if counters.totalTokens > 0 {
+            parts.append(HermesUsageEventPart(
+                model: observation.model,
+                counters: counters))
         }
-        return [HermesUsageEventPart(model: observation.model, counters: counters)]
+        let representedModels = Set(parts.compactMap(\.model))
+        for model in costOnlyModels.subtracting(representedModels).sorted() {
+            parts.append(HermesUsageEventPart(model: model, counters: .zero))
+        }
+        if includeCostOnlyResidual,
+           !parts.contains(where: { $0.model == nil }) {
+            parts.append(HermesUsageEventPart(model: nil, counters: .zero))
+        }
+        if parts.isEmpty, includeCostOnlyFallback {
+            parts.append(HermesUsageEventPart(model: observation.model, counters: .zero))
+        }
+        return parts
     }
 
     var combinedCounters = HermesTokenCounters.zero

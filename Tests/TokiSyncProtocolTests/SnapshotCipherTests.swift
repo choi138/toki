@@ -104,7 +104,8 @@ final class SnapshotCipherTests: XCTestCase {
                     outputTokens: 3,
                     cacheReadTokens: 2,
                     cacheWriteTokens: 0,
-                    reasoningTokens: 1),
+                    reasoningTokens: 1,
+                    cost: 0.25),
             ],
             activityEvents: [
                 RemoteActivityEvent(

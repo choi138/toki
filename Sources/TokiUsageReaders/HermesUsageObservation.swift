@@ -15,6 +15,7 @@ struct HermesSessionObservation {
     let modelReportedCosts: [String: Double]?
     let modelPricingCounters: [String: HermesTokenCounters]?
     let modelPricingTimestamp: Date?
+    let incrementalModelPricingTimestamp: Date?
     let projectName: String?
     let attributionQuality: AttributionQuality
 
@@ -32,6 +33,7 @@ struct HermesSessionObservation {
         modelReportedCosts: [String: Double]? = nil,
         modelPricingCounters: [String: HermesTokenCounters]? = nil,
         modelPricingTimestamp: Date? = nil,
+        incrementalModelPricingTimestamp: Date? = nil,
         projectName: String?,
         attributionQuality: AttributionQuality) {
         self.sessionID = sessionID
@@ -47,6 +49,7 @@ struct HermesSessionObservation {
         self.modelReportedCosts = modelReportedCosts
         self.modelPricingCounters = modelPricingCounters
         self.modelPricingTimestamp = modelPricingTimestamp
+        self.incrementalModelPricingTimestamp = incrementalModelPricingTimestamp
         self.projectName = projectName
         self.attributionQuality = attributionQuality
     }
@@ -65,6 +68,9 @@ func validateHermesUsageObservation(
           observation.cost.isFinite,
           observation.cost >= 0,
           (observation.modelPricingTimestamp.map {
+              hermesDateIsValid($0) && $0 <= observedAt
+          } ?? true),
+          (observation.incrementalModelPricingTimestamp.map {
               hermesDateIsValid($0) && $0 <= observedAt
           } ?? true),
           hermesReportedCostBreakdownIsValid(

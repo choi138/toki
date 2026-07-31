@@ -411,7 +411,8 @@ private extension AgentSnapshotBuilder {
         if lhs.outputTokens != rhs.outputTokens { return lhs.outputTokens < rhs.outputTokens }
         if lhs.cacheReadTokens != rhs.cacheReadTokens { return lhs.cacheReadTokens < rhs.cacheReadTokens }
         if lhs.cacheWriteTokens != rhs.cacheWriteTokens { return lhs.cacheWriteTokens < rhs.cacheWriteTokens }
-        return lhs.reasoningTokens < rhs.reasoningTokens
+        if lhs.reasoningTokens != rhs.reasoningTokens { return lhs.reasoningTokens < rhs.reasoningTokens }
+        return (lhs.cost ?? -1) < (rhs.cost ?? -1)
     }
 
     private func activityEventSort(_ lhs: RemoteActivityEvent, _ rhs: RemoteActivityEvent) -> Bool {
@@ -442,8 +443,11 @@ private extension AgentSnapshotBuilder {
             event.reasoningTokens,
         ]
         let validRange = 0...RemoteUsageSnapshotValidator.maximumTokenCountPerBucket
+        let validCostRange = 0...RemoteUsageSnapshotValidator.maximumCostPerEvent
         guard counts.allSatisfy(validRange.contains),
-              counts.contains(where: { $0 > 0 }) else {
+              event.cost.isFinite,
+              validCostRange.contains(event.cost),
+              counts.contains(where: { $0 > 0 }) || event.cost > 0 else {
             return nil
         }
         return RemoteTokenEvent(
@@ -454,7 +458,8 @@ private extension AgentSnapshotBuilder {
             outputTokens: event.outputTokens,
             cacheReadTokens: event.cacheReadTokens,
             cacheWriteTokens: event.cacheWriteTokens,
-            reasoningTokens: event.reasoningTokens)
+            reasoningTokens: event.reasoningTokens,
+            cost: event.cost > 0 ? event.cost : nil)
     }
 
     private var platformName: String {

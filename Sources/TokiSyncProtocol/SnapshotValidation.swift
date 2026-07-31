@@ -4,6 +4,7 @@ public enum RemoteUsageSnapshotValidator {
     public static let maximumTokenEventCount = 200_000
     public static let maximumActivityEventCount = 200_000
     public static let maximumTokenCountPerBucket = 1_000_000_000
+    public static let maximumCostPerEvent = 1_000_000_000.0
     public static let maximumModelLength = 200
 
     public static func validate(_ snapshot: RemoteUsageSnapshot, now: Date = Date()) throws {
@@ -41,7 +42,9 @@ public enum RemoteUsageSnapshotValidator {
                   validTokenCount(event.outputTokens),
                   validTokenCount(event.cacheReadTokens),
                   validTokenCount(event.cacheWriteTokens),
-                  validTokenCount(event.reasoningTokens) else {
+                  validTokenCount(event.reasoningTokens),
+                  event.cost.map(validCost) ?? true,
+                  event.totalTokens > 0 || (event.cost ?? 0) > 0 else {
                 throw RemoteUsageSnapshotValidationError.invalidTokenEvent
             }
         }
@@ -59,6 +62,10 @@ public enum RemoteUsageSnapshotValidator {
 
     private static func validTokenCount(_ value: Int) -> Bool {
         (0...maximumTokenCountPerBucket).contains(value)
+    }
+
+    private static func validCost(_ value: Double) -> Bool {
+        value.isFinite && (0...maximumCostPerEvent).contains(value)
     }
 
     private static func isFinite(_ date: Date) -> Bool {

@@ -71,6 +71,89 @@ final class HermesPricingRefreshTests: XCTestCase {
             updatedPrice.cost(input: 60, output: 0, cacheRead: 0, cacheWrite: 0),
             accuracy: 0.000001)
     }
+}
+
+extension HermesPricingRefreshTests {
+    func test_hermesReader_pricesSessionOnlyIncrementAtLatestActivityAfterRateChange() async throws {
+        let tempDir = try makeHermesTemporaryDirectory()
+        defer {
+            ModelPricingSupplement.install([:])
+            try? FileManager.default.removeItem(at: tempDir)
+        }
+        let model = "session-only-pricing-model"
+        let initialPrice = uniformHermesModelPrice(perMillion: 1)
+        let updatedPrice = uniformHermesModelPrice(perMillion: 10)
+        ModelPricingSupplement.install(priceHistories: [
+            model: [
+                ModelPricingSupplement.PriceVersion(
+                    effectiveFrom: .distantPast,
+                    price: initialPrice),
+                ModelPricingSupplement.PriceVersion(
+                    effectiveFrom: tokiTestISODate("2026-04-10T10:00:00Z"),
+                    price: updatedPrice),
+            ],
+        ])
+
+        let dbURL = tempDir.appendingPathComponent("state.db")
+        let ledgerURL = tempDir.appendingPathComponent("hermes-usage-ledger.json")
+        try createHermesStateDB(
+            at: dbURL,
+            rows: [HermesSessionFixture(
+                id: "session-only-pricing",
+                startedAt: "2026-04-10T09:00:00Z",
+                model: model,
+                inputTokens: 100,
+                outputTokens: 0,
+                cacheReadTokens: 0,
+                cacheWriteTokens: 0,
+                reasoningTokens: 0,
+                cwd: nil,
+                gitRepoRoot: nil,
+                estimatedCost: 0,
+                actualCost: 0)])
+        let ledger = HermesUsageLedger(fileURL: ledgerURL)
+        try await ledger.refresh(
+            observations: [],
+            observedAt: tokiTestISODate("2026-04-10T08:00:00Z"))
+
+        let initialUsage = try await HermesReader(
+            dbPathOverride: dbURL.path,
+            usageLedger: ledger,
+            now: { tokiTestISODate("2026-04-10T09:30:00Z") })
+            .readUsage(
+                from: tokiTestISODate("2026-04-10T00:00:00Z"),
+                to: tokiTestISODate("2026-04-10T10:00:00Z"))
+        XCTAssertEqual(
+            initialUsage.cost,
+            initialPrice.cost(input: 100, output: 0, cacheRead: 0, cacheWrite: 0),
+            accuracy: 0.000001)
+
+        try updateHermesSession(
+            databaseURL: dbURL,
+            id: "session-only-pricing",
+            model: model,
+            inputTokens: 160)
+        let latestActivity = tokiTestISODate("2026-04-10T10:30:00Z")
+        try insertHermesMessage(
+            databaseURL: dbURL,
+            sessionID: "session-only-pricing",
+            timestamp: latestActivity)
+
+        let increment = try await HermesReader(
+            dbPathOverride: dbURL.path,
+            usageLedger: HermesUsageLedger(fileURL: ledgerURL),
+            now: { tokiTestISODate("2026-04-10T11:00:00Z") })
+            .readUsage(
+                from: tokiTestISODate("2026-04-10T10:00:00Z"),
+                to: tokiTestISODate("2026-04-10T12:00:00Z"))
+
+        XCTAssertEqual(increment.inputTokens, 60)
+        XCTAssertEqual(
+            increment.cost,
+            updatedPrice.cost(input: 60, output: 0, cacheRead: 0, cacheWrite: 0),
+            accuracy: 0.000001)
+        XCTAssertEqual(increment.tokenEvents.map(\.timestamp), [latestActivity])
+    }
 
     func test_hermesReader_pricesMultiModelTokenDeltasAfterRateChanges() async throws {
         let tempDir = try makeHermesTemporaryDirectory()
