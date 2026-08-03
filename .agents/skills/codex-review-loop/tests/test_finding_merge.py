@@ -119,6 +119,120 @@ class FindingMergeTests(unittest.TestCase):
 
         self.assertEqual(len(merged["findings"]), 2)
 
+    def test_assigns_distinct_ids_to_same_cause_at_different_locations(self) -> None:
+        first = self.write_result("first.json", lane_result("baseline", [finding()]))
+        second = self.write_result(
+            "second.json",
+            lane_result(
+                "testing",
+                [finding(start=80, end=82)],
+            ),
+        )
+
+        completed = self.run_merger("merge", str(first), str(second))
+        merged = json.loads(completed.stdout)
+
+        self.assertEqual(len(merged["findings"]), 2)
+        self.assertEqual(
+            len({result["id"] for result in merged["findings"]}),
+            2,
+        )
+
+    def test_keeps_same_title_findings_with_distinct_causes_separate(self) -> None:
+        first = self.write_result(
+            "first.json",
+            lane_result(
+                "baseline",
+                [
+                    finding(
+                        title="Reject unsafe fallback",
+                        root_cause="Authorization check is omitted",
+                    )
+                ],
+            ),
+        )
+        second = self.write_result(
+            "second.json",
+            lane_result(
+                "testing",
+                [
+                    finding(
+                        title="Reject unsafe fallback",
+                        root_cause="Cache eviction uses a stale timestamp",
+                        start=21,
+                        end=24,
+                    )
+                ],
+            ),
+        )
+
+        completed = self.run_merger("merge", str(first), str(second))
+        merged = json.loads(completed.stdout)
+
+        self.assertEqual(len(merged["findings"]), 2)
+        self.assertEqual(
+            {tuple(result["lanes"]) for result in merged["findings"]},
+            {("baseline",), ("testing",)},
+        )
+
+    def test_merges_identical_non_ascii_findings(self) -> None:
+        korean_finding = finding(
+            title="권한 검증 누락",
+            root_cause="요청 권한을 확인하지 않음",
+        )
+        first = self.write_result(
+            "first.json",
+            lane_result("baseline", [korean_finding]),
+        )
+        second = self.write_result(
+            "second.json",
+            lane_result("testing", [korean_finding]),
+        )
+
+        completed = self.run_merger("merge", str(first), str(second))
+        merged = json.loads(completed.stdout)
+
+        self.assertEqual(len(merged["findings"]), 1)
+        self.assertEqual(
+            merged["findings"][0]["lanes"],
+            ["baseline", "testing"],
+        )
+
+    def test_non_ascii_causes_contribute_to_finding_ids(self) -> None:
+        first = self.write_result(
+            "first.json",
+            lane_result(
+                "baseline",
+                [
+                    finding(
+                        title="권한 검증 누락",
+                        root_cause="요청 권한을 확인하지 않음",
+                    )
+                ],
+            ),
+        )
+        second = self.write_result(
+            "second.json",
+            lane_result(
+                "testing",
+                [
+                    finding(
+                        title="캐시 만료 오류",
+                        root_cause="캐시 만료 시간을 잘못 계산함",
+                    )
+                ],
+            ),
+        )
+
+        completed = self.run_merger("merge", str(first), str(second))
+        merged = json.loads(completed.stdout)
+
+        self.assertEqual(len(merged["findings"]), 2)
+        self.assertEqual(
+            len({result["id"] for result in merged["findings"]}),
+            2,
+        )
+
     def test_rejects_parent_relative_finding_path(self) -> None:
         invalid = finding(file="../secret.txt")
         path = self.write_result("invalid.json", lane_result("baseline", [invalid]))

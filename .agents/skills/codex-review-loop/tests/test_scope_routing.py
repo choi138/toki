@@ -90,6 +90,39 @@ class ScopeRoutingTests(unittest.TestCase):
         self.assertEqual(result["scope"]["codexArgs"], ["--commit", commit])
         self.assertIn("remote-sync", self.lane_ids(result))
 
+    def test_commit_scope_preserves_root_commit_handling(self) -> None:
+        root_commit = self.git("rev-list", "--max-parents=0", "HEAD").strip()
+
+        result = self.resolve("--commit", root_commit)
+
+        self.assertTrue(result["hasChanges"])
+        self.assertIn("README.md", result["changedPaths"])
+        self.assertIn(
+            "Sources/TokiUsageReaders/Reader.swift",
+            result["changedPaths"],
+        )
+        self.assertEqual(result["scope"]["codexArgs"], ["--commit", root_commit])
+
+    def test_commit_scope_resolves_merge_against_first_parent(self) -> None:
+        self.git("switch", "-q", "-c", "feature")
+        reader = self.repo / "Sources" / "TokiUsageReaders" / "MergedReader.swift"
+        reader.write_text("struct MergedReader {}\n", encoding="utf-8")
+        self.git("add", ".")
+        self.git("commit", "-q", "-m", "add merged reader")
+        self.git("switch", "-q", "main")
+        self.git("merge", "-q", "--no-ff", "feature", "-m", "merge feature")
+        merge_commit = self.git("rev-parse", "HEAD").strip()
+
+        result = self.resolve("--commit", merge_commit)
+
+        self.assertTrue(result["hasChanges"])
+        self.assertIn(
+            "Sources/TokiUsageReaders/MergedReader.swift",
+            result["changedPaths"],
+        )
+        self.assertIn("usage-pricing", self.lane_ids(result))
+        self.assertEqual(result["scope"]["codexArgs"], ["--commit", merge_commit])
+
     def test_uncommitted_reader_change_activates_usage_privacy_and_testing(self) -> None:
         reader = self.repo / "Sources" / "TokiUsageReaders" / "Reader.swift"
         reader.write_text("struct Reader { let tokenCount: Int }\n", encoding="utf-8")
@@ -109,6 +142,15 @@ class ScopeRoutingTests(unittest.TestCase):
 
         result = self.resolve("--uncommitted")
 
+        self.assertIn("concurrency-lifecycle", self.lane_ids(result))
+
+    def test_untracked_semantic_signal_activates_lane_outside_normal_path(self) -> None:
+        notes = self.repo / "docs" / "new.md"
+        notes.write_text("Review the MainActor handoff.\n", encoding="utf-8")
+
+        result = self.resolve("--uncommitted")
+
+        self.assertIn("docs/new.md", result["untrackedReviewedPaths"])
         self.assertIn("concurrency-lifecycle", self.lane_ids(result))
 
     def test_direct_app_test_path_activates_testing_lane(self) -> None:
@@ -149,6 +191,50 @@ class ScopeRoutingTests(unittest.TestCase):
         self.assertFalse(result["safeToReview"])
         self.assertNotIn("session.log", serialized)
         self.assertEqual(result["excludedChanges"], [{"pattern": ".hermes", "count": 1}])
+
+    def test_root_environment_file_blocks_uncommitted_review(self) -> None:
+        environment = self.repo / ".env"
+        environment.write_text("API_TOKEN=secret\n", encoding="utf-8")
+
+        result = self.resolve("--uncommitted")
+        serialized = json.dumps(result)
+
+        self.assertTrue(result["hasChanges"])
+        self.assertFalse(result["safeToReview"])
+        self.assertNotIn("API_TOKEN", serialized)
+        self.assertEqual(result["excludedChanges"], [{"pattern": ".env", "count": 1}])
+
+    def test_nested_environment_file_blocks_uncommitted_review(self) -> None:
+        environment = self.repo / "config" / ".env.local"
+        environment.parent.mkdir()
+        environment.write_text("API_TOKEN=secret\n", encoding="utf-8")
+
+        result = self.resolve("--uncommitted")
+        serialized = json.dumps(result)
+
+        self.assertTrue(result["hasChanges"])
+        self.assertFalse(result["safeToReview"])
+        self.assertNotIn("API_TOKEN", serialized)
+        self.assertEqual(
+            result["excludedChanges"],
+            [{"pattern": "**/.env.*", "count": 1}],
+        )
+
+    def test_private_key_file_blocks_uncommitted_review(self) -> None:
+        private_key = self.repo / "keys" / "service.pem"
+        private_key.parent.mkdir()
+        private_key.write_text("private key fixture\n", encoding="utf-8")
+
+        result = self.resolve("--uncommitted")
+        serialized = json.dumps(result)
+
+        self.assertTrue(result["hasChanges"])
+        self.assertFalse(result["safeToReview"])
+        self.assertNotIn("private key fixture", serialized)
+        self.assertEqual(
+            result["excludedChanges"],
+            [{"pattern": "**/*.pem", "count": 1}],
+        )
 
     def test_clean_scope_reports_no_changes(self) -> None:
         result = self.resolve("--uncommitted")

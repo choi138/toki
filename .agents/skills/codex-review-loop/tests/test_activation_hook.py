@@ -12,7 +12,12 @@ ACTIVATION_HOOK = AGENTS_DIR / "hooks" / "skill_activation.ts"
 
 
 class ActivationHookTests(unittest.TestCase):
-    def run_hook(self, *, review_child: bool) -> str:
+    def run_hook(
+        self,
+        *,
+        review_child: bool,
+        prompt: str = "Run a Codex code review for the current diff.",
+    ) -> str:
         environment = os.environ.copy()
         if review_child:
             environment["TOKI_REVIEW_CHILD"] = "1"
@@ -27,7 +32,7 @@ class ActivationHookTests(unittest.TestCase):
             ],
             input=json.dumps(
                 {
-                    "prompt": "Run a Codex code review for the current diff.",
+                    "prompt": prompt,
                     "session_id": "activation-test",
                 }
             ),
@@ -37,6 +42,8 @@ class ActivationHookTests(unittest.TestCase):
             env=environment,
             check=True,
         )
+        if not completed.stdout:
+            return ""
         output = json.loads(completed.stdout)
         return output["hookSpecificOutput"]["additionalContext"]
 
@@ -50,6 +57,30 @@ class ActivationHookTests(unittest.TestCase):
 
         self.assertNotIn("Apply `codex-review-loop`", context)
         self.assertIn("project-conventions", context)
+
+    def test_bare_commit_sha_activates_review_loop(self) -> None:
+        context = self.run_hook(
+            review_child=False,
+            prompt="Please review b32dfa83",
+        )
+
+        self.assertIn("Apply `codex-review-loop`", context)
+
+    def test_commit_sha_before_korean_review_activates_review_loop(self) -> None:
+        context = self.run_hook(
+            review_child=False,
+            prompt="b32dfa83 리뷰해줘",
+        )
+
+        self.assertIn("Apply `codex-review-loop`", context)
+
+    def test_plain_review_request_does_not_activate_review_loop(self) -> None:
+        context = self.run_hook(
+            review_child=False,
+            prompt="Please review this",
+        )
+
+        self.assertNotIn("codex-review-loop", context)
 
 
 if __name__ == "__main__":

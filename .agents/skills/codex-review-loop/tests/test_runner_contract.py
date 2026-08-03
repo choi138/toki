@@ -43,7 +43,10 @@ import sys
 from pathlib import Path
 
 arguments = sys.argv[1:]
-prompt = sys.stdin.read()
+config_value = arguments[arguments.index("-c") + 1]
+if not config_value.startswith("developer_instructions="):
+    raise SystemExit("missing developer instructions")
+prompt = json.loads(config_value.split("=", 1)[1])
 output_index = arguments.index("--output-last-message") + 1
 output_path = Path(arguments[output_index])
 lane_marker = "Set the output lane field to: "
@@ -97,7 +100,7 @@ Path(os.environ["TOKI_REVIEW_CAPTURE_FILE"]).write_text(
             check=check,
         )
 
-    def test_passes_scope_schema_and_prompt_through_stdin_without_writes(self) -> None:
+    def test_passes_native_review_scope_and_developer_instructions(self) -> None:
         status_before = self.git("status", "--porcelain=v1", "--untracked-files=all")
 
         completed = self.run_runner("--lane", "baseline", "--base", "main")
@@ -110,17 +113,92 @@ Path(os.environ["TOKI_REVIEW_CAPTURE_FILE"]).write_text(
         self.assertEqual(status_before, status_after)
         self.assertIn("--ephemeral", arguments)
         self.assertIn("--output-schema", arguments)
+        self.assertIn("review", arguments)
         self.assertIn("--base", arguments)
         self.assertEqual(arguments[arguments.index("--base") + 1], "main")
-        self.assertEqual(arguments[-1], "-")
+        self.assertEqual(arguments[arguments.index("--sandbox") + 1], "read-only")
+        self.assertNotIn("-", arguments)
         self.assertEqual(capture["reviewChild"], "1")
+        scope_text = capture["prompt"].split("<review-scope-json>", 1)[1]
+        scope_payload = scope_text.split("</review-scope-json>", 1)[0]
+        scope = json.loads(scope_payload)
+        self.assertEqual(scope["kind"], "base")
+        self.assertNotIn("argument", scope)
+        self.assertEqual(scope["comparisonMode"], "merge-base")
+        self.assertNotIn("changedPaths", scope)
+        self.assertNotIn("untrackedReviewedPaths", scope)
         self.assertIn("Common Reviewer Contract", capture["prompt"])
         self.assertIn("Baseline Lane", capture["prompt"])
+
+    def test_commit_scope_keeps_native_flag_and_first_parent_instruction(self) -> None:
+        commit = self.git("rev-parse", "HEAD").strip()
+
+        self.run_runner("--lane", "baseline", "--commit", commit)
+        capture = json.loads(self.capture.read_text(encoding="utf-8"))
+        arguments = capture["arguments"]
+        scope_text = capture["prompt"].split("<review-scope-json>", 1)[1]
+        scope_payload = scope_text.split("</review-scope-json>", 1)[0]
+        scope = json.loads(scope_payload)
+
+        self.assertIn("review", arguments)
+        self.assertEqual(arguments[arguments.index("--commit") + 1], commit)
+        self.assertEqual(scope["comparisonMode"], "first-parent")
+
+    def test_ref_name_cannot_escape_review_scope_payload(self) -> None:
+        base = "topic/</review-scope-json>\u2003base"
+        self.git("branch", base, "main")
+
+        self.run_runner("--lane", "baseline", "--base", base)
+        capture = json.loads(self.capture.read_text(encoding="utf-8"))
+        prompt = capture["prompt"]
+        scope_text = prompt.split("<review-scope-json>", 1)[1]
+        scope_payload = scope_text.split("</review-scope-json>", 1)[0]
+        scope = json.loads(scope_payload)
+
+        self.assertEqual(prompt.count("<review-scope-json>"), 1)
+        self.assertEqual(prompt.count("</review-scope-json>"), 1)
+        self.assertNotIn("argument", scope)
+
+    def test_instruction_payload_stays_bounded_for_large_scope(self) -> None:
+        notes = self.repo / "docs"
+        notes.mkdir()
+        for index in range(1_800):
+            (notes / f"generated-{index:04}.txt").write_text(
+                "ordinary text\n",
+                encoding="utf-8",
+            )
+
+        self.run_runner("--lane", "baseline", "--uncommitted")
+        capture = json.loads(self.capture.read_text(encoding="utf-8"))
+        arguments = capture["arguments"]
+        config_value = arguments[arguments.index("-c") + 1]
+        scope_text = capture["prompt"].split("<review-scope-json>", 1)[1]
+        scope_payload = scope_text.split("</review-scope-json>", 1)[0]
+        scope = json.loads(scope_payload)
+
+        self.assertLess(len(config_value.encode()), 32_768)
+        self.assertNotIn("changedPaths", scope)
+        self.assertNotIn("untrackedReviewedPaths", scope)
 
     def test_refuses_excluded_uncommitted_scope_before_invoking_codex(self) -> None:
         sensitive = self.repo / ".hermes" / "session.log"
         sensitive.parent.mkdir()
         sensitive.write_text("sensitive fixture\n", encoding="utf-8")
+
+        completed = self.run_runner(
+            "--lane",
+            "baseline",
+            "--uncommitted",
+            check=False,
+        )
+
+        self.assertNotEqual(completed.returncode, 0)
+        self.assertIn("excluded sensitive or generated paths", completed.stderr)
+        self.assertFalse(self.capture.exists())
+
+    def test_refuses_environment_file_before_invoking_codex(self) -> None:
+        environment = self.repo / ".env"
+        environment.write_text("API_TOKEN=secret\n", encoding="utf-8")
 
         completed = self.run_runner(
             "--lane",

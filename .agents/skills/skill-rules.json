@@ -90,6 +90,8 @@
         "intentPatterns": [
           "(review|리뷰).*(diff|change|branch|commit|수정|변경|브랜치|커밋)",
           "(diff|change|branch|commit|수정|변경|브랜치|커밋).*(review|리뷰)",
+          "(review|리뷰).*\\b[0-9a-f]{7,64}\\b",
+          "\\b[0-9a-f]{7,64}\\b.*(review|리뷰)",
           "(fix|address|수정|해결).*(review finding|review feedback|리뷰 지적|리뷰 결과)"
         ]
       },

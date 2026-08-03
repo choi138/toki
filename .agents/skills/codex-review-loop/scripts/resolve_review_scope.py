@@ -4,84 +4,30 @@
 from __future__ import annotations
 
 import argparse
-import fnmatch
 import json
-import os
 import re
-import subprocess
 import sys
 from collections import Counter
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any
+
+from review_scope_git import (
+    ScopeError,
+    base_scope,
+    commit_scope,
+    git_root,
+    matches_pattern,
+    matching_pattern,
+    ordered_unique,
+    semantic_text,
+    uncommitted_scope,
+)
 
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 SKILL_DIR = SCRIPT_DIR.parent
 DEFAULT_REGISTRY = SKILL_DIR / "references" / "lane-registry.json"
 LANE_ID_RE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
-COMMIT_RE = re.compile(r"^[0-9a-fA-F]{4,64}$")
-
-
-class ScopeError(RuntimeError):
-    """Raised when a review scope cannot be resolved safely."""
-
-
-def run_git(repo: Path, arguments: list[str]) -> bytes:
-    result = subprocess.run(
-        ["git", *arguments],
-        cwd=repo,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        check=False,
-    )
-    if result.returncode != 0:
-        detail = result.stderr.decode("utf-8", errors="replace").strip()
-        command = arguments[0] if arguments else "command"
-        raise ScopeError(f"git {command} failed: {detail or 'unknown git error'}")
-    return result.stdout
-
-
-def git_root(repo: Path) -> Path:
-    output = run_git(repo, ["rev-parse", "--show-toplevel"])
-    return Path(output.decode("utf-8", errors="strict").strip()).resolve()
-
-
-def decode_z(output: bytes) -> list[str]:
-    values: list[str] = []
-    for item in output.split(b"\0"):
-        if not item:
-            continue
-        values.append(os.fsdecode(item))
-    return values
-
-
-def normalize_path(path: str) -> str:
-    normalized = path.replace("\\", "/")
-    while normalized.startswith("./"):
-        normalized = normalized[2:]
-    return normalized.rstrip("/")
-
-
-def ordered_unique(values: Iterable[str]) -> list[str]:
-    seen: set[str] = set()
-    result: list[str] = []
-    for value in values:
-        normalized = normalize_path(value)
-        if normalized and normalized not in seen:
-            seen.add(normalized)
-            result.append(normalized)
-    return result
-
-
-def matches_pattern(path: str, pattern: str) -> bool:
-    return fnmatch.fnmatchcase(path, pattern)
-
-
-def matching_pattern(path: str, patterns: list[str]) -> str | None:
-    for pattern in patterns:
-        if matches_pattern(path, pattern):
-            return pattern
-    return None
 
 
 def load_registry(path: Path) -> dict[str, Any]:
@@ -145,99 +91,19 @@ def load_registry(path: Path) -> dict[str, Any]:
     return registry
 
 
-def validate_base(repo: Path, base: str) -> None:
-    if not base or base.startswith("-") or "\0" in base:
-        raise ScopeError("base branch is invalid")
-    result = subprocess.run(
-        ["git", "check-ref-format", "--branch", base],
-        cwd=repo,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-        check=False,
-    )
-    if result.returncode != 0:
-        raise ScopeError(f"base branch is not a valid branch name: {base}")
-    run_git(repo, ["rev-parse", "--verify", f"{base}^{{commit}}"])
-
-
-def validate_commit(repo: Path, commit: str) -> None:
-    if COMMIT_RE.fullmatch(commit) is None:
-        raise ScopeError("commit must be a hexadecimal SHA")
-    run_git(repo, ["rev-parse", "--verify", f"{commit}^{{commit}}"])
-
-
-def uncommitted_scope(
-    repo: Path,
-    exclusions: list[str],
-) -> tuple[list[str], list[str], bytes]:
-    unstaged = decode_z(run_git(repo, ["diff", "--name-only", "-z", "--"]))
-    staged = decode_z(run_git(repo, ["diff", "--cached", "--name-only", "-z", "--"]))
-    untracked_roots = decode_z(
-        run_git(repo, ["ls-files", "--others", "--exclude-standard", "--directory", "-z"])
-    )
-    tracked_paths = ordered_unique([*unstaged, *staged])
-    collapsed_untracked = ordered_unique(untracked_roots)
-    has_excluded_candidate = any(
-        matching_pattern(path, exclusions) is not None
-        for path in [*tracked_paths, *collapsed_untracked]
-    )
-    if has_excluded_candidate:
-        untracked = collapsed_untracked
-    else:
-        untracked = ordered_unique(
-            decode_z(run_git(repo, ["ls-files", "--others", "--exclude-standard", "-z"]))
-        )
-    paths = ordered_unique([*unstaged, *staged, *untracked])
-    diff = b"\n".join(
-        [
-            run_git(repo, ["diff", "--no-ext-diff", "--unified=0", "--"]),
-            run_git(repo, ["diff", "--cached", "--no-ext-diff", "--unified=0", "--"]),
-        ]
-    )
-    return paths, ordered_unique(untracked), diff
-
-
-def base_scope(repo: Path, base: str) -> tuple[list[str], bytes]:
-    validate_base(repo, base)
-    range_spec = f"{base}...HEAD"
-    paths = decode_z(run_git(repo, ["diff", "--name-only", "-z", range_spec, "--"]))
-    diff = run_git(repo, ["diff", "--no-ext-diff", "--unified=0", range_spec, "--"])
-    return ordered_unique(paths), diff
-
-
-def commit_scope(repo: Path, commit: str) -> tuple[list[str], bytes]:
-    validate_commit(repo, commit)
-    paths = decode_z(
-        run_git(
-            repo,
-            ["diff-tree", "--root", "--no-commit-id", "--name-only", "-r", "-z", commit, "--"],
-        )
-    )
-    diff = run_git(repo, ["show", "--format=", "--no-ext-diff", "--unified=0", commit, "--"])
-    return ordered_unique(paths), diff
-
-
-def semantic_text(diff: bytes) -> str:
-    decoded = diff.decode("utf-8", errors="replace")
-    changed_lines: list[str] = []
-    for line in decoded.splitlines():
-        if line.startswith("+++") or line.startswith("---"):
-            continue
-        if line.startswith("+") or line.startswith("-"):
-            changed_lines.append(line[1:])
-    return "\n".join(changed_lines)
-
-
 def activate_lanes(
     registry: dict[str, Any],
     changed_paths: list[str],
     changed_semantics: str,
+    semantic_inspection_complete: bool,
 ) -> list[dict[str, Any]]:
     activated: list[dict[str, Any]] = []
     for lane in registry["lanes"]:
         reasons: list[dict[str, Any]] = []
         if lane.get("always") is True:
             reasons.append({"type": "always"})
+        elif not semantic_inspection_complete:
+            reasons.append({"type": "semantic-fallback"})
 
         path_hits = [
             path
@@ -297,14 +163,19 @@ def resolve(arguments: argparse.Namespace) -> dict[str, Any]:
     registry = load_registry(arguments.registry.resolve())
     exclusions: list[str] = registry["pathExclusions"]
     if arguments.uncommitted:
-        changed_paths, untracked_paths, diff = uncommitted_scope(root, exclusions)
+        changed_paths, untracked_paths, diff, semantic_inspection_complete = (
+            uncommitted_scope(root, exclusions)
+        )
         scope = {
             "kind": "uncommitted",
             "argument": None,
             "codexArgs": ["--uncommitted"],
         }
     elif arguments.base is not None:
-        changed_paths, diff = base_scope(root, arguments.base)
+        changed_paths, diff, semantic_inspection_complete = base_scope(
+            root,
+            arguments.base,
+        )
         untracked_paths = []
         scope = {
             "kind": "base",
@@ -312,7 +183,10 @@ def resolve(arguments: argparse.Namespace) -> dict[str, Any]:
             "codexArgs": ["--base", arguments.base],
         }
     else:
-        changed_paths, diff = commit_scope(root, arguments.commit)
+        changed_paths, diff, semantic_inspection_complete = commit_scope(
+            root,
+            arguments.commit,
+        )
         untracked_paths = []
         scope = {
             "kind": "commit",
@@ -329,7 +203,12 @@ def resolve(arguments: argparse.Namespace) -> dict[str, Any]:
         else:
             excluded_by_pattern[pattern] += 1
 
-    activated = activate_lanes(registry, reviewed_paths, semantic_text(diff))
+    activated = activate_lanes(
+        registry,
+        reviewed_paths,
+        semantic_text(diff),
+        semantic_inspection_complete,
+    )
     verification_profiles = ordered_unique(
         profile
         for lane in activated
@@ -347,6 +226,7 @@ def resolve(arguments: argparse.Namespace) -> dict[str, Any]:
         "scope": scope,
         "hasChanges": bool(changed_paths),
         "safeToReview": not excluded_by_pattern,
+        "semanticInspectionComplete": semantic_inspection_complete,
         "changedPaths": reviewed_paths,
         "untrackedReviewedPaths": [
             path for path in untracked_paths if matching_pattern(path, exclusions) is None

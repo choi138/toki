@@ -18,6 +18,14 @@ jobs:
       - name: Test Codex review label automation
         run: python3 -m unittest discover -s .github/scripts -p "test_*.py"
 
+      - name: Set up Node.js for review-loop hook tests
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Test Codex review loop
+        run: python3 -m unittest discover -s .agents/skills/codex-review-loop/tests -p "test_*.py"
+
       - name: Select latest Xcode
         uses: maxim-lobanov/setup-xcode@v1
         with:

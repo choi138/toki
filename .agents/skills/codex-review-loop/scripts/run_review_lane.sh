@@ -134,25 +134,55 @@ fi
 {
   printf '# Selected review lane\n\n'
   printf 'Set the output lane field to: %s\n\n' "$lane"
+  python3 - "$scope_file" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1], encoding="utf-8") as handle:
+    resolved = json.load(handle)
+scope = {
+    "kind": resolved["scope"]["kind"],
+    "comparisonMode": {
+        "uncommitted": "working-tree",
+        "base": "merge-base",
+        "commit": "first-parent",
+    }[resolved["scope"]["kind"]],
+}
+print("<review-scope-json>")
+print(json.dumps(scope, ensure_ascii=False, separators=(",", ":")))
+print("</review-scope-json>")
+print()
+PY
   sed -n '1,$p' "$common_prompt"
   printf '\n\n'
   sed -n '1,$p' "$selected_prompt"
 } > "$prompt_file"
 
 codex_bin="${TOKI_REVIEW_CODEX_BIN:-codex}"
+developer_config="$(
+  python3 - "$prompt_file" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1], encoding="utf-8") as handle:
+    prompt = handle.read()
+print(f"developer_instructions={json.dumps(prompt, ensure_ascii=False)}")
+PY
+)"
 codex_args=(
   exec
-  review
+  --sandbox read-only
   --ephemeral
   --output-schema "$schema_file"
   --output-last-message "$result_file"
+  review
   "${codex_scope_args[@]}"
-  -
+  -c "$developer_config"
 )
 
 (
   cd "$repo_root"
-  TOKI_REVIEW_CHILD=1 "$codex_bin" "${codex_args[@]}" < "$prompt_file" > /dev/null
+  TOKI_REVIEW_CHILD=1 "$codex_bin" "${codex_args[@]}" > /dev/null
 )
 
 if [[ ! -s "$result_file" ]]; then

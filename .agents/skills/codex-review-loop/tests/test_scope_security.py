@@ -1,0 +1,216 @@
+from __future__ import annotations
+
+import json
+import subprocess
+import tempfile
+import unittest
+from pathlib import Path
+
+
+SKILL_DIR = Path(__file__).resolve().parents[1]
+RESOLVER = SKILL_DIR / "scripts" / "resolve_review_scope.py"
+
+
+class ScopeSecurityTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.temporary_directory = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temporary_directory.cleanup)
+        self.repo = Path(self.temporary_directory.name) / "repo"
+        self.repo.mkdir()
+        self.git("init", "-q", "-b", "main")
+        self.git("config", "user.email", "review-test@example.com")
+        self.git("config", "user.name", "Review Test")
+        self.git("config", "diff.renames", "true")
+        (self.repo / "README.md").write_text("fixture\n", encoding="utf-8")
+        self.git("add", ".")
+        self.git("commit", "-q", "-m", "initial")
+
+    def git(self, *arguments: str) -> str:
+        result = subprocess.run(
+            ["git", *arguments],
+            cwd=self.repo,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=True,
+        )
+        return result.stdout
+
+    def resolve(self, *scope: str) -> dict:
+        completed = subprocess.run(
+            ["python3", str(RESOLVER), "--repo", str(self.repo), *scope],
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=True,
+        )
+        return json.loads(completed.stdout)
+
+    def commit_secret(self) -> None:
+        content = "".join(f"SECRET_{index}=value\n" for index in range(20))
+        (self.repo / ".env").write_text(content, encoding="utf-8")
+        self.git("add", ".env")
+        self.git("commit", "-q", "-m", "add secret fixture")
+
+    def rename_secret(self) -> None:
+        (self.repo / ".env").rename(self.repo / "harmless.txt")
+        renamed = self.repo / "harmless.txt"
+        content = renamed.read_text(encoding="utf-8")
+        renamed.write_text(
+            content.replace("SECRET_19=value", "SECRET_19=changed"),
+            encoding="utf-8",
+        )
+
+    def assert_secret_is_blocked(self, result: dict) -> None:
+        self.assertTrue(result["hasChanges"])
+        self.assertFalse(result["safeToReview"])
+        self.assertEqual(result["excludedChanges"], [{"pattern": ".env", "count": 1}])
+
+    def test_unstaged_rename_out_of_secret_path_is_blocked(self) -> None:
+        self.commit_secret()
+        self.rename_secret()
+
+        result = self.resolve("--uncommitted")
+
+        self.assert_secret_is_blocked(result)
+
+    def test_staged_rename_out_of_secret_path_is_blocked(self) -> None:
+        self.commit_secret()
+        self.rename_secret()
+        self.git("add", "-A")
+
+        result = self.resolve("--uncommitted")
+
+        self.assert_secret_is_blocked(result)
+
+    def test_base_rename_out_of_secret_path_is_blocked(self) -> None:
+        self.commit_secret()
+        self.git("switch", "-q", "-c", "feature")
+        self.rename_secret()
+        self.git("add", "-A")
+        self.git("commit", "-q", "-m", "rename secret")
+
+        result = self.resolve("--base", "main")
+
+        self.assert_secret_is_blocked(result)
+
+    def test_commit_rename_out_of_secret_path_is_blocked(self) -> None:
+        self.commit_secret()
+        self.rename_secret()
+        self.git("add", "-A")
+        self.git("commit", "-q", "-m", "rename secret")
+        commit = self.git("rev-parse", "HEAD").strip()
+
+        result = self.resolve("--commit", commit)
+
+        self.assert_secret_is_blocked(result)
+
+    def test_mixed_case_root_environment_file_is_blocked(self) -> None:
+        environment = self.repo / ".ENV"
+        environment.write_text("API_TOKEN=secret\n", encoding="utf-8")
+
+        result = self.resolve("--uncommitted")
+
+        self.assertFalse(result["safeToReview"])
+        self.assertEqual(result["excludedChanges"], [{"pattern": ".env", "count": 1}])
+
+    def test_mixed_case_nested_private_key_is_blocked(self) -> None:
+        private_key = self.repo / "keys" / "service.PEM"
+        private_key.parent.mkdir()
+        private_key.write_text("private key fixture\n", encoding="utf-8")
+
+        result = self.resolve("--uncommitted")
+
+        self.assertFalse(result["safeToReview"])
+        self.assertEqual(
+            result["excludedChanges"],
+            [{"pattern": "**/*.pem", "count": 1}],
+        )
+
+    def test_large_untracked_file_activates_specialists_conservatively(self) -> None:
+        notes = self.repo / "docs" / "large.md"
+        notes.parent.mkdir()
+        notes.write_text(
+            ("ordinary text\n" * 87_381) + "MainActor\n",
+            encoding="utf-8",
+        )
+
+        result = self.resolve("--uncommitted")
+        lane_ids = {lane["id"] for lane in result["activatedLanes"]}
+
+        self.assertFalse(result["semanticInspectionComplete"])
+        self.assertIn("concurrency-lifecycle", lane_ids)
+
+    def test_aggregate_untracked_content_activates_specialists_conservatively(self) -> None:
+        notes = self.repo / "docs"
+        notes.mkdir()
+        content = "ordinary text\n" * 69_230
+        for index in range(5):
+            (notes / f"large-{index}.md").write_text(content, encoding="utf-8")
+
+        result = self.resolve("--uncommitted")
+        lane_ids = {lane["id"] for lane in result["activatedLanes"]}
+
+        self.assertFalse(result["semanticInspectionComplete"])
+        self.assertIn("concurrency-lifecycle", lane_ids)
+
+    def test_aggregate_untracked_binary_content_counts_toward_budget(self) -> None:
+        assets = self.repo / "assets"
+        assets.mkdir()
+        content = b"\0" + (b"x" * 900_000)
+        for index in range(5):
+            (assets / f"large-{index}.bin").write_bytes(content)
+
+        result = self.resolve("--uncommitted")
+        lane_ids = {lane["id"] for lane in result["activatedLanes"]}
+
+        self.assertFalse(result["semanticInspectionComplete"])
+        self.assertIn("concurrency-lifecycle", lane_ids)
+
+    def test_safe_text_rename_does_not_route_unchanged_content(self) -> None:
+        notes = self.repo / "docs"
+        notes.mkdir()
+        original = notes / "original.txt"
+        original.write_text("MainActor\n" * 50_000, encoding="utf-8")
+        self.git("add", ".")
+        self.git("commit", "-q", "-m", "add rename fixture")
+        self.git("mv", "docs/original.txt", "docs/renamed.txt")
+
+        result = self.resolve("--uncommitted")
+        lane_ids = {lane["id"] for lane in result["activatedLanes"]}
+
+        self.assertIn("docs/original.txt", result["changedPaths"])
+        self.assertIn("docs/renamed.txt", result["changedPaths"])
+        self.assertNotIn("concurrency-lifecycle", lane_ids)
+
+    def test_large_tracked_diff_activates_specialists_conservatively(self) -> None:
+        notes = self.repo / "docs"
+        notes.mkdir()
+        (notes / "large.txt").write_text(
+            "ordinary text\n" * 350_000,
+            encoding="utf-8",
+        )
+        self.git("add", ".")
+
+        result = self.resolve("--uncommitted")
+        lane_ids = {lane["id"] for lane in result["activatedLanes"]}
+
+        self.assertFalse(result["semanticInspectionComplete"])
+        self.assertIn("concurrency-lifecycle", lane_ids)
+
+    def test_literal_backslash_parent_name_does_not_read_outside_repository(self) -> None:
+        outside = self.repo.parent / "outside.txt"
+        outside.write_text("MainActor\n", encoding="utf-8")
+        literal_name = r"..\outside.txt"
+        (self.repo / literal_name).write_text("ordinary text\n", encoding="utf-8")
+
+        result = self.resolve("--uncommitted")
+        lane_ids = {lane["id"] for lane in result["activatedLanes"]}
+
+        self.assertNotIn("concurrency-lifecycle", lane_ids)
+        self.assertIn(literal_name, result["changedPaths"])
+        self.assertIn(literal_name, result["untrackedReviewedPaths"])
+
+
+if __name__ == "__main__":
+    unittest.main()

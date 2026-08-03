@@ -12,114 +12,10 @@ import sys
 from pathlib import Path
 from typing import Any, Iterable
 
-
-TOP_LEVEL_FIELDS = {"schemaVersion", "lane", "verdict", "summary", "findings"}
-FINDING_FIELDS = {
-    "priority",
-    "confidence",
-    "title",
-    "file",
-    "startLine",
-    "endLine",
-    "rootCause",
-    "evidence",
-    "impact",
-    "suggestedFix",
-    "verification",
-}
-PRIORITY_RANK = {"P0": 0, "P1": 1, "P2": 2, "P3": 3}
-LANE_RE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
-WORD_RE = re.compile(r"[a-z0-9]+")
+from finding_validation import FindingError, PRIORITY_RANK, load_result
 
 
-class FindingError(ValueError):
-    """Raised for malformed lane output."""
-
-
-def require_non_empty_string(value: Any, field: str) -> str:
-    if not isinstance(value, str) or not value.strip():
-        raise FindingError(f"{field} must be a non-empty string")
-    return value.strip()
-
-
-def validate_repo_path(value: Any) -> str:
-    path = require_non_empty_string(value, "file")
-    if path.startswith("/") or "\\" in path:
-        raise FindingError("file must be a repository-relative POSIX path")
-    parts = path.split("/")
-    if any(part in {"", ".", ".."} for part in parts):
-        raise FindingError(
-            "file must be repository-relative without empty, current, or parent path segments"
-        )
-    return path
-
-
-def validate_lane_result(data: Any, expected_lane: str | None = None) -> dict[str, Any]:
-    if not isinstance(data, dict):
-        raise FindingError("lane result must be an object")
-    if set(data) != TOP_LEVEL_FIELDS:
-        missing = sorted(TOP_LEVEL_FIELDS - set(data))
-        extra = sorted(set(data) - TOP_LEVEL_FIELDS)
-        raise FindingError(f"lane result fields mismatch; missing={missing} extra={extra}")
-    if data["schemaVersion"] != "1.0":
-        raise FindingError("schemaVersion must be 1.0")
-
-    lane = require_non_empty_string(data["lane"], "lane")
-    if LANE_RE.fullmatch(lane) is None:
-        raise FindingError("lane has an invalid format")
-    if expected_lane is not None and lane != expected_lane:
-        raise FindingError(f"expected lane {expected_lane}, got {lane}")
-
-    verdict = data["verdict"]
-    if verdict not in {"clean", "findings"}:
-        raise FindingError("verdict must be clean or findings")
-    require_non_empty_string(data["summary"], "summary")
-    findings = data["findings"]
-    if not isinstance(findings, list):
-        raise FindingError("findings must be an array")
-    if (verdict == "clean") != (len(findings) == 0):
-        raise FindingError("clean requires no findings and findings requires at least one")
-
-    for index, finding in enumerate(findings):
-        prefix = f"findings[{index}]"
-        if not isinstance(finding, dict):
-            raise FindingError(f"{prefix} must be an object")
-        if set(finding) != FINDING_FIELDS:
-            missing = sorted(FINDING_FIELDS - set(finding))
-            extra = sorted(set(finding) - FINDING_FIELDS)
-            raise FindingError(f"{prefix} fields mismatch; missing={missing} extra={extra}")
-        if finding["priority"] not in PRIORITY_RANK:
-            raise FindingError(f"{prefix}.priority is invalid")
-        confidence = finding["confidence"]
-        if isinstance(confidence, bool) or not isinstance(confidence, (int, float)):
-            raise FindingError(f"{prefix}.confidence must be numeric")
-        if not 0 <= confidence <= 1:
-            raise FindingError(f"{prefix}.confidence must be between 0 and 1")
-        for field in ("title", "rootCause", "evidence", "impact", "suggestedFix"):
-            require_non_empty_string(finding[field], f"{prefix}.{field}")
-        validate_repo_path(finding["file"])
-        start = finding["startLine"]
-        end = finding["endLine"]
-        if type(start) is not int or start < 1:
-            raise FindingError(f"{prefix}.startLine must be a positive integer")
-        if type(end) is not int or end < start:
-            raise FindingError(f"{prefix}.endLine must be an integer at least startLine")
-        verification = finding["verification"]
-        if (
-            not isinstance(verification, list)
-            or not verification
-            or not all(isinstance(item, str) and item.strip() for item in verification)
-        ):
-            raise FindingError(f"{prefix}.verification must contain non-empty strings")
-    return data
-
-
-def load_result(path: Path, expected_lane: str | None = None) -> dict[str, Any]:
-    try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as error:
-        raise FindingError(f"cannot load {path}: {error}") from error
-    return validate_lane_result(data, expected_lane)
+WORD_RE = re.compile(r"[^\W_]+", re.UNICODE)
 
 
 def normalized_words(value: str) -> set[str]:
@@ -129,14 +25,14 @@ def normalized_words(value: str) -> set[str]:
 def similarity(left: str, right: str) -> float:
     left_words = normalized_words(left)
     right_words = normalized_words(right)
-    if not left_words or not right_words:
-        return 0
-    token_similarity = len(left_words & right_words) / len(left_words | right_words)
     phrase_similarity = difflib.SequenceMatcher(
         None,
         left.casefold(),
         right.casefold(),
     ).ratio()
+    if not left_words or not right_words:
+        return phrase_similarity
+    token_similarity = len(left_words & right_words) / len(left_words | right_words)
     return max(token_similarity, phrase_similarity)
 
 
@@ -147,10 +43,7 @@ def ranges_overlap(left: dict[str, Any], right: dict[str, Any]) -> bool:
 def is_duplicate(group: dict[str, Any], finding: dict[str, Any]) -> bool:
     if group["file"] != finding["file"] or not ranges_overlap(group, finding):
         return False
-    return (
-        similarity(group["rootCause"], finding["rootCause"]) >= 0.65
-        or similarity(group["title"], finding["title"]) >= 0.65
-    )
+    return similarity(group["rootCause"], finding["rootCause"]) >= 0.65
 
 
 def ordered_unique(values: Iterable[str]) -> list[str]:
@@ -165,7 +58,10 @@ def ordered_unique(values: Iterable[str]) -> list[str]:
 
 def finding_id(group: dict[str, Any]) -> str:
     root = " ".join(sorted(normalized_words(group["rootCause"])))
-    digest = hashlib.sha256(f"{group['file']}:{root}".encode("utf-8")).hexdigest()[:12]
+    if not root:
+        root = group["rootCause"].casefold().strip()
+    identity = f"{group['file']}:{group['startLine']}:{group['endLine']}:{root}"
+    digest = hashlib.sha256(identity.encode("utf-8")).hexdigest()[:12]
     return f"RF-{digest}"
 
 

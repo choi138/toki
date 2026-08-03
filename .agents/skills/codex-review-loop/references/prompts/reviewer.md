@@ -1,7 +1,8 @@
 # Common Reviewer Contract
 
-Perform a read-only code review of only the scope supplied to
-`codex exec review`. Do not edit files, create commits, or write remote state.
+Perform a read-only code review of only the native `codex exec review` scope.
+Use the `review-scope-json` payload to preserve the resolver's comparison mode.
+Do not edit files, create commits, or write remote state.
 Act as the leaf reviewer for the already-running loop. Do not invoke
 `codex-review-loop`, start another Codex process, or delegate another review.
 
