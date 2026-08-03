@@ -39,10 +39,16 @@ class RunnerContractTests(unittest.TestCase):
             """#!/usr/bin/env python3
 import json
 import os
+import subprocess
 import sys
 from pathlib import Path
 
 arguments = sys.argv[1:]
+subprocess.run(
+    ["git", "diff", "--name-only"],
+    stdout=subprocess.DEVNULL,
+    check=True,
+)
 config_value = arguments[arguments.index("-c") + 1]
 if not config_value.startswith("developer_instructions="):
     raise SystemExit("missing developer instructions")
@@ -231,6 +237,33 @@ Path(os.environ["TOKI_REVIEW_CAPTURE_FILE"]).write_text(
         self.assertNotEqual(completed.returncode, 0)
         self.assertIn("excluded sensitive or generated paths", completed.stderr)
         self.assertFalse(self.capture.exists())
+
+    def test_native_review_does_not_execute_clean_filter(self) -> None:
+        attributes = self.repo / ".gitattributes"
+        attributes.write_text("*.review filter=unsafe\n", encoding="utf-8")
+        reviewed = self.repo / "sample.review"
+        reviewed.write_text("before\n", encoding="utf-8")
+        self.git("add", ".")
+        self.git("commit", "-q", "-m", "add clean filter fixture")
+
+        clean_filter = self.root / "clean-filter.py"
+        clean_filter.write_text(
+            "#!/usr/bin/env python3\n"
+            "from pathlib import Path\n"
+            "import sys\n"
+            "Path(__file__).with_suffix('.invoked').write_text('invoked\\n')\n"
+            "sys.stdout.buffer.write(sys.stdin.buffer.read())\n",
+            encoding="utf-8",
+        )
+        clean_filter.chmod(0o755)
+        marker = clean_filter.with_suffix(".invoked")
+        self.git("config", "filter.unsafe.clean", str(clean_filter))
+        reviewed.write_text("after\n", encoding="utf-8")
+
+        completed = self.run_runner("--lane", "baseline", "--uncommitted")
+
+        self.assertEqual(completed.returncode, 0)
+        self.assertFalse(marker.exists())
 
     def test_refuses_lane_that_is_not_active(self) -> None:
         completed = self.run_runner(

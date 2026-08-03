@@ -2,9 +2,23 @@
 
 from __future__ import annotations
 
+import os
+import re
 import subprocess
 import tempfile
 from pathlib import Path
+
+
+FILTER_KEY_RE = re.compile(
+    r"^filter\.(.+)\.(?:clean|smudge|process|required)$",
+    re.IGNORECASE,
+)
+FILTER_OVERRIDES = (
+    ("clean", "cat"),
+    ("smudge", "cat"),
+    ("process", ""),
+    ("required", "false"),
+)
 
 
 class ScopeError(RuntimeError):
@@ -18,12 +32,54 @@ def decode_git_path(encoded_path: bytes) -> str:
         raise ScopeError("Git path is not valid UTF-8") from error
 
 
+def git_environment_without_filters(repo: Path) -> dict[str, str]:
+    environment = dict(os.environ)
+    result = subprocess.run(
+        [
+            "git",
+            "config",
+            "--null",
+            "--name-only",
+            "--get-regexp",
+            r"^filter\..*\.(clean|smudge|process|required)$",
+        ],
+        cwd=repo,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        env=environment,
+        check=False,
+    )
+    if result.returncode not in {0, 1}:
+        detail = result.stderr.decode("utf-8", errors="replace").strip()
+        raise ScopeError(f"git config failed: {detail or 'unknown git error'}")
+    drivers: list[str] = []
+    for encoded_key in result.stdout.split(b"\0"):
+        if not encoded_key:
+            continue
+        key = decode_git_path(encoded_key)
+        match = FILTER_KEY_RE.fullmatch(key)
+        if match is not None and match.group(1) not in drivers:
+            drivers.append(match.group(1))
+    try:
+        count = int(environment.get("GIT_CONFIG_COUNT", "0"))
+    except ValueError as error:
+        raise ScopeError("GIT_CONFIG_COUNT must be an integer") from error
+    for driver in drivers:
+        for suffix, value in FILTER_OVERRIDES:
+            environment[f"GIT_CONFIG_KEY_{count}"] = f"filter.{driver}.{suffix}"
+            environment[f"GIT_CONFIG_VALUE_{count}"] = value
+            count += 1
+    environment["GIT_CONFIG_COUNT"] = str(count)
+    return environment
+
+
 def run_git(repo: Path, arguments: list[str]) -> bytes:
     result = subprocess.run(
         ["git", *arguments],
         cwd=repo,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
+        env=git_environment_without_filters(repo),
         check=False,
     )
     if result.returncode != 0:
@@ -77,6 +133,7 @@ def run_git_bounded(
             cwd=repo,
             stdout=subprocess.PIPE,
             stderr=stderr,
+            env=git_environment_without_filters(repo),
         )
         if process.stdout is None:
             raise ScopeError("git command did not expose stdout")

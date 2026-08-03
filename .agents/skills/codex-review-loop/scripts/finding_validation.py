@@ -33,7 +33,12 @@ class FindingError(ValueError):
 def require_non_empty_string(value: Any, field: str) -> str:
     if not isinstance(value, str) or not value.strip():
         raise FindingError(f"{field} must be a non-empty string")
-    return value.strip()
+    normalized = value.strip()
+    try:
+        normalized.encode("utf-8", errors="strict")
+    except UnicodeEncodeError as error:
+        raise FindingError(f"{field} must be valid UTF-8") from error
+    return normalized
 
 
 def validate_repo_path(value: Any) -> str:
@@ -99,12 +104,13 @@ def validate_lane_result(data: Any, expected_lane: str | None = None) -> dict[st
         if type(end) is not int or end < start:
             raise FindingError(f"{prefix}.endLine must be an integer at least startLine")
         verification = finding["verification"]
-        if (
-            not isinstance(verification, list)
-            or not verification
-            or not all(isinstance(item, str) and item.strip() for item in verification)
-        ):
+        if not isinstance(verification, list) or not verification:
             raise FindingError(f"{prefix}.verification must contain non-empty strings")
+        for verification_index, item in enumerate(verification):
+            require_non_empty_string(
+                item,
+                f"{prefix}.verification[{verification_index}]",
+            )
     return data
 
 

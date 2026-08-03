@@ -350,6 +350,33 @@ class ScopeSecurityTests(unittest.TestCase):
         self.assertTrue(result["hasChanges"])
         self.assertFalse(marker.exists())
 
+    def test_scope_resolution_does_not_execute_clean_filter(self) -> None:
+        attributes = self.repo / ".gitattributes"
+        attributes.write_text("*.review filter=unsafe\n", encoding="utf-8")
+        reviewed = self.repo / "sample.review"
+        reviewed.write_text("before\n", encoding="utf-8")
+        self.git("add", ".")
+        self.git("commit", "-q", "-m", "add clean filter fixture")
+
+        clean_filter = self.repo.parent / "clean-filter.py"
+        clean_filter.write_text(
+            "#!/usr/bin/env python3\n"
+            "from pathlib import Path\n"
+            "import sys\n"
+            "Path(__file__).with_suffix('.invoked').write_text('invoked\\n')\n"
+            "sys.stdout.buffer.write(sys.stdin.buffer.read())\n",
+            encoding="utf-8",
+        )
+        clean_filter.chmod(0o755)
+        marker = clean_filter.with_suffix(".invoked")
+        self.git("config", "filter.unsafe.clean", str(clean_filter))
+        reviewed.write_text("after\n", encoding="utf-8")
+
+        result = self.resolve("--uncommitted")
+
+        self.assertTrue(result["hasChanges"])
+        self.assertFalse(marker.exists())
+
     def test_literal_backslash_parent_name_does_not_read_outside_repository(self) -> None:
         outside = self.repo.parent / "outside.txt"
         outside.write_text("MainActor\n", encoding="utf-8")

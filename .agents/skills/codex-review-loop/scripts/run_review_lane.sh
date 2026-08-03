@@ -180,10 +180,11 @@ codex_args=(
   -c "$developer_config"
 )
 
-(
-  cd "$repo_root"
-  TOKI_REVIEW_CHILD=1 "$codex_bin" "${codex_args[@]}" > /dev/null
-)
+python3 "$script_dir/run_with_safe_git.py" \
+  "$repo_root" \
+  -- \
+  "$codex_bin" \
+  "${codex_args[@]}" > /dev/null
 
 if [[ ! -s "$result_file" ]]; then
   printf 'run_review_lane.sh: Codex did not write a structured result\n' >&2

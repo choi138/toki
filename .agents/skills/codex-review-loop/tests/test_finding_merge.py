@@ -255,6 +255,40 @@ class FindingMergeTests(unittest.TestCase):
 
         self.assertEqual(merged["findings"][0]["file"], literal_path)
 
+    def test_rejects_non_utf8_finding_path_during_validation(self) -> None:
+        invalid = finding(file="bad-\udcff.swift")
+        path = self.write_result("invalid-utf8.json", lane_result("baseline", [invalid]))
+
+        completed = self.run_merger("validate", str(path), check=False)
+
+        self.assertEqual(completed.returncode, 2)
+        self.assertIn("valid UTF-8", completed.stderr)
+        self.assertNotIn("Traceback", completed.stderr)
+
+    def test_rejects_non_utf8_verification_string_during_validation(self) -> None:
+        invalid = finding()
+        invalid["verification"] = ["swift test\udcff"]
+        path = self.write_result("invalid-verification.json", lane_result("baseline", [invalid]))
+
+        completed = self.run_merger("validate", str(path), check=False)
+
+        self.assertEqual(completed.returncode, 2)
+        self.assertIn("valid UTF-8", completed.stderr)
+        self.assertNotIn("Traceback", completed.stderr)
+
+    def test_rejects_non_utf8_finding_path_during_merge(self) -> None:
+        valid = self.write_result("valid.json", lane_result("baseline", [finding()]))
+        invalid = self.write_result(
+            "invalid-utf8.json",
+            lane_result("testing", [finding(file="bad-\udcff.swift")]),
+        )
+
+        completed = self.run_merger("merge", str(valid), str(invalid), check=False)
+
+        self.assertEqual(completed.returncode, 2)
+        self.assertIn("valid UTF-8", completed.stderr)
+        self.assertNotIn("Traceback", completed.stderr)
+
     def test_normalizes_whitespace_around_finding_path(self) -> None:
         padded = finding(file=" Sources/TokiSyncProtocol/SnapshotValidation.swift ")
         path = self.write_result("padded.json", lane_result("baseline", [padded]))
