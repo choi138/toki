@@ -211,6 +211,27 @@ Path(os.environ["TOKI_REVIEW_CAPTURE_FILE"]).write_text(
         self.assertIn("excluded sensitive or generated paths", completed.stderr)
         self.assertFalse(self.capture.exists())
 
+    def test_refuses_ignored_environment_file_before_invoking_codex(self) -> None:
+        ignore_file = self.repo / ".gitignore"
+        ignore_file.write_text(".env\n", encoding="utf-8")
+        self.git("add", ".gitignore")
+        self.git("commit", "-q", "-m", "ignore environment file")
+        environment = self.repo / ".env"
+        environment.write_text("API_TOKEN=secret\n", encoding="utf-8")
+        source = self.repo / "Sources" / "TokiSyncProtocol" / "SnapshotCipher.swift"
+        source.write_text("func seal(nonce: String, key: String) {}\n", encoding="utf-8")
+
+        completed = self.run_runner(
+            "--lane",
+            "baseline",
+            "--uncommitted",
+            check=False,
+        )
+
+        self.assertNotEqual(completed.returncode, 0)
+        self.assertIn("excluded sensitive or generated paths", completed.stderr)
+        self.assertFalse(self.capture.exists())
+
     def test_refuses_lane_that_is_not_active(self) -> None:
         completed = self.run_runner(
             "--lane",

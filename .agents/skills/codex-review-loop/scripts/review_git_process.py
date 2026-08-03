@@ -11,6 +11,13 @@ class ScopeError(RuntimeError):
     """Raised when a review scope cannot be resolved safely."""
 
 
+def decode_git_path(encoded_path: bytes) -> str:
+    try:
+        return encoded_path.decode("utf-8", errors="strict")
+    except UnicodeDecodeError as error:
+        raise ScopeError("Git path is not valid UTF-8") from error
+
+
 def run_git(repo: Path, arguments: list[str]) -> bytes:
     result = subprocess.run(
         ["git", *arguments],
@@ -24,6 +31,39 @@ def run_git(repo: Path, arguments: list[str]) -> bytes:
         command = arguments[0] if arguments else "command"
         raise ScopeError(f"git {command} failed: {detail or 'unknown git error'}")
     return result.stdout
+
+
+def changed_paths_without_symlinks(repo: Path, arguments: list[str]) -> list[str]:
+    records = [record for record in run_git(repo, arguments).split(b"\0") if record]
+    if len(records) % 2 != 0:
+        raise ScopeError("Git raw diff has an invalid record count")
+    paths: list[str] = []
+    for metadata, encoded_path in zip(records[::2], records[1::2]):
+        fields = metadata.split()
+        if len(fields) != 5 or not fields[0].startswith(b":"):
+            raise ScopeError("Git raw diff has invalid metadata")
+        path = decode_git_path(encoded_path)
+        if fields[1] == b"120000":
+            raise ScopeError(f"changed symbolic link cannot be reviewed safely: {path}")
+        paths.append(path)
+    return paths
+
+
+def ignored_paths_matching(repo: Path, patterns: list[str]) -> list[str]:
+    pathspecs = [f":(glob,icase){pattern}" for pattern in patterns]
+    output = run_git(
+        repo,
+        [
+            "ls-files",
+            "--others",
+            "--ignored",
+            "--exclude-standard",
+            "-z",
+            "--",
+            *pathspecs,
+        ],
+    )
+    return [decode_git_path(path) for path in output.split(b"\0") if path]
 
 
 def run_git_bounded(

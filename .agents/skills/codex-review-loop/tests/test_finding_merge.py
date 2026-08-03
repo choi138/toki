@@ -243,6 +243,18 @@ class FindingMergeTests(unittest.TestCase):
         self.assertEqual(completed.returncode, 2)
         self.assertIn("repository-relative", completed.stderr)
 
+    def test_accepts_literal_backslash_in_posix_finding_path(self) -> None:
+        literal_path = r"Sources/TokiUsageReaders/..\outside.txt"
+        result = self.write_result(
+            "literal-backslash.json",
+            lane_result("baseline", [finding(file=literal_path)]),
+        )
+
+        completed = self.run_merger("merge", str(result))
+        merged = json.loads(completed.stdout)
+
+        self.assertEqual(merged["findings"][0]["file"], literal_path)
+
     def test_normalizes_whitespace_around_finding_path(self) -> None:
         padded = finding(file=" Sources/TokiSyncProtocol/SnapshotValidation.swift ")
         path = self.write_result("padded.json", lane_result("baseline", [padded]))

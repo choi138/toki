@@ -132,6 +132,36 @@ class ScopeSecurityTests(unittest.TestCase):
             [{"pattern": "**/*.pem", "count": 1}],
         )
 
+    def test_local_usage_reader_paths_are_blocked(self) -> None:
+        sensitive_paths = [
+            ".claude/projects/session.jsonl",
+            ".codex/state_5.sqlite",
+            ".codex/sessions/rollout.jsonl",
+            ".codex/archived_sessions/rollout.jsonl",
+            ".config/Cursor/User/globalStorage/state.vscdb",
+            "Library/Application Support/Cursor/User/globalStorage/state.vscdb",
+            ".gemini/tmp/chat.json",
+            ".gjc/agent/sessions/session.jsonl",
+            ".local/share/opencode/opencode.db",
+            ".openclaw/agents/main/sessions/session.jsonl",
+            ".local/state/toki-agent/usage-cache.json",
+            ".local/state/toki/usage-cache.json",
+            "Library/Application Support/Toki/usage-cache.json",
+        ]
+        for relative_path in sensitive_paths:
+            sensitive = self.repo / relative_path
+            sensitive.parent.mkdir(parents=True, exist_ok=True)
+            sensitive.write_text("sensitive fixture\n", encoding="utf-8")
+
+        result = self.resolve("--uncommitted")
+
+        self.assertFalse(result["safeToReview"])
+        self.assertEqual(result["changedPaths"], [])
+        self.assertEqual(
+            sum(change["count"] for change in result["excludedChanges"]),
+            len(sensitive_paths),
+        )
+
     def test_untracked_symlink_outside_repository_is_rejected(self) -> None:
         outside = self.repo.parent / "outside.txt"
         outside.write_text("credential fixture\n", encoding="utf-8")
@@ -165,6 +195,32 @@ class ScopeSecurityTests(unittest.TestCase):
 
         with self.assertRaises(subprocess.CalledProcessError) as raised:
             self.resolve("--uncommitted")
+
+        self.assertIn("changed symbolic link", raised.exception.stderr)
+
+    def test_base_scope_symlink_outside_repository_is_rejected(self) -> None:
+        outside = self.repo.parent / "outside.txt"
+        outside.write_text("credential fixture\n", encoding="utf-8")
+        self.git("switch", "-q", "-c", "feature")
+        (self.repo / "notes.txt").symlink_to(outside)
+        self.git("add", "notes.txt")
+        self.git("commit", "-q", "-m", "add symlink")
+
+        with self.assertRaises(subprocess.CalledProcessError) as raised:
+            self.resolve("--base", "main")
+
+        self.assertIn("changed symbolic link", raised.exception.stderr)
+
+    def test_commit_scope_symlink_outside_repository_is_rejected(self) -> None:
+        outside = self.repo.parent / "outside.txt"
+        outside.write_text("credential fixture\n", encoding="utf-8")
+        (self.repo / "notes.txt").symlink_to(outside)
+        self.git("add", "notes.txt")
+        self.git("commit", "-q", "-m", "add symlink")
+        commit = self.git("rev-parse", "HEAD").strip()
+
+        with self.assertRaises(subprocess.CalledProcessError) as raised:
+            self.resolve("--commit", commit)
 
         self.assertIn("changed symbolic link", raised.exception.stderr)
 

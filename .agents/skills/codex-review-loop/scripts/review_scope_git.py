@@ -9,7 +9,13 @@ import subprocess
 from pathlib import Path
 from typing import Iterable
 
-from review_git_process import ScopeError, run_git, run_git_bounded
+from review_git_process import (
+    ScopeError,
+    changed_paths_without_symlinks,
+    ignored_paths_matching,
+    run_git,
+    run_git_bounded,
+)
 
 
 COMMIT_RE = re.compile(r"^[0-9a-fA-F]{4,64}$")
@@ -163,7 +169,8 @@ def uncommitted_scope(
         untracked = ordered_unique(
             decode_z(run_git(repo, ["ls-files", "--others", "--exclude-standard", "-z"]))
         )
-    paths = ordered_unique([*unstaged, *staged, *untracked])
+    ignored_excluded = ignored_paths_matching(repo, exclusions)
+    paths = ordered_unique([*unstaged, *staged, *untracked, *ignored_excluded])
     for path in paths:
         if (repo / path).is_symlink():
             raise ScopeError(f"changed symbolic link cannot be reviewed safely: {path}")
@@ -212,8 +219,9 @@ def uncommitted_scope(
 def base_scope(repo: Path, base: str) -> tuple[list[str], bytes, bool]:
     validate_base(repo, base)
     range_spec = f"{base}...HEAD"
-    paths = decode_z(
-        run_git(repo, ["diff", "--no-renames", "--name-only", "-z", range_spec, "--"])
+    paths = changed_paths_without_symlinks(
+        repo,
+        ["diff", "--raw", "--no-renames", "-z", range_spec, "--"],
     )
     diff, complete = run_git_bounded(
         repo,
@@ -226,22 +234,20 @@ def base_scope(repo: Path, base: str) -> tuple[list[str], bytes, bool]:
 def commit_scope(repo: Path, commit: str) -> tuple[list[str], bytes, bool]:
     validate_commit(repo, commit)
     merge_mode = "--diff-merges=first-parent"
-    paths = decode_z(
-        run_git(
-            repo,
-            [
-                "diff-tree",
-                "--root",
-                merge_mode,
-                "--no-renames",
-                "--no-commit-id",
-                "--name-only",
-                "-r",
-                "-z",
-                commit,
-                "--",
-            ],
-        )
+    paths = changed_paths_without_symlinks(
+        repo,
+        [
+            "diff-tree",
+            "--root",
+            merge_mode,
+            "--raw",
+            "--no-renames",
+            "--no-commit-id",
+            "-r",
+            "-z",
+            commit,
+            "--",
+        ],
     )
     diff, complete = run_git_bounded(
         repo,

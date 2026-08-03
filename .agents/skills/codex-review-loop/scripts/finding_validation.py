@@ -38,7 +38,7 @@ def require_non_empty_string(value: Any, field: str) -> str:
 
 def validate_repo_path(value: Any) -> str:
     path = require_non_empty_string(value, "file")
-    if path.startswith("/") or "\\" in path:
+    if path.startswith("/"):
         raise FindingError("file must be a repository-relative POSIX path")
     parts = path.split("/")
     if any(part in {"", ".", ".."} for part in parts):
