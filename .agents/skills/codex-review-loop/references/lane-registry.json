@@ -1,0 +1,168 @@
+{
+  "version": "1.0",
+  "pathExclusions": [
+    ".git",
+    ".git/**",
+    ".hermes",
+    ".hermes/**",
+    ".omo",
+    ".omo/**",
+    ".senpi",
+    ".senpi/**",
+    ".codegraph",
+    ".codegraph/**",
+    "build",
+    "build/**",
+    "DerivedData",
+    "DerivedData/**"
+  ],
+  "lanes": [
+    {
+      "id": "baseline",
+      "always": true,
+      "prompt": "references/lanes/baseline.md",
+      "pathPatterns": [],
+      "semanticPatterns": [],
+      "verificationProfiles": ["common"],
+      "execution": {"replicas": 1, "adjudication": false}
+    },
+    {
+      "id": "usage-pricing",
+      "always": false,
+      "prompt": "references/lanes/usage-pricing.md",
+      "pathPatterns": [
+        "Toki/Domain/Usage/**",
+        "Toki/Infrastructure/UsageReaders/**",
+        "Sources/TokiUsageCore/**",
+        "Sources/TokiUsageReaders/**",
+        "TokiTests/*Usage*",
+        "TokiTests/*Pricing*",
+        "TokiTests/*Reader*",
+        "Tests/TokiAgentTests/*Usage*",
+        "Tests/TokiAgentTests/*Ledger*"
+      ],
+      "semanticPatterns": [
+        "(?i)\\b(token|usage|cost|price|pricing|model|attribution|timezone|date\\s*range|active\\s*time)\\b"
+      ],
+      "verificationProfiles": ["swift-package", "app-tests"],
+      "execution": {"replicas": 1, "adjudication": false}
+    },
+    {
+      "id": "privacy-security",
+      "always": false,
+      "prompt": "references/lanes/privacy-security.md",
+      "pathPatterns": [
+        "Toki/Domain/SecurityAudit/**",
+        "Toki/Infrastructure/SecurityAudit/**",
+        "Sources/TokiDurableStorage/**",
+        "Sources/TokiUsageReaders/**",
+        "TokiTests/*Security*",
+        "Tests/**/*Security*",
+        "Tests/**/*Privacy*"
+      ],
+      "semanticPatterns": [
+        "(?i)\\b(secret|credential|api[_ -]?key|jwt|private[_ -]?key|mask|redact|sqlite|database|transcript|prompt|telemetry)\\b"
+      ],
+      "verificationProfiles": ["swift-package", "app-tests"],
+      "execution": {"replicas": 1, "adjudication": false}
+    },
+    {
+      "id": "remote-sync",
+      "always": false,
+      "prompt": "references/lanes/remote-sync.md",
+      "pathPatterns": [
+        "Toki/Infrastructure/RemoteSync/**",
+        "Sources/TokiSyncProtocol/**",
+        "Sources/TokiAgentCore/**",
+        "Sources/TokiAgent/**",
+        "Tests/TokiSyncProtocolTests/**",
+        "Tests/TokiAgentTests/**",
+        "TokiHub/Sources/**",
+        "TokiHub/Tests/**"
+      ],
+      "semanticPatterns": [
+        "(?i)\\b(nonce|cipher|encrypt|decrypt|signature|replay|rollback|snapshot|anchor|pairing|durable|hub\\s*route)\\b"
+      ],
+      "verificationProfiles": ["swift-package", "hub"],
+      "execution": {"replicas": 1, "adjudication": false}
+    },
+    {
+      "id": "concurrency-lifecycle",
+      "always": false,
+      "prompt": "references/lanes/concurrency-lifecycle.md",
+      "pathPatterns": [
+        "Toki/App/**",
+        "Toki/Features/**",
+        "Toki/Infrastructure/Activity/**",
+        "Toki/Infrastructure/RemoteSync/**",
+        "Sources/TokiAgentCore/**",
+        "TokiHub/Sources/**"
+      ],
+      "semanticPatterns": [
+        "(?i)\\b(Task|actor|MainActor|Sendable|async|await|Timer|cancell?ation|lock|mutex)\\b"
+      ],
+      "verificationProfiles": ["swift-package", "hub", "app-tests"],
+      "execution": {"replicas": 1, "adjudication": false}
+    },
+    {
+      "id": "swiftui-architecture",
+      "always": false,
+      "prompt": "references/lanes/swiftui-architecture.md",
+      "pathPatterns": [
+        "Toki/App/**",
+        "Toki/Features/**",
+        "TokiTests/*Panel*",
+        "TokiTests/*ViewModel*",
+        "TokiTests/*MenuBar*"
+      ],
+      "semanticPatterns": [
+        "(?i)(SwiftUI|@State\\b|@StateObject\\b|@ObservedObject\\b|@Environment\\b|ViewModel\\b|NSStatusItem\\b|NSPanel\\b)"
+      ],
+      "verificationProfiles": ["app-format", "app-lint", "app-tests"],
+      "execution": {"replicas": 1, "adjudication": false}
+    },
+    {
+      "id": "build-portability",
+      "always": false,
+      "prompt": "references/lanes/build-portability.md",
+      "pathPatterns": [
+        "Package.swift",
+        "Package.resolved",
+        "TokiHub/Package.swift",
+        "TokiHub/Package.resolved",
+        "project.yml",
+        ".swiftformat",
+        ".swiftlint.yml",
+        ".github/workflows/**",
+        "Toki.xcodeproj/**",
+        "Sources/CSQLite/**",
+        "Toki/Resources/**",
+        "Toki/Assets.xcassets/**"
+      ],
+      "semanticPatterns": [
+        "(?i)\\b(PackageDescription|swift-tools-version|dependency|xcodegen|resource|Vapor|Linux|CSQLite|Package\\.resolved)\\b"
+      ],
+      "verificationProfiles": ["swift-package", "hub", "app-format", "app-lint", "project"],
+      "execution": {"replicas": 1, "adjudication": false}
+    },
+    {
+      "id": "testing",
+      "always": false,
+      "prompt": "references/lanes/testing.md",
+      "pathPatterns": [
+        "Toki/**/*.swift",
+        "TokiTests/*.swift",
+        "TokiTests/**/*.swift",
+        "Sources/**/*.swift",
+        "Tests/**/*.swift",
+        "TokiHub/Sources/**/*.swift",
+        "TokiHub/Tests/**/*.swift"
+      ],
+      "semanticPatterns": [
+        "(?i)\\b(XCTest|Testing|test[A-Z_]|assert|fixture|mock|stub)\\b"
+      ],
+      "verificationProfiles": ["swift-package", "hub", "app-tests"],
+      "execution": {"replicas": 1, "adjudication": false}
+    }
+  ]
+}

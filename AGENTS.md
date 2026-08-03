@@ -9,6 +9,7 @@ files referenced below.
 | Topic | Source | When |
 | --- | --- | --- |
 | Toki Source Conventions | `/project-conventions` skill or `.agents/skills/project-conventions/conventions.md` plus task-specific files under `.agents/skills/project-conventions/references/` | Before editing `Toki/**/*.swift`, `TokiTests/**/*.swift`, `project.yml`, `.swiftformat`, `.swiftlint.yml`, or app resources |
+| Local Codex Review Loop | `/codex-review-loop` skill or `.agents/skills/codex-review-loop/SKILL.md` | Local diff review, approved finding fixes, and bounded re-review |
 | Git Workflow | `.agents/conventions/git-workflow.md` | Branch / commit / PR work |
 
 The shared `.agents` hooks provide soft enforcement for `/project-conventions`

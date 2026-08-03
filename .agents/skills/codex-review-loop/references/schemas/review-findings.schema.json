@@ -1,0 +1,87 @@
+{
+  "title": "Toki Codex Review Lane Result",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "lane",
+    "verdict",
+    "summary",
+    "findings"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "type": "string",
+      "enum": ["1.0"]
+    },
+    "lane": {
+      "type": "string"
+    },
+    "verdict": {
+      "type": "string",
+      "enum": ["clean", "findings"]
+    },
+    "summary": {
+      "type": "string"
+    },
+    "findings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "priority",
+          "confidence",
+          "title",
+          "file",
+          "startLine",
+          "endLine",
+          "rootCause",
+          "evidence",
+          "impact",
+          "suggestedFix",
+          "verification"
+        ],
+        "properties": {
+          "priority": {
+            "type": "string",
+            "enum": ["P0", "P1", "P2", "P3"]
+          },
+          "confidence": {
+            "type": "number"
+          },
+          "title": {
+            "type": "string"
+          },
+          "file": {
+            "type": "string"
+          },
+          "startLine": {
+            "type": "integer"
+          },
+          "endLine": {
+            "type": "integer"
+          },
+          "rootCause": {
+            "type": "string"
+          },
+          "evidence": {
+            "type": "string"
+          },
+          "impact": {
+            "type": "string"
+          },
+          "suggestedFix": {
+            "type": "string"
+          },
+          "verification": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    }
+  }
+}
