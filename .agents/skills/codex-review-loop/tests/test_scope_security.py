@@ -140,7 +140,33 @@ class ScopeSecurityTests(unittest.TestCase):
         with self.assertRaises(subprocess.CalledProcessError) as raised:
             self.resolve("--uncommitted")
 
-        self.assertIn("untracked symbolic link", raised.exception.stderr)
+        self.assertIn("changed symbolic link", raised.exception.stderr)
+
+    def test_staged_symlink_outside_repository_is_rejected(self) -> None:
+        outside = self.repo.parent / "outside.txt"
+        outside.write_text("credential fixture\n", encoding="utf-8")
+        (self.repo / "notes.txt").symlink_to(outside)
+        self.git("add", "notes.txt")
+
+        with self.assertRaises(subprocess.CalledProcessError) as raised:
+            self.resolve("--uncommitted")
+
+        self.assertIn("changed symbolic link", raised.exception.stderr)
+
+    def test_tracked_file_replaced_by_symlink_is_rejected(self) -> None:
+        notes = self.repo / "notes.txt"
+        notes.write_text("safe fixture\n", encoding="utf-8")
+        self.git("add", "notes.txt")
+        self.git("commit", "-q", "-m", "add tracked fixture")
+        outside = self.repo.parent / "outside.txt"
+        outside.write_text("credential fixture\n", encoding="utf-8")
+        notes.unlink()
+        notes.symlink_to(outside)
+
+        with self.assertRaises(subprocess.CalledProcessError) as raised:
+            self.resolve("--uncommitted")
+
+        self.assertIn("changed symbolic link", raised.exception.stderr)
 
     def test_untracked_non_utf8_path_is_rejected(self) -> None:
         with mock.patch(
@@ -240,6 +266,33 @@ class ScopeSecurityTests(unittest.TestCase):
 
         self.assertFalse(result["semanticInspectionComplete"])
         self.assertIn("concurrency-lifecycle", lane_ids)
+
+    def test_semantic_diff_does_not_execute_textconv_filter(self) -> None:
+        attributes = self.repo / ".gitattributes"
+        attributes.write_text("*.review diff=unsafe\n", encoding="utf-8")
+        reviewed = self.repo / "sample.review"
+        reviewed.write_text("before\n", encoding="utf-8")
+        self.git("add", ".")
+        self.git("commit", "-q", "-m", "add textconv fixture")
+
+        converter = self.repo.parent / "textconv.py"
+        converter.write_text(
+            "#!/usr/bin/env python3\n"
+            "from pathlib import Path\n"
+            "import sys\n"
+            "Path(__file__).with_suffix('.invoked').write_text('invoked\\n')\n"
+            "sys.stdout.buffer.write(Path(sys.argv[1]).read_bytes())\n",
+            encoding="utf-8",
+        )
+        converter.chmod(0o755)
+        marker = converter.with_suffix(".invoked")
+        self.git("config", "diff.unsafe.textconv", str(converter))
+        reviewed.write_text("after\n", encoding="utf-8")
+
+        result = self.resolve("--uncommitted")
+
+        self.assertTrue(result["hasChanges"])
+        self.assertFalse(marker.exists())
 
     def test_literal_backslash_parent_name_does_not_read_outside_repository(self) -> None:
         outside = self.repo.parent / "outside.txt"

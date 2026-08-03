@@ -91,7 +91,7 @@ def validate_lane_result(data: Any, expected_lane: str | None = None) -> dict[st
             raise FindingError(f"{prefix}.confidence must be between 0 and 1")
         for field in ("title", "rootCause", "evidence", "impact", "suggestedFix"):
             require_non_empty_string(finding[field], f"{prefix}.{field}")
-        validate_repo_path(finding["file"])
+        finding["file"] = validate_repo_path(finding["file"])
         start = finding["startLine"]
         end = finding["endLine"]
         if type(start) is not int or start < 1:

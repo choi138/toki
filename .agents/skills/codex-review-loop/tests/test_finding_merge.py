@@ -243,6 +243,18 @@ class FindingMergeTests(unittest.TestCase):
         self.assertEqual(completed.returncode, 2)
         self.assertIn("repository-relative", completed.stderr)
 
+    def test_normalizes_whitespace_around_finding_path(self) -> None:
+        padded = finding(file=" Sources/TokiSyncProtocol/SnapshotValidation.swift ")
+        path = self.write_result("padded.json", lane_result("baseline", [padded]))
+
+        completed = self.run_merger("merge", str(path))
+        merged = json.loads(completed.stdout)
+
+        self.assertEqual(
+            merged["findings"][0]["file"],
+            "Sources/TokiSyncProtocol/SnapshotValidation.swift",
+        )
+
     def test_rejects_clean_verdict_with_findings(self) -> None:
         invalid = lane_result("baseline", [finding()])
         invalid["verdict"] = "clean"

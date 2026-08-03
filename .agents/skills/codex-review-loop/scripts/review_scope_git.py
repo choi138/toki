@@ -15,6 +15,12 @@ from review_git_process import ScopeError, run_git, run_git_bounded
 COMMIT_RE = re.compile(r"^[0-9a-fA-F]{4,64}$")
 MAX_SEMANTIC_FILE_BYTES = 1_048_576
 MAX_SEMANTIC_TOTAL_BYTES = 4 * MAX_SEMANTIC_FILE_BYTES
+SEMANTIC_DIFF_FLAGS = [
+    "--find-renames",
+    "--no-ext-diff",
+    "--no-textconv",
+    "--unified=0",
+]
 
 
 def git_root(repo: Path) -> Path:
@@ -157,22 +163,15 @@ def uncommitted_scope(
         untracked = ordered_unique(
             decode_z(run_git(repo, ["ls-files", "--others", "--exclude-standard", "-z"]))
         )
-    for path in untracked:
-        if (repo / path).is_symlink():
-            raise ScopeError(f"untracked symbolic link cannot be reviewed safely: {path}")
     paths = ordered_unique([*unstaged, *staged, *untracked])
+    for path in paths:
+        if (repo / path).is_symlink():
+            raise ScopeError(f"changed symbolic link cannot be reviewed safely: {path}")
     semantic_content = bytearray()
     semantic_inspection_complete = True
     diff_arguments = [
-        ["diff", "--find-renames", "--no-ext-diff", "--unified=0", "--"],
-        [
-            "diff",
-            "--cached",
-            "--find-renames",
-            "--no-ext-diff",
-            "--unified=0",
-            "--",
-        ],
+        ["diff", *SEMANTIC_DIFF_FLAGS, "--"],
+        ["diff", "--cached", *SEMANTIC_DIFF_FLAGS, "--"],
     ]
     for arguments in diff_arguments:
         separator_bytes = 1 if semantic_content else 0
@@ -218,7 +217,7 @@ def base_scope(repo: Path, base: str) -> tuple[list[str], bytes, bool]:
     )
     diff, complete = run_git_bounded(
         repo,
-        ["diff", "--find-renames", "--no-ext-diff", "--unified=0", range_spec, "--"],
+        ["diff", *SEMANTIC_DIFF_FLAGS, range_spec, "--"],
         MAX_SEMANTIC_TOTAL_BYTES,
     )
     return ordered_unique(paths), diff, complete
@@ -249,10 +248,8 @@ def commit_scope(repo: Path, commit: str) -> tuple[list[str], bytes, bool]:
         [
             "show",
             merge_mode,
-            "--find-renames",
+            *SEMANTIC_DIFF_FLAGS,
             "--format=",
-            "--no-ext-diff",
-            "--unified=0",
             commit,
             "--",
         ],
