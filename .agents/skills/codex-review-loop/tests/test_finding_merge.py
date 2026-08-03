@@ -91,6 +91,7 @@ class FindingMergeTests(unittest.TestCase):
         result = merged["findings"][0]
         self.assertEqual(result["priority"], "P0")
         self.assertEqual(result["lanes"], ["baseline", "remote-sync"])
+        self.assertEqual(result["occurrences"], 2)
         self.assertEqual(
             result["priorityOpinions"],
             {"baseline": "P2", "remote-sync": "P0"},

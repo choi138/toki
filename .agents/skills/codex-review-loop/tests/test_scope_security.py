@@ -1,14 +1,19 @@
 from __future__ import annotations
 
+import importlib
 import json
 import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 
 SKILL_DIR = Path(__file__).resolve().parents[1]
 RESOLVER = SKILL_DIR / "scripts" / "resolve_review_scope.py"
+sys.path.insert(0, str(RESOLVER.parent))
+review_scope_git = importlib.import_module("review_scope_git")
 
 
 class ScopeSecurityTests(unittest.TestCase):
@@ -126,6 +131,44 @@ class ScopeSecurityTests(unittest.TestCase):
             result["excludedChanges"],
             [{"pattern": "**/*.pem", "count": 1}],
         )
+
+    def test_untracked_symlink_outside_repository_is_rejected(self) -> None:
+        outside = self.repo.parent / "outside.txt"
+        outside.write_text("credential fixture\n", encoding="utf-8")
+        (self.repo / "notes.txt").symlink_to(outside)
+
+        with self.assertRaises(subprocess.CalledProcessError) as raised:
+            self.resolve("--uncommitted")
+
+        self.assertIn("untracked symbolic link", raised.exception.stderr)
+
+    def test_untracked_non_utf8_path_is_rejected(self) -> None:
+        with mock.patch(
+            "review_scope_git.run_git",
+            side_effect=[b"", b"", b"invalid-\xff.txt\0", b"invalid-\xff.txt\0"],
+        ), mock.patch(
+            "review_scope_git.run_git_bounded",
+            return_value=(b"", True),
+        ):
+            with self.assertRaisesRegex(
+                review_scope_git.ScopeError,
+                "Git path is not valid UTF-8",
+            ):
+                review_scope_git.uncommitted_scope(self.repo, [])
+
+    def test_staged_non_utf8_path_is_rejected(self) -> None:
+        with mock.patch(
+            "review_scope_git.run_git",
+            side_effect=[b"", b"invalid-\xff.txt\0", b"", b""],
+        ), mock.patch(
+            "review_scope_git.run_git_bounded",
+            return_value=(b"", True),
+        ):
+            with self.assertRaisesRegex(
+                review_scope_git.ScopeError,
+                "Git path is not valid UTF-8",
+            ):
+                review_scope_git.uncommitted_scope(self.repo, [])
 
     def test_large_untracked_file_activates_specialists_conservatively(self) -> None:
         notes = self.repo / "docs" / "large.md"

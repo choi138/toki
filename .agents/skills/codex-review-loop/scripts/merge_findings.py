@@ -87,6 +87,7 @@ def new_group(lane: str, finding: dict[str, Any]) -> dict[str, Any]:
 
 
 def merge_into(group: dict[str, Any], lane: str, finding: dict[str, Any]) -> None:
+    group["occurrences"] += 1
     current_rank = PRIORITY_RANK[group["priority"]]
     incoming_rank = PRIORITY_RANK[finding["priority"]]
     use_incoming = incoming_rank < current_rank or (

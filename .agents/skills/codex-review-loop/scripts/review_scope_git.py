@@ -23,7 +23,10 @@ def git_root(repo: Path) -> Path:
 
 
 def decode_z(output: bytes) -> list[str]:
-    return [os.fsdecode(item) for item in output.split(b"\0") if item]
+    try:
+        return [item.decode("utf-8", errors="strict") for item in output.split(b"\0") if item]
+    except UnicodeDecodeError as error:
+        raise ScopeError("Git path is not valid UTF-8") from error
 
 
 def normalize_path(path: str) -> str:
@@ -154,6 +157,9 @@ def uncommitted_scope(
         untracked = ordered_unique(
             decode_z(run_git(repo, ["ls-files", "--others", "--exclude-standard", "-z"]))
         )
+    for path in untracked:
+        if (repo / path).is_symlink():
+            raise ScopeError(f"untracked symbolic link cannot be reviewed safely: {path}")
     paths = ordered_unique([*unstaged, *staged, *untracked])
     semantic_content = bytearray()
     semantic_inspection_complete = True
