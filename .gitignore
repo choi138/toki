@@ -36,3 +36,9 @@ rabbit_preview.png
 .codegraph/
 .agents/hooks/state/
 .agents/settings.local.json
+
+# Local agent scratch state
+.hermes/
+.omo/
+.senpi/
+.debug-journal.md
