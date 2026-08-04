@@ -99,6 +99,48 @@ final class Claude5ModelPricingBehaviorTests: XCTestCase {
         XCTAssertNil(modelPrice(for: "claude-sonnet-5-1"))
     }
 
+    func test_modelPrice_matchesKoreaRoutedClaudeOpus5() throws {
+        // kr/claude-opus-5 is the model ID reported by the custom billing
+        // provider and bills at the same rates as claude-opus-5. It is a
+        // distinct catalog entry rather than a provider prefix, so it carries
+        // its own exact key instead of inheriting through a stripping rule.
+        let lookup = modelPriceLookup(for: "kr/claude-opus-5", at: Self.claude5IntroductoryDate)
+        let price = try XCTUnwrap(lookup.price)
+        let base = try XCTUnwrap(modelPrice(for: "claude-opus-5", at: Self.claude5IntroductoryDate))
+
+        XCTAssertEqual(lookup.match, .exact(modelId: "kr/claude-opus-5"))
+        XCTAssertEqual(price.inputPerMillion, base.inputPerMillion, accuracy: 0.0001)
+        XCTAssertEqual(price.outputPerMillion, base.outputPerMillion, accuracy: 0.0001)
+        XCTAssertEqual(price.cacheReadPerMillion, base.cacheReadPerMillion, accuracy: 0.0001)
+        XCTAssertEqual(price.cacheWritePerMillion, base.cacheWritePerMillion, accuracy: 0.0001)
+    }
+
+    func test_modelPriceIsKnown_reportsKoreaRoutedClaudeOpus5AsPriced() {
+        let interval = DateInterval(start: Self.claude5IntroductoryDate, duration: 86400)
+
+        XCTAssertTrue(modelPriceIsKnown(for: "kr/claude-opus-5", throughout: interval))
+    }
+
+    func test_modelPrice_treatsKoreaRoutedClaudeOpus5AsExactOnly() {
+        // The kr/ entry must not become a prefix that lends its rates to
+        // future tiers, matching how claude-opus-5 itself is exact-only.
+        XCTAssertNil(modelPrice(for: "kr/claude-opus-5-1"))
+        XCTAssertNil(modelPrice(for: "kr/claude-opus-5-mini"))
+        // Other kr/-reported models stay unpriced until their own rates are known.
+        XCTAssertNil(modelPrice(for: "kr/claude-fable-5"))
+        XCTAssertNil(modelPrice(for: "kr/gpt-5.6-sol"))
+    }
+
+    func test_modelPrice_keepsSlashBearingModelKeysIndependent() throws {
+        // zai-org/ is part of the model ID, not a provider prefix. Adding a
+        // slash-bearing key must not turn the segment before the slash into
+        // something strippable.
+        XCTAssertNotNil(try XCTUnwrap(modelPrice(for: "zai-org/GLM-5.2")))
+        XCTAssertNotNil(try XCTUnwrap(modelPrice(for: "zai-org/GLM-5.2-Batch")))
+        XCTAssertNil(modelPrice(for: "GLM-5.2"))
+        XCTAssertNil(modelPrice(for: "claude-opus-5-1"))
+    }
+
     func test_modelPrice_matchesClaudeOpus47And48() throws {
         for modelID in ["claude-opus-4-7", "claude-opus-4-8"] {
             let price = try XCTUnwrap(modelPrice(for: modelID))

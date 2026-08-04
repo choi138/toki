@@ -74,6 +74,10 @@ private let exactPricingTable: [String: ModelPrice] = [
     // fast-mode usage is under-estimated by this table.
     "claude-fable-5": price(10.0, 50.0, 1.00, 12.5),
     "claude-opus-5": price(5.0, 25.0, 0.50, 6.25),
+    // Reported by the custom billing provider as its own catalog entry rather
+    // than as a provider prefix on claude-opus-5, so it needs an explicit key.
+    // Rates match claude-opus-5; it is exact-only for the same reason.
+    "kr/claude-opus-5": price(5.0, 25.0, 0.50, 6.25),
     // Introductory pricing through 2026-08-31 (UTC); the standard rate from
     // 2026-09-01 is applied per usage timestamp via scheduledPriceChanges.
     "claude-sonnet-5": price(2.0, 10.0, 0.20, 2.50),
@@ -144,6 +148,7 @@ private let exactPricingTable: [String: ModelPrice] = [
 private let exactOnlyPricingKeys: Set = [
     "claude-fable-5",
     "claude-opus-5",
+    "kr/claude-opus-5",
     "claude-sonnet-5",
     "claude-opus-4",
     "gpt-5",
