@@ -42,7 +42,15 @@ def require_non_empty_string(value: Any, field: str) -> str:
 
 
 def validate_repo_path(value: Any) -> str:
-    path = require_non_empty_string(value, "file")
+    if not isinstance(value, str) or value == "":
+        raise FindingError("file must be a non-empty string")
+    try:
+        value.encode("utf-8", errors="strict")
+    except UnicodeEncodeError as error:
+        raise FindingError("file must be valid UTF-8") from error
+    path = value
+    if "\0" in path:
+        raise FindingError("file must not contain NUL")
     if path.startswith("/"):
         raise FindingError("file must be a repository-relative POSIX path")
     parts = path.split("/")
@@ -63,9 +71,14 @@ def validate_lane_result(data: Any, expected_lane: str | None = None) -> dict[st
     if data["schemaVersion"] != "1.0":
         raise FindingError("schemaVersion must be 1.0")
 
-    lane = require_non_empty_string(data["lane"], "lane")
-    if LANE_RE.fullmatch(lane) is None:
-        raise FindingError("lane has an invalid format")
+    lane = data["lane"]
+    if (
+        not isinstance(lane, str)
+        or lane == ""
+        or lane != lane.strip()
+        or LANE_RE.fullmatch(lane) is None
+    ):
+        raise FindingError("lane must be a valid lane id")
     if expected_lane is not None and lane != expected_lane:
         raise FindingError(f"expected lane {expected_lane}, got {lane}")
 
@@ -117,6 +130,8 @@ def validate_lane_result(data: Any, expected_lane: str | None = None) -> dict[st
 def load_result(path: Path, expected_lane: str | None = None) -> dict[str, Any]:
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
+    except UnicodeError as error:
+        raise FindingError(f"result is not valid UTF-8: {error}") from error
     except (OSError, json.JSONDecodeError) as error:
         raise FindingError(f"cannot load {path}: {error}") from error
     return validate_lane_result(data, expected_lane)

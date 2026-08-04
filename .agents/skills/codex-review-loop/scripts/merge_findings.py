@@ -12,6 +12,7 @@ import sys
 from pathlib import Path
 from typing import Any, Iterable
 
+from finding_grouping import connected_components
 from finding_validation import FindingError, PRIORITY_RANK, load_result
 
 
@@ -40,10 +41,10 @@ def ranges_overlap(left: dict[str, Any], right: dict[str, Any]) -> bool:
     return left["startLine"] <= right["endLine"] and right["startLine"] <= left["endLine"]
 
 
-def is_duplicate(group: dict[str, Any], finding: dict[str, Any]) -> bool:
-    if group["file"] != finding["file"] or not ranges_overlap(group, finding):
+def is_duplicate(left: dict[str, Any], right: dict[str, Any]) -> bool:
+    if left["file"] != right["file"] or not ranges_overlap(left, right):
         return False
-    return similarity(group["rootCause"], finding["rootCause"]) >= 0.65
+    return similarity(left["rootCause"], right["rootCause"]) >= 0.65
 
 
 def ordered_unique(values: Iterable[str]) -> list[str]:
@@ -105,7 +106,12 @@ def merge_into(group: dict[str, Any], lane: str, finding: dict[str, Any]) -> Non
     group["startLine"] = min(group["startLine"], finding["startLine"])
     group["endLine"] = max(group["endLine"], finding["endLine"])
     group["lanes"] = ordered_unique([*group["lanes"], lane])
-    group["priorityOpinions"][lane] = finding["priority"]
+    previous_opinion = group["priorityOpinions"].get(lane)
+    if (
+        previous_opinion is None
+        or PRIORITY_RANK[finding["priority"]] < PRIORITY_RANK[previous_opinion]
+    ):
+        group["priorityOpinions"][lane] = finding["priority"]
     evidence = {"lane": lane, "text": finding["evidence"].strip()}
     if evidence not in group["evidence"]:
         group["evidence"].append(evidence)
@@ -114,9 +120,38 @@ def merge_into(group: dict[str, Any], lane: str, finding: dict[str, Any]) -> Non
     )
 
 
+def member_sort_key(member: tuple[str, dict[str, Any]]) -> tuple[Any, ...]:
+    lane, finding = member
+    return (
+        PRIORITY_RANK[finding["priority"]],
+        -finding["confidence"],
+        finding["rootCause"].strip().casefold(),
+        finding["title"].strip().casefold(),
+        finding["file"],
+        finding["startLine"],
+        finding["endLine"],
+        lane,
+        finding["evidence"].strip(),
+        finding["impact"].strip(),
+        finding["suggestedFix"].strip(),
+    )
+
+
+def finish_group(group: dict[str, Any]) -> None:
+    group["lanes"] = sorted(group["lanes"])
+    group["priorityOpinions"] = {
+        lane: group["priorityOpinions"][lane]
+        for lane in sorted(group["priorityOpinions"])
+    }
+    group["evidence"].sort(key=lambda evidence: (evidence["lane"], evidence["text"]))
+    group["verification"] = sorted(group["verification"])
+    group["id"] = finding_id(group)
+
+
 def merge_results(results: list[dict[str, Any]]) -> dict[str, Any]:
     groups: list[dict[str, Any]] = []
     lane_results: list[dict[str, Any]] = []
+    members: list[tuple[str, dict[str, Any]]] = []
     for result in results:
         lane = result["lane"]
         lane_results.append(
@@ -126,15 +161,21 @@ def merge_results(results: list[dict[str, Any]]) -> dict[str, Any]:
                 "summary": result["summary"].strip(),
             }
         )
-        for finding in result["findings"]:
-            duplicate = next((group for group in groups if is_duplicate(group, finding)), None)
-            if duplicate is None:
-                groups.append(new_group(lane, finding))
-            else:
-                merge_into(duplicate, lane, finding)
+        members.extend((lane, finding) for finding in result["findings"])
 
-    for group in groups:
-        group["id"] = finding_id(group)
+    for component in connected_components(
+        members,
+        lambda left, right: is_duplicate(left[1], right[1]),
+    ):
+        ordered_members = sorted(component, key=member_sort_key)
+        first_lane, first_finding = ordered_members[0]
+        group = new_group(first_lane, first_finding)
+        for lane, finding in ordered_members[1:]:
+            merge_into(group, lane, finding)
+        finish_group(group)
+        groups.append(group)
+
+    lane_results.sort(key=lambda result: result["lane"])
     groups.sort(
         key=lambda group: (
             PRIORITY_RANK[group["priority"]],
@@ -204,7 +245,7 @@ def main() -> int:
     json.dump(
         output,
         sys.stdout,
-        ensure_ascii=False,
+        ensure_ascii=True,
         indent=None if compact else 2,
         separators=(",", ":") if compact else None,
         sort_keys=False,

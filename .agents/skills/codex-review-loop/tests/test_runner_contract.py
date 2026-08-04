@@ -16,7 +16,7 @@ class RunnerContractTests(unittest.TestCase):
     def setUp(self) -> None:
         self.temporary_directory = tempfile.TemporaryDirectory()
         self.addCleanup(self.temporary_directory.cleanup)
-        self.root = Path(self.temporary_directory.name)
+        self.root = Path(self.temporary_directory.name).resolve()
         self.repo = self.root / "repo"
         self.repo.mkdir()
         self.git("init", "-q", "-b", "main")
@@ -44,11 +44,17 @@ import sys
 from pathlib import Path
 
 arguments = sys.argv[1:]
-subprocess.run(
-    ["git", "diff", "--name-only"],
-    stdout=subprocess.DEVNULL,
-    check=True,
-)
+
+def git_config(key):
+    result = subprocess.run(
+        ["git", "config", "--get", key],
+        text=True,
+        stdout=subprocess.PIPE,
+        check=False,
+    )
+    return result.stdout.strip() if result.returncode == 0 else None
+
+diff_output = subprocess.check_output(["git", "diff"])
 config_value = arguments[arguments.index("-c") + 1]
 if not config_value.startswith("developer_instructions="):
     raise SystemExit("missing developer instructions")
@@ -70,6 +76,13 @@ Path(os.environ["TOKI_REVIEW_CAPTURE_FILE"]).write_text(
         "arguments": arguments,
         "prompt": prompt,
         "reviewChild": os.environ.get("TOKI_REVIEW_CHILD"),
+        "fsmonitor": git_config("core.fsmonitor"),
+        "hooksPath": git_config("core.hooksPath"),
+        "gitOptionalLocks": os.environ.get("GIT_OPTIONAL_LOCKS"),
+        "gitPager": os.environ.get("GIT_PAGER"),
+        "diffHasContent": bool(diff_output),
+        "gitNoLazyFetch": os.environ.get("GIT_NO_LAZY_FETCH"),
+        "cwd": str(Path.cwd()),
     }),
     encoding="utf-8",
 )
@@ -93,10 +106,15 @@ Path(os.environ["TOKI_REVIEW_CAPTURE_FILE"]).write_text(
         self,
         *arguments: str,
         check: bool = True,
+        environment_overrides: dict[str, str] | None = None,
+        use_default_codex: bool = False,
     ) -> subprocess.CompletedProcess[str]:
         environment = os.environ.copy()
-        environment["TOKI_REVIEW_CODEX_BIN"] = str(self.fake_codex)
+        if not use_default_codex:
+            environment["TOKI_REVIEW_CODEX_BIN"] = str(self.fake_codex)
         environment["TOKI_REVIEW_CAPTURE_FILE"] = str(self.capture)
+        if environment_overrides is not None:
+            environment.update(environment_overrides)
         return subprocess.run(
             ["bash", str(RUNNER), "--repo", str(self.repo), *arguments],
             text=True,
@@ -105,6 +123,94 @@ Path(os.environ["TOKI_REVIEW_CAPTURE_FILE"]).write_text(
             env=environment,
             check=check,
         )
+
+    def test_rejects_repository_local_codex_from_path(self) -> None:
+        marker = self.repo / "codex-invoked"
+        repository_codex = self.repo / "codex"
+        repository_codex.write_text(
+            "#!/bin/sh\n"
+            f"printf invoked > {str(marker)!r}\n",
+            encoding="utf-8",
+        )
+        repository_codex.chmod(0o755)
+
+        completed = self.run_runner(
+            "--lane",
+            "baseline",
+            "--base",
+            "main",
+            check=False,
+            environment_overrides={
+                "PATH": f"{self.repo}:{os.environ['PATH']}",
+            },
+            use_default_codex=True,
+        )
+
+        self.assertEqual(completed.returncode, 2)
+        self.assertIn("review executable", completed.stderr)
+        self.assertFalse(marker.exists())
+
+    def test_review_child_cannot_resolve_repository_local_git(self) -> None:
+        marker = self.repo / "git-invoked"
+        repository_git = self.repo / "git"
+        repository_git.write_text(
+            "#!/bin/sh\n"
+            f"printf invoked > {str(marker)!r}\n",
+            encoding="utf-8",
+        )
+        repository_git.chmod(0o755)
+        source = self.repo / "Sources" / "TokiSyncProtocol" / "SnapshotCipher.swift"
+        source.write_text("func seal(nonce: String, key: String) {}\n", encoding="utf-8")
+
+        self.run_runner(
+            "--lane",
+            "baseline",
+            "--uncommitted",
+            environment_overrides={
+                "PATH": f"{self.repo}:{os.environ['PATH']}",
+            },
+        )
+
+        self.assertFalse(marker.exists())
+
+    def test_runner_tools_ignore_repository_local_path_entries(self) -> None:
+        marker = self.repo / "python-invoked"
+        repository_python = self.repo / "python3"
+        repository_python.write_text(
+            "#!/bin/sh\n"
+            f"printf invoked > {str(marker)!r}\n"
+            "exit 91\n",
+            encoding="utf-8",
+        )
+        repository_python.chmod(0o755)
+
+        self.run_runner(
+            "--lane",
+            "baseline",
+            "--base",
+            "main",
+            environment_overrides={
+                "PATH": f"{self.repo}:{os.environ['PATH']}",
+            },
+        )
+
+        self.assertFalse(marker.exists())
+
+    def test_review_child_disables_lazy_fetch(self) -> None:
+        self.run_runner("--lane", "baseline", "--base", "main")
+        capture = json.loads(self.capture.read_text(encoding="utf-8"))
+
+        self.assertEqual(capture["gitNoLazyFetch"], "1")
+
+    def test_runner_preserves_repository_root_trailing_newline(self) -> None:
+        newline_repo = self.root / "repo\n"
+        self.repo.rename(newline_repo)
+        self.repo = newline_repo
+
+        self.run_runner("--lane", "baseline", "--base", "main")
+        capture = json.loads(self.capture.read_text(encoding="utf-8"))
+
+        self.assertEqual(capture["cwd"], str(newline_repo))
 
     def test_passes_native_review_scope_and_developer_instructions(self) -> None:
         status_before = self.git("status", "--porcelain=v1", "--untracked-files=all")
@@ -263,6 +369,146 @@ Path(os.environ["TOKI_REVIEW_CAPTURE_FILE"]).write_text(
         completed = self.run_runner("--lane", "baseline", "--uncommitted")
 
         self.assertEqual(completed.returncode, 0)
+        self.assertFalse(marker.exists())
+
+    def test_review_child_disables_fsmonitor_hooks_and_git_writes(self) -> None:
+        fsmonitor = self.root / "fsmonitor.py"
+        fsmonitor.write_text(
+            "#!/usr/bin/env python3\n"
+            "from pathlib import Path\n"
+            "Path(__file__).with_suffix('.invoked').write_text('invoked\\n')\n",
+            encoding="utf-8",
+        )
+        fsmonitor.chmod(0o755)
+        marker = fsmonitor.with_suffix(".invoked")
+        self.git("config", "core.fsmonitor", str(fsmonitor))
+
+        self.run_runner("--lane", "baseline", "--base", "main")
+        capture = json.loads(self.capture.read_text(encoding="utf-8"))
+
+        self.assertFalse(marker.exists())
+        self.assertEqual(capture["fsmonitor"], "false")
+        self.assertEqual(capture["hooksPath"], os.devnull)
+        self.assertEqual(capture["gitOptionalLocks"], "0")
+        self.assertEqual(capture["gitPager"], "cat")
+
+    def test_review_child_preserves_internal_diff_output(self) -> None:
+        source = self.repo / "Sources" / "TokiSyncProtocol" / "SnapshotCipher.swift"
+        source.write_text("func seal(nonce: String, key: String) {}\n", encoding="utf-8")
+
+        self.run_runner("--lane", "baseline", "--uncommitted")
+        capture = json.loads(self.capture.read_text(encoding="utf-8"))
+
+        self.assertTrue(capture["diffHasContent"])
+
+    def test_runner_emits_validated_lane_result_not_receipt(self) -> None:
+        completed = self.run_runner("--lane", "baseline", "--base", "main")
+        output = json.loads(completed.stdout)
+
+        self.assertEqual(
+            set(output),
+            {"schemaVersion", "lane", "verdict", "summary", "findings"},
+        )
+        self.assertEqual(output["lane"], "baseline")
+        self.assertEqual(output["verdict"], "clean")
+
+    def test_inherited_config_parameters_cannot_restore_fsmonitor(self) -> None:
+        fsmonitor = self.root / "fsmonitor.py"
+        fsmonitor.write_text(
+            "#!/usr/bin/env python3\n"
+            "from pathlib import Path\n"
+            "Path(__file__).with_suffix('.invoked').write_text('invoked\\n')\n",
+            encoding="utf-8",
+        )
+        fsmonitor.chmod(0o755)
+        marker = fsmonitor.with_suffix(".invoked")
+
+        self.run_runner(
+            "--lane",
+            "baseline",
+            "--base",
+            "main",
+            environment_overrides={
+                "GIT_CONFIG_PARAMETERS": f"'core.fsmonitor={fsmonitor}'",
+            },
+        )
+        capture = json.loads(self.capture.read_text(encoding="utf-8"))
+
+        self.assertFalse(marker.exists())
+        self.assertEqual(capture["fsmonitor"], "false")
+
+    def test_review_child_does_not_execute_external_diff(self) -> None:
+        external_diff = self.root / "external-diff.py"
+        external_diff.write_text(
+            "#!/usr/bin/env python3\n"
+            "from pathlib import Path\n"
+            "Path(__file__).with_suffix('.invoked').write_text('invoked\\n')\n",
+            encoding="utf-8",
+        )
+        external_diff.chmod(0o755)
+        marker = external_diff.with_suffix(".invoked")
+        self.git("config", "diff.external", str(external_diff))
+        source = self.repo / "Sources" / "TokiSyncProtocol" / "SnapshotCipher.swift"
+        source.write_text("func seal(nonce: String, key: String) {}\n", encoding="utf-8")
+
+        completed = self.run_runner(
+            "--lane",
+            "baseline",
+            "--uncommitted",
+            check=False,
+        )
+
+        self.assertEqual(completed.returncode, 2)
+        self.assertIn("external diff configuration", completed.stderr)
+        self.assertFalse(marker.exists())
+
+    def test_review_child_does_not_execute_inherited_external_diff(self) -> None:
+        external_diff = self.root / "external-diff.py"
+        external_diff.write_text(
+            "#!/usr/bin/env python3\n"
+            "from pathlib import Path\n"
+            "Path(__file__).with_suffix('.invoked').write_text('invoked\\n')\n",
+            encoding="utf-8",
+        )
+        external_diff.chmod(0o755)
+        marker = external_diff.with_suffix(".invoked")
+        source = self.repo / "Sources" / "TokiSyncProtocol" / "SnapshotCipher.swift"
+        source.write_text("func seal(nonce: String, key: String) {}\n", encoding="utf-8")
+
+        completed = self.run_runner(
+            "--lane",
+            "baseline",
+            "--uncommitted",
+            check=False,
+            environment_overrides={"GIT_EXTERNAL_DIFF": str(external_diff)},
+        )
+
+        self.assertEqual(completed.returncode, 2)
+        self.assertIn("external diff configuration", completed.stderr)
+        self.assertFalse(marker.exists())
+
+    def test_review_child_does_not_execute_textconv(self) -> None:
+        attributes = self.repo / ".gitattributes"
+        attributes.write_text("*.swift diff=unsafe\n", encoding="utf-8")
+        self.git("add", ".gitattributes")
+        self.git("commit", "-q", "-m", "add diff attributes")
+        textconv = self.root / "textconv.py"
+        textconv.write_text(
+            "#!/usr/bin/env python3\n"
+            "from pathlib import Path\n"
+            "import sys\n"
+            "Path(__file__).with_suffix('.invoked').write_text('invoked\\n')\n"
+            "sys.stdout.buffer.write(Path(sys.argv[1]).read_bytes())\n",
+            encoding="utf-8",
+        )
+        textconv.chmod(0o755)
+        marker = textconv.with_suffix(".invoked")
+        self.git("config", "diff.unsafe.textconv", str(textconv))
+        source = self.repo / "Sources" / "TokiSyncProtocol" / "SnapshotCipher.swift"
+        source.write_text("func seal(nonce: String, key: String) {}\n", encoding="utf-8")
+
+        self.run_runner("--lane", "baseline", "--uncommitted")
+
         self.assertFalse(marker.exists())
 
     def test_refuses_lane_that_is_not_active(self) -> None:

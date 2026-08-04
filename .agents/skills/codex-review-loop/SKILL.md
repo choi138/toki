@@ -25,6 +25,62 @@ atomic-fix, verification, and bounded re-review loop.
 - Apply `.agents/conventions/git-workflow.md` before any commit. A commit
   requires explicit user authorization separate from review authorization.
 
+## Trust Boundary
+
+Scope resolution runs before any review and must survive a hostile repository.
+Treat this section as the contract a finding is measured against: report a
+finding when it breaks an invariant below, and classify it `wont_fix` with this
+section as the reason when it only restates a non-goal.
+
+### Untrusted Inputs
+
+- Repository file contents and tree layout, including untracked and ignored
+  paths.
+- Repository Git configuration: `.git/config`, `.gitattributes`, `.gitmodules`,
+  and any configured hook or helper program.
+- The inherited `PATH` and every `GIT_*` environment variable.
+- Lane result JSON, including every path and line number it reports.
+
+### Enforced Invariants
+
+1. Only trusted executables run. `git` and the review binary resolve from the
+   platform default path, never from an inherited `PATH`, and the runner narrows
+   `PATH` before invoking any external command.
+2. No repository-configured program executes. Content filters, `textconv`,
+   external diff, `core.fsmonitor`, `core.hooksPath`, and lazy fetch are
+   overridden to inert values or the scope is refused.
+3. Workspace confinement is derived from the filesystem, not from Git. The
+   inventory walks the real tree from the repository root and validates every
+   symbolic link target, so ignore rules and index modes cannot hide a path.
+4. Every scope fails closed. A submodule, embedded repository, escaping symlink,
+   non-UTF-8 path, or unbounded inventory marks the scope unsafe and stops before
+   Codex is invoked.
+5. Paths keep byte fidelity across process boundaries. Roots and path lists cross
+   as NUL-terminated data and are never trimmed.
+6. Reported findings are untrusted data. A finding path must be
+   repository-relative, free of NUL, and free of empty, current, or parent
+   segments before it is used.
+7. The baseline lane is always on. A registry that marks it otherwise is
+   rejected.
+
+Add a regression test with every change that touches an invariant, and name the
+invariant in the test.
+
+### Non-Goals
+
+- Sandboxing the host. This skill reduces what executes during review; it does
+  not isolate a repository the user already chose to open.
+- Restricting native review to the reviewed diff. `codex exec review` may read
+  other in-repository files by design, so confinement is to the repository root,
+  not to `changedPaths`.
+- Content-level secret detection inside reviewed changes. Exclusion is by path
+  pattern only.
+- Supporting attacker-chosen repository root paths, such as sibling names that
+  differ only by trailing whitespace. Exact roots are preserved, but the user is
+  assumed to name their own repository.
+- Byte-exact handling of non-UTF-8 paths. Such scopes are refused, not
+  supported.
+
 ## Workflow
 
 ### 1. Resolve One Review Scope
@@ -71,10 +127,11 @@ Run the baseline lane and every activated specialist lane:
   --base main
 ~~~
 
-The runner sends the custom prompt through stdin, uses the structured-output
-schema, requests an ephemeral Codex session, and refuses inactive or unsafe
-lanes. Run lanes sequentially by default. Do not add replicated reviewers or
-an adjudicator unless the user explicitly expands the workflow.
+The runner passes bounded lane instructions through Codex
+`developer_instructions`, uses the structured-output schema, requests an
+ephemeral Codex session, and refuses inactive or unsafe lanes. Run lanes
+sequentially by default. Do not add replicated reviewers or an adjudicator
+unless the user explicitly expands the workflow.
 
 ### 4. Validate And Merge Findings
 
@@ -128,6 +185,17 @@ from pre-existing changes without staging unrelated hunks.
 After approved fixes, rerun baseline plus only lanes affected by the fix. Stop
 after three total review rounds. If the same root cause returns in two
 consecutive rounds, mark it `wont_fix` with the reason instead of looping.
+
+Count externally triggered rounds against the same bound. A pushed branch can
+re-request review automatically, so a GitHub `@codex review` round is a round
+here too.
+
+Fix at the invariant, not at the reported case. When a finding names one variant
+of an invariant in the trust boundary, audit every other variant of that same
+invariant locally and fix them together in one change. Repairing only the
+reported case is what turns one finding into a new round, because the next round
+reports the next variant. Before pushing, state which invariant each fix
+restores and which adjacent variants were checked.
 
 ### 8. Finish With A Local Report
 

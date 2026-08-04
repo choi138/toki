@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib
 import json
+import os
 import subprocess
 import sys
 import tempfile
@@ -170,7 +171,7 @@ class ScopeSecurityTests(unittest.TestCase):
         with self.assertRaises(subprocess.CalledProcessError) as raised:
             self.resolve("--uncommitted")
 
-        self.assertIn("changed symbolic link", raised.exception.stderr)
+        self.assertIn("symbolic link cannot be reviewed safely", raised.exception.stderr)
 
     def test_staged_symlink_outside_repository_is_rejected(self) -> None:
         outside = self.repo.parent / "outside.txt"
@@ -198,6 +199,27 @@ class ScopeSecurityTests(unittest.TestCase):
 
         self.assertIn("changed symbolic link", raised.exception.stderr)
 
+    def test_committed_regular_file_replaced_by_symlink_is_rejected_for_object_scopes(
+        self,
+    ) -> None:
+        self.git("switch", "-q", "-c", "feature")
+        reviewed = self.repo / "reviewed.txt"
+        reviewed.write_text("committed\n", encoding="utf-8")
+        self.git("add", "reviewed.txt")
+        self.git("commit", "-q", "-m", "add reviewed file")
+        commit = self.git("rev-parse", "HEAD").strip()
+        reviewed.unlink()
+        outside = self.repo.parent / "outside.txt"
+        outside.write_text("credential fixture\n", encoding="utf-8")
+        reviewed.symlink_to(outside)
+
+        for scope in (("--base", "main"), ("--commit", commit)):
+            with self.subTest(scope=scope):
+                with self.assertRaises(subprocess.CalledProcessError) as raised:
+                    self.resolve(*scope)
+
+                self.assertIn("symbolic link", raised.exception.stderr)
+
     def test_base_scope_symlink_outside_repository_is_rejected(self) -> None:
         outside = self.repo.parent / "outside.txt"
         outside.write_text("credential fixture\n", encoding="utf-8")
@@ -224,13 +246,302 @@ class ScopeSecurityTests(unittest.TestCase):
 
         self.assertIn("changed symbolic link", raised.exception.stderr)
 
+    def test_ignored_sensitive_file_blocks_base_and_commit_scopes(self) -> None:
+        (self.repo / ".gitignore").write_text(".env\n", encoding="utf-8")
+        self.git("add", ".gitignore")
+        self.git("commit", "-q", "-m", "ignore environment")
+        self.git("switch", "-q", "-c", "feature")
+        (self.repo / "README.md").write_text("feature\n", encoding="utf-8")
+        self.git("add", "README.md")
+        self.git("commit", "-q", "-m", "feature")
+        commit = self.git("rev-parse", "HEAD").strip()
+        (self.repo / ".env").write_text("API_TOKEN=secret\n", encoding="utf-8")
+
+        for scope in (("--base", "main"), ("--commit", commit)):
+            with self.subTest(scope=scope):
+                result = self.resolve(*scope)
+
+                self.assertFalse(result["safeToReview"])
+                self.assertIn(
+                    {"pattern": ".env", "count": 1},
+                    result["excludedChanges"],
+                )
+
+    def test_untracked_sensitive_file_blocks_base_and_commit_scopes(self) -> None:
+        self.git("switch", "-q", "-c", "feature")
+        (self.repo / "README.md").write_text("feature\n", encoding="utf-8")
+        self.git("add", "README.md")
+        self.git("commit", "-q", "-m", "feature")
+        commit = self.git("rev-parse", "HEAD").strip()
+        (self.repo / ".env").write_text("API_TOKEN=secret\n", encoding="utf-8")
+
+        for scope in (("--base", "main"), ("--commit", commit)):
+            with self.subTest(scope=scope):
+                result = self.resolve(*scope)
+
+                self.assertFalse(result["safeToReview"])
+
+    def test_embedded_repository_sensitive_file_blocks_every_scope(self) -> None:
+        self.git("switch", "-q", "-c", "feature")
+        (self.repo / "README.md").write_text("feature\n", encoding="utf-8")
+        self.git("add", "README.md")
+        self.git("commit", "-q", "-m", "feature")
+        commit = self.git("rev-parse", "HEAD").strip()
+        vendor = self.repo / "vendor"
+        vendor.mkdir()
+        subprocess.run(["git", "init", "-q"], cwd=vendor, check=True)
+        (vendor / ".env").write_text("API_TOKEN=secret\n", encoding="utf-8")
+
+        for scope in (
+            ("--uncommitted",),
+            ("--base", "main"),
+            ("--commit", commit),
+        ):
+            with self.subTest(scope=scope):
+                with self.assertRaises(subprocess.CalledProcessError) as raised:
+                    self.resolve(*scope)
+
+                self.assertIn("embedded Git repository", raised.exception.stderr)
+
+    def test_embedded_repository_external_symlink_is_rejected_everywhere(self) -> None:
+        self.git("switch", "-q", "-c", "feature")
+        (self.repo / "README.md").write_text("feature\n", encoding="utf-8")
+        self.git("add", "README.md")
+        self.git("commit", "-q", "-m", "feature")
+        commit = self.git("rev-parse", "HEAD").strip()
+        vendor = self.repo / "vendor"
+        vendor.mkdir()
+        subprocess.run(["git", "init", "-q"], cwd=vendor, check=True)
+        outside = self.repo.parent / "outside.txt"
+        outside.write_text("credential fixture\n", encoding="utf-8")
+        (vendor / "link").symlink_to(outside)
+
+        for scope in (
+            ("--uncommitted",),
+            ("--base", "main"),
+            ("--commit", commit),
+        ):
+            with self.subTest(scope=scope):
+                with self.assertRaises(subprocess.CalledProcessError) as raised:
+                    self.resolve(*scope)
+
+                self.assertIn("cannot be reviewed safely", raised.exception.stderr)
+
+    def test_tracked_submodule_is_rejected_for_every_scope(self) -> None:
+        submodule = self.repo / "vendor"
+        submodule.mkdir()
+        subprocess.run(["git", "init", "-q"], cwd=submodule, check=True)
+        subprocess.run(
+            ["git", "config", "user.email", "review-test@example.com"],
+            cwd=submodule,
+            check=True,
+        )
+        subprocess.run(
+            ["git", "config", "user.name", "Review Test"],
+            cwd=submodule,
+            check=True,
+        )
+        (submodule / "README.md").write_text("submodule\n", encoding="utf-8")
+        subprocess.run(["git", "add", "."], cwd=submodule, check=True)
+        subprocess.run(
+            ["git", "commit", "-q", "-m", "submodule"],
+            cwd=submodule,
+            check=True,
+        )
+        submodule_commit = subprocess.check_output(
+            ["git", "rev-parse", "HEAD"],
+            cwd=submodule,
+            text=True,
+        ).strip()
+        self.git(
+            "update-index",
+            "--add",
+            "--cacheinfo",
+            "160000",
+            submodule_commit,
+            "vendor",
+        )
+        self.git("commit", "-q", "-m", "track submodule")
+        self.git("switch", "-q", "-c", "feature")
+        (self.repo / "README.md").write_text("feature\n", encoding="utf-8")
+        self.git("add", "README.md")
+        self.git("commit", "-q", "-m", "feature")
+        commit = self.git("rev-parse", "HEAD").strip()
+
+        for scope in (
+            ("--uncommitted",),
+            ("--base", "main"),
+            ("--commit", commit),
+        ):
+            with self.subTest(scope=scope):
+                with self.assertRaises(subprocess.CalledProcessError) as raised:
+                    self.resolve(*scope)
+
+                self.assertIn("submodule", raised.exception.stderr)
+
+    def test_nested_git_metadata_under_tracked_directory_is_rejected(self) -> None:
+        tracked_directory = self.repo / "vendor"
+        tracked_directory.mkdir()
+        (tracked_directory / "README.md").write_text("tracked\n", encoding="utf-8")
+        self.git("add", "vendor/README.md")
+        self.git("commit", "-q", "-m", "track vendor directory")
+        external_git = self.repo.parent / "external-git"
+        external_git.mkdir()
+        (tracked_directory / ".git").symlink_to(external_git)
+
+        with self.assertRaises(subprocess.CalledProcessError) as raised:
+            self.resolve("--uncommitted")
+
+        self.assertIn("embedded Git repository", raised.exception.stderr)
+
+    def test_swift_build_cache_with_embedded_git_is_rejected(self) -> None:
+        checkout = self.repo / ".build" / "checkouts" / "dependency"
+        (checkout / ".git").mkdir(parents=True)
+        (checkout / "README.md").write_text("generated checkout\n", encoding="utf-8")
+        (self.repo / "README.md").write_text("changed\n", encoding="utf-8")
+
+        with self.assertRaises(subprocess.CalledProcessError) as raised:
+            self.resolve("--uncommitted")
+
+        self.assertIn("embedded Git repository", raised.exception.stderr)
+
+    def test_internal_symlink_alias_preserves_sensitive_exclusions(self) -> None:
+        (self.repo / ".gitignore").write_text(
+            ".agents/projects/\n",
+            encoding="utf-8",
+        )
+        (self.repo / ".agents").mkdir()
+        (self.repo / ".claude").symlink_to(".agents")
+        self.git("add", ".gitignore", ".claude")
+        self.git("commit", "-q", "-m", "add internal agent alias")
+        session = self.repo / ".agents" / "projects" / "session.jsonl"
+        session.parent.mkdir()
+        session.write_text("sensitive transcript\n", encoding="utf-8")
+
+        result = self.resolve("--uncommitted")
+
+        self.assertFalse(result["safeToReview"])
+        self.assertTrue(
+            any(
+                item["pattern"] == ".claude/projects/**"
+                for item in result["excludedChanges"]
+            )
+        )
+
+    def test_ignored_symlink_is_rejected_for_every_scope(self) -> None:
+        (self.repo / ".gitignore").write_text("ignored-link\n", encoding="utf-8")
+        self.git("add", ".gitignore")
+        self.git("commit", "-q", "-m", "ignore link")
+        self.git("switch", "-q", "-c", "feature")
+        (self.repo / "README.md").write_text("feature\n", encoding="utf-8")
+        self.git("add", "README.md")
+        self.git("commit", "-q", "-m", "feature")
+        commit = self.git("rev-parse", "HEAD").strip()
+        outside = self.repo.parent / "outside.txt"
+        outside.write_text("credential fixture\n", encoding="utf-8")
+        (self.repo / "ignored-link").symlink_to(outside)
+
+        for scope in (
+            ("--uncommitted",),
+            ("--base", "main"),
+            ("--commit", commit),
+        ):
+            with self.subTest(scope=scope):
+                with self.assertRaises(subprocess.CalledProcessError) as raised:
+                    self.resolve(*scope)
+
+                self.assertIn("symbolic link", raised.exception.stderr)
+
+    def test_untracked_symlink_is_rejected_for_base_and_commit_scopes(self) -> None:
+        self.git("switch", "-q", "-c", "feature")
+        (self.repo / "README.md").write_text("feature\n", encoding="utf-8")
+        self.git("add", "README.md")
+        self.git("commit", "-q", "-m", "feature")
+        commit = self.git("rev-parse", "HEAD").strip()
+        outside = self.repo.parent / "outside.txt"
+        outside.write_text("credential fixture\n", encoding="utf-8")
+        (self.repo / "notes-link").symlink_to(outside)
+
+        for scope in (("--base", "main"), ("--commit", commit)):
+            with self.subTest(scope=scope):
+                with self.assertRaises(subprocess.CalledProcessError) as raised:
+                    self.resolve(*scope)
+
+                self.assertIn("symbolic link", raised.exception.stderr)
+
+    def test_unchanged_tracked_symlink_is_rejected_for_every_scope(self) -> None:
+        outside = self.repo.parent / "outside.txt"
+        outside.write_text("credential fixture\n", encoding="utf-8")
+        (self.repo / "tracked-link").symlink_to(outside)
+        self.git("add", "tracked-link")
+        self.git("commit", "-q", "-m", "track link")
+        self.git("switch", "-q", "-c", "feature")
+        (self.repo / "README.md").write_text("feature\n", encoding="utf-8")
+        self.git("add", "README.md")
+        self.git("commit", "-q", "-m", "feature")
+        commit = self.git("rev-parse", "HEAD").strip()
+
+        for scope in (
+            ("--uncommitted",),
+            ("--base", "main"),
+            ("--commit", commit),
+        ):
+            with self.subTest(scope=scope):
+                with self.assertRaises(subprocess.CalledProcessError) as raised:
+                    self.resolve(*scope)
+
+                self.assertIn("symbolic link", raised.exception.stderr)
+
+    def test_unchanged_internal_tracked_symlink_is_allowed_for_every_scope(self) -> None:
+        target = self.repo / "Sources"
+        target.mkdir()
+        (self.repo / "tracked-link").symlink_to(target)
+        self.git("add", "tracked-link")
+        self.git("commit", "-q", "-m", "track internal link")
+        self.git("switch", "-q", "-c", "feature")
+        (self.repo / "README.md").write_text("feature\n", encoding="utf-8")
+        self.git("add", "README.md")
+        self.git("commit", "-q", "-m", "feature")
+        commit = self.git("rev-parse", "HEAD").strip()
+
+        for scope in (
+            ("--uncommitted",),
+            ("--base", "main"),
+            ("--commit", commit),
+        ):
+            with self.subTest(scope=scope):
+                result = self.resolve(*scope)
+
+                self.assertTrue(result["safeToReview"])
+
+    def test_symlink_deletion_is_rejected_for_every_scope(self) -> None:
+        outside = self.repo.parent / "outside.txt"
+        outside.write_text("credential fixture\n", encoding="utf-8")
+        link = self.repo / "tracked-link"
+        link.symlink_to(outside)
+        self.git("add", "tracked-link")
+        self.git("commit", "-q", "-m", "track link")
+        self.git("switch", "-q", "-c", "feature")
+        link.unlink()
+        self.git("add", "tracked-link")
+
+        with self.assertRaises(subprocess.CalledProcessError):
+            self.resolve("--uncommitted")
+
+        self.git("commit", "-q", "-m", "delete link")
+        commit = self.git("rev-parse", "HEAD").strip()
+        for scope in (("--base", "main"), ("--commit", commit)):
+            with self.subTest(scope=scope):
+                with self.assertRaises(subprocess.CalledProcessError):
+                    self.resolve(*scope)
+
     def test_untracked_non_utf8_path_is_rejected(self) -> None:
         with mock.patch(
-            "review_scope_git.run_git",
-            side_effect=[b"", b"", b"invalid-\xff.txt\0", b"invalid-\xff.txt\0"],
+            "review_scope_git.changed_paths_without_symlinks",
+            return_value=[],
         ), mock.patch(
-            "review_scope_git.run_git_bounded",
-            return_value=(b"", True),
+            "review_scope_git.run_git",
+            return_value=b"invalid-\xff.txt\0",
         ):
             with self.assertRaisesRegex(
                 review_scope_git.ScopeError,
@@ -240,11 +551,11 @@ class ScopeSecurityTests(unittest.TestCase):
 
     def test_staged_non_utf8_path_is_rejected(self) -> None:
         with mock.patch(
-            "review_scope_git.run_git",
-            side_effect=[b"", b"invalid-\xff.txt\0", b"", b""],
-        ), mock.patch(
-            "review_scope_git.run_git_bounded",
-            return_value=(b"", True),
+            "review_scope_git.changed_paths_without_symlinks",
+            side_effect=[
+                [],
+                review_scope_git.ScopeError("Git path is not valid UTF-8"),
+            ],
         ):
             with self.assertRaisesRegex(
                 review_scope_git.ScopeError,
@@ -376,6 +687,135 @@ class ScopeSecurityTests(unittest.TestCase):
 
         self.assertTrue(result["hasChanges"])
         self.assertFalse(marker.exists())
+
+    def test_scope_resolution_does_not_execute_fsmonitor_hook(self) -> None:
+        self.git("switch", "-q", "-c", "feature")
+        (self.repo / "README.md").write_text("feature\n", encoding="utf-8")
+        self.git("add", "README.md")
+        self.git("commit", "-q", "-m", "feature")
+        commit = self.git("rev-parse", "HEAD").strip()
+        fsmonitor = self.repo.parent / "fsmonitor.py"
+        fsmonitor.write_text(
+            "#!/usr/bin/env python3\n"
+            "from pathlib import Path\n"
+            "Path(__file__).with_suffix('.invoked').write_text('invoked\\n')\n",
+            encoding="utf-8",
+        )
+        fsmonitor.chmod(0o755)
+        marker = fsmonitor.with_suffix(".invoked")
+        self.git("config", "core.fsmonitor", str(fsmonitor))
+        (self.repo / "README.md").write_text("dirty feature\n", encoding="utf-8")
+
+        for scope in (
+            ("--uncommitted",),
+            ("--base", "main"),
+            ("--commit", commit),
+        ):
+            with self.subTest(scope=scope):
+                marker.unlink(missing_ok=True)
+                result = self.resolve(*scope)
+
+                self.assertTrue(result["hasChanges"])
+                self.assertFalse(marker.exists())
+
+    def test_repository_selection_environment_cannot_hide_filter_config(self) -> None:
+        attributes = self.repo / ".gitattributes"
+        attributes.write_text("*.review filter=unsafe\n", encoding="utf-8")
+        reviewed = self.repo / "sample.review"
+        reviewed.write_text("before\n", encoding="utf-8")
+        self.git("add", ".")
+        self.git("commit", "-q", "-m", "add filtered file")
+        marker = self.repo.parent / "filter-invoked"
+        filter_script = self.repo.parent / "filter.py"
+        filter_script.write_text(
+            "#!/usr/bin/env python3\n"
+            "from pathlib import Path\n"
+            "import sys\n"
+            f"Path({str(marker)!r}).write_text('invoked\\n')\n"
+            "sys.stdout.buffer.write(sys.stdin.buffer.read())\n",
+            encoding="utf-8",
+        )
+        filter_script.chmod(0o755)
+        self.git("config", "filter.unsafe.clean", str(filter_script))
+        self.git("config", "filter.unsafe.required", "true")
+        reviewed.write_text("after\n", encoding="utf-8")
+        decoy = self.repo.parent / "decoy"
+        decoy.mkdir()
+        subprocess.run(["git", "init", "-q"], cwd=decoy, check=True)
+        environment = os.environ.copy()
+        environment["GIT_DIR"] = str(decoy / ".git")
+
+        completed = subprocess.run(
+            [
+                "python3",
+                str(RESOLVER),
+                "--repo",
+                str(self.repo),
+                "--uncommitted",
+            ],
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            env=environment,
+            check=True,
+        )
+        result = json.loads(completed.stdout)
+
+        self.assertTrue(result["hasChanges"])
+        self.assertFalse(marker.exists())
+
+    def test_repository_root_preserves_trailing_whitespace(self) -> None:
+        whitespace_repo = self.repo.parent / "repo "
+        whitespace_repo.mkdir()
+        subprocess.run(["git", "init", "-q", "-b", "main"], cwd=whitespace_repo, check=True)
+        subprocess.run(
+            ["git", "config", "user.email", "review-test@example.com"],
+            cwd=whitespace_repo,
+            check=True,
+        )
+        subprocess.run(
+            ["git", "config", "user.name", "Review Test"],
+            cwd=whitespace_repo,
+            check=True,
+        )
+        (whitespace_repo / "README.md").write_text("fixture\n", encoding="utf-8")
+        subprocess.run(["git", "add", "README.md"], cwd=whitespace_repo, check=True)
+        subprocess.run(
+            ["git", "commit", "-q", "-m", "initial"],
+            cwd=whitespace_repo,
+            check=True,
+        )
+        (whitespace_repo / ".env").write_text("API_TOKEN=secret\n", encoding="utf-8")
+
+        completed = subprocess.run(
+            [
+                "python3",
+                str(RESOLVER),
+                "--repo",
+                str(whitespace_repo),
+                "--uncommitted",
+            ],
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=True,
+        )
+        result = json.loads(completed.stdout)
+
+        self.assertFalse(result["safeToReview"])
+
+    def test_symlink_error_escapes_terminal_control_characters(self) -> None:
+        unsafe_name = "\x1b]0;PWN\x07link"
+        outside = self.repo.parent / "outside.txt"
+        outside.write_text("credential fixture\n", encoding="utf-8")
+        (self.repo / unsafe_name).symlink_to(outside)
+
+        with self.assertRaises(subprocess.CalledProcessError) as raised:
+            self.resolve("--uncommitted")
+
+        self.assertNotIn("\x1b", raised.exception.stderr)
+        self.assertNotIn("\x07", raised.exception.stderr)
+        self.assertIn("\\x1b", raised.exception.stderr)
 
     def test_literal_backslash_parent_name_does_not_read_outside_repository(self) -> None:
         outside = self.repo.parent / "outside.txt"

@@ -4,6 +4,7 @@ import json
 import subprocess
 import tempfile
 import unittest
+from itertools import permutations
 from pathlib import Path
 
 
@@ -289,7 +290,136 @@ class FindingMergeTests(unittest.TestCase):
         self.assertIn("valid UTF-8", completed.stderr)
         self.assertNotIn("Traceback", completed.stderr)
 
-    def test_normalizes_whitespace_around_finding_path(self) -> None:
+    def test_rejects_nul_in_finding_path_during_validation_and_merge(self) -> None:
+        invalid = self.write_result(
+            "invalid-nul.json",
+            lane_result("baseline", [finding(file="bad-\0name.swift")]),
+        )
+
+        validated = self.run_merger("validate", str(invalid), check=False)
+        merged = self.run_merger("merge", str(invalid), check=False)
+
+        for completed in (validated, merged):
+            self.assertEqual(completed.returncode, 2)
+            self.assertIn("NUL", completed.stderr)
+            self.assertNotIn("Traceback", completed.stderr)
+
+    def test_accepts_other_posix_control_characters_in_finding_paths(self) -> None:
+        controls = [
+            chr(code_point)
+            for code_point in (*range(1, 32), *range(127, 160))
+        ]
+        expected_paths = [
+            expected
+            for character in controls
+            for expected in (
+                f"{character}control.swift",
+                f"control-{character}-name.swift",
+                f"control.swift{character}",
+            )
+        ]
+        result = self.write_result(
+            "control-paths.json",
+            lane_result(
+                "baseline",
+                [
+                    finding(file=path, start=index + 1, end=index + 1)
+                    for index, path in enumerate(expected_paths)
+                ],
+            ),
+        )
+
+        completed = self.run_merger("merge", str(result))
+        merged = json.loads(completed.stdout)
+
+        self.assertEqual(
+            {item["file"] for item in merged["findings"]},
+            set(expected_paths),
+        )
+
+    def test_rejects_noncanonical_posix_path_segments(self) -> None:
+        for index, invalid_path in enumerate(
+            ("/absolute.swift", "Sources//File.swift", "Sources/./File.swift", "Sources/../File.swift")
+        ):
+            with self.subTest(path=invalid_path):
+                result = self.write_result(
+                    f"noncanonical-{index}.json",
+                    lane_result("baseline", [finding(file=invalid_path)]),
+                )
+
+                completed = self.run_merger("validate", str(result), check=False)
+
+                self.assertEqual(completed.returncode, 2)
+                self.assertIn("repository-relative", completed.stderr)
+
+    def test_merges_transitive_bridge_for_every_input_order(self) -> None:
+        bridged_findings = [
+            finding(start=1, end=2),
+            finding(start=5, end=6),
+            finding(start=2, end=5),
+        ]
+        for index, order in enumerate(permutations(bridged_findings)):
+            with self.subTest(order=index):
+                result = self.write_result(
+                    f"bridge-{index}.json",
+                    lane_result("baseline", list(order)),
+                )
+
+                completed = self.run_merger("merge", str(result))
+                merged = json.loads(completed.stdout)
+
+                self.assertEqual(len(merged["findings"]), 1)
+                self.assertEqual(merged["findings"][0]["startLine"], 1)
+                self.assertEqual(merged["findings"][0]["endLine"], 6)
+                self.assertEqual(merged["findings"][0]["occurrences"], 3)
+
+    def test_merges_transitive_root_cause_similarity_for_every_order(self) -> None:
+        bridged_findings = [
+            finding(root_cause="alpha beta gamma delta"),
+            finding(root_cause="alpha beta gamma delta epsilon zeta"),
+            finding(root_cause="gamma delta epsilon zeta"),
+        ]
+        for index, order in enumerate(permutations(bridged_findings)):
+            with self.subTest(order=index):
+                result = self.write_result(
+                    f"root-bridge-{index}.json",
+                    lane_result("baseline", list(order)),
+                )
+
+                completed = self.run_merger("merge", str(result))
+                merged = json.loads(completed.stdout)
+
+                self.assertEqual(len(merged["findings"]), 1)
+                self.assertEqual(merged["findings"][0]["occurrences"], 3)
+
+    def test_transitive_group_output_is_stable_across_lane_order(self) -> None:
+        paths = [
+            self.write_result(
+                "baseline-bridge.json",
+                lane_result("baseline", [finding(start=1, end=2)]),
+            ),
+            self.write_result(
+                "privacy-bridge.json",
+                lane_result("privacy-security", [finding(start=5, end=6)]),
+            ),
+            self.write_result(
+                "testing-bridge.json",
+                lane_result("testing", [finding(start=2, end=5)]),
+            ),
+        ]
+        outputs = []
+        for order in permutations(paths):
+            completed = self.run_merger(
+                "merge",
+                *(str(path) for path in order),
+            )
+            outputs.append(json.loads(completed.stdout)["findings"])
+
+        self.assertTrue(all(output == outputs[0] for output in outputs[1:]))
+        self.assertEqual(len(outputs[0]), 1)
+        self.assertEqual(outputs[0][0]["occurrences"], 3)
+
+    def test_preserves_whitespace_around_finding_path(self) -> None:
         padded = finding(file=" Sources/TokiSyncProtocol/SnapshotValidation.swift ")
         path = self.write_result("padded.json", lane_result("baseline", [padded]))
 
@@ -298,8 +428,61 @@ class FindingMergeTests(unittest.TestCase):
 
         self.assertEqual(
             merged["findings"][0]["file"],
-            "Sources/TokiSyncProtocol/SnapshotValidation.swift",
+            " Sources/TokiSyncProtocol/SnapshotValidation.swift ",
         )
+
+    def test_distinguishes_whitespace_and_unicode_normalization_in_paths(self) -> None:
+        paths = [
+            "file.swift",
+            " file.swift",
+            "file.swift ",
+            "caf\u00e9.swift",
+            "cafe\u0301.swift",
+        ]
+        result = self.write_result(
+            "distinct-paths.json",
+            lane_result(
+                "baseline",
+                [
+                    finding(file=path, start=index + 1, end=index + 1)
+                    for index, path in enumerate(paths)
+                ],
+            ),
+        )
+
+        completed = self.run_merger("merge", str(result))
+        merged = json.loads(completed.stdout)
+
+        self.assertEqual({item["file"] for item in merged["findings"]}, set(paths))
+
+    def test_rejects_raw_non_utf8_json_without_traceback(self) -> None:
+        path = self.directory / "raw-invalid-utf8.json"
+        path.write_bytes(
+            b'{"schemaVersion":"1.0","lane":"baseline","summary":"'
+            + bytes([0xFF])
+            + b'"}'
+        )
+
+        for mode in ("validate", "merge"):
+            with self.subTest(mode=mode):
+                completed = self.run_merger(mode, str(path), check=False)
+
+                self.assertEqual(completed.returncode, 2)
+                self.assertIn("valid UTF-8", completed.stderr)
+                self.assertNotIn("Traceback", completed.stderr)
+
+    def test_rejects_lane_identifier_with_boundary_whitespace(self) -> None:
+        for index, lane in enumerate((" baseline", "baseline ", "\tbaseline")):
+            with self.subTest(lane=lane):
+                result = self.write_result(
+                    f"invalid-lane-{index}.json",
+                    lane_result(lane, [finding()]),
+                )
+
+                completed = self.run_merger("validate", str(result), check=False)
+
+                self.assertEqual(completed.returncode, 2)
+                self.assertIn("valid lane id", completed.stderr)
 
     def test_rejects_clean_verdict_with_findings(self) -> None:
         invalid = lane_result("baseline", [finding()])

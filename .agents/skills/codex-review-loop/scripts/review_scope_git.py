@@ -2,19 +2,27 @@
 
 from __future__ import annotations
 
-import fnmatch
 import os
 import re
-import subprocess
 from pathlib import Path
-from typing import Iterable
 
 from review_git_process import (
     ScopeError,
     changed_paths_without_symlinks,
-    ignored_paths_matching,
+    decode_z,
+    display_git_path,
+    git_root,
     run_git,
     run_git_bounded,
+)
+from review_path_matching import (
+    matches_pattern,
+    matching_pattern,
+    ordered_unique,
+)
+from review_workspace import (
+    excluded_workspace_paths,
+    workspace_paths_without_symlinks,
 )
 
 
@@ -27,66 +35,22 @@ SEMANTIC_DIFF_FLAGS = [
     "--no-textconv",
     "--unified=0",
 ]
+BINARY_DIFF_MARKERS = (b"Binary files ", b"GIT binary patch")
 
 
-def git_root(repo: Path) -> Path:
-    output = run_git(repo, ["rev-parse", "--show-toplevel"])
-    return Path(output.decode("utf-8", errors="strict").strip()).resolve()
-
-
-def decode_z(output: bytes) -> list[str]:
-    try:
-        return [item.decode("utf-8", errors="strict") for item in output.split(b"\0") if item]
-    except UnicodeDecodeError as error:
-        raise ScopeError("Git path is not valid UTF-8") from error
-
-
-def normalize_path(path: str) -> str:
-    normalized = path
-    while normalized.startswith("./"):
-        normalized = normalized[2:]
-    return normalized.rstrip("/")
-
-
-def ordered_unique(values: Iterable[str]) -> list[str]:
-    seen: set[str] = set()
-    result: list[str] = []
-    for value in values:
-        normalized = normalize_path(value)
-        if normalized and normalized not in seen:
-            seen.add(normalized)
-            result.append(normalized)
-    return result
-
-
-def matches_pattern(path: str, pattern: str) -> bool:
-    return fnmatch.fnmatchcase(path, pattern)
-
-
-def matching_pattern(path: str, patterns: list[str]) -> str | None:
-    folded_path = path.casefold()
-    return next(
-        (
-            pattern
-            for pattern in patterns
-            if fnmatch.fnmatchcase(folded_path, pattern.casefold())
-        ),
-        None,
-    )
+def semantic_output_complete(diff: bytes, bounded_complete: bool) -> bool:
+    return bounded_complete and not any(marker in diff for marker in BINARY_DIFF_MARKERS)
 
 
 def validate_base(repo: Path, base: str) -> None:
     if not base or base.startswith("-") or "\0" in base:
         raise ScopeError("base branch is invalid")
-    result = subprocess.run(
-        ["git", "check-ref-format", "--branch", base],
-        cwd=repo,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-        check=False,
-    )
-    if result.returncode != 0:
-        raise ScopeError(f"base branch is not a valid branch name: {base}")
+    try:
+        run_git(repo, ["check-ref-format", "--branch", base])
+    except ScopeError as error:
+        raise ScopeError(
+            f"base branch is not a valid branch name: {display_git_path(base)}"
+        ) from error
     run_git(repo, ["rev-parse", "--verify", f"{base}^{{commit}}"])
 
 
@@ -150,9 +114,13 @@ def uncommitted_scope(
     repo: Path,
     exclusions: list[str],
 ) -> tuple[list[str], list[str], bytes, bool]:
-    unstaged = decode_z(run_git(repo, ["diff", "--no-renames", "--name-only", "-z", "--"]))
-    staged = decode_z(
-        run_git(repo, ["diff", "--cached", "--no-renames", "--name-only", "-z", "--"])
+    unstaged = changed_paths_without_symlinks(
+        repo,
+        ["diff", "--raw", "--no-renames", "-z", "--"],
+    )
+    staged = changed_paths_without_symlinks(
+        repo,
+        ["diff", "--cached", "--raw", "--no-renames", "-z", "--"],
     )
     untracked_roots = decode_z(
         run_git(repo, ["ls-files", "--others", "--exclude-standard", "--directory", "-z"])
@@ -169,11 +137,17 @@ def uncommitted_scope(
         untracked = ordered_unique(
             decode_z(run_git(repo, ["ls-files", "--others", "--exclude-standard", "-z"]))
         )
-    ignored_excluded = ignored_paths_matching(repo, exclusions)
-    paths = ordered_unique([*unstaged, *staged, *untracked, *ignored_excluded])
-    for path in paths:
-        if (repo / path).is_symlink():
-            raise ScopeError(f"changed symbolic link cannot be reviewed safely: {path}")
+    workspace_excluded = [
+        path
+        for path in excluded_workspace_paths(repo, exclusions)
+        if not any(
+            matching_pattern(root, exclusions) is not None
+            and path != root
+            and path.startswith(f"{root.rstrip('/')}/")
+            for root in untracked
+        )
+    ]
+    paths = ordered_unique([*unstaged, *staged, *untracked, *workspace_excluded])
     semantic_content = bytearray()
     semantic_inspection_complete = True
     diff_arguments = [
@@ -192,7 +166,7 @@ def uncommitted_scope(
             if semantic_content:
                 semantic_content.extend(b"\n")
             semantic_content.extend(part)
-        if not complete:
+        if not semantic_output_complete(part, complete):
             semantic_inspection_complete = False
             break
     if semantic_inspection_complete:
@@ -216,7 +190,11 @@ def uncommitted_scope(
     )
 
 
-def base_scope(repo: Path, base: str) -> tuple[list[str], bytes, bool]:
+def base_scope(
+    repo: Path,
+    base: str,
+    exclusions: list[str],
+) -> tuple[list[str], bytes, bool]:
     validate_base(repo, base)
     range_spec = f"{base}...HEAD"
     paths = changed_paths_without_symlinks(
@@ -228,10 +206,18 @@ def base_scope(repo: Path, base: str) -> tuple[list[str], bytes, bool]:
         ["diff", *SEMANTIC_DIFF_FLAGS, range_spec, "--"],
         MAX_SEMANTIC_TOTAL_BYTES,
     )
-    return ordered_unique(paths), diff, complete
+    return (
+        ordered_unique([*paths, *excluded_workspace_paths(repo, exclusions)]),
+        diff,
+        semantic_output_complete(diff, complete),
+    )
 
 
-def commit_scope(repo: Path, commit: str) -> tuple[list[str], bytes, bool]:
+def commit_scope(
+    repo: Path,
+    commit: str,
+    exclusions: list[str],
+) -> tuple[list[str], bytes, bool]:
     validate_commit(repo, commit)
     merge_mode = "--diff-merges=first-parent"
     paths = changed_paths_without_symlinks(
@@ -261,7 +247,11 @@ def commit_scope(repo: Path, commit: str) -> tuple[list[str], bytes, bool]:
         ],
         MAX_SEMANTIC_TOTAL_BYTES,
     )
-    return ordered_unique(paths), diff, complete
+    return (
+        ordered_unique([*paths, *excluded_workspace_paths(repo, exclusions)]),
+        diff,
+        semantic_output_complete(diff, complete),
+    )
 
 
 def semantic_text(diff: bytes) -> str:

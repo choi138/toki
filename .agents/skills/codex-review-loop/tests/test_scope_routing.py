@@ -9,6 +9,7 @@ from pathlib import Path
 
 SKILL_DIR = Path(__file__).resolve().parents[1]
 RESOLVER = SKILL_DIR / "scripts" / "resolve_review_scope.py"
+REGISTRY = SKILL_DIR / "references" / "lane-registry.json"
 
 
 class ScopeRoutingTests(unittest.TestCase):
@@ -54,6 +55,32 @@ class ScopeRoutingTests(unittest.TestCase):
             check=True,
         )
         return json.loads(result.stdout)
+
+    def resolve_registry(
+        self,
+        registry: dict | bytes,
+        name: str,
+    ) -> subprocess.CompletedProcess[str]:
+        registry_path = self.repo.parent / name
+        if isinstance(registry, bytes):
+            registry_path.write_bytes(registry)
+        else:
+            registry_path.write_text(json.dumps(registry), encoding="utf-8")
+        return subprocess.run(
+            [
+                "python3",
+                str(RESOLVER),
+                "--repo",
+                str(self.repo),
+                "--registry",
+                str(registry_path),
+                "--uncommitted",
+            ],
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=False,
+        )
 
     @staticmethod
     def lane_ids(result: dict) -> set[str]:
@@ -142,6 +169,21 @@ class ScopeRoutingTests(unittest.TestCase):
 
         result = self.resolve("--uncommitted")
 
+        self.assertIn("concurrency-lifecycle", self.lane_ids(result))
+
+    def test_binary_attribute_uses_conservative_semantic_fallback(self) -> None:
+        (self.repo / ".gitattributes").write_text(
+            "docs/*.md binary\n",
+            encoding="utf-8",
+        )
+        self.git("add", ".gitattributes")
+        self.git("commit", "-q", "-m", "mark docs binary")
+        notes = self.repo / "docs" / "notes.md"
+        notes.write_text("MainActor\n", encoding="utf-8")
+
+        result = self.resolve("--uncommitted")
+
+        self.assertFalse(result["semanticInspectionComplete"])
         self.assertIn("concurrency-lifecycle", self.lane_ids(result))
 
     def test_untracked_semantic_signal_activates_lane_outside_normal_path(self) -> None:
@@ -235,6 +277,96 @@ class ScopeRoutingTests(unittest.TestCase):
             result["excludedChanges"],
             [{"pattern": "**/*.pem", "count": 1}],
         )
+
+    def test_registry_requires_baseline_to_be_always_on(self) -> None:
+        cases = (
+            ("false", False),
+            ("missing", None),
+            ("string", "true"),
+            ("integer", 1),
+            ("null", None),
+        )
+        for index, (mode, always_value) in enumerate(cases):
+            with self.subTest(mode=mode):
+                registry = json.loads(REGISTRY.read_text(encoding="utf-8"))
+                baseline = next(
+                    lane for lane in registry["lanes"] if lane["id"] == "baseline"
+                )
+                if mode == "missing":
+                    baseline.pop("always")
+                else:
+                    baseline["always"] = always_value
+
+                completed = self.resolve_registry(
+                    registry,
+                    f"registry-{index}.json",
+                )
+
+                self.assertEqual(completed.returncode, 2)
+                self.assertIn("baseline lane must be always-on", completed.stderr)
+
+    def test_registry_rejects_invalid_verification_profiles(self) -> None:
+        invalid_profiles = ([], ["unknown"], ["common", "common"])
+        for index, profiles in enumerate(invalid_profiles):
+            with self.subTest(profiles=profiles):
+                registry = json.loads(REGISTRY.read_text(encoding="utf-8"))
+                registry["lanes"][0]["verificationProfiles"] = profiles
+
+                completed = self.resolve_registry(
+                    registry,
+                    f"profiles-{index}.json",
+                )
+
+                self.assertEqual(completed.returncode, 2)
+                self.assertIn("verificationProfiles", completed.stderr)
+
+    def test_registry_rejects_unsupported_execution_settings(self) -> None:
+        invalid_execution = (
+            {"replicas": 2, "adjudication": False},
+            {"replicas": 1, "adjudication": True},
+            {"replicas": 1, "adjudication": False, "unknown": True},
+        )
+        for index, execution in enumerate(invalid_execution):
+            with self.subTest(execution=execution):
+                registry = json.loads(REGISTRY.read_text(encoding="utf-8"))
+                registry["lanes"][0]["execution"] = execution
+
+                completed = self.resolve_registry(
+                    registry,
+                    f"execution-{index}.json",
+                )
+
+                self.assertEqual(completed.returncode, 2)
+                self.assertIn("execution", completed.stderr)
+
+    def test_registry_rejects_noncanonical_prompt_paths(self) -> None:
+        invalid_prompts = (
+            str((SKILL_DIR / "references" / "lanes" / "baseline.md").resolve()),
+            "references/verification.md",
+            "references/lane-registry.json",
+        )
+        for index, prompt in enumerate(invalid_prompts):
+            with self.subTest(prompt=prompt):
+                registry = json.loads(REGISTRY.read_text(encoding="utf-8"))
+                registry["lanes"][0]["prompt"] = prompt
+
+                completed = self.resolve_registry(
+                    registry,
+                    f"prompt-{index}.json",
+                )
+
+                self.assertEqual(completed.returncode, 2)
+                self.assertIn("prompt", completed.stderr)
+
+    def test_registry_rejects_raw_non_utf8_without_traceback(self) -> None:
+        completed = self.resolve_registry(
+            b'{"version":"1.0","pathExclusions":[],"lanes":["' + bytes([0xFF]) + b'"]}',
+            "raw-invalid.json",
+        )
+
+        self.assertEqual(completed.returncode, 2)
+        self.assertIn("cannot load lane registry", completed.stderr)
+        self.assertNotIn("Traceback", completed.stderr)
 
     def test_clean_scope_reports_no_changes(self) -> None:
         result = self.resolve("--uncommitted")

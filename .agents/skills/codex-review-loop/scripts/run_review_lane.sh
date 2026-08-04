@@ -1,6 +1,21 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+original_path="${PATH:-}"
+PATH=/usr/bin:/bin
+export PATH
+export TOKI_REVIEW_ORIGINAL_PATH="$original_path"
+
+unset GIT_ALTERNATE_OBJECT_DIRECTORIES
+unset GIT_COMMON_DIR
+unset GIT_CONFIG_PARAMETERS
+unset GIT_DIR
+unset GIT_EXEC_PATH
+unset GIT_INDEX_FILE
+unset GIT_NAMESPACE
+unset GIT_OBJECT_DIRECTORY
+unset GIT_WORK_TREE
+
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 skill_dir="$(cd "$script_dir/.." && pwd)"
 repo="."
@@ -71,7 +86,11 @@ if [[ ! "$lane" =~ ^[a-z0-9]+(-[a-z0-9]+)*$ ]]; then
   exit 2
 fi
 
-repo_root="$(git -C "$repo" rev-parse --show-toplevel)"
+if ! IFS= read -r -d '' repo_root < <(
+  python3 "$script_dir/resolve_repo_root.py" "$repo"
+); then
+  exit 2
+fi
 temp_dir="$(mktemp -d)"
 cleanup() {
   rm -rf -- "$temp_dir"
@@ -158,7 +177,28 @@ PY
   sed -n '1,$p' "$selected_prompt"
 } > "$prompt_file"
 
-codex_bin="${TOKI_REVIEW_CODEX_BIN:-codex}"
+codex_candidate="${TOKI_REVIEW_CODEX_BIN:-codex}"
+codex_path="$(PATH="$original_path" command -v "$codex_candidate" || true)"
+if [[ -z "$codex_path" ]]; then
+  printf 'run_review_lane.sh: review executable is unavailable\n' >&2
+  exit 2
+fi
+codex_bin="$(
+  python3 - "$repo_root" "$codex_path" <<'PY'
+from pathlib import Path
+import sys
+
+repo = Path(sys.argv[1]).resolve()
+candidate = Path(sys.argv[2]).resolve(strict=True)
+try:
+    candidate.relative_to(repo)
+except ValueError:
+    print(candidate)
+else:
+    print("run_review_lane.sh: review executable must be outside the repository", file=sys.stderr)
+    raise SystemExit(2)
+PY
+)"
 developer_config="$(
   python3 - "$prompt_file" <<'PY'
 import json
@@ -193,11 +233,11 @@ fi
 
 python3 "$script_dir/merge_findings.py" validate --lane "$lane" "$result_file" >/dev/null
 python3 - "$result_file" <<'PY'
-from pathlib import Path
+import json
 import sys
 
-text = Path(sys.argv[1]).read_text(encoding="utf-8")
-sys.stdout.write(text)
-if not text.endswith("\n"):
-    sys.stdout.write("\n")
+with open(sys.argv[1], encoding="utf-8") as handle:
+    result = json.load(handle)
+json.dump(result, sys.stdout, ensure_ascii=True, separators=(",", ":"))
+sys.stdout.write("\n")
 PY

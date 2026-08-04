@@ -11,6 +11,7 @@ from collections import Counter
 from pathlib import Path
 from typing import Any
 
+from lane_registry_validation import RegistryError, validate_registry_contract
 from review_scope_git import (
     ScopeError,
     base_scope,
@@ -33,7 +34,7 @@ LANE_ID_RE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 def load_registry(path: Path) -> dict[str, Any]:
     try:
         registry = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as error:
+    except (OSError, UnicodeError, json.JSONDecodeError) as error:
         raise ScopeError(f"cannot load lane registry: {error}") from error
 
     if not isinstance(registry, dict) or registry.get("version") != "1.0":
@@ -88,6 +89,10 @@ def load_registry(path: Path) -> dict[str, Any]:
 
     if "baseline" not in seen_ids:
         raise ScopeError("lane registry must include baseline")
+    try:
+        validate_registry_contract(registry, skill_dir=SKILL_DIR)
+    except RegistryError as error:
+        raise ScopeError(str(error)) from error
     return registry
 
 
@@ -175,6 +180,7 @@ def resolve(arguments: argparse.Namespace) -> dict[str, Any]:
         changed_paths, diff, semantic_inspection_complete = base_scope(
             root,
             arguments.base,
+            exclusions,
         )
         untracked_paths = []
         scope = {
@@ -186,6 +192,7 @@ def resolve(arguments: argparse.Namespace) -> dict[str, Any]:
         changed_paths, diff, semantic_inspection_complete = commit_scope(
             root,
             arguments.commit,
+            exclusions,
         )
         untracked_paths = []
         scope = {
