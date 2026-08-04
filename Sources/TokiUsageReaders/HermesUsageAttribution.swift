@@ -106,8 +106,23 @@ private func hermesUsageEventParts(
 
     let residual = counters.subtracting(combinedCounters)
     if residual.totalTokens > 0 {
-        parts.append(HermesUsageEventPart(model: nil, counters: residual))
-    } else if includeCostOnlyResidual {
+        // The resolver leaves observation.model non-nil only when the session and
+        // every detail row agree on one model, so a residual there belongs to that
+        // model rather than to the unattributed bucket. Merge into the existing
+        // part instead of appending a second one for the same model, otherwise its
+        // pricing counters would be charged twice during cost allocation.
+        if let residualModel = observation.model,
+           let existingIndex = parts.firstIndex(where: { $0.model == residualModel }) {
+            parts[existingIndex] = HermesUsageEventPart(
+                model: residualModel,
+                counters: parts[existingIndex].counters.adding(residual))
+        } else {
+            parts.append(HermesUsageEventPart(model: observation.model, counters: residual))
+        }
+    }
+    // Reported cost that no model claims still needs an unattributed carrier, even
+    // when the residual tokens themselves resolved to a model.
+    if includeCostOnlyResidual, !parts.contains(where: { $0.model == nil }) {
         parts.append(HermesUsageEventPart(model: nil, counters: .zero))
     }
     if parts.isEmpty, includeCostOnlyFallback {

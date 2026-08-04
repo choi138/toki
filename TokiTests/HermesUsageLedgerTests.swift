@@ -118,6 +118,58 @@ final class HermesUsageLedgerTests: XCTestCase {
         XCTAssertEqual(events.reduce(0) { $0 + $1.counters.totalTokens }, 150)
     }
 
+    func test_hermesUsageLedger_attributesPartialDetailResidualToResolvedModel() async throws {
+        let tempDir = try makeHermesTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+        let ledger = HermesUsageLedger(fileURL: tempDir.appendingPathComponent("hermes-usage-ledger.json"))
+        let baselineAt = tokiTestISODate("2026-04-10T08:00:00Z")
+        let startedAt = tokiTestISODate("2026-04-10T09:00:00Z")
+        let observedAt = tokiTestISODate("2026-04-10T10:00:00Z")
+        try await ledger.refresh(observations: [], observedAt: baselineAt)
+
+        // The session counters exceed the partial session_model_usage breakdown, but
+        // the session and the detail row agree on one model, so the resolver keeps
+        // that model on the observation. The 50-token residual and its share of the
+        // cost belong to that model rather than to Mixed / Unattributed.
+        try await ledger.refresh(
+            observations: [HermesSessionObservation(
+                sessionID: "single-model-session",
+                startedAt: startedAt,
+                earliestActivityAt: startedAt,
+                latestActivityAt: observedAt,
+                model: "kr/claude-opus-5",
+                counters: HermesTokenCounters(
+                    inputTokens: 150,
+                    outputTokens: 0,
+                    cacheReadTokens: 0,
+                    cacheWriteTokens: 0,
+                    reasoningTokens: 0),
+                modelCounters: [
+                    "kr/claude-opus-5": HermesTokenCounters(
+                        inputTokens: 100,
+                        outputTokens: 0,
+                        cacheReadTokens: 0,
+                        cacheWriteTokens: 0,
+                        reasoningTokens: 0),
+                ],
+                cost: 3,
+                projectName: nil,
+                attributionQuality: .unknown)],
+            observedAt: observedAt)
+
+        let events = try await ledger.events(
+            from: baselineAt,
+            to: observedAt.addingTimeInterval(1))
+        let tokensByModel = events.reduce(into: [String: Int]()) { result, event in
+            result[event.model ?? "Mixed / Unattributed", default: 0] += event.counters.totalTokens
+        }
+
+        XCTAssertEqual(tokensByModel, ["kr/claude-opus-5": 150])
+        XCTAssertFalse(events.contains { $0.model == nil })
+        XCTAssertEqual(events.reduce(0) { $0 + $1.counters.totalTokens }, 150)
+        XCTAssertEqual(events.reduce(0) { $0 + $1.cost }, 3, accuracy: 0.0001)
+    }
+
     func test_hermesUsageLedger_establishesModelBaselineBeforeSplittingLegacySessionDeltas() async throws {
         let tempDir = try makeHermesTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: tempDir) }
