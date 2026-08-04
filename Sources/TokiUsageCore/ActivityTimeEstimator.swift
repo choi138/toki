@@ -30,7 +30,12 @@ public struct ActivityTimeEstimate<Key: Hashable> {
     public let wallClockSeconds: TimeInterval
     public let activeStreamCount: Int
     public let maxConcurrentStreams: Int
+    /// Agent work time per key. Concurrent streams are summed, so this can exceed the
+    /// elapsed time.
     public let secondsByKey: [Key: TimeInterval]
+    /// Elapsed time per key. Concurrent streams sharing a key are merged, so this never
+    /// exceeds the range the key was observed in.
+    public let wallClockSecondsByKey: [Key: TimeInterval]
 
     public static var zero: Self {
         ActivityTimeEstimate(
@@ -40,7 +45,8 @@ public struct ActivityTimeEstimate<Key: Hashable> {
             wallClockSeconds: 0,
             activeStreamCount: 0,
             maxConcurrentStreams: 0,
-            secondsByKey: [:])
+            secondsByKey: [:],
+            wallClockSecondsByKey: [:])
     }
 }
 
@@ -78,15 +84,16 @@ public enum ActivityTimeEstimator {
         let wallClockSeconds = mergedDuration(mergedStreamIntervals)
         let activeStreamCount = Set(intervals.map(\.streamID)).count
         let maxConcurrentStreams = maximumConcurrentStreams(mergedStreamIntervals)
-        let secondsByKey = Dictionary(
+        let intervalsByKey = Dictionary(
             grouping: intervals.compactMap { interval -> (Key, ActivityInterval<Key>)? in
                 guard let key = interval.key else { return nil }
                 return (key, interval)
             },
-            by: \.0).reduce(into: [Key: TimeInterval]()) { result, item in
-                let (key, intervalsForKey) = item
-                result[key] = summedDurationByStream(intervalsForKey.map(\.1))
-            }
+            by: \.0).mapValues { $0.map(\.1) }
+        let secondsByKey = intervalsByKey.mapValues(summedDurationByStream)
+        let wallClockSecondsByKey = intervalsByKey.mapValues { intervalsForKey in
+            mergedDuration(intervalsForKey.map { DateInterval(start: $0.start, end: $0.end) })
+        }
 
         return ActivityTimeEstimate(
             totalSeconds: totalSeconds,
@@ -95,7 +102,8 @@ public enum ActivityTimeEstimator {
             wallClockSeconds: wallClockSeconds,
             activeStreamCount: activeStreamCount,
             maxConcurrentStreams: maxConcurrentStreams,
-            secondsByKey: secondsByKey)
+            secondsByKey: secondsByKey,
+            wallClockSecondsByKey: wallClockSecondsByKey)
     }
 
     private static func estimatedSlice(

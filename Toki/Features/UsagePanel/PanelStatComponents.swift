@@ -92,8 +92,10 @@ struct ModelStatRowView: View, Equatable {
 
 extension ModelStat {
     var panelTimeSummary: String {
-        if activeSeconds > 0 {
-            return "\(activeSeconds.formattedWorkDuration()) used"
+        if reportedSeconds > 0 {
+            return formattedUsageTimeSummary(
+                reportedSeconds: reportedSeconds,
+                parallelMultiplier: parallelMultiplier)
         }
         return cost > 0 ? "cost only" : "0s used"
     }

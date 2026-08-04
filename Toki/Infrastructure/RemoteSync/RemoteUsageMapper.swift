@@ -72,7 +72,8 @@ struct RemoteUsageMapper {
                 cacheWriteTokens: usage.cacheWriteTokens,
                 reasoningTokens: usage.reasoningTokens,
                 cost: usage.cost,
-                activeSeconds: usage.activeSeconds)
+                activeSeconds: usage.activeSeconds,
+                wallClockSeconds: usage.resolvedWorkTime.wallClockSeconds)
         }
         .sorted { lhs, rhs in
             if lhs.totalTokens != rhs.totalTokens { return lhs.totalTokens > rhs.totalTokens }

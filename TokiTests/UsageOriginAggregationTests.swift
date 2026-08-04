@@ -1,3 +1,4 @@
+// swiftlint:disable file_length
 import Foundation
 import TokiUsageCore
 import XCTest
@@ -107,6 +108,53 @@ final class UsageOriginAggregationTests: XCTestCase {
         XCTAssertEqual(Set(combinedRows.map(\.totalTokens)), [10, 20])
         XCTAssertEqual(Set(remoteRows.map(\.sources)), [["Codex"], ["Claude Code"]])
         XCTAssertEqual(Set(remoteRows.map(\.totalTokens)), [10, 20])
+    }
+
+    func test_aggregatorMergesOverlappingLocalAndRemoteTimeIntoOneWallClockSpan() async throws {
+        // The local machine and a remote device work on the same model at overlapping
+        // times. Agent work time adds both, but the elapsed span is the union, so a row
+        // must never claim more time than the calendar allows.
+        let localUsage = mockActivityUsage(
+            totalTokens: 10,
+            modelID: "shared-model",
+            source: "Codex",
+            events: [
+                ActivityTimeEvent(
+                    streamID: "local-1",
+                    timestamp: tokiTestISODate("2026-07-01T00:00:00Z"),
+                    key: "shared-model"),
+                ActivityTimeEvent(
+                    streamID: "local-1",
+                    timestamp: tokiTestISODate("2026-07-01T00:02:00Z"),
+                    key: "shared-model"),
+            ])
+        let remoteUsage = mockActivityUsage(
+            totalTokens: 20,
+            modelID: "shared-model",
+            source: "Codex",
+            events: [
+                ActivityTimeEvent(
+                    streamID: "remote-a:r-1",
+                    timestamp: tokiTestISODate("2026-07-01T00:01:00Z"),
+                    key: "shared-model"),
+                ActivityTimeEvent(
+                    streamID: "remote-a:r-1",
+                    timestamp: tokiTestISODate("2026-07-01T00:03:00Z"),
+                    key: "shared-model"),
+            ])
+        let aggregator = UsageAggregator(readers: [
+            FixedUsageReader(name: "Codex", usage: localUsage),
+            FixedOriginReader(
+                name: "Remote Devices",
+                slices: [makeRemoteSlice(deviceID: "remote-a", name: "worker", usage: remoteUsage)]),
+        ])
+
+        let result = await aggregator.aggregateUsage(for: makeRequest(interval: testInterval))
+        let row = try XCTUnwrap(result.usageData.perModel.first { $0.modelID == "shared-model" })
+
+        XCTAssertEqual(row.activeSeconds, 300, accuracy: 0.001)
+        XCTAssertEqual(row.wallClockSeconds, 210, accuracy: 0.001)
+        XCTAssertEqual(row.reportedSeconds, 210, accuracy: 0.001)
     }
 
     func test_unattributedModelKeyStaysCanonicalAcrossLocalAndRemoteAggregation() async throws {

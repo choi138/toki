@@ -68,6 +68,7 @@ struct ModelStat: Equatable {
     let totalTokens: Int
     let cost: Double
     let activeSeconds: TimeInterval
+    let wallClockSeconds: TimeInterval
     let sources: [String]
     let isPriceKnown: Bool
 
@@ -77,6 +78,7 @@ struct ModelStat: Equatable {
         totalTokens: Int,
         cost: Double,
         activeSeconds: TimeInterval,
+        wallClockSeconds: TimeInterval = 0,
         sources: [String],
         isPriceKnown: Bool) {
         self.id = id
@@ -84,6 +86,7 @@ struct ModelStat: Equatable {
         self.totalTokens = totalTokens
         self.cost = cost
         self.activeSeconds = activeSeconds
+        self.wallClockSeconds = wallClockSeconds
         self.sources = sources
         self.isPriceKnown = isPriceKnown
     }
@@ -92,6 +95,16 @@ struct ModelStat: Equatable {
         modelID == UsageModelGrouping.mixedOrUnattributedKey
             ? UsageModelGrouping.mixedOrUnattributedLabel
             : modelID
+    }
+
+    var parallelMultiplier: Double {
+        usageParallelMultiplier(agentSeconds: activeSeconds, wallClockSeconds: wallClockSeconds)
+    }
+
+    /// Elapsed time when it was measured, otherwise the summed agent time so readers
+    /// without activity events keep reporting a duration.
+    var reportedSeconds: TimeInterval {
+        wallClockSeconds > 0 ? wallClockSeconds : activeSeconds
     }
 }
 
@@ -104,6 +117,28 @@ struct SourceStat: Equatable {
     let reasoningTokens: Int
     let cost: Double
     let activeSeconds: TimeInterval
+    let wallClockSeconds: TimeInterval
+
+    init(
+        source: String,
+        inputTokens: Int,
+        outputTokens: Int,
+        cacheReadTokens: Int,
+        cacheWriteTokens: Int,
+        reasoningTokens: Int,
+        cost: Double,
+        activeSeconds: TimeInterval,
+        wallClockSeconds: TimeInterval = 0) {
+        self.source = source
+        self.inputTokens = inputTokens
+        self.outputTokens = outputTokens
+        self.cacheReadTokens = cacheReadTokens
+        self.cacheWriteTokens = cacheWriteTokens
+        self.reasoningTokens = reasoningTokens
+        self.cost = cost
+        self.activeSeconds = activeSeconds
+        self.wallClockSeconds = wallClockSeconds
+    }
 
     var id: String {
         source
@@ -112,6 +147,23 @@ struct SourceStat: Equatable {
     var totalTokens: Int {
         inputTokens + outputTokens + cacheReadTokens + cacheWriteTokens + reasoningTokens
     }
+
+    var parallelMultiplier: Double {
+        usageParallelMultiplier(agentSeconds: activeSeconds, wallClockSeconds: wallClockSeconds)
+    }
+
+    var reportedSeconds: TimeInterval {
+        wallClockSeconds > 0 ? wallClockSeconds : activeSeconds
+    }
+}
+
+/// Mirrors `WorkTimeMetrics.parallelMultiplier` so panel rows and the overview agree on
+/// how parallelism is expressed.
+func usageParallelMultiplier(
+    agentSeconds: TimeInterval,
+    wallClockSeconds: TimeInterval) -> Double {
+    guard wallClockSeconds > 0 else { return 0 }
+    return agentSeconds / wallClockSeconds
 }
 
 struct UsageTimeBucket: Identifiable, Equatable {

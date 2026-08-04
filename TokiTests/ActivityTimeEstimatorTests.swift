@@ -72,6 +72,47 @@ final class ActivityTimeEstimatorTests: XCTestCase {
         XCTAssertEqual(estimate.secondsByKey["gpt-5.4"] ?? 0, 300, accuracy: 0.001)
     }
 
+    func test_activityTimeEstimator_mergesOverlappingStreamsPerKeyAsWallClock() {
+        // Two sessions on the same model overlap. Agent work time sums them, but the
+        // model was only in use for the merged span, so a per-model row must not
+        // report more time than actually elapsed.
+        let events = [
+            ActivityTimeEvent<String>(streamID: "thread-a", timestamp: isoDate("2026-04-10T00:00:00Z"), key: "gpt-5.4"),
+            ActivityTimeEvent<String>(streamID: "thread-a", timestamp: isoDate("2026-04-10T00:02:00Z"), key: "gpt-5.4"),
+            ActivityTimeEvent<String>(streamID: "thread-b", timestamp: isoDate("2026-04-10T00:01:00Z"), key: "gpt-5.4"),
+            ActivityTimeEvent<String>(streamID: "thread-b", timestamp: isoDate("2026-04-10T00:03:00Z"), key: "gpt-5.4"),
+        ]
+
+        let estimate = ActivityTimeEstimator.estimate(events: events)
+
+        XCTAssertEqual(estimate.secondsByKey["gpt-5.4"] ?? 0, 300, accuracy: 0.001)
+        XCTAssertEqual(estimate.wallClockSecondsByKey["gpt-5.4"] ?? 0, 210, accuracy: 0.001)
+        XCTAssertEqual(estimate.wallClockSeconds, 210, accuracy: 0.001)
+    }
+
+    func test_activityTimeEstimator_keepsPerKeyWallClockSeparatePerModel() {
+        // Distinct models overlapping in time each keep their own merged span, so the
+        // per-model spans may sum to more than the overall wall clock.
+        let events = [
+            ActivityTimeEvent<String>(streamID: "thread-a", timestamp: isoDate("2026-04-10T00:00:00Z"), key: "gpt-5.4"),
+            ActivityTimeEvent<String>(streamID: "thread-a", timestamp: isoDate("2026-04-10T00:02:00Z"), key: "gpt-5.4"),
+            ActivityTimeEvent<String>(
+                streamID: "thread-b",
+                timestamp: isoDate("2026-04-10T00:01:00Z"),
+                key: "claude-sonnet-4-6"),
+            ActivityTimeEvent<String>(
+                streamID: "thread-b",
+                timestamp: isoDate("2026-04-10T00:03:00Z"),
+                key: "claude-sonnet-4-6"),
+        ]
+
+        let estimate = ActivityTimeEstimator.estimate(events: events)
+
+        XCTAssertEqual(estimate.wallClockSecondsByKey["gpt-5.4"] ?? 0, 150, accuracy: 0.001)
+        XCTAssertEqual(estimate.wallClockSecondsByKey["claude-sonnet-4-6"] ?? 0, 150, accuracy: 0.001)
+        XCTAssertEqual(estimate.wallClockSeconds, 210, accuracy: 0.001)
+    }
+
     func test_activityTimeEstimator_splitsMainAndSubagentWorkTime() {
         let events = [
             ActivityTimeEvent<String>(

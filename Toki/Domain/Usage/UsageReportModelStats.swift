@@ -6,6 +6,7 @@ private struct ModelSourceStatAggregate {
     var totalTokens = 0
     var cost: Double = 0
     var activeSeconds: TimeInterval = 0
+    var wallClockSeconds: TimeInterval = 0
     var sources = Set<String>()
     var isPriceKnown = true
 
@@ -15,6 +16,7 @@ private struct ModelSourceStatAggregate {
         totalTokens = usage.totalTokens
         cost = usage.cost
         activeSeconds = usage.activeSeconds
+        wallClockSeconds = usage.wallClockSeconds
         sources = Set(usage.sources.compactMap(\.trimmedNonEmpty))
         if sources.isEmpty {
             sources.insert(source)
@@ -32,7 +34,7 @@ private struct ModelSourceStatAggregate {
     }
 
     var hasReportableData: Bool {
-        totalTokens > 0 || cost > 0 || activeSeconds > 0
+        totalTokens > 0 || cost > 0 || activeSeconds > 0 || wallClockSeconds > 0
     }
 }
 
@@ -82,6 +84,7 @@ extension UsageReportBuilder {
                 totalTokens: aggregate.totalTokens,
                 cost: aggregate.cost,
                 activeSeconds: aggregate.activeSeconds,
+                wallClockSeconds: aggregate.wallClockSeconds,
                 sources: sources,
                 isPriceKnown: priceIsKnown(
                     for: key,
@@ -151,6 +154,10 @@ extension UsageReportBuilder {
                 let key = ModelSourceUsageKey(modelID: modelID, source: source)
                 aggregates[key]?.activeSeconds = activeSeconds
             }
+            for (modelID, wallClockSeconds) in estimate.wallClockSecondsByKey {
+                let key = ModelSourceUsageKey(modelID: modelID, source: source)
+                aggregates[key]?.wallClockSeconds = wallClockSeconds
+            }
         }
 
         return aggregates
@@ -169,13 +176,20 @@ extension UsageReportBuilder {
             let coveredTokens = matchingStats.values.reduce(0) { $0 + $1.totalTokens }
             let coveredCost = matchingStats.values.reduce(0) { $0 + $1.cost }
             let coveredActiveSeconds = matchingStats.values.reduce(0) { $0 + $1.activeSeconds }
+            let coveredWallClockSeconds = matchingStats.values.reduce(0) { $0 + $1.wallClockSeconds }
             let residualTokens = max(0, legacyStat.totalTokens - coveredTokens)
             let residualCost = positiveDifference(legacyStat.cost, coveredCost)
             let residualActiveSeconds = positiveDifference(
                 legacyStat.activeSeconds,
                 coveredActiveSeconds)
+            let residualWallClockSeconds = positiveDifference(
+                legacyStat.wallClockSeconds,
+                coveredWallClockSeconds)
 
-            guard residualTokens > 0 || residualCost > 0 || residualActiveSeconds > 0 else {
+            guard residualTokens > 0
+                || residualCost > 0
+                || residualActiveSeconds > 0
+                || residualWallClockSeconds > 0 else {
                 continue
             }
 
@@ -192,6 +206,8 @@ extension UsageReportBuilder {
             aggregates[key, default: ModelSourceStatAggregate()].totalTokens += residualTokens
             aggregates[key, default: ModelSourceStatAggregate()].cost += residualCost
             aggregates[key, default: ModelSourceStatAggregate()].activeSeconds += residualActiveSeconds
+            aggregates[key, default: ModelSourceStatAggregate()]
+                .wallClockSeconds += residualWallClockSeconds
             aggregates[key, default: ModelSourceStatAggregate()].sources.formUnion(residualSources)
         }
     }

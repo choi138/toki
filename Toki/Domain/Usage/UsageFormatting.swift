@@ -71,3 +71,19 @@ extension TimeInterval {
         return minutes == 0 ? "\(hours)h" : "\(hours)h \(minutes)m"
     }
 }
+
+/// Smallest multiplier worth showing. Below this the row read as plain elapsed time.
+private let minimumReportedParallelMultiplier = 1.2
+
+/// Renders "3h 0m used · x3.9 parallel" so a row states elapsed time first and keeps the
+/// summed agent time visible as a ratio instead of as an impossible duration.
+func formattedUsageTimeSummary(
+    reportedSeconds: TimeInterval,
+    parallelMultiplier: Double) -> String {
+    let duration = "\(reportedSeconds.formattedWorkDuration()) used"
+    guard parallelMultiplier.isFinite,
+          parallelMultiplier >= minimumReportedParallelMultiplier else {
+        return duration
+    }
+    return "\(duration) · x\(String(format: "%.1f", parallelMultiplier)) parallel"
+}

@@ -83,17 +83,23 @@ public struct SupplementalUsage {
 public struct PerModelUsage {
     public var totalTokens: Int
     public var cost: Double
+    /// Agent work time. Concurrent streams are summed, so this can exceed the elapsed
+    /// time when several sessions ran in parallel.
     public var activeSeconds: TimeInterval
+    /// Elapsed time the model was in use, merging concurrent streams.
+    public var wallClockSeconds: TimeInterval
     public var sources: Set<String>
 
     public init(
         totalTokens: Int = 0,
         cost: Double = 0,
         activeSeconds: TimeInterval = 0,
+        wallClockSeconds: TimeInterval = 0,
         sources: Set<String> = []) {
         self.totalTokens = totalTokens
         self.cost = cost
         self.activeSeconds = activeSeconds
+        self.wallClockSeconds = wallClockSeconds
         self.sources = sources
     }
 }
@@ -401,10 +407,14 @@ public func += (lhs: inout RawTokenUsage, rhs: RawTokenUsage) {
         lhs.fallbackActiveSeconds += rhs.activeSeconds
     }
 
+    // Wall-clock time is summed here only so readers that never expose activity events
+    // still report something. When events exist, recomputeMergedActiveEstimate()
+    // replaces both values with one merged estimate over every event.
     for (id, usage) in rhs.perModel {
         lhs.perModel[id, default: PerModelUsage()].totalTokens += usage.totalTokens
         lhs.perModel[id, default: PerModelUsage()].cost += usage.cost
         lhs.perModel[id, default: PerModelUsage()].activeSeconds += usage.activeSeconds
+        lhs.perModel[id, default: PerModelUsage()].wallClockSeconds += usage.wallClockSeconds
         lhs.perModel[id, default: PerModelUsage()].sources.formUnion(usage.sources)
     }
 
@@ -412,6 +422,7 @@ public func += (lhs: inout RawTokenUsage, rhs: RawTokenUsage) {
         lhs.perModelBySource[key, default: PerModelUsage()].totalTokens += usage.totalTokens
         lhs.perModelBySource[key, default: PerModelUsage()].cost += usage.cost
         lhs.perModelBySource[key, default: PerModelUsage()].activeSeconds += usage.activeSeconds
+        lhs.perModelBySource[key, default: PerModelUsage()].wallClockSeconds += usage.wallClockSeconds
         lhs.perModelBySource[key, default: PerModelUsage()].sources.formUnion(usage.sources)
     }
 

@@ -20,6 +20,7 @@
 		187A94A7422CB21663B9214F /* CodexReaderBehaviorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 744538423BE5FD3B64B2E8A0 /* CodexReaderBehaviorTests.swift */; };
 		19158307E719CB6441DD8841 /* SecurityAuditSQLiteScanner.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4CEBBC19D10BB66820B603F3 /* SecurityAuditSQLiteScanner.swift */; };
 		19402E1978419587580E9C87 /* UsageAggregator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 107B89D8C6829F00817A902B /* UsageAggregator.swift */; };
+		1C281EBD8C94C6F48C80798F /* UsageModelSourceMerge.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA6E92AC47DF57B49E5EF33C /* UsageModelSourceMerge.swift */; };
 		1CB6457496EDB42014D2577C /* PanelHourlyUsageView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E7F4D14E84D7569820019419 /* PanelHourlyUsageView.swift */; };
 		1CEB7251F4D5C4E54A0374BC /* ProjectTimelineBreakdown.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A99E233235E7ED7777321F8 /* ProjectTimelineBreakdown.swift */; };
 		2427CB79A2FA6D1E09CC5917 /* UsagePanelRefreshCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1DFAAE90B6B20174754C0B0E /* UsagePanelRefreshCoordinator.swift */; };
@@ -273,6 +274,7 @@
 		A3BCD6B222FAE20E8AD17A13 /* SecurityAuditScannerTestSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SecurityAuditScannerTestSupport.swift; sourceTree = "<group>"; };
 		A4692734D41D5DC621C0BF7F /* CodexReaderTestSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodexReaderTestSupport.swift; sourceTree = "<group>"; };
 		A935D97F072BD30BEA608E73 /* TokiTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = TokiTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		AA6E92AC47DF57B49E5EF33C /* UsageModelSourceMerge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UsageModelSourceMerge.swift; sourceTree = "<group>"; };
 		AFF0A0D8A54BCA7B3B1D5403 /* LocalUsageReaderRegistryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalUsageReaderRegistryTests.swift; sourceTree = "<group>"; };
 		B03817C34A0165DBDAA6B1C1 /* RemoteHubClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteHubClient.swift; sourceTree = "<group>"; };
 		B1081585613F3D38A303C7B0 /* RemoteUsageReader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteUsageReader.swift; sourceTree = "<group>"; };
@@ -410,6 +412,7 @@
 				D43001DCEB9A2BC563AAC217 /* ReaderFetchResult.swift */,
 				8B5FAD8A81645F8C02AC6D46 /* RemotePricingCatalog.swift */,
 				107B89D8C6829F00817A902B /* UsageAggregator.swift */,
+				AA6E92AC47DF57B49E5EF33C /* UsageModelSourceMerge.swift */,
 			);
 			path = UsageReaders;
 			sourceTree = "<group>";
@@ -830,6 +833,7 @@
 				19402E1978419587580E9C87 /* UsageAggregator.swift in Sources */,
 				F5AE38AB9B9F16524BAB4B6A /* UsageData.swift in Sources */,
 				107B19A86A1C04A01E4BE104 /* UsageFormatting.swift in Sources */,
+				1C281EBD8C94C6F48C80798F /* UsageModelSourceMerge.swift in Sources */,
 				2427CB79A2FA6D1E09CC5917 /* UsagePanelRefreshCoordinator.swift in Sources */,
 				1329E9A5945F16ABA700B7B1 /* UsagePanelSettings.swift in Sources */,
 				E5F6B418F6066E72F501BA39 /* UsagePanelView.swift in Sources */,

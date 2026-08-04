@@ -69,6 +69,7 @@ private struct UsageExportTotals: Encodable {
     let totalTokens: Int
     let cost: Double
     let activeSeconds: TimeInterval
+    let wallClockSeconds: TimeInterval
 
     init(usage: UsageData) {
         inputTokens = usage.inputTokens
@@ -79,6 +80,7 @@ private struct UsageExportTotals: Encodable {
         totalTokens = usage.totalTokens
         cost = usage.cost
         activeSeconds = usage.activeSeconds
+        wallClockSeconds = usage.workTime.wallClockSeconds
     }
 }
 
@@ -92,6 +94,7 @@ private struct UsageExportSource: Encodable {
     let totalTokens: Int
     let cost: Double
     let activeSeconds: TimeInterval
+    let wallClockSeconds: TimeInterval
 
     init(source: SourceStat) {
         self.source = source.source
@@ -103,6 +106,7 @@ private struct UsageExportSource: Encodable {
         totalTokens = source.totalTokens
         cost = source.cost
         activeSeconds = source.activeSeconds
+        wallClockSeconds = source.wallClockSeconds
     }
 }
 
@@ -111,6 +115,7 @@ private struct UsageExportModel: Encodable {
     let totalTokens: Int
     let cost: Double
     let activeSeconds: TimeInterval
+    let wallClockSeconds: TimeInterval
     let sources: [String]
     let isPriceKnown: Bool
 
@@ -119,6 +124,7 @@ private struct UsageExportModel: Encodable {
         totalTokens = model.totalTokens
         cost = model.cost
         activeSeconds = model.activeSeconds
+        wallClockSeconds = model.wallClockSeconds
         sources = model.sources
         isPriceKnown = model.isPriceKnown
     }
@@ -201,7 +207,9 @@ private extension UsageExport {
             "reasoning_tokens",
             "total_tokens",
             "cost_usd",
+            // active_seconds sums concurrent streams; wall_clock_seconds merges them.
             "active_seconds",
+            "wall_clock_seconds",
             "start_date",
             "end_date",
             "project_path",
@@ -227,6 +235,7 @@ private extension UsageExport {
             "\(usage.totalTokens)",
             String(format: "%.6f", usage.cost),
             String(format: "%.3f", usage.activeSeconds),
+            String(format: "%.3f", usage.workTime.wallClockSeconds),
             startDate,
             endDate,
             "",
@@ -253,6 +262,7 @@ private extension UsageExport {
                 "\(source.totalTokens)",
                 String(format: "%.6f", source.cost),
                 String(format: "%.3f", source.activeSeconds),
+                String(format: "%.3f", source.wallClockSeconds),
                 startDate,
                 endDate,
                 "",
@@ -280,6 +290,7 @@ private extension UsageExport {
                 "\(model.totalTokens)",
                 model.isPriceKnown ? String(format: "%.6f", model.cost) : "",
                 String(format: "%.3f", model.activeSeconds),
+                String(format: "%.3f", model.wallClockSeconds),
                 startDate,
                 endDate,
                 "",
@@ -304,6 +315,7 @@ private extension UsageExport {
                 "\(project.totalTokens)",
                 String(format: "%.6f", project.cost),
                 "",
+                "",
                 project.firstActivityAt.map { usageExportISODateFormatter.string(from: $0) } ?? "",
                 project.lastActivityAt.map { usageExportISODateFormatter.string(from: $0) } ?? "",
                 project.path ?? "",
@@ -327,6 +339,7 @@ private extension UsageExport {
                 "\(session.reasoningTokens)",
                 "\(session.totalTokens)",
                 String(format: "%.6f", session.cost),
+                "",
                 "",
                 usageExportISODateFormatter.string(from: session.firstActivityAt),
                 usageExportISODateFormatter.string(from: session.lastActivityAt),

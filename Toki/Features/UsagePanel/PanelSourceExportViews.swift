@@ -238,7 +238,12 @@ private struct SourceStatRowView: View, Equatable {
                     .font(.system(size: 11))
                     .foregroundColor(Color.white.opacity(0.48))
                     .lineLimit(1)
-                Text(stat.activeSeconds > 0 ? "\(stat.activeSeconds.formattedWorkDuration()) used" : "0s used")
+                Text(
+                    stat.reportedSeconds > 0
+                        ? formattedUsageTimeSummary(
+                            reportedSeconds: stat.reportedSeconds,
+                            parallelMultiplier: stat.parallelMultiplier)
+                        : "0s used")
                     .font(.system(size: 10, weight: .medium))
                     .foregroundColor(Color.white.opacity(0.3))
                     .lineLimit(1)
