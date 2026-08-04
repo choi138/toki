@@ -1,5 +1,53 @@
 import AppKit
 
+enum MenuBarStatusItemMetrics {
+    static let staticIconPointSize = NSSize(width: 20, height: 20)
+    static let animationIconPointSize = NSSize(width: 22, height: 22)
+    static let animationCropPixelSize = NSSize(width: 24, height: 24)
+}
+
+func preparedMenuBarImage(_ image: NSImage) -> NSImage {
+    let preparedImage = (image.copy() as? NSImage) ?? image
+    preparedImage.size = MenuBarStatusItemMetrics.staticIconPointSize
+    preparedImage.isTemplate = true
+    return preparedImage
+}
+
+func menuBarAnimationCropRect(for pixelSize: NSSize) -> NSRect {
+    let cropSize = NSSize(
+        width: min(pixelSize.width, MenuBarStatusItemMetrics.animationCropPixelSize.width),
+        height: min(pixelSize.height, MenuBarStatusItemMetrics.animationCropPixelSize.height))
+    return NSRect(
+        x: ((pixelSize.width - cropSize.width) / 2).rounded(.down),
+        y: ((pixelSize.height - cropSize.height) / 2).rounded(.down),
+        width: cropSize.width,
+        height: cropSize.height)
+}
+
+func preparedMenuBarAnimationFrame(_ image: NSImage) -> NSImage {
+    var proposedRect = NSRect(origin: .zero, size: image.size)
+    guard let sourceImage = image.cgImage(
+        forProposedRect: &proposedRect,
+        context: nil,
+        hints: nil) else {
+        return preparedMenuBarImage(image)
+    }
+
+    let pixelSize = NSSize(
+        width: CGFloat(sourceImage.width),
+        height: CGFloat(sourceImage.height))
+    guard let croppedImage = sourceImage.cropping(
+        to: menuBarAnimationCropRect(for: pixelSize)) else {
+        return preparedMenuBarImage(image)
+    }
+
+    let preparedImage = NSImage(
+        cgImage: croppedImage,
+        size: MenuBarStatusItemMetrics.animationIconPointSize)
+    preparedImage.isTemplate = true
+    return preparedImage
+}
+
 @MainActor
 final class MenuBarStatusItemController {
     private(set) var statusItem: NSStatusItem?
@@ -21,12 +69,12 @@ final class MenuBarStatusItemController {
 
     func setup(target: AnyObject, action: Selector) {
         guard statusItem == nil else { return }
-        let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+        let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         statusItem = item
-        staticIcon = NSImage(named: "MenuBarIcon")
-        staticIcon?.isTemplate = true
+        staticIcon = NSImage(named: "MenuBarIcon").map(preparedMenuBarImage)
         item.button?.image = staticIcon
         item.button?.imagePosition = .imageOnly
+        item.button?.imageScaling = .scaleNone
         item.button?.action = action
         item.button?.target = target
         item.button?.sendAction(on: [.leftMouseUp, .rightMouseUp])
@@ -42,10 +90,12 @@ final class MenuBarStatusItemController {
             button.title = " \(title)"
             button.font = NSFont.monospacedDigitSystemFont(ofSize: 11, weight: .medium)
             button.imagePosition = .imageLeading
+            statusItem?.length = NSStatusItem.variableLength
         } else {
             button.title = ""
             button.font = nil
             button.imagePosition = .imageOnly
+            statusItem?.length = NSStatusItem.squareLength
         }
         button.toolTip = toolTip ?? "Toki"
     }
@@ -86,8 +136,7 @@ private extension MenuBarStatusItemController {
             .compactMap { name -> NSImage? in
                 guard let url = Bundle.main.url(forResource: name, withExtension: "png"),
                       let image = NSImage(contentsOf: url) else { return nil }
-                image.isTemplate = true
-                return image
+                return preparedMenuBarAnimationFrame(image)
             }
     }
 

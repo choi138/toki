@@ -18,6 +18,10 @@ build/
 *.dSYM.zip
 *.dSYM
 
+# Python tooling
+__pycache__/
+*.pyc
+
 # macOS
 .DS_Store
 .AppleDouble

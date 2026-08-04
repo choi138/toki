@@ -67,6 +67,58 @@
           "**/DerivedData/**"
         ]
       }
+    },
+    "codex-review-loop": {
+      "type": "workflow",
+      "enforcement": "suggest",
+      "priority": "high",
+      "description": "Toki local code-review workflow with additive specialist lanes, P0-P3 findings, explicit fix gates, targeted verification, and bounded re-review.",
+      "additionalContext": "This request appears to ask for a Toki code review or review-and-fix loop. Apply `codex-review-loop`. Keep review read-only until the user explicitly approves edits or commits, and keep push, PR comments, reviews, labels, merges, and other GitHub writes outside the loop.",
+      "promptTriggers": {
+        "keywords": [
+          "codex review loop",
+          "review loop",
+          "review and fix",
+          "code review",
+          "리뷰 루프",
+          "코드 리뷰",
+          "코드리뷰",
+          "리뷰하고 수정",
+          "리뷰 후 수정",
+          "재리뷰"
+        ],
+        "intentPatterns": [
+          "(review|리뷰).*(diff|change|branch|commit|수정|변경|브랜치|커밋)",
+          "(diff|change|branch|commit|수정|변경|브랜치|커밋).*(review|리뷰)",
+          "(review|리뷰).*\\b[0-9a-f]{7,64}\\b",
+          "\\b[0-9a-f]{7,64}\\b.*(review|리뷰)",
+          "(fix|address|수정|해결).*(review finding|review feedback|리뷰 지적|리뷰 결과)"
+        ]
+      },
+      "fileTriggers": {
+        "pathPatterns": [
+          "**/Toki/**/*.swift",
+          "**/TokiTests/**/*.swift",
+          "**/Sources/**/*.swift",
+          "**/Tests/**/*.swift",
+          "**/TokiHub/**/*.swift",
+          "**/Package.swift",
+          "**/Package.resolved",
+          "**/project.yml",
+          "**/.swiftformat",
+          "**/.swiftlint.yml",
+          "**/.github/workflows/**"
+        ],
+        "pathExclusions": [
+          "**/.git/**",
+          "**/.hermes/**",
+          "**/.omo/**",
+          "**/.senpi/**",
+          "**/.codegraph/**",
+          "**/build/**",
+          "**/DerivedData/**"
+        ]
+      }
     }
   }
 }

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Toki Codex Review Loop"
+  short_description: "Route Toki review lanes and fix approved findings"
+  default_prompt: "Use $codex-review-loop to review the current Toki changes and report findings before any fixes."

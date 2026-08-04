@@ -74,8 +74,12 @@ const main = (): void => {
   }
 
   const skills = rules.skills ?? {};
+  const isReviewChild = process.env.TOKI_REVIEW_CHILD === "1";
 
   const matched = Object.entries(skills).flatMap(([name, rule]) => {
+    if (isReviewChild && name === "codex-review-loop") {
+      return [];
+    }
     const triggers = rule.promptTriggers;
     const hasTriggers = triggers !== undefined;
 
