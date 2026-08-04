@@ -75,10 +75,13 @@ def untracked_semantic_diff(
         candidate = repo / path
         if candidate.is_symlink():
             continue
-        candidate = candidate.resolve()
+        # A parent component can still be a symbolic link loop, which resolve()
+        # reports as RuntimeError before Python 3.13. Treat any unresolvable
+        # candidate as incomplete inspection rather than letting it escape.
         try:
+            candidate = candidate.resolve()
             candidate.relative_to(repo_root)
-        except ValueError:
+        except (OSError, RuntimeError, ValueError):
             return bytes(changed_content), False
         if not candidate.is_file():
             continue

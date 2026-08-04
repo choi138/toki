@@ -3,6 +3,7 @@ from __future__ import annotations
 import importlib
 import json
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -13,6 +14,9 @@ from unittest import mock
 
 SKILL_DIR = Path(__file__).resolve().parents[1]
 RESOLVER = SKILL_DIR / "scripts" / "resolve_review_scope.py"
+# The runner narrows PATH to the platform default, so it can execute an older
+# interpreter than the one running these tests. Exercise the same one.
+RUNNER_PYTHON = shutil.which("python3", path=os.defpath) or "/usr/bin/python3"
 sys.path.insert(0, str(RESOLVER.parent))
 review_scope_git = importlib.import_module("review_scope_git")
 
@@ -44,7 +48,7 @@ class ScopeSecurityTests(unittest.TestCase):
 
     def resolve(self, *scope: str) -> dict:
         completed = subprocess.run(
-            ["python3", str(RESOLVER), "--repo", str(self.repo), *scope],
+            [RUNNER_PYTHON, str(RESOLVER), "--repo", str(self.repo), *scope],
             text=True,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
@@ -747,7 +751,7 @@ class ScopeSecurityTests(unittest.TestCase):
 
         completed = subprocess.run(
             [
-                "python3",
+                RUNNER_PYTHON,
                 str(RESOLVER),
                 "--repo",
                 str(self.repo),
@@ -789,7 +793,7 @@ class ScopeSecurityTests(unittest.TestCase):
 
         completed = subprocess.run(
             [
-                "python3",
+                RUNNER_PYTHON,
                 str(RESOLVER),
                 "--repo",
                 str(whitespace_repo),

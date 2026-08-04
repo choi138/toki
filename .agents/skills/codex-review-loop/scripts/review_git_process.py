@@ -155,7 +155,9 @@ def git_environment_without_filters(repo: Path) -> dict[str, str]:
         except ValueError:
             if str(resolved) not in safe_path_entries:
                 safe_path_entries.append(str(resolved))
-        except OSError:
+        except (OSError, RuntimeError):
+            # A PATH entry that cannot be resolved, including a symbolic link
+            # loop on Python before 3.13, is dropped rather than trusted.
             continue
     environment["PATH"] = os.pathsep.join(safe_path_entries)
     environment["GIT_NO_LAZY_FETCH"] = "1"
@@ -181,7 +183,10 @@ def run_git(repo: Path, arguments: list[str]) -> bytes:
 def git_root(repo: Path) -> Path:
     output = run_git(repo, ["rev-parse", "--show-toplevel"])
     root = output.decode("utf-8", errors="strict").removesuffix("\n").removesuffix("\r")
-    return Path(root).resolve()
+    try:
+        return Path(root).resolve()
+    except (OSError, RuntimeError) as error:
+        raise ScopeError("repository root cannot be resolved safely") from error
 
 
 def changed_paths_without_symlinks(repo: Path, arguments: list[str]) -> list[str]:

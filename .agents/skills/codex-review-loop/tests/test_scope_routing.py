@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import os
+import shutil
 import subprocess
 import tempfile
 import unittest
@@ -10,6 +12,9 @@ from pathlib import Path
 SKILL_DIR = Path(__file__).resolve().parents[1]
 RESOLVER = SKILL_DIR / "scripts" / "resolve_review_scope.py"
 REGISTRY = SKILL_DIR / "references" / "lane-registry.json"
+# The runner narrows PATH to the platform default, so it can execute an older
+# interpreter than the one running these tests. Exercise the same one.
+RUNNER_PYTHON = shutil.which("python3", path=os.defpath) or "/usr/bin/python3"
 
 
 class ScopeRoutingTests(unittest.TestCase):
@@ -48,7 +53,7 @@ class ScopeRoutingTests(unittest.TestCase):
 
     def resolve(self, *scope: str) -> dict:
         result = subprocess.run(
-            ["python3", str(RESOLVER), "--repo", str(self.repo), *scope],
+            [RUNNER_PYTHON, str(RESOLVER), "--repo", str(self.repo), *scope],
             text=True,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
@@ -68,7 +73,7 @@ class ScopeRoutingTests(unittest.TestCase):
             registry_path.write_text(json.dumps(registry), encoding="utf-8")
         return subprocess.run(
             [
-                "python3",
+                RUNNER_PYTHON,
                 str(RESOLVER),
                 "--repo",
                 str(self.repo),

@@ -28,7 +28,10 @@ def validate_registry_contract(
     *,
     skill_dir: Path,
 ) -> None:
-    lanes_dir = (skill_dir / "references" / "lanes").resolve()
+    try:
+        lanes_dir = (skill_dir / "references" / "lanes").resolve()
+    except (OSError, RuntimeError) as error:
+        raise RegistryError("lanes directory cannot be resolved") from error
     baseline: dict[str, Any] | None = None
     for lane in registry["lanes"]:
         lane_id = lane["id"]
@@ -59,11 +62,15 @@ def validate_registry_contract(
         prompt = lane["prompt"]
         if Path(prompt).is_absolute() or not prompt.endswith(".md"):
             raise RegistryError(f"{lane_id}.prompt must be a relative lane Markdown path")
-        prompt_path = (skill_dir / prompt).resolve()
+        # Path.resolve() raises RuntimeError on a symbolic link loop before
+        # Python 3.13, so it belongs inside the guarded block; otherwise a hostile
+        # lanes directory ends the run with an internal error instead of a
+        # RegistryError.
         try:
+            prompt_path = (skill_dir / prompt).resolve()
             prompt_path.relative_to(lanes_dir)
             prompt_path.read_text(encoding="utf-8")
-        except (OSError, UnicodeError, ValueError) as error:
+        except (OSError, RuntimeError, UnicodeError, ValueError) as error:
             raise RegistryError(f"{lane_id}.prompt is not a readable lane prompt") from error
 
     if baseline is None or baseline["always"] is not True:

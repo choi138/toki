@@ -68,6 +68,23 @@ git diff -- Toki.xcodeproj
 
 Include the generated project diff with the source configuration change.
 
+### review-loop-scripts
+
+For changes to this skill's own scripts:
+
+~~~bash
+python3 -m unittest discover -s .agents/skills/codex-review-loop/tests -p 'test_*.py'
+~~~
+
+The runner narrows `PATH` to the platform default, so it executes
+`/usr/bin/python3`, which can be much older than the ambient `python3` that runs
+these tests. The tests therefore invoke scripts through `RUNNER_PYTHON`, resolved
+with `shutil.which("python3", path=os.defpath)`, so a failure that only appears
+on the runner's interpreter is still caught. Keep the scripts working on that
+interpreter, and never assert version-specific behavior of standard-library
+calls without forcing it, as `tests/test_path_resolution.py` does for the
+`Path.resolve()` symbolic link loop that only raises before Python 3.13.
+
 ## Selection
 
 - Start with the narrowest profile named by the affected lane and path.

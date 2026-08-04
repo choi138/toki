@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import os
+import shutil
 import subprocess
 import tempfile
 import unittest
@@ -10,6 +12,9 @@ from pathlib import Path
 
 SKILL_DIR = Path(__file__).resolve().parents[1]
 MERGER = SKILL_DIR / "scripts" / "merge_findings.py"
+# The runner narrows PATH to the platform default, so it can execute an older
+# interpreter than the one running these tests. Exercise the same one.
+RUNNER_PYTHON = shutil.which("python3", path=os.defpath) or "/usr/bin/python3"
 
 
 def finding(
@@ -59,7 +64,7 @@ class FindingMergeTests(unittest.TestCase):
 
     def run_merger(self, *arguments: str, check: bool = True) -> subprocess.CompletedProcess[str]:
         return subprocess.run(
-            ["python3", str(MERGER), *arguments],
+            [RUNNER_PYTHON, str(MERGER), *arguments],
             text=True,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,

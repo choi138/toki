@@ -70,10 +70,13 @@ def load_registry(path: Path) -> dict[str, Any]:
         prompt = lane.get("prompt")
         if not isinstance(prompt, str) or not prompt:
             raise ScopeError(f"{lane_id}.prompt must be a non-empty string")
-        prompt_path = (SKILL_DIR / prompt).resolve()
+        # Path.resolve() raises RuntimeError on a symbolic link loop before
+        # Python 3.13, so it has to fail closed as a ScopeError like every other
+        # path rejection instead of escaping as an internal error.
         try:
+            prompt_path = (SKILL_DIR / prompt).resolve()
             prompt_path.relative_to(SKILL_DIR)
-        except ValueError as error:
+        except (OSError, RuntimeError, ValueError) as error:
             raise ScopeError(f"{lane_id}.prompt escapes the skill directory") from error
         if not prompt_path.is_file():
             raise ScopeError(f"lane prompt does not exist: {prompt}")
@@ -252,7 +255,7 @@ def main() -> int:
     arguments = parse_arguments()
     try:
         result = resolve(arguments)
-    except (OSError, ScopeError) as error:
+    except (OSError, RuntimeError, ScopeError) as error:
         print(f"resolve_review_scope.py: {error}", file=sys.stderr)
         return 2
 
