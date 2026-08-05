@@ -439,6 +439,28 @@ final class UsageModelActiveTimeReportTests: XCTestCase {
     }
 }
 
+final class RawTokenUsageFallbackTimeTests: XCTestCase {
+    func test_recomputeKeepsModelWallClockForFallbackOnlyUsage() {
+        // A reader that reports totals without timestamps contributes no activity
+        // events, so the recompute returns before the estimate runs. The per-model
+        // wall clock still has to carry the fallback duration; otherwise the export
+        // column reports an unmeasured zero for time that was in fact measured.
+        var fallbackOnly = RawTokenUsage()
+        fallbackOnly.perModel["gpt-5.4"] = PerModelUsage(
+            totalTokens: 100,
+            activeSeconds: 120,
+            sources: ["Cursor"])
+
+        var combined = RawTokenUsage()
+        combined += fallbackOnly
+        combined.recomputeMergedActiveEstimate()
+
+        XCTAssertTrue(combined.activityEvents.isEmpty)
+        XCTAssertEqual(combined.perModel["gpt-5.4"]?.activeSeconds ?? 0, 120, accuracy: 0.001)
+        XCTAssertEqual(combined.perModel["gpt-5.4"]?.wallClockSeconds ?? 0, 120, accuracy: 0.001)
+    }
+}
+
 private func usageServiceActiveTimeISODate(_ value: String) -> Date {
     guard let date = DateParser.parse(value) else {
         XCTFail("Failed to parse ISO date: \(value)")

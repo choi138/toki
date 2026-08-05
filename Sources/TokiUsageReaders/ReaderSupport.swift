@@ -78,6 +78,12 @@ public extension RawTokenUsage {
         source: String? = nil,
         clippingEndDate: Date? = nil) {
         guard !activityEvents.isEmpty else {
+            // Readers that report totals without timestamps never reach the estimate
+            // below, so carry their duration into the wall-clock field here. Leaving it
+            // at zero would export an unmeasured zero for time that was measured.
+            for modelID in perModel.keys {
+                perModel[modelID]?.wallClockSeconds = fallbackActiveSecondsByModel[modelID, default: 0]
+            }
             let fallbackOnlyWorkTime = resolvedFallbackWorkTime
             fallbackWorkTime = fallbackOnlyWorkTime
             workTime = fallbackOnlyWorkTime
