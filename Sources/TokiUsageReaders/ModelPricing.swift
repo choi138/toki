@@ -143,6 +143,16 @@ private let exactPricingTable: [String: ModelPrice] = [
     // distinct exact key rather than a priced-down prefix of GLM-5.2.
     "zai-org/GLM-5.2": price(1.40, 4.40, 1.40, 1.40),
     "zai-org/GLM-5.2-Batch": price(0.70, 2.20, 0.70, 0.70),
+
+    // ZenMux routes Kimi K3 under both a paid and a free model ID, where the free
+    // one is genuinely $0 rather than unknown. The paid rates match Moonshot's
+    // official $3/$15 with a $0.30 cache-hit rate; neither ID publishes a
+    // cache-write rate, so cache writes fall back to zero.
+    // Both keys are exact-only (see exactOnlyPricingKeys). This matters in both
+    // directions: the free ID must not inherit the paid rates through a
+    // moonshotai/kimi-k3 prefix match, and no future tier may inherit either.
+    "moonshotai/kimi-k3": price(3.0, 15.0, 0.30),
+    "moonshotai/kimi-k3-free": price(0, 0, 0),
 ]
 
 private let exactOnlyPricingKeys: Set = [
@@ -157,6 +167,8 @@ private let exactOnlyPricingKeys: Set = [
     "grok-code",
     "zai-org/GLM-5.2",
     "zai-org/GLM-5.2-Batch",
+    "moonshotai/kimi-k3",
+    "moonshotai/kimi-k3-free",
 ]
 
 private let prefixPricingTable: [String: ModelPrice] = exactPricingTable.filter { key, _ in

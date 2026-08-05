@@ -146,4 +146,40 @@ final class ModelPricingBehaviorTests: XCTestCase {
         XCTAssertNil(modelPrice(for: "zai-org/GLM-5.2-Other"))
         XCTAssertNil(modelPrice(for: "zai-org/GLM-5.2-preview"))
     }
+
+    func test_modelPrice_matchesZenmuxKimiK3() throws {
+        let paid = try XCTUnwrap(modelPrice(for: "moonshotai/kimi-k3"))
+        XCTAssertEqual(paid.inputPerMillion, 3.0, accuracy: 0.0001)
+        XCTAssertEqual(paid.outputPerMillion, 15.0, accuracy: 0.0001)
+        XCTAssertEqual(paid.cacheReadPerMillion, 0.30, accuracy: 0.0001)
+        XCTAssertEqual(paid.cacheWritePerMillion, 0, accuracy: 0.0001)
+    }
+
+    func test_modelPrice_treatsFreeKimiK3AsPricedAtZero() throws {
+        // The free route is genuinely $0, not an unknown price, so it must resolve
+        // to a zero-rate entry rather than being reported as unpriced.
+        let free = try XCTUnwrap(modelPrice(for: "moonshotai/kimi-k3-free"))
+        XCTAssertEqual(free.inputPerMillion, 0, accuracy: 0.0001)
+        XCTAssertEqual(free.outputPerMillion, 0, accuracy: 0.0001)
+        XCTAssertEqual(free.cacheReadPerMillion, 0, accuracy: 0.0001)
+        XCTAssertEqual(
+            free.cost(input: 1_000_000, output: 1_000_000, cacheRead: 1_000_000, cacheWrite: 0),
+            0,
+            accuracy: 0.0001)
+
+        let interval = DateInterval(start: Date(timeIntervalSince1970: 1_785_196_800), duration: 86400)
+        XCTAssertTrue(modelPriceIsKnown(for: "moonshotai/kimi-k3-free", throughout: interval))
+    }
+
+    func test_modelPrice_keepsFreeAndPaidKimiK3Independent() {
+        // Both keys are exact-only. The free ID must not inherit the paid rates
+        // through a moonshotai/kimi-k3 prefix match, and no other variant may
+        // inherit either rate.
+        XCTAssertEqual(
+            modelPriceLookup(for: "moonshotai/kimi-k3-free", at: Date()).match,
+            .exact(modelId: "moonshotai/kimi-k3-free"))
+        XCTAssertNil(modelPrice(for: "moonshotai/kimi-k3-turbo"))
+        XCTAssertNil(modelPrice(for: "moonshotai/kimi-k3-free-preview"))
+        XCTAssertNil(modelPrice(for: "moonshotai/kimi-k2.6"))
+    }
 }
