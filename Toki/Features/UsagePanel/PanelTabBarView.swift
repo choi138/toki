@@ -136,7 +136,7 @@ struct PanelTabBarView: View {
                     frames: dragStartFrames)
             }
             .onEnded { value in
-                endDrag(for: tab, translationWidth: value.translation.width)
+                endDrag(for: tab, translation: value.translation, releaseLocation: value.location)
             }
     }
 
@@ -155,13 +155,20 @@ struct PanelTabBarView: View {
         previewOrder = tabs
     }
 
-    private func endDrag(for tab: PanelTab, translationWidth: CGFloat) {
+    private func endDrag(for tab: PanelTab, translation: CGSize, releaseLocation: CGPoint) {
         let reorderedTabs = validatedPreviewOrder
-        let isReorderDrag = PanelTabReordering.isReorderDrag(translationWidth: translationWidth)
+        let isReorderDrag = PanelTabReordering.isReorderDrag(translationWidth: translation.width)
+        let tabSize = measuredFrames[tab]?.size
         resetDragState()
 
         guard isReorderDrag else {
-            activeTab = tab
+            let selects = PanelTabReordering.isSelectionTap(
+                translation: translation,
+                releaseLocation: releaseLocation,
+                tabSize: tabSize)
+            if selects {
+                activeTab = tab
+            }
             return
         }
         guard reorderedTabs != tabs else { return }

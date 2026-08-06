@@ -180,6 +180,42 @@ final class PanelTabReorderingTests: XCTestCase {
         }
     }
 
+    private let tabSize = CGSize(width: 40, height: 26)
+
+    func test_clickReleasedOverTheTabSelectsIt() {
+        XCTAssertTrue(PanelTabReordering.isSelectionTap(
+            translation: .zero,
+            releaseLocation: CGPoint(x: 20, y: 13),
+            tabSize: tabSize))
+    }
+
+    /// Dragging off the tab and releasing must not activate it, the way a
+    /// Button cancels when the pointer leaves before mouse-up.
+    func test_releaseOutsideTheTabDoesNotSelectIt() {
+        XCTAssertFalse(PanelTabReordering.isSelectionTap(
+            translation: CGSize(width: 1, height: 40),
+            releaseLocation: CGPoint(x: 20, y: 66),
+            tabSize: tabSize))
+        XCTAssertFalse(PanelTabReordering.isSelectionTap(
+            translation: CGSize(width: 1, height: -2),
+            releaseLocation: CGPoint(x: -5, y: 13),
+            tabSize: tabSize))
+    }
+
+    func test_verticalTravelBeyondThresholdIsNotASelection() {
+        XCTAssertFalse(PanelTabReordering.isSelectionTap(
+            translation: CGSize(width: 0, height: 4),
+            releaseLocation: CGPoint(x: 20, y: 13),
+            tabSize: tabSize))
+    }
+
+    func test_unmeasuredTabStaysClickable() {
+        XCTAssertTrue(PanelTabReordering.isSelectionTap(
+            translation: .zero,
+            releaseLocation: CGPoint(x: 20, y: 13),
+            tabSize: nil))
+    }
+
     func test_shortTravelIsTreatedAsSelectionRatherThanReorder() {
         XCTAssertFalse(PanelTabReordering.isReorderDrag(translationWidth: 0))
         XCTAssertFalse(PanelTabReordering.isReorderDrag(translationWidth: 3.9))

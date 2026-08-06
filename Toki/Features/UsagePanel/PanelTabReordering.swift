@@ -11,6 +11,23 @@ enum PanelTabReordering {
         abs(translationWidth) >= minimumReorderDistance
     }
 
+    /// A press only selects when it stays click-sized in both axes and is
+    /// released over the tab, matching how a `Button` cancels when the pointer
+    /// is dragged away before mouse-up.
+    ///
+    /// `releaseLocation` is in the tab's own coordinate space. A nil `tabSize`
+    /// means the row has not been measured yet, and the tab stays clickable.
+    static func isSelectionTap(
+        translation: CGSize,
+        releaseLocation: CGPoint,
+        tabSize: CGSize?) -> Bool {
+        guard abs(translation.width) < minimumReorderDistance,
+              abs(translation.height) < minimumReorderDistance else { return false }
+        guard let tabSize else { return true }
+        return (0...tabSize.width).contains(releaseLocation.x)
+            && (0...tabSize.height).contains(releaseLocation.y)
+    }
+
     /// Places `tab` at the slot matching `centerX`, keeping every other tab in
     /// its measured left-to-right position.
     ///
