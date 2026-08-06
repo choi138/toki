@@ -16,6 +16,75 @@ and security checks. Optional end-to-end encrypted remote sync can add those
 same supported local sources from Linux/Ubuntu or other macOS computers without
 giving Toki SSH or filesystem access.
 
+**What makes Toki different from a token counter:** it measures how long your
+agents actually worked — direct main-agent time, delegated subagent time,
+wall-clock overlap, and a parallel multiplier — not just how many tokens they
+spent.
+
+---
+
+## Install
+
+### Download the app
+
+1. Download `Toki-macOS.zip` from the
+   [latest release](https://github.com/choi138/toki/releases/latest).
+2. Unzip it and move `Toki.app` into `/Applications`.
+3. Toki is **not yet signed with an Apple Developer ID**, so macOS blocks it on
+   first launch with a "damaged and can't be opened" or "unidentified developer"
+   message. Clear the quarantine flag once:
+
+   ```bash
+   xattr -dr com.apple.quarantine /Applications/Toki.app
+   ```
+
+   Add `sudo` if you get a permission error. Then open Toki normally.
+
+<details>
+<summary>Prefer not to use the terminal?</summary>
+
+On macOS 15 (Sequoia) and later, the Control-click → Open shortcut no longer
+works. Instead:
+
+1. Try to open Toki, then dismiss the warning.
+2. Open **System Settings → Privacy & Security**, scroll to the bottom, and
+   click **Open Anyway** next to Toki (within one hour of the warning).
+3. Enter your admin password, then open Toki again and confirm.
+
+Run Toki from `/Applications` rather than `~/Downloads`, otherwise macOS App
+Translocation runs it from a hidden read-only copy.
+
+</details>
+
+> **Why the extra step?** Notarizing a macOS app requires a paid Apple Developer
+> account. Toki does not have one yet. Every release is built in public by the
+> [Release workflow](.github/workflows/release.yml) from the tagged commit, and
+> the full source is in this repository — you can also build it yourself below.
+
+### Build from source
+
+```bash
+git clone https://github.com/choi138/toki.git
+cd toki
+brew install xcodegen swiftlint swiftformat
+xcodegen generate
+open Toki.xcodeproj
+```
+
+Then build and run the `Toki` scheme in Xcode. Locally built apps are not
+quarantined, so no `xattr` step is needed.
+
+### Uninstall
+
+```bash
+rm -rf /Applications/Toki.app
+rm -rf ~/Library/Application\ Support/Toki
+defaults delete com.toki.app 2>/dev/null
+```
+
+Toki never writes to your agents' data directories, so removing it leaves every
+tracked tool untouched.
+
 ---
 
 ## Screenshots
@@ -115,30 +184,49 @@ rotation, and the full threat model.
 
 ---
 
+## Troubleshooting
+
+**"Toki.app is damaged and can't be opened" / "unidentified developer"**
+Toki is unsigned. Run `xattr -dr com.apple.quarantine /Applications/Toki.app`,
+or follow the System Settings route in [Install](#install).
+
+**A tool I use shows zero usage**
+Open the **Sources** tab and check its reader status. A disabled reader, a
+missing data directory, or a non-default install location all show up there. If
+the reader reports a failure, the header shows an amber badge that jumps
+straight to the diagnostics.
+
+**My tool isn't listed at all**
+Only the agents in [Supported Agents](#supported-agents) are read today. Open an
+issue with your tool's local data path and a redacted log sample, or add a
+reader yourself — see [Contributing](#contributing).
+
+**Costs look wrong or a model shows no cost**
+Toki prefers curated bundled prices and falls back to LiteLLM's public catalog.
+Models it has no price for stay visible as unpriced rows rather than being
+folded into the total, so a missing price never silently inflates or deflates
+your spend. Open an issue with the model ID if you hit one.
+
+**Cursor shows context-window numbers instead of tokens**
+Cursor does not always record exact token counts locally. Toki shows exact rows
+when they exist and reports context-window metrics separately when they do not.
+
+---
+
 ## Requirements
 
+**To run Toki**
+
 - macOS 13.0 or later
-- Xcode 15 or later for local development
+
+**To build from source**
+
+- Xcode 15 or later
 - [XcodeGen](https://github.com/yonaskolb/XcodeGen) (`brew install xcodegen`)
 - [SwiftLint](https://github.com/realm/SwiftLint) (`brew install swiftlint`)
 - [SwiftFormat](https://github.com/nicklockwood/SwiftFormat) (`brew install swiftformat`)
 - Apple Developer account only when producing signed/notarized release builds
 - Optional Linux Agent/Hub: Swift 5.9.2 or later and `libsqlite3-dev`
-
-## Getting Started
-
-Download a release artifact from
-[GitHub Releases](https://github.com/choi138/toki/releases), or build locally:
-
-```bash
-git clone https://github.com/choi138/toki.git
-cd toki
-brew install xcodegen swiftlint swiftformat
-xcodegen generate
-open Toki.xcodeproj
-```
-
-Then build and run the `Toki` scheme in Xcode.
 
 Remote Agent and Hub builds use SwiftPM:
 
@@ -200,6 +288,54 @@ xcodebuild test \
 
 CI runs formatting, linting, XcodeGen, build, and tests on macOS, plus SwiftPM
 tests and release builds for the Agent and Hub on Ubuntu.
+
+## Contributing
+
+Issues and pull requests are welcome. **Issues in languages other than English
+are fine** — write in whatever you are comfortable with.
+
+Good places to start are labelled
+[`good first issue`](https://github.com/choi138/toki/labels/good%20first%20issue).
+
+### Add support for a new agent
+
+This is the most useful contribution, and it is smaller than it looks — a
+minimal reader is around 130 lines. Readers live in the `TokiUsageReaders`
+SwiftPM package, so `swift build` works without Xcode.
+
+1. Find where your tool stores usage locally (JSONL logs or a SQLite database).
+2. Copy the closest existing reader as a starting point:
+   - JSONL logs → `Sources/TokiUsageReaders/OpenClawReader.swift` (131 lines,
+     the simplest one)
+   - SQLite → `Sources/TokiUsageReaders/OpenCodeReader.swift`
+3. Conform to `TokenReader` (`Sources/TokiUsageCore/TokenReader.swift`). Only
+   `name` and `readUsage(from:to:)` are required; token and output totals have
+   default implementations.
+4. Register it in `Sources/TokiUsageReaders/LocalUsageReaderRegistry.swift`
+   (see the existing `LocalUsageReaderDescriptor` list), adding a path override
+   so tests can point at a fixture directory.
+5. Add a test next to the others in `TokiTests/`, modelled on
+   `TokiTests/OpenClawReaderTests.swift`.
+6. Add a row to [Supported Agents](#supported-agents).
+
+**No sample logs? Open an issue instead.** A redacted snippet of your tool's
+local usage file plus its path is genuinely useful on its own — it is the part
+that cannot be written without access to the tool.
+
+### Add or fix model pricing
+
+The lowest-barrier contribution: `Sources/TokiUsageReaders/ModelPricing.swift`
+is a table of per-model rates. Adding a model is a few lines and CI validates
+it, so you can edit it straight from the GitHub web editor. Include a link to
+the provider's public pricing page in the PR.
+
+### Before opening a PR
+
+Run the checks listed under [Development](#development). If you changed date,
+cost, token, reader status, attribution, or security audit behavior, add or
+update a focused test — see
+[`.agents/skills/project-conventions/`](.agents/skills/project-conventions/)
+for the full conventions.
 
 ## Release
 
