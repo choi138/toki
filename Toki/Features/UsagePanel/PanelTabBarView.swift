@@ -78,7 +78,14 @@ struct PanelTabBarView: View {
         .zIndex(isDragging ? 1 : 0)
         .gesture(dragGesture(for: tab))
         .onHover { isHovering in
-            guard draggingTab == nil else { return }
+            guard draggingTab == nil else {
+                // Exit events still have to land during a drag, otherwise a tab
+                // the pointer has left keeps its hover colors after mouse-up.
+                if !isHovering, hoveredTab == tab {
+                    hoveredTab = nil
+                }
+                return
+            }
             hoveredTab = isHovering ? tab : nil
         }
         .help(tab.title)
