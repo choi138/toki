@@ -50,6 +50,7 @@ struct PanelSettingsView: View {
                                 set: { settings.setShowsMenuBarCost($0) }))
                         autoUpdatePricingToggle
                         launchAtLoginToggle
+                        resetTabOrderRow
                         if let errorMessage = launchAtLogin.errorMessage {
                             Text(errorMessage)
                                 .font(.system(size: 10, weight: .medium))
@@ -130,6 +131,24 @@ struct PanelSettingsView: View {
                 set: { launchAtLogin.setEnabled($0) }))
             .disabled(launchAtLogin.isUpdating)
             .opacity(launchAtLogin.isUpdating ? 0.5 : 1)
+    }
+
+    private var resetTabOrderRow: some View {
+        HStack(spacing: 8) {
+            Text("Tab order")
+                .font(.system(size: 12))
+                .foregroundColor(Color.white.opacity(0.74))
+            Spacer(minLength: 0)
+            Button("Reset") {
+                settings.resetTabOrder()
+            }
+            .buttonStyle(.plain)
+            .font(.system(size: 11, weight: .semibold))
+            .foregroundColor(Color.white.opacity(settings.isUsingDefaultTabOrder ? 0.3 : 0.7))
+            .disabled(settings.isUsingDefaultTabOrder)
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 7)
     }
 
     private var divider: some View {

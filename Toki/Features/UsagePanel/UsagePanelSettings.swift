@@ -63,6 +63,12 @@ final class UsagePanelSettings: ObservableObject {
         }
     }
 
+    @Published private(set) var tabOrder: [PanelTab] {
+        didSet {
+            defaults.set(tabOrder.map(\.rawValue), forKey: Keys.tabOrder)
+        }
+    }
+
     private let defaults: UserDefaults
     private let refreshPricingCatalog: (Bool) async -> Bool
     private var pricingCatalogRefreshTask: Task<Void, Never>?
@@ -91,6 +97,7 @@ final class UsagePanelSettings: ObservableObject {
 
         autoUpdatesModelPricing = Self.isAutoUpdatePricingEnabled(defaults: defaults)
         showsMenuBarCost = Self.isMenuBarCostEnabled(defaults: defaults)
+        tabOrder = Self.normalizedTabOrder(defaults.stringArray(forKey: Keys.tabOrder) ?? [])
     }
 
     func isReaderEnabled(_ name: String) -> Bool {
@@ -135,6 +142,20 @@ final class UsagePanelSettings: ObservableObject {
         NotificationCenter.default.post(name: .usagePanelMenuBarCostSettingDidChange, object: nil)
     }
 
+    func setTabOrder(_ order: [PanelTab]) {
+        let normalizedOrder = Self.normalizedTabOrder(order.map(\.rawValue))
+        guard tabOrder != normalizedOrder else { return }
+        tabOrder = normalizedOrder
+    }
+
+    func resetTabOrder() {
+        setTabOrder(PanelTab.allCases)
+    }
+
+    var isUsingDefaultTabOrder: Bool {
+        tabOrder == PanelTab.allCases
+    }
+
     /// Reads the persisted flag without requiring a settings instance so the
     /// app-level refresh loop can consult the latest value.
     nonisolated static func isAutoUpdatePricingEnabled(defaults: UserDefaults = .standard) -> Bool {
@@ -168,6 +189,21 @@ private extension UsagePanelSettings {
         static let showsZeroSourceRows = "usagePanel.showsZeroSourceRows"
         static let autoUpdatesModelPricing = "usagePanel.autoUpdatesModelPricing"
         static let showsMenuBarCost = "usagePanel.showsMenuBarCost"
+        static let tabOrder = "usagePanel.tabOrder"
+    }
+
+    /// Drops unknown or duplicated raw values and appends any tab the stored
+    /// order predates, so a shipped tab is never lost from the tab bar.
+    static func normalizedTabOrder(_ stored: [String]) -> [PanelTab] {
+        let storedTabs = stored.compactMap(PanelTab.init(rawValue:))
+        let uniqueStoredTabs = storedTabs.reduce(into: [PanelTab]()) { result, tab in
+            guard !result.contains(tab) else { return }
+            result.append(tab)
+        }
+        let missingTabs = PanelTab.allCases.filter { tab in
+            !uniqueStoredTabs.contains(tab)
+        }
+        return uniqueStoredTabs + missingTabs
     }
 
     nonisolated static func normalizedRefreshInterval(_ seconds: Int) -> Int {

@@ -6,74 +6,11 @@ enum UsagePanelLayout {
     static let height: CGFloat = 420
 }
 
-enum PanelTab: CaseIterable, Hashable, Identifiable {
-    case overview
-    case projects
-    case byModel
-    case sources
-    case workTime
-    case hourly
-
-    var id: Self {
-        self
-    }
-
-    var title: String {
-        switch self {
-        case .overview:
-            "Overview"
-        case .projects:
-            "Projects"
-        case .byModel:
-            "Models"
-        case .sources:
-            "Sources"
-        case .workTime:
-            "Time"
-        case .hourly:
-            "Hourly"
-        }
-    }
-
-    var systemImage: String {
-        switch self {
-        case .overview:
-            "chart.pie.fill"
-        case .projects:
-            "folder.fill"
-        case .byModel:
-            "cpu"
-        case .sources:
-            "tray.full.fill"
-        case .workTime:
-            "clock.fill"
-        case .hourly:
-            "chart.bar.fill"
-        }
-    }
-
-    var accentColor: Color {
-        switch self {
-        case .overview:
-            Color(red: 0.55, green: 0.45, blue: 1.0)
-        case .projects:
-            Color(red: 0.40, green: 0.68, blue: 1.0)
-        case .byModel:
-            Color(red: 0.42, green: 0.84, blue: 0.70)
-        case .sources:
-            Color(red: 1.0, green: 0.66, blue: 0.36)
-        case .workTime:
-            Color(red: 0.95, green: 0.52, blue: 0.70)
-        case .hourly:
-            Color(red: 0.75, green: 0.70, blue: 1.0)
-        }
-    }
-}
-
 struct UsagePanelView: View {
     @StateObject private var viewModel = UsagePanelViewModel()
     @ObservedObject private var tokenVelocityState: TokenVelocityState
     @State private var activeTab: PanelTab = .overview
+    @State private var tabOrder: [PanelTab] = PanelTab.allCases
     @State private var isShowingSecurityAudit = false
     @State private var isShowingSettings = false
     @State private var refreshCoordinator = UsagePanelRefreshCoordinator()
@@ -113,7 +50,10 @@ struct UsagePanelView: View {
                 originReports: viewModel.originReports,
                 onSelect: viewModel.selectUsageScope)
             panelDivider
-            PanelTabBarView(activeTab: $activeTab)
+            PanelTabBarView(
+                tabs: tabOrder,
+                activeTab: $activeTab,
+                onReorder: reorderTabs)
             panelDivider
             ScrollView(.vertical) {
                 tabContent
@@ -144,6 +84,9 @@ struct UsagePanelView: View {
         }
         .onDisappear {
             refreshCoordinator.cancel()
+        }
+        .onReceive(viewModel.settings.$tabOrder) { order in
+            tabOrder = order
         }
         .onReceive(viewModel.settings.$enabledReaderNames.dropFirst()) { _ in
             scheduleSettingsRefresh()
@@ -233,6 +176,13 @@ struct UsagePanelView: View {
 
     private func refresh() {
         Task { await refreshVisibleData() }
+    }
+
+    /// Applies the new order locally first so the tab bar settles without a
+    /// frame of the old layout, then persists it.
+    private func reorderTabs(_ order: [PanelTab]) {
+        tabOrder = order
+        viewModel.settings.setTabOrder(order)
     }
 
     private func handleRemoteSyncChange() {
