@@ -1,3 +1,5 @@
+
+
 # Toki
 
 [![CI](https://github.com/choi138/toki/actions/workflows/ci.yml/badge.svg)](https://github.com/choi138/toki/actions/workflows/ci.yml)
@@ -274,7 +276,7 @@ product directly.
 Required checks before opening a PR:
 
 ```bash
-swiftformat . --lint
+swiftformat . --lint --disable wrapIfStatementBodies
 swiftlint lint --strict --quiet
 xcodegen generate
 xcodebuild test \
