@@ -84,19 +84,21 @@ private extension AgentSourceMountMonitor {
             self.state = state
         }
 
+        /// Swift 5.9.2's corelibs Foundation, which the Linux Agent builds against, has no
+        /// `NSLock.withLock`, so lock and unlock explicitly here.
         var expectsMountInfo: Bool {
-            lock.withLock {
-                if case .unsupported = state { return false }
-                return true
-            }
+            lock.lock()
+            defer { lock.unlock() }
+            if case .unsupported = state { return false }
+            return true
         }
 
         func resolve(capturing currentRoots: [String: String]) -> [String: String] {
-            lock.withLock {
-                if case let .monitoring(roots) = state { return roots }
-                state = .monitoring(currentRoots)
-                return currentRoots
-            }
+            lock.lock()
+            defer { lock.unlock() }
+            if case let .monitoring(roots) = state { return roots }
+            state = .monitoring(currentRoots)
+            return currentRoots
         }
     }
 }
