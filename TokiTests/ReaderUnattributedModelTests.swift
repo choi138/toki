@@ -107,6 +107,64 @@ final class ReaderUnattributedModelTests: XCTestCase {
         XCTAssertGreaterThan(row.activeSeconds, 0)
     }
 
+    func test_claudeCodeEntriesWithoutAModelKeepUnattributedUsageInModelRows() {
+        let usage = ClaudeCodeReader.usage(
+            fromJSONLLines: [
+                // An assistant entry whose message carries usage but no model name.
+                #"{"timestamp":"2026-04-10T12:00:00Z","type":"assistant","requestId":"req-1","#
+                    + #""message":{"id":"msg-1","usage":{"input_tokens":300,"output_tokens":40}}}"#,
+            ],
+            streamID: "/tmp/claude-session.jsonl",
+            from: tokiTestISODate("2026-04-10T00:00:00Z"),
+            to: tokiTestISODate("2026-04-11T00:00:00Z"))
+
+        let mixed = usage.perModel[UsageModelGrouping.mixedOrUnattributedKey]
+
+        XCTAssertEqual(usage.totalTokens, 340, "Claude Code fixture was not picked up")
+        XCTAssertEqual(mixed?.totalTokens, 340)
+        XCTAssertEqual(mixed?.sources, ["Claude Code"])
+    }
+
+    func test_cursorBubblesWithoutAModelKeepUnattributedUsageInModelRows() {
+        let usage = CursorReader.usage(
+            fromBubblePayloads: [
+                // A token bubble with no matching model bubble.
+                #"{"bubbleId":"b1","usageUuid":"u1","createdAt":"2026-04-10T12:00:00Z","#
+                    + #""tokenCount":{"inputTokens":300,"outputTokens":40}}"#,
+            ],
+            from: tokiTestISODate("2026-04-10T00:00:00Z"),
+            to: tokiTestISODate("2026-04-11T00:00:00Z"))
+
+        let mixed = usage.perModel[UsageModelGrouping.mixedOrUnattributedKey]
+
+        XCTAssertEqual(usage.totalTokens, 340, "Cursor fixture was not picked up")
+        XCTAssertEqual(mixed?.totalTokens, 340)
+        XCTAssertEqual(mixed?.sources, ["Cursor"])
+    }
+
+    func test_codexRolloutsWithoutAModelKeepUnattributedUsageInModelRows() {
+        let usage = CodexReader.usage(
+            fromRolloutLines: [
+                tokenCountLine(
+                    ts: "2026-04-10T12:00:00Z",
+                    input: 300,
+                    cachedInput: 0,
+                    output: 40,
+                    reasoning: 0,
+                    total: 340),
+            ],
+            model: nil,
+            from: tokiTestISODate("2026-04-10T00:00:00Z"),
+            to: tokiTestISODate("2026-04-11T00:00:00Z"),
+            streamID: "/tmp/codex-rollout.jsonl")
+
+        let mixed = usage.perModel[UsageModelGrouping.mixedOrUnattributedKey]
+
+        XCTAssertEqual(usage.totalTokens, 340, "Codex fixture was not picked up")
+        XCTAssertEqual(mixed?.totalTokens, 340)
+        XCTAssertEqual(mixed?.sources, ["Codex"])
+    }
+
     /// An event-only source must survive alongside another source that reports an authoritative
     /// row for the same mixed/unattributed key. This is the cross-source condition that used to
     /// drop it from the model breakdown entirely.

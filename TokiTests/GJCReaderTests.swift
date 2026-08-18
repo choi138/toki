@@ -1,3 +1,4 @@
+import TokiUsageCore
 import XCTest
 @testable import Toki
 @testable import TokiUsageReaders
@@ -41,6 +42,11 @@ final class GJCReaderTests: XCTestCase {
         XCTAssertEqual(usage.tokenEvents.map(\.source), ["GJC", "GJC"])
         XCTAssertEqual(usage.tokenEvents.map(\.totalTokens), [140, 67])
         XCTAssertEqual(usage.tokenEvents.map(\.model), ["gpt-5.4", nil])
+        // The unnamed-model event must also leave a per-model row, otherwise the report drops it
+        // once another source reports the shared mixed/unattributed key.
+        let mixedKey = UsageModelGrouping.mixedOrUnattributedKey
+        XCTAssertEqual(usage.perModel[mixedKey]?.totalTokens, 67)
+        XCTAssertEqual(usage.perModel[mixedKey]?.sources, ["GJC"])
     }
 
     func test_gjcReader_ignoresOutOfRangeAndNonTaskToolUsage() {
