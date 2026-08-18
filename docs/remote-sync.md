@@ -258,11 +258,21 @@ corruption instead of showing it as zero pending uploads.
 
 Optional mounts that do not exist at service startup do not become visible
 automatically if a tool creates them later. After installing a new source, or
-after a SQLite tool first creates/replaces a WAL or SHM sidecar, run
-`systemctl --user daemon-reload` and restart the Agent. The next source change
-builds one snapshot; an unchanged retained window returns to heartbeat-only
-operation. `toki-agent full-rescan` safely clears both Codex and Claude parse
-caches before forcing a verification snapshot.
+after a SQLite tool first creates a WAL or SHM sidecar that was absent when the
+service started, run `systemctl --user daemon-reload` and restart the Agent. The
+Agent cannot detect that first creation on its own: the optional bind mount is
+skipped at startup, so the new sidecar never enters the service namespace and
+never appears in the Agent's mount metadata. Until you restart, a WAL-backed
+database keeps reporting its pre-WAL contents while the Agent continues sending
+heartbeats.
+
+For source files that were mounted when the service started, the Agent detects
+atomic database or SQLite sidecar replacement and exits so the supplied
+`Restart=on-failure` policy can refresh its read-only mounts. A custom
+supervisor must likewise restart the Agent after that exit. The next source
+change builds one snapshot; an unchanged retained window returns to
+heartbeat-only operation. `toki-agent full-rescan` safely clears both Codex and
+Claude parse caches before forcing a verification snapshot.
 
 If the Agent was paired with custom `XDG_CONFIG_HOME`,
 `XDG_STATE_HOME`, or `XDG_DATA_HOME` values, add the same environment values to a

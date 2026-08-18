@@ -70,6 +70,9 @@ struct AgentSyncService {
             }
 
             let snapshot = try await snapshotBuilder.build(configuration: configuration, now: now)
+            // Bracket the source reads: a replacement during the build must not reach the Hub as a
+            // snapshot produced from a detached inode.
+            try snapshotBuilder.validateSourceMounts()
             let contentDigest = try snapshotBuilder.contentDigest(snapshot)
             if state.lastUploadedContentDigest == contentDigest {
                 state.lastSourceSignature = try await stableSourceSignature(
@@ -137,6 +140,8 @@ struct AgentSyncService {
                 try await Task.sleep(nanoseconds: UInt64(delay) * 1_000_000_000)
             } catch is CancellationError {
                 throw CancellationError()
+            } catch let error as AgentSnapshotBuilderError where error.requiresProcessRestart {
+                throw error
             } catch {
                 consecutiveFailures = min(consecutiveFailures + 1, 8)
                 let baseDelay = min(30 * (1 << (consecutiveFailures - 1)), configuration.syncIntervalSeconds)
@@ -227,9 +232,13 @@ private extension AgentSyncService {
         }
     }
 
+    /// Sends a heartbeat only after reconfirming that every monitored source still resolves to the
+    /// mount it did at startup, so a replacement during the preceding reads cannot be reported to
+    /// the Hub as a healthy, up-to-date device.
     func heartbeatAccepted(
         configuration: AgentConfiguration,
         latestSequence: UInt64) async throws -> Bool {
+        try snapshotBuilder.validateSourceMounts()
         do {
             try await hubClient.heartbeat(
                 configuration: configuration,

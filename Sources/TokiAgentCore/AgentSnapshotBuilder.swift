@@ -7,12 +7,15 @@ protocol AgentSnapshotBuilding {
     func build(configuration: AgentConfiguration, now: Date) async throws -> RemoteUsageSnapshot
     func contentDigest(_ snapshot: RemoteUsageSnapshot) throws -> String
     func prepareForSync() async throws
+    func validateSourceMounts() throws
     func resetCaches() async throws
     func sourceSignature(configuration: AgentConfiguration, now: Date) async throws -> String?
 }
 
 extension AgentSnapshotBuilding {
     func prepareForSync() async throws {}
+
+    func validateSourceMounts() throws {}
 
     func resetCaches() async throws {}
 
@@ -29,6 +32,7 @@ struct AgentSnapshotBuilder: AgentSnapshotBuilding {
     private let readerDescriptors: [LocalUsageReaderDescriptor]
     private let retentionTimeZone: TimeZone
     private let agentHermesLedgerURL: URL
+    private let sourceMountMonitor: AgentSourceMountMonitor
 
     init(
         home: URL = homeDir(),
@@ -36,7 +40,9 @@ struct AgentSnapshotBuilder: AgentSnapshotBuilding {
         rolloutUsageCache: CodexRolloutUsageCache? = nil,
         claudeUsageCache: ClaudeUsageCache? = nil,
         readerDescriptors: [LocalUsageReaderDescriptor]? = nil,
-        retentionTimeZone: TimeZone = TimeZone(secondsFromGMT: 0) ?? .current) {
+        retentionTimeZone: TimeZone = TimeZone(secondsFromGMT: 0) ?? .current,
+        sourceMountInfoProvider: @escaping AgentSourceMountMonitor.MountInfoProvider =
+            AgentSourceMountMonitor.currentProcessMountInfo) {
         let paths = LocalUsageReaderPaths(homeDirectory: home, environment: environment)
         let resolvedRolloutUsageCache = rolloutUsageCache
             ?? CodexRolloutUsageCache(
@@ -52,10 +58,10 @@ struct AgentSnapshotBuilder: AgentSnapshotBuilding {
         self.claudeUsageCache = resolvedClaudeUsageCache
         self.retentionTimeZone = retentionTimeZone
         agentHermesLedgerURL = agentLedgerURL
-        if let readerDescriptors {
-            self.readerDescriptors = readerDescriptors
+        let resolvedReaderDescriptors: [LocalUsageReaderDescriptor] = if let readerDescriptors {
+            readerDescriptors
         } else {
-            self.readerDescriptors = LocalUsageReaderRegistry.agentDescriptors(
+            LocalUsageReaderRegistry.agentDescriptors(
                 home: home,
                 environment: environment,
                 codexRolloutUsageCache: resolvedRolloutUsageCache,
@@ -74,6 +80,10 @@ struct AgentSnapshotBuilder: AgentSnapshotBuilding {
                         sourceSignatureStrategy: descriptor.sourceSignatureStrategy)
                 }
         }
+        self.readerDescriptors = resolvedReaderDescriptors
+        sourceMountMonitor = AgentSourceMountMonitor(
+            sourceLocations: resolvedReaderDescriptors.flatMap(\.sourceLocations),
+            mountInfoProvider: sourceMountInfoProvider)
     }
 
     func build(configuration: AgentConfiguration, now: Date = Date()) async throws -> RemoteUsageSnapshot {
@@ -140,9 +150,14 @@ struct AgentSnapshotBuilder: AgentSnapshotBuilding {
     }
 
     func prepareForSync() async throws {
+        try sourceMountMonitor.validate()
         _ = try HermesUsageLedgerMigrator.migrate(
             fileURL: agentHermesLedgerURL,
             mode: .apply)
+    }
+
+    func validateSourceMounts() throws {
+        try sourceMountMonitor.validate()
     }
 
     func resetCaches() async throws {
@@ -538,7 +553,13 @@ enum AgentSnapshotBuilderError: LocalizedError {
     case cacheResetFailed
     case invalidDateRange
     case readerFailed(String)
+    case sourceMountRefreshRequired
     case sourceInspectionFailed
+
+    var requiresProcessRestart: Bool {
+        if case .sourceMountRefreshRequired = self { return true }
+        return false
+    }
 
     var errorDescription: String? {
         switch self {
@@ -548,6 +569,8 @@ enum AgentSnapshotBuilderError: LocalizedError {
             "Could not construct the configured retention window."
         case let .readerFailed(name):
             "The \(name) usage reader failed. The previous remote snapshot was preserved."
+        case .sourceMountRefreshRequired:
+            "A sandboxed usage source was replaced. Restarting the Agent to refresh its read-only mounts."
         case .sourceInspectionFailed:
             "Could not inspect local usage source metadata. Run `toki-agent doctor`."
         }
