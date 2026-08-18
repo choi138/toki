@@ -96,13 +96,13 @@ public struct GJCReader: TokenReader {
                     ActivityTimeEvent(
                         streamID: sessionID,
                         timestamp: eventDate,
-                        key: model))
+                        key: UsageModelGrouping.groupingKey(for: model)))
 
-                if let model {
-                    result.perModel[model, default: PerModelUsage()].totalTokens += counts.totalTokens
-                    result.perModel[model, default: PerModelUsage()].cost += counts.cost
-                    result.perModel[model, default: PerModelUsage()].sources.insert(sourceName)
-                }
+                result.accumulatePerModelUsage(
+                    model: model,
+                    source: sourceName,
+                    totalTokens: counts.totalTokens,
+                    cost: counts.cost)
 
                 result.recordTokenEvent(
                     timestamp: eventDate,

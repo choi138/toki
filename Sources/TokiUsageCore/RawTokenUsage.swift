@@ -15,6 +15,12 @@ public enum UsageQuality: String {
 public enum UsageModelGrouping {
     public static let mixedOrUnattributedKey = "\u{0}toki:mixed-or-unattributed"
     public static let mixedOrUnattributedLabel = "Mixed / Unattributed"
+
+    /// Key that usage should be grouped under, folding a missing model name into the shared
+    /// mixed/unattributed bucket.
+    public static func groupingKey(for model: String?) -> String {
+        model?.trimmedNonEmpty ?? mixedOrUnattributedKey
+    }
 }
 
 public enum AttributionQuality: String, Codable {
@@ -350,6 +356,27 @@ public struct RawTokenUsage {
             attribution: attribution)
         guard event.totalTokens > 0 || event.cost > 0 else { return }
         tokenEvents.append(event)
+    }
+
+    /// Records a per-model row, folding usage with no model name into the shared
+    /// mixed/unattributed key.
+    ///
+    /// Every source needs a per-model row. Report building trusts authoritative per-model rows
+    /// over token events whose source labels disagree, so a source that contributes only events
+    /// disappears from the model breakdown as soon as another source reports the same key.
+    ///
+    /// Pair this with `UsageModelGrouping.groupingKey(for:)` on the matching activity events:
+    /// a row without active time replaces the event-derived estimate and would otherwise report
+    /// zero elapsed time for the source.
+    public mutating func accumulatePerModelUsage(
+        model: String?,
+        source: String,
+        totalTokens: Int,
+        cost: Double = 0) {
+        let key = UsageModelGrouping.groupingKey(for: model)
+        perModel[key, default: PerModelUsage()].totalTokens += totalTokens
+        perModel[key, default: PerModelUsage()].cost += cost
+        perModel[key, default: PerModelUsage()].sources.insert(source)
     }
 }
 

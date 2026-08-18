@@ -187,12 +187,11 @@ extension ClaudeCodeReader {
                 entryCost = 0
             }
 
-            if let modelKey {
-                let entryTokens = entry.input + entry.output + entry.cacheRead + entry.cacheWrite
-                result.perModel[modelKey, default: PerModelUsage()].totalTokens += entryTokens
-                result.perModel[modelKey, default: PerModelUsage()].cost += entryCost
-                result.perModel[modelKey, default: PerModelUsage()].sources.insert(source)
-            }
+            result.accumulatePerModelUsage(
+                model: modelKey,
+                source: source,
+                totalTokens: entry.input + entry.output + entry.cacheRead + entry.cacheWrite,
+                cost: entryCost)
 
             result.recordTokenEvent(
                 timestamp: entry.timestamp,
@@ -292,7 +291,7 @@ private struct ActivitySeries {
             ActivityTimeEvent(
                 streamID: activityStreamID,
                 timestamp: timestamp,
-                key: modelKey)
+                key: UsageModelGrouping.groupingKey(for: modelKey))
         }
     }
 

@@ -229,11 +229,11 @@ extension CursorReader {
                 requestCost = 0
             }
 
-            if let modelID {
-                usage.perModel[modelID, default: PerModelUsage()].totalTokens += requestTokens
-                usage.perModel[modelID, default: PerModelUsage()].cost += requestCost
-                usage.perModel[modelID, default: PerModelUsage()].sources.insert(source)
-            }
+            usage.accumulatePerModelUsage(
+                model: modelID,
+                source: source,
+                totalTokens: requestTokens,
+                cost: requestCost)
 
             usage.recordTokenEvent(
                 timestamp: createdAt,
@@ -250,7 +250,7 @@ extension CursorReader {
                 ActivityTimeEvent(
                     streamID: source,
                     timestamp: createdAt,
-                    key: modelID))
+                    key: UsageModelGrouping.groupingKey(for: modelID)))
         }
 
         usage.mergeActivityEvents(activityEvents, source: source, clippingEndDate: endDate)

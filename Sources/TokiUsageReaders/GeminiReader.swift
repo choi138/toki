@@ -60,6 +60,12 @@ public struct GeminiReader: TokenReader {
                 result.inputTokens += input
                 result.outputTokens += output
                 result.cacheReadTokens += cacheRead
+                // The legacy format carries no model name, so this usage groups under the shared
+                // mixed/unattributed key.
+                result.accumulatePerModelUsage(
+                    model: nil,
+                    source: name,
+                    totalTokens: input + output + cacheRead)
                 result.recordTokenEvent(
                     timestamp: fileDate,
                     source: name,
@@ -77,7 +83,7 @@ public struct GeminiReader: TokenReader {
                     ActivityTimeEvent(
                         streamID: file.path,
                         timestamp: fileDate,
-                        key: nil))
+                        key: UsageModelGrouping.groupingKey(for: nil)))
             }
         }
 
@@ -115,7 +121,7 @@ public struct GeminiReader: TokenReader {
                 ActivityTimeEvent(
                     streamID: streamID,
                     timestamp: date,
-                    key: model))
+                    key: UsageModelGrouping.groupingKey(for: model)))
 
             let entryCost: Double
             if let model, let price = modelPrice(for: model, at: date) {
@@ -129,14 +135,11 @@ public struct GeminiReader: TokenReader {
                 entryCost = 0
             }
 
-            if let model {
-                let totalTokens = input + output + cacheRead + reasoning
-                var entry = result.perModel[model, default: PerModelUsage()]
-                entry.totalTokens += totalTokens
-                entry.cost += entryCost
-                entry.sources.insert(name)
-                result.perModel[model] = entry
-            }
+            result.accumulatePerModelUsage(
+                model: model,
+                source: name,
+                totalTokens: input + output + cacheRead + reasoning,
+                cost: entryCost)
 
             result.recordTokenEvent(
                 timestamp: date,
