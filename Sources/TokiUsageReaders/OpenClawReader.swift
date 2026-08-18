@@ -88,7 +88,7 @@ public struct OpenClawReader: TokenReader {
                     ActivityTimeEvent(
                         streamID: session.streamID,
                         timestamp: eventDate,
-                        key: nil))
+                        key: UsageModelGrouping.mixedOrUnattributedKey))
                 result.recordTokenEvent(
                     timestamp: eventDate,
                     source: sourceName,
