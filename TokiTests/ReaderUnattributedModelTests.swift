@@ -1,4 +1,5 @@
 import Foundation
+import SQLite3
 import TokiUsageCore
 import XCTest
 @testable import Toki
@@ -65,5 +66,102 @@ final class ReaderUnattributedModelTests: XCTestCase {
 
         XCTAssertEqual(row.totalTokens, 340)
         XCTAssertEqual(row.sources, ["Gemini CLI"])
+    }
+
+    func test_openCodeRowsWithoutModelIDKeepUnattributedUsageAndActiveTime() async throws {
+        let directory = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("toki-opencode-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let start = tokiTestISODate("2026-04-10T00:00:00Z")
+        let end = tokiTestISODate("2026-04-11T00:00:00Z")
+        let database = directory.appendingPathComponent("opencode.db")
+        // Assistant rows carrying token usage but no modelID.
+        try makeOpenCodeDatabase(
+            at: database,
+            rows: [
+                OpenCodeFixtureRow(
+                    timestamp: tokiTestISODate("2026-04-10T12:00:00Z"),
+                    input: 300,
+                    output: 40),
+                OpenCodeFixtureRow(
+                    timestamp: tokiTestISODate("2026-04-10T12:01:00Z"),
+                    input: 400,
+                    output: 50),
+            ])
+
+        let usage = try await OpenCodeReader(dbPathOverride: database.path)
+            .readUsage(from: start, to: end)
+
+        XCTAssertEqual(usage.totalTokens, 790, "OpenCode fixture was not picked up")
+
+        let row = try XCTUnwrap(UsageReportBuilder.buildModelStats(
+            from: usage,
+            startDate: start,
+            endDate: end)
+            .first { $0.modelID == UsageModelGrouping.mixedOrUnattributedKey })
+
+        XCTAssertEqual(row.totalTokens, 790)
+        XCTAssertEqual(row.sources, ["OpenCode"])
+        XCTAssertGreaterThan(row.activeSeconds, 0)
+    }
+
+    /// An event-only source must survive alongside another source that reports an authoritative
+    /// row for the same mixed/unattributed key. This is the cross-source condition that used to
+    /// drop it from the model breakdown entirely.
+    func test_unattributedSourcesFromTwoReadersBothReachTheModelRows() {
+        let start = tokiTestISODate("2026-04-10T00:00:00Z")
+        let end = tokiTestISODate("2026-04-11T00:00:00Z")
+        var usage = RawTokenUsage()
+        usage.inputTokens = 130
+        usage.accumulatePerModelUsage(model: nil, source: "OpenClaw", totalTokens: 100)
+        usage.accumulatePerModelUsage(model: nil, source: "OpenCode", totalTokens: 30)
+
+        let rows = UsageReportBuilder.buildModelStats(
+            from: usage,
+            startDate: start,
+            endDate: end)
+            .filter { $0.modelID == UsageModelGrouping.mixedOrUnattributedKey }
+
+        XCTAssertEqual(rows.reduce(0) { $0 + $1.totalTokens }, 130)
+        XCTAssertEqual(Set(rows.flatMap(\.sources)), ["OpenClaw", "OpenCode"])
+    }
+}
+
+private struct OpenCodeFixtureRow {
+    let timestamp: Date
+    let input: Int
+    let output: Int
+}
+
+private func makeOpenCodeDatabase(
+    at url: URL,
+    rows: [OpenCodeFixtureRow]) throws {
+    var database: OpaquePointer?
+    guard sqlite3_open(url.path, &database) == SQLITE_OK, let database else {
+        throw NSError(domain: "ReaderUnattributedModelTests", code: 1)
+    }
+    defer { sqlite3_close(database) }
+
+    guard sqlite3_exec(
+        database,
+        "CREATE TABLE message (session_id TEXT, time_created INTEGER, data TEXT)",
+        nil,
+        nil,
+        nil) == SQLITE_OK else {
+        throw NSError(domain: "ReaderUnattributedModelTests", code: 2)
+    }
+
+    for row in rows {
+        let millis = Int(row.timestamp.timeIntervalSince1970 * 1000)
+        let data = #"{"role":"assistant","tokens":{"input":\#(row.input),"output":\#(row.output)}}"#
+        let insert = """
+            INSERT INTO message (session_id, time_created, data)
+            VALUES ('opencode-session', \(millis), '\(data)')
+        """
+        guard sqlite3_exec(database, insert, nil, nil, nil) == SQLITE_OK else {
+            throw NSError(domain: "ReaderUnattributedModelTests", code: 3)
+        }
     }
 }

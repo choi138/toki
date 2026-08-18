@@ -324,10 +324,11 @@ public struct HermesReader: TokenReader {
             result.reasoningTokens += counters.reasoningTokens
             result.cost += event.cost
 
-            let modelGroupingKey = event.model ?? UsageModelGrouping.mixedOrUnattributedKey
-            result.perModel[modelGroupingKey, default: PerModelUsage()].totalTokens += counters.totalTokens
-            result.perModel[modelGroupingKey, default: PerModelUsage()].cost += event.cost
-            result.perModel[modelGroupingKey, default: PerModelUsage()].sources.insert(name)
+            result.accumulatePerModelUsage(
+                model: event.model,
+                source: name,
+                totalTokens: counters.totalTokens,
+                cost: event.cost)
 
             result.recordTokenEvent(
                 timestamp: event.timestamp,
@@ -365,7 +366,7 @@ public struct HermesReader: TokenReader {
             return ActivityTimeEvent(
                 streamID: identity.streamID,
                 timestamp: identity.timestamp,
-                key: model)
+                key: UsageModelGrouping.groupingKey(for: model))
         }
         .sorted { lhs, rhs in
             if lhs.timestamp != rhs.timestamp { return lhs.timestamp < rhs.timestamp }

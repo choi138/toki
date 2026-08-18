@@ -119,7 +119,7 @@ public struct OpenCodeReader: TokenReader {
                 ActivityTimeEvent(
                     streamID: sessionID.isEmpty ? "opencode" : sessionID,
                     timestamp: messageDate,
-                    key: normalizedModelID(modelID)))
+                    key: UsageModelGrouping.groupingKey(for: normalizedModelID(modelID))))
 
             let normalizedModel = normalizedModelID(modelID)
             let messageCost: Double
@@ -135,12 +135,11 @@ public struct OpenCodeReader: TokenReader {
                 messageCost = 0
             }
 
-            if let normalizedModelID = normalizedModel {
-                let messageTokens = input + output + cacheRead + cacheWrite + reasoning
-                result.perModel[normalizedModelID, default: PerModelUsage()].totalTokens += messageTokens
-                result.perModel[normalizedModelID, default: PerModelUsage()].cost += messageCost
-                result.perModel[normalizedModelID, default: PerModelUsage()].sources.insert(name)
-            }
+            result.accumulatePerModelUsage(
+                model: normalizedModel,
+                source: name,
+                totalTokens: input + output + cacheRead + cacheWrite + reasoning,
+                cost: messageCost)
 
             result.recordTokenEvent(
                 timestamp: Date(timeIntervalSince1970: TimeInterval(timestamp) / 1000),

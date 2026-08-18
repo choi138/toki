@@ -207,11 +207,11 @@ extension CodexReader {
                 entryCost = 0
             }
 
-            if let normalizedModel {
-                result.perModel[normalizedModel, default: PerModelUsage()].totalTokens += usage.totalTokens
-                result.perModel[normalizedModel, default: PerModelUsage()].cost += entryCost
-                result.perModel[normalizedModel, default: PerModelUsage()].sources.insert("Codex")
-            }
+            result.accumulatePerModelUsage(
+                model: normalizedModel,
+                source: "Codex",
+                totalTokens: usage.totalTokens,
+                cost: entryCost)
 
             result.recordTokenEvent(
                 timestamp: entry.date,
@@ -231,7 +231,7 @@ extension CodexReader {
                     ActivityTimeEvent(
                         streamID: streamID,
                         timestamp: timestamp,
-                        key: normalizedModel,
+                        key: UsageModelGrouping.groupingKey(for: normalizedModel),
                         agentKind: agentKind)
                 },
                 source: "Codex",
@@ -280,15 +280,18 @@ extension CodexReader {
                     entryCost = 0
                 }
 
-                if let normalizedModel {
-                    result.perModel[normalizedModel, default: PerModelUsage()].totalTokens += usage.totalTokens
-                    result.perModel[normalizedModel, default: PerModelUsage()].cost += entryCost
-                    // Fallback aggregate retained only when activity events are absent.
-                    // mergeActivityEvents/recomputeMergedActiveEstimate will reset and
-                    // recompute per-model activeSeconds when events exist.
-                    result.perModel[normalizedModel, default: PerModelUsage()].activeSeconds += usage.activeSeconds
-                    result.perModel[normalizedModel, default: PerModelUsage()].sources.insert("Codex")
-                }
+                result.accumulatePerModelUsage(
+                    model: normalizedModel,
+                    source: "Codex",
+                    totalTokens: usage.totalTokens,
+                    cost: entryCost)
+                // Fallback aggregate retained only when activity events are absent.
+                // mergeActivityEvents/recomputeMergedActiveEstimate will reset and
+                // recompute per-model activeSeconds when events exist.
+                result.perModel[
+                    UsageModelGrouping.groupingKey(for: normalizedModel),
+                    default: PerModelUsage()
+                ].activeSeconds += usage.activeSeconds
             }
 
             guard let nextDay = calendar.date(byAdding: .day, value: 1, to: currentDay) else { break }
@@ -422,7 +425,7 @@ extension CodexReader {
                             ActivityTimeEvent(
                                 streamID: url.path,
                                 timestamp: Date(timeIntervalSince1970: timestamp),
-                                key: normalizedModel,
+                                key: UsageModelGrouping.groupingKey(for: normalizedModel),
                                 agentKind: agentKind)
                         })
                 }
@@ -459,7 +462,7 @@ extension CodexReader {
             return ActivityTimeEvent(
                 streamID: url.path,
                 timestamp: entry.date,
-                key: normalizedModel,
+                key: UsageModelGrouping.groupingKey(for: normalizedModel),
                 agentKind: agentKind)
         }
     }
@@ -485,7 +488,7 @@ extension CodexReader {
                         ActivityTimeEvent(
                             streamID: streamID,
                             timestamp: Date(timeIntervalSince1970: timestamp),
-                            key: model,
+                            key: UsageModelGrouping.groupingKey(for: model),
                             agentKind: agentKind)
                     })
             }
