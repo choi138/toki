@@ -557,8 +557,12 @@ enum AgentSnapshotBuilderError: LocalizedError {
     case sourceInspectionFailed
 
     var requiresProcessRestart: Bool {
-        if case .sourceMountRefreshRequired = self { return true }
-        return false
+        switch self {
+        case .sourceMountRefreshRequired, .sourceInspectionFailed:
+            true
+        default:
+            false
+        }
     }
 
     var errorDescription: String? {

@@ -3,6 +3,8 @@ Description=Toki usage collection agent
 Documentation=https://github.com/choi138/toki/blob/main/docs/remote-sync.md
 Wants=network-online.target
 After=network-online.target
+StartLimitIntervalSec=10min
+StartLimitBurst=5
 
 [Service]
 Type=simple

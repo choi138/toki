@@ -50,4 +50,24 @@ final class AgentSystemdServiceTests: XCTestCase {
         XCTAssertFalse(service.contains("BindReadOnlyPaths=-%h/.config/Cursor\n"))
         XCTAssertFalse(service.contains("BindReadOnlyPaths=-%h/.local/share/opencode\n"))
     }
+
+    func test_restartPolicyRateLimitsRepeatedFailures() throws {
+        let repositoryRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let serviceURL = repositoryRoot.appendingPathComponent("packaging/systemd/toki-agent.service")
+        let service = try String(contentsOf: serviceURL, encoding: .utf8)
+        let sections = service.components(separatedBy: "\n[Service]\n")
+        let unitSection = try XCTUnwrap(sections.first)
+        let serviceSection = try XCTUnwrap(sections.last)
+
+        XCTAssertEqual(sections.count, 2)
+        XCTAssertTrue(unitSection.contains("StartLimitIntervalSec=10min"))
+        XCTAssertTrue(unitSection.contains("StartLimitBurst=5"))
+        XCTAssertFalse(serviceSection.contains("StartLimitIntervalSec="))
+        XCTAssertFalse(serviceSection.contains("StartLimitBurst="))
+        XCTAssertTrue(serviceSection.contains("RestartSec=30s"))
+        XCTAssertGreaterThan(10 * 60, 30 * 5)
+    }
 }

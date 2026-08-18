@@ -42,8 +42,8 @@ struct AgentSourceMountMonitor {
     /// Confirms every monitored source still resolves to the mount it did when the baseline was
     /// captured.
     ///
-    /// Throws `sourceInspectionFailed` when mount metadata is expected but unreadable, so a
-    /// transient failure aborts the sync instead of permanently disabling detection, and
+    /// Throws `sourceInspectionFailed` when mount metadata is expected but unreadable, so the sync
+    /// loop can retry a transient read before requesting a guarded process restart, and
     /// `sourceMountRefreshRequired` when a monitored source was replaced or deleted.
     func validate() throws {
         guard baseline.expectsMountInfo else { return }

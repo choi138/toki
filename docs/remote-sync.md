@@ -267,12 +267,16 @@ database keeps reporting its pre-WAL contents while the Agent continues sending
 heartbeats.
 
 For source files that were mounted when the service started, the Agent detects
-atomic database or SQLite sidecar replacement and exits so the supplied
-`Restart=on-failure` policy can refresh its read-only mounts. A custom
-supervisor must likewise restart the Agent after that exit. The next source
-change builds one snapshot; an unchanged retained window returns to
-heartbeat-only operation. `toki-agent full-rescan` safely clears both Codex and
-Claude parse caches before forcing a verification snapshot.
+atomic database or SQLite sidecar replacement and exits immediately so the
+supplied `Restart=on-failure` policy can refresh its read-only mounts. An
+unreadable source-inspection step remains visible through Agent status, is
+retried twice with exponential backoff, and exits only on the third consecutive
+failure. The supplied unit limits start attempts to five in ten minutes; a
+custom supervisor must likewise restart the Agent after either exit and should
+rate-limit persistent failures. The next source change builds one snapshot; an
+unchanged retained window returns to heartbeat-only operation.
+`toki-agent full-rescan` safely clears both Codex and Claude parse caches before
+forcing a verification snapshot.
 
 If the Agent was paired with custom `XDG_CONFIG_HOME`,
 `XDG_STATE_HOME`, or `XDG_DATA_HOME` values, add the same environment values to a

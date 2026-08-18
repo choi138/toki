@@ -117,42 +117,6 @@ struct AgentSyncService {
         }
     }
 
-    func run() async throws -> Never {
-        let processLock = try AgentProcessLock.acquire(paths: paths)
-        defer { _ = processLock }
-        let configuration = try AgentConfigurationStore(paths: paths).load()
-        var consecutiveFailures = 0
-
-        let initialDelay = Self.scheduledDelay(
-            interval: configuration.syncIntervalSeconds,
-            deviceID: configuration.deviceID,
-            phase: "initial")
-        try await Task.sleep(nanoseconds: UInt64(initialDelay) * 1_000_000_000)
-
-        while true {
-            do {
-                try await syncOnceHoldingLock(now: Date(), forceSnapshotBuild: false)
-                consecutiveFailures = 0
-                let delay = Self.scheduledDelay(
-                    interval: configuration.syncIntervalSeconds,
-                    deviceID: configuration.deviceID,
-                    phase: "success")
-                try await Task.sleep(nanoseconds: UInt64(delay) * 1_000_000_000)
-            } catch is CancellationError {
-                throw CancellationError()
-            } catch let error as AgentSnapshotBuilderError where error.requiresProcessRestart {
-                throw error
-            } catch {
-                consecutiveFailures = min(consecutiveFailures + 1, 8)
-                let baseDelay = min(30 * (1 << (consecutiveFailures - 1)), configuration.syncIntervalSeconds)
-                let jitterLimit = max(1, baseDelay / 5)
-                let delay = baseDelay + Int.random(in: 0...jitterLimit)
-                AgentConsole.writeError("sync failed; retrying in \(delay)s: \(Self.publicErrorDescription(error))")
-                try await Task.sleep(nanoseconds: UInt64(delay) * 1_000_000_000)
-            }
-        }
-    }
-
     static func publicErrorDescription(_ error: Error) -> String {
         let description = knownErrorDescription(error) ?? fallbackErrorDescription(error)
         return String(description.prefix(300))
@@ -210,7 +174,75 @@ struct AgentSyncService {
     }
 }
 
+extension AgentSyncService {
+    static let sourceInspectionRestartThreshold = 3
+
+    func run(
+        sleep: (UInt64) async throws -> Void = { nanoseconds in
+            try await Task.sleep(nanoseconds: nanoseconds)
+        }) async throws -> Never {
+        let processLock = try AgentProcessLock.acquire(paths: paths)
+        defer { _ = processLock }
+        let configuration = try AgentConfigurationStore(paths: paths).load()
+        var consecutiveFailures = 0
+        var consecutiveSourceInspectionFailures = 0
+
+        let initialDelay = Self.scheduledDelay(
+            interval: configuration.syncIntervalSeconds,
+            deviceID: configuration.deviceID,
+            phase: "initial")
+        try await sleep(UInt64(initialDelay) * 1_000_000_000)
+
+        while true {
+            do {
+                try await syncOnceHoldingLock(now: Date(), forceSnapshotBuild: false)
+                consecutiveFailures = 0
+                consecutiveSourceInspectionFailures = 0
+                let delay = Self.scheduledDelay(
+                    interval: configuration.syncIntervalSeconds,
+                    deviceID: configuration.deviceID,
+                    phase: "success")
+                try await sleep(UInt64(delay) * 1_000_000_000)
+            } catch is CancellationError {
+                throw CancellationError()
+            } catch let error as AgentSnapshotBuilderError where error.requiresProcessRestart {
+                guard case .sourceInspectionFailed = error else { throw error }
+                consecutiveSourceInspectionFailures += 1
+                guard consecutiveSourceInspectionFailures < Self.sourceInspectionRestartThreshold else {
+                    throw error
+                }
+                consecutiveFailures = min(consecutiveFailures + 1, 8)
+                try await retryAfterFailure(
+                    error,
+                    consecutiveFailures: consecutiveFailures,
+                    interval: configuration.syncIntervalSeconds,
+                    sleep: sleep)
+            } catch {
+                consecutiveSourceInspectionFailures = 0
+                consecutiveFailures = min(consecutiveFailures + 1, 8)
+                try await retryAfterFailure(
+                    error,
+                    consecutiveFailures: consecutiveFailures,
+                    interval: configuration.syncIntervalSeconds,
+                    sleep: sleep)
+            }
+        }
+    }
+}
+
 private extension AgentSyncService {
+    func retryAfterFailure(
+        _ error: Error,
+        consecutiveFailures: Int,
+        interval: Int,
+        sleep: (UInt64) async throws -> Void) async throws {
+        let baseDelay = min(30 * (1 << (consecutiveFailures - 1)), interval)
+        let jitterLimit = max(1, baseDelay / 5)
+        let delay = baseDelay + Int.random(in: 0...jitterLimit)
+        AgentConsole.writeError("sync failed; retrying in \(delay)s: \(Self.publicErrorDescription(error))")
+        try await sleep(UInt64(delay) * 1_000_000_000)
+    }
+
     func stableSourceSignature(
         _ preBuildSourceSignature: String?,
         configuration: AgentConfiguration,
