@@ -73,6 +73,17 @@ public struct OpenClawReader: TokenReader {
                 result.outputTokens += output
                 result.cacheReadTokens += cacheRead
                 result.cacheWriteTokens += cacheWrite
+                // OpenClaw never names a model, so record the usage under the shared
+                // mixed/unattributed key. Without a per-model row this source is dropped from the
+                // model breakdown as soon as any other source reports that same key.
+                result.perModel[
+                    UsageModelGrouping.mixedOrUnattributedKey,
+                    default: PerModelUsage()
+                ].totalTokens += input + output + cacheRead + cacheWrite
+                result.perModel[
+                    UsageModelGrouping.mixedOrUnattributedKey,
+                    default: PerModelUsage()
+                ].sources.insert(sourceName)
                 activityEvents.append(
                     ActivityTimeEvent(
                         streamID: session.streamID,

@@ -244,6 +244,8 @@ public struct RawTokenUsage {
     public var cacheReadTokens: Int
     public var cacheWriteTokens: Int
     public var reasoningTokens: Int
+    /// Model-attributed tokens whose input/output/cache category is unavailable.
+    public var unclassifiedTokens: Int
     public var cost: Double
     public var activeSeconds: TimeInterval
     public var workTime: WorkTimeMetrics
@@ -263,6 +265,7 @@ public struct RawTokenUsage {
         cacheReadTokens: Int = 0,
         cacheWriteTokens: Int = 0,
         reasoningTokens: Int = 0,
+        unclassifiedTokens: Int = 0,
         cost: Double = 0,
         activeSeconds: TimeInterval = 0,
         workTime: WorkTimeMetrics = .zero,
@@ -279,6 +282,7 @@ public struct RawTokenUsage {
         self.cacheReadTokens = cacheReadTokens
         self.cacheWriteTokens = cacheWriteTokens
         self.reasoningTokens = reasoningTokens
+        self.unclassifiedTokens = unclassifiedTokens
         self.cost = cost
         self.activeSeconds = activeSeconds
         self.workTime = workTime
@@ -294,7 +298,7 @@ public struct RawTokenUsage {
     }
 
     public var totalTokens: Int {
-        inputTokens + outputTokens + cacheReadTokens + cacheWriteTokens + reasoningTokens
+        inputTokens + outputTokens + cacheReadTokens + cacheWriteTokens + reasoningTokens + unclassifiedTokens
     }
 
     public var resolvedWorkTime: WorkTimeMetrics {
@@ -396,6 +400,7 @@ public func += (lhs: inout RawTokenUsage, rhs: RawTokenUsage) {
     lhs.cacheReadTokens += rhs.cacheReadTokens
     lhs.cacheWriteTokens += rhs.cacheWriteTokens
     lhs.reasoningTokens += rhs.reasoningTokens
+    lhs.unclassifiedTokens += rhs.unclassifiedTokens
     lhs.cost += rhs.cost
     lhs.activeSeconds += rhs.activeSeconds
     lhs.activityEvents.append(contentsOf: rhs.activityEvents)

@@ -6,17 +6,20 @@ private struct PeriodTokenTotalsRequest: Equatable {
     let enabledReaderNames: [String: Bool]
     let includesEmptySourceRows: Bool
     let scope: UsageScope
+    let modelScope: UsageModelScope
 
     var cacheKey: PeriodTokenTotalsCacheKey {
         PeriodTokenTotalsCacheKey(
             endDate: endDate,
             enabledReaderNames: enabledReaderNames,
-            scope: scope)
+            scope: scope,
+            modelScope: modelScope)
     }
 }
 
-private struct UsageServiceSnapshot: Equatable {
+struct UsageServiceSnapshot: Equatable {
     var combinedUsageData: UsageData = .empty
+    var combinedModelReports: [String: UsageModelReport] = [:]
     var originReports: [UsageOriginReport] = []
     var isLoading = false
     var lastFetchedAt: Date?
@@ -41,6 +44,7 @@ final class UsagePanelViewModel: ObservableObject {
     }
 
     @Published private(set) var selectedUsageScope: UsageScope = .all
+    @Published private(set) var selectedModelScope: UsageModelScope = .all
 
     @Published private var snapshot = UsageServiceSnapshot()
 
@@ -207,6 +211,7 @@ final class UsagePanelViewModel: ObservableObject {
             availableReports: result.originReports)
         updateSnapshot {
             $0.combinedUsageData = result.usageData
+            $0.combinedModelReports = result.modelReports
             $0.originReports = result.originReports
             $0.readerStatuses = result.readerStatuses
             $0.lastFetchedAt = Date()
@@ -215,7 +220,10 @@ final class UsagePanelViewModel: ObservableObject {
         didPublishResult = true
 
         if compareAgainstYesterday {
-            startYesterdayComparison(for: request, scope: selectedUsageScope)
+            startYesterdayComparison(
+                for: request,
+                scope: selectedUsageScope,
+                modelScope: selectedModelScope)
         }
         if didFallBackToAllDevices {
             Task { [weak self] in
@@ -244,55 +252,8 @@ extension UsagePanelViewModel {
         aggregator.readerNames
     }
 
-    var usageData: UsageData {
-        switch selectedUsageScope {
-        case .all:
-            snapshot.combinedUsageData
-        case let .origin(originID):
-            snapshot.originReports.first { $0.id == originID }?.usageData
-                ?? snapshot.combinedUsageData
-        }
-    }
-
-    var originReports: [UsageOriginReport] {
-        snapshot.originReports
-    }
-
-    var selectedUsageOrigin: UsageOrigin? {
-        guard case let .origin(originID) = selectedUsageScope else { return nil }
-        return snapshot.originReports.first { $0.id == originID }?.origin
-    }
-
-    var usageScopeTitle: String {
-        selectedUsageOrigin?.name ?? "All Devices"
-    }
-
-    var isLoading: Bool {
-        snapshot.isLoading
-    }
-
-    var lastFetchedAt: Date? {
-        snapshot.lastFetchedAt
-    }
-
-    var yesterdayTotalTokens: Int? {
-        snapshot.yesterdayTotalTokens
-    }
-
-    var failedReaderNames: [String] {
-        panelReaderFailureNames(readerStatuses, for: selectedUsageScope)
-    }
-
-    var readerStatuses: [ReaderStatus] {
-        snapshot.readerStatuses
-    }
-
-    var periodTokenTotals: [TokenTotalSummary] {
-        snapshot.periodTokenTotals
-    }
-
-    var isLoadingPeriodTokenTotals: Bool {
-        snapshot.isLoadingPeriodTokenTotals
+    var presentationSnapshot: UsageServiceSnapshot {
+        snapshot
     }
 
     var isSingleDay: Bool {
@@ -316,7 +277,30 @@ extension UsagePanelViewModel {
 
         let request = makeUsageRequest(start: startDate, end: endDate)
         if shouldCompareAgainstYesterday(start: request.start, end: request.end) {
-            startYesterdayComparison(for: request, scope: scope)
+            startYesterdayComparison(
+                for: request,
+                scope: scope,
+                modelScope: selectedModelScope)
+        }
+
+        Task { [weak self] in
+            await self?.refreshPeriodTokenTotalsIfNeeded()
+        }
+    }
+
+    func selectModelScope(_ scope: UsageModelScope) {
+        guard scope != selectedModelScope else { return }
+
+        resetYesterdayComparison()
+        selectedModelScope = scope
+        invalidatePeriodTokenTotals()
+
+        let request = makeUsageRequest(start: startDate, end: endDate)
+        if shouldCompareAgainstYesterday(start: request.start, end: request.end) {
+            startYesterdayComparison(
+                for: request,
+                scope: selectedUsageScope,
+                modelScope: scope)
         }
 
         Task { [weak self] in
@@ -465,7 +449,8 @@ private extension UsagePanelViewModel {
             endDate: endDate,
             enabledReaderNames: settings.normalizedReaderSettings(for: readerNames),
             includesEmptySourceRows: settings.showsZeroSourceRows,
-            scope: selectedUsageScope)
+            scope: selectedUsageScope,
+            modelScope: selectedModelScope)
     }
 
     private func periodTokenTotals(for request: PeriodTokenTotalsRequest) async -> [TokenTotalSummary] {
@@ -482,7 +467,8 @@ private extension UsagePanelViewModel {
                 includesEmptySourceRows: request.includesEmptySourceRows)
             let totalTokens = await aggregator.aggregateTotalTokens(
                 for: usageRequest,
-                scope: request.scope)
+                scope: request.scope,
+                modelScope: request.modelScope)
 
             guard !Task.isCancelled else { return summaries }
             summaries.append(
@@ -540,7 +526,8 @@ private extension UsagePanelViewModel {
 
     private func startYesterdayComparison(
         for request: UsageAggregationRequest,
-        scope: UsageScope) {
+        scope: UsageScope,
+        modelScope: UsageModelScope) {
         yesterdayComparisonTask = Task { [weak self] in
             guard let self else { return }
             let prevStart = calendar.date(byAdding: .day, value: -1, to: request.start)!
@@ -553,11 +540,13 @@ private extension UsagePanelViewModel {
                 includesEmptySourceRows: request.includesEmptySourceRows)
             let previousTotalTokens = await aggregator.aggregateTotalTokens(
                 for: previousRequest,
-                scope: scope)
+                scope: scope,
+                modelScope: modelScope)
 
             guard !Task.isCancelled else { return }
             guard request == makeUsageRequest(start: startDate, end: endDate),
                   selectedUsageScope == scope,
+                  selectedModelScope == modelScope,
                   shouldCompareAgainstYesterday(start: request.start, end: request.end) else {
                 return
             }

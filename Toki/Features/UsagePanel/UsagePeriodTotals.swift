@@ -49,6 +49,7 @@ struct PeriodTokenTotalsCacheKey: Codable, Equatable {
     let endDate: Date
     let enabledReaderNames: [String: Bool]
     let scope: UsageScope
+    let modelScope: UsageModelScope
 }
 
 struct PeriodTokenTotalsCacheEntry: Codable, Equatable {
@@ -63,7 +64,7 @@ final class PeriodTokenTotalsCache {
     private let decoder = JSONDecoder()
     private let encoder = JSONEncoder()
 
-    init(defaults: UserDefaults = .standard, key: String = "usagePanel.periodTokenTotalsCache.v2") {
+    init(defaults: UserDefaults = .standard, key: String = "usagePanel.periodTokenTotalsCache.v3") {
         self.defaults = defaults
         self.key = key
     }

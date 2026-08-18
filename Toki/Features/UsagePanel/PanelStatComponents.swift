@@ -1,4 +1,5 @@
 import SwiftUI
+import TokiUsageCore
 
 struct PanelSectionCaption: View {
     let title: String
@@ -20,6 +21,7 @@ struct PanelSectionCaption: View {
 struct ModelStatRowView: View, Equatable {
     let stat: ModelStat
     var share: Double = 0
+    var disclosesDetails = false
 
     var body: some View {
         VStack(spacing: 5) {
@@ -51,6 +53,13 @@ struct ModelStatRowView: View, Equatable {
                     .frame(width: 56, alignment: .trailing)
                     .lineLimit(1)
                     .minimumScaleFactor(0.8)
+                if disclosesDetails {
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 8, weight: .bold))
+                        .foregroundStyle(Color.white.opacity(0.22))
+                        .frame(width: 6)
+                        .accessibilityHidden(true)
+                }
             }
 
             if share > 0 {
@@ -76,8 +85,7 @@ struct ModelStatRowView: View, Equatable {
     }
 
     private var displayName: String {
-        let modelID = stat.displayModelID
-        let baseName = modelID.hasPrefix("claude-") ? String(modelID.dropFirst(7)) : modelID
+        let baseName = panelModelDisplayName(stat.modelID)
         guard !stat.sources.isEmpty else { return baseName }
         return "\(baseName) · \(sourceLabel)"
     }
@@ -88,6 +96,28 @@ struct ModelStatRowView: View, Equatable {
         let remainder = stat.sources.count - 2
         return remainder > 0 ? "\(head) +\(remainder)" : head
     }
+}
+
+func panelModelDisplayName(_ modelID: String) -> String {
+    let displayModelID = modelID == UsageModelGrouping.mixedOrUnattributedKey
+        ? UsageModelGrouping.mixedOrUnattributedLabel
+        : modelID
+    return displayModelID.hasPrefix("claude-")
+        ? String(displayModelID.dropFirst(7))
+        : displayModelID
+}
+
+/// Raw model identifier to show alongside its friendly name, or `nil` when there is nothing
+/// useful to add.
+///
+/// Returns `nil` for the mixed/unattributed grouping sentinel, which is an internal key rather
+/// than a real model identifier and must not reach user-facing text.
+func panelModelRawIdentifier(_ modelID: String) -> String? {
+    guard modelID != UsageModelGrouping.mixedOrUnattributedKey,
+          panelModelDisplayName(modelID) != modelID else {
+        return nil
+    }
+    return modelID
 }
 
 extension ModelStat {
@@ -117,6 +147,7 @@ extension ModelStat {
 
 struct ContextOnlyModelStatRowView: View, Equatable {
     let stat: ContextOnlyModelStat
+    var disclosesDetails = false
 
     var body: some View {
         HStack(alignment: .center, spacing: 6) {
@@ -137,13 +168,20 @@ struct ContextOnlyModelStatRowView: View, Equatable {
                 .foregroundColor(Color.white.opacity(0.25))
                 .frame(width: 56, alignment: .trailing)
                 .lineLimit(1)
+            if disclosesDetails {
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 8, weight: .bold))
+                    .foregroundStyle(Color.white.opacity(0.22))
+                    .frame(width: 6)
+                    .accessibilityHidden(true)
+            }
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 7)
     }
 
     private var displayName: String {
-        let baseName = stat.model.hasPrefix("claude-") ? String(stat.model.dropFirst(7)) : stat.model
+        let baseName = panelModelDisplayName(stat.model)
         return "\(baseName) · \(stat.source)"
     }
 }

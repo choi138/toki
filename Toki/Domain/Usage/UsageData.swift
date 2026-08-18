@@ -16,6 +16,16 @@ enum UsageScope: Codable, Equatable, Hashable {
     case origin(UsageOriginID)
 }
 
+enum UsageModelScope: Codable, Equatable, Hashable {
+    case all
+    case model(String)
+
+    var modelID: String? {
+        guard case let .model(modelID) = self else { return nil }
+        return modelID
+    }
+}
+
 enum UsageOriginKind: String, Equatable {
     case local
     case remote
@@ -54,6 +64,16 @@ struct UsageOrigin: Identifiable, Equatable {
 struct UsageOriginReport: Identifiable, Equatable {
     let origin: UsageOrigin
     let usageData: UsageData
+    let modelReports: [String: UsageModelReport]
+
+    init(
+        origin: UsageOrigin,
+        usageData: UsageData,
+        modelReports: [String: UsageModelReport] = [:]) {
+        self.origin = origin
+        self.usageData = usageData
+        self.modelReports = modelReports
+    }
 
     var id: UsageOriginID {
         origin.id
@@ -108,6 +128,12 @@ struct ModelStat: Equatable {
     }
 }
 
+struct UsageModelReport: Equatable {
+    let modelID: String
+    let summary: ModelStat
+    let usageData: UsageData
+}
+
 struct SourceStat: Equatable {
     let source: String
     let inputTokens: Int
@@ -115,6 +141,7 @@ struct SourceStat: Equatable {
     let cacheReadTokens: Int
     let cacheWriteTokens: Int
     let reasoningTokens: Int
+    let unclassifiedTokens: Int
     let cost: Double
     let activeSeconds: TimeInterval
     let wallClockSeconds: TimeInterval
@@ -126,6 +153,7 @@ struct SourceStat: Equatable {
         cacheReadTokens: Int,
         cacheWriteTokens: Int,
         reasoningTokens: Int,
+        unclassifiedTokens: Int = 0,
         cost: Double,
         activeSeconds: TimeInterval,
         wallClockSeconds: TimeInterval = 0) {
@@ -135,6 +163,7 @@ struct SourceStat: Equatable {
         self.cacheReadTokens = cacheReadTokens
         self.cacheWriteTokens = cacheWriteTokens
         self.reasoningTokens = reasoningTokens
+        self.unclassifiedTokens = unclassifiedTokens
         self.cost = cost
         self.activeSeconds = activeSeconds
         self.wallClockSeconds = wallClockSeconds
@@ -145,7 +174,7 @@ struct SourceStat: Equatable {
     }
 
     var totalTokens: Int {
-        inputTokens + outputTokens + cacheReadTokens + cacheWriteTokens + reasoningTokens
+        inputTokens + outputTokens + cacheReadTokens + cacheWriteTokens + reasoningTokens + unclassifiedTokens
     }
 
     var parallelMultiplier: Double {
@@ -313,6 +342,7 @@ struct UsageData: Equatable {
     let cacheReadTokens: Int
     let cacheWriteTokens: Int
     let reasoningTokens: Int
+    let unclassifiedTokens: Int
     let cost: Double
     let activeSeconds: TimeInterval
     let workTime: WorkTimeMetrics
@@ -324,6 +354,8 @@ struct UsageData: Equatable {
     let sessionStats: [SessionUsageStat]
     let supplementalStats: [SupplementalStat]
     let contextOnlyModels: [ContextOnlyModelStat]
+    let filteredModelID: String?
+    let isModelAttributionComplete: Bool
 
     init(
         date: Date,
@@ -333,6 +365,7 @@ struct UsageData: Equatable {
         cacheReadTokens: Int,
         cacheWriteTokens: Int,
         reasoningTokens: Int,
+        unclassifiedTokens: Int = 0,
         cost: Double,
         activeSeconds: TimeInterval,
         workTime: WorkTimeMetrics? = nil,
@@ -342,7 +375,9 @@ struct UsageData: Equatable {
         projectStats: [ProjectUsageStat] = [],
         sessionStats: [SessionUsageStat] = [],
         supplementalStats: [SupplementalStat] = [],
-        contextOnlyModels: [ContextOnlyModelStat] = []) {
+        contextOnlyModels: [ContextOnlyModelStat] = [],
+        filteredModelID: String? = nil,
+        isModelAttributionComplete: Bool = true) {
         self.date = date
         self.endDate = endDate ?? date
         self.inputTokens = inputTokens
@@ -350,6 +385,7 @@ struct UsageData: Equatable {
         self.cacheReadTokens = cacheReadTokens
         self.cacheWriteTokens = cacheWriteTokens
         self.reasoningTokens = reasoningTokens
+        self.unclassifiedTokens = unclassifiedTokens
         self.cost = cost
         self.activeSeconds = activeSeconds
         self.workTime = workTime ?? .fallback(activeSeconds: activeSeconds)
@@ -360,10 +396,12 @@ struct UsageData: Equatable {
         self.sessionStats = sessionStats
         self.supplementalStats = supplementalStats
         self.contextOnlyModels = contextOnlyModels
+        self.filteredModelID = filteredModelID
+        self.isModelAttributionComplete = isModelAttributionComplete
     }
 
     var totalTokens: Int {
-        inputTokens + outputTokens + cacheReadTokens + cacheWriteTokens + reasoningTokens
+        inputTokens + outputTokens + cacheReadTokens + cacheWriteTokens + reasoningTokens + unclassifiedTokens
     }
 
     /// Aggregate output throughput for the selected local usage period.

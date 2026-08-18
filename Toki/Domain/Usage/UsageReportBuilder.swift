@@ -4,11 +4,26 @@ import TokiUsageCore
 enum UsageReportBuilder {
     private static let maximumHourlyBucketCount = 48
 
+    /// Reports whether hourly bucketing is supported for a range.
+    ///
+    /// `hourlyBucketStarts` intentionally discards every bucket once a range needs more than
+    /// `maximumHourlyBucketCount` of them, so an empty bucket list alone cannot distinguish an
+    /// unsupported range from a range with no recorded activity.
+    static func supportsHourlyBuckets(
+        from startDate: Date,
+        to endDate: Date,
+        calendar: Calendar = .autoupdatingCurrent) -> Bool {
+        guard startDate < endDate else { return false }
+        return !hourlyBucketStarts(from: startDate, to: endDate, calendar: calendar).isEmpty
+    }
+
     static func report(
         from usage: RawTokenUsage,
         date: Date,
         endDate: Date,
-        sourceStats: [SourceStat]) -> UsageData {
+        sourceStats: [SourceStat],
+        filteredModelID: String? = nil,
+        isModelAttributionComplete: Bool = true) -> UsageData {
         UsageData(
             date: date,
             endDate: endDate,
@@ -17,6 +32,7 @@ enum UsageReportBuilder {
             cacheReadTokens: usage.cacheReadTokens,
             cacheWriteTokens: usage.cacheWriteTokens,
             reasoningTokens: usage.reasoningTokens,
+            unclassifiedTokens: usage.unclassifiedTokens,
             cost: usage.cost,
             activeSeconds: usage.activeSeconds,
             workTime: usage.resolvedWorkTime,
@@ -34,7 +50,9 @@ enum UsageReportBuilder {
                 from: usage.tokenEvents,
                 calendar: .autoupdatingCurrent),
             supplementalStats: buildSupplementalStats(from: usage.supplemental),
-            contextOnlyModels: buildContextOnlyModels(from: usage.supplemental))
+            contextOnlyModels: buildContextOnlyModels(from: usage.supplemental),
+            filteredModelID: filteredModelID,
+            isModelAttributionComplete: isModelAttributionComplete)
     }
 }
 

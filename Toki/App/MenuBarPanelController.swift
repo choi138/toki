@@ -20,21 +20,75 @@ enum MenuBarPanelLocalEventAction: Equatable {
 enum MenuBarPanelLocalEventPolicy {
     private static let escapeKeyCode: UInt16 = 53
 
-    static func action(for event: NSEvent) -> MenuBarPanelLocalEventAction {
+    static func action(
+        for event: NSEvent,
+        hasAttachedSheet: Bool = false) -> MenuBarPanelLocalEventAction {
         switch event.type {
         case .keyDown:
-            event.keyCode == escapeKeyCode ? .dismissAndConsume : .forward
+            guard event.keyCode == escapeKeyCode else { return .forward }
+            return hasAttachedSheet ? .forward : .dismissAndConsume
         case .leftMouseDown, .rightMouseDown:
-            .dismissIfOutside
+            return .dismissIfOutside
         default:
-            .forward
+            return .forward
         }
     }
 }
 
 enum MenuBarPanelWindowPolicy {
     static func isRelatedTransientWindow(level: NSWindow.Level) -> Bool {
-        level == .popUpMenu
+        level == .popUpMenu || level == .modalPanel
+    }
+
+    static func isRelated(_ window: NSWindow, to panel: NSWindow) -> Bool {
+        isDescendant(window, of: panel)
+            || isRelatedTransientWindow(level: window.level)
+    }
+
+    static func hasAttachedSheet(in window: NSWindow) -> Bool {
+        var pendingWindows = [window]
+        var visitedWindows = Set<ObjectIdentifier>()
+
+        while let currentWindow = pendingWindows.popLast() {
+            guard visitedWindows.insert(ObjectIdentifier(currentWindow)).inserted else { continue }
+            if currentWindow.attachedSheet != nil {
+                return true
+            }
+            pendingWindows.append(contentsOf: currentWindow.childWindows ?? [])
+        }
+        return false
+    }
+
+    private static func isDescendant(_ window: NSWindow, of panel: NSWindow) -> Bool {
+        var pendingWindows = [window]
+        var visitedWindows = Set<ObjectIdentifier>()
+
+        while let currentWindow = pendingWindows.popLast() {
+            guard visitedWindows.insert(ObjectIdentifier(currentWindow)).inserted else { continue }
+            if currentWindow === panel {
+                return true
+            }
+            if let parent = currentWindow.parent {
+                pendingWindows.append(parent)
+            }
+            if let sheetParent = currentWindow.sheetParent {
+                pendingWindows.append(sheetParent)
+            }
+        }
+        return false
+    }
+}
+
+enum MenuBarPanelDismissalPolicy {
+    static func shouldDismiss(
+        hasAttachedSheet: Bool,
+        isEventWindowRelated: Bool,
+        isLocationInsidePanel: Bool,
+        isLocationInsideStatusItem: Bool) -> Bool {
+        !hasAttachedSheet
+            && !isEventWindowRelated
+            && !isLocationInsidePanel
+            && !isLocationInsideStatusItem
     }
 }
 
@@ -148,7 +202,12 @@ private extension MenuBarPanelController {
         localEventMonitor = NSEvent.addLocalMonitorForEvents(
             matching: [.leftMouseDown, .rightMouseDown, .keyDown]) { [weak self] event in
                 guard let self else { return event }
-                switch MenuBarPanelLocalEventPolicy.action(for: event) {
+                let hasAttachedSheet = panel.map {
+                    MenuBarPanelWindowPolicy.hasAttachedSheet(in: $0)
+                } ?? false
+                switch MenuBarPanelLocalEventPolicy.action(
+                    for: event,
+                    hasAttachedSheet: hasAttachedSheet) {
                 case .forward:
                     return event
                 case .dismissAndConsume:
@@ -182,24 +241,17 @@ private extension MenuBarPanelController {
 
     func shouldClosePanel(for event: NSEvent) -> Bool {
         guard let panel else { return false }
-        if let window = event.window, isPanelRelatedWindow(window, panel: panel) {
-            return false
-        }
+        let isEventWindowRelated = event.window.map {
+            MenuBarPanelWindowPolicy.isRelated($0, to: panel)
+        } ?? false
         let location = eventLocationInScreen(event)
-        if panel.frame.contains(location) {
-            return false
-        }
-        if statusItemButton.flatMap(statusItemFrame(for:))?.contains(location) == true {
-            return false
-        }
-        return true
-    }
-
-    func isPanelRelatedWindow(_ window: NSWindow, panel: NSPanel) -> Bool {
-        window == panel
-            || window.parent == panel
-            || panel.childWindows?.contains(window) == true
-            || MenuBarPanelWindowPolicy.isRelatedTransientWindow(level: window.level)
+        return MenuBarPanelDismissalPolicy.shouldDismiss(
+            hasAttachedSheet: MenuBarPanelWindowPolicy.hasAttachedSheet(in: panel),
+            isEventWindowRelated: isEventWindowRelated,
+            isLocationInsidePanel: panel.frame.contains(location),
+            isLocationInsideStatusItem: statusItemButton
+                .flatMap(statusItemFrame(for:))?
+                .contains(location) == true)
     }
 
     func eventLocationInScreen(_ event: NSEvent) -> NSPoint {

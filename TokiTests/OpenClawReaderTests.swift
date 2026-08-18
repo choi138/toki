@@ -1,3 +1,4 @@
+import TokiUsageCore
 import XCTest
 @testable import Toki
 @testable import TokiUsageReaders
@@ -25,6 +26,24 @@ final class OpenClawReaderTests: XCTestCase {
                 tokiTestISODate("2026-04-10T12:00:00Z"),
                 tokiTestISODate("2026-04-10T13:00:00Z"),
             ])
+    }
+
+    /// OpenClaw never names a model. Without a per-model row its usage is dropped from the model
+    /// breakdown as soon as another source reports the same mixed/unattributed key.
+    func test_openClawReader_recordsUnattributedUsageUnderTheMixedModelKey() throws {
+        let usage = OpenClawReader.usage(
+            fromJSONLLines: [
+                openClawAssistantLine(timestamp: "2026-04-10T12:00:00Z", input: 300, output: 40),
+                openClawAssistantLine(createdAt: "2026-04-10T13:00:00Z", input: 400, output: 50),
+            ],
+            streamID: "openclaw-session",
+            from: tokiTestISODate("2026-04-10T00:00:00Z"),
+            to: tokiTestISODate("2026-04-11T00:00:00Z"))
+
+        let modelUsage = try XCTUnwrap(usage.perModel[UsageModelGrouping.mixedOrUnattributedKey])
+
+        XCTAssertEqual(modelUsage.totalTokens, usage.totalTokens)
+        XCTAssertEqual(modelUsage.sources, ["OpenClaw"])
     }
 }
 

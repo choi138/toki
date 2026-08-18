@@ -1,4 +1,5 @@
 import Foundation
+import TokiUsageCore
 
 enum UsageExportFormat: String, CaseIterable {
     case csv = "CSV"
@@ -47,6 +48,8 @@ private struct UsageExportPayload: Encodable {
     let models: [UsageExportModel]
     let projects: [UsageExportProject]
     let sessions: [UsageExportSession]
+    let filteredModel: String?
+    let isModelAttributionComplete: Bool
 
     init(usage: UsageData) {
         date = usageExportISODateFormatter.string(from: usage.date)
@@ -57,7 +60,15 @@ private struct UsageExportPayload: Encodable {
         models = usage.perModel.map(UsageExportModel.init)
         projects = usage.projectStats.map(UsageExportProject.init)
         sessions = usage.sessionStats.map(UsageExportSession.init)
+        filteredModel = usage.filteredModelID.map(usageExportModelDisplayName)
+        isModelAttributionComplete = usage.isModelAttributionComplete
     }
+}
+
+private func usageExportModelDisplayName(_ modelID: String) -> String {
+    modelID == UsageModelGrouping.mixedOrUnattributedKey
+        ? UsageModelGrouping.mixedOrUnattributedLabel
+        : modelID
 }
 
 private struct UsageExportTotals: Encodable {
@@ -66,6 +77,7 @@ private struct UsageExportTotals: Encodable {
     let cacheReadTokens: Int
     let cacheWriteTokens: Int
     let reasoningTokens: Int
+    let unclassifiedTokens: Int
     let totalTokens: Int
     let cost: Double
     let activeSeconds: TimeInterval
@@ -77,6 +89,7 @@ private struct UsageExportTotals: Encodable {
         cacheReadTokens = usage.cacheReadTokens
         cacheWriteTokens = usage.cacheWriteTokens
         reasoningTokens = usage.reasoningTokens
+        unclassifiedTokens = usage.unclassifiedTokens
         totalTokens = usage.totalTokens
         cost = usage.cost
         activeSeconds = usage.activeSeconds
@@ -91,6 +104,7 @@ private struct UsageExportSource: Encodable {
     let cacheReadTokens: Int
     let cacheWriteTokens: Int
     let reasoningTokens: Int
+    let unclassifiedTokens: Int
     let totalTokens: Int
     let cost: Double
     let activeSeconds: TimeInterval
@@ -103,6 +117,7 @@ private struct UsageExportSource: Encodable {
         cacheReadTokens = source.cacheReadTokens
         cacheWriteTokens = source.cacheWriteTokens
         reasoningTokens = source.reasoningTokens
+        unclassifiedTokens = source.unclassifiedTokens
         totalTokens = source.totalTokens
         cost = source.cost
         activeSeconds = source.activeSeconds
@@ -205,6 +220,7 @@ private extension UsageExport {
             "cache_read_tokens",
             "cache_write_tokens",
             "reasoning_tokens",
+            "unclassified_tokens",
             "total_tokens",
             "cost_usd",
             // active_seconds sums concurrent streams; wall_clock_seconds merges them.
@@ -232,6 +248,7 @@ private extension UsageExport {
             "\(usage.cacheReadTokens)",
             "\(usage.cacheWriteTokens)",
             "\(usage.reasoningTokens)",
+            "\(usage.unclassifiedTokens)",
             "\(usage.totalTokens)",
             String(format: "%.6f", usage.cost),
             String(format: "%.3f", usage.activeSeconds),
@@ -259,6 +276,7 @@ private extension UsageExport {
                 "\(source.cacheReadTokens)",
                 "\(source.cacheWriteTokens)",
                 "\(source.reasoningTokens)",
+                "\(source.unclassifiedTokens)",
                 "\(source.totalTokens)",
                 String(format: "%.6f", source.cost),
                 String(format: "%.3f", source.activeSeconds),
@@ -282,6 +300,7 @@ private extension UsageExport {
                 model.displayModelID,
                 model.sources.joined(separator: ";"),
                 model.displayModelID,
+                "",
                 "",
                 "",
                 "",
@@ -312,6 +331,7 @@ private extension UsageExport {
                 "\(project.cacheReadTokens)",
                 "\(project.cacheWriteTokens)",
                 "\(project.reasoningTokens)",
+                "",
                 "\(project.totalTokens)",
                 String(format: "%.6f", project.cost),
                 "",
@@ -337,6 +357,7 @@ private extension UsageExport {
                 "\(session.cacheReadTokens)",
                 "\(session.cacheWriteTokens)",
                 "\(session.reasoningTokens)",
+                "",
                 "\(session.totalTokens)",
                 String(format: "%.6f", session.cost),
                 "",

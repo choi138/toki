@@ -75,12 +75,12 @@ final class UsageExportTests: XCTestCase {
 
         XCTAssertTrue(csv.contains("section,name,source,model,input_tokens"))
         XCTAssertTrue(csv.contains("project_path,session_id,attribution_quality"))
-        XCTAssertTrue(csv.contains("total,All,,,10,5,2,1,3,21,0.250000,120.000"))
+        XCTAssertTrue(csv.contains("total,All,,,10,5,2,1,3,0,21,0.250000,120.000"))
         XCTAssertTrue(csv.contains("2026-04-10T00:00:00Z,2026-04-11T00:00:00Z"))
-        XCTAssertTrue(csv.contains("source,Codex,Codex,,10,5,2,1,3,21,0.250000,120.000"))
-        XCTAssertTrue(csv.contains("model,gpt-5.4,Codex,gpt-5.4,,,,,,21,0.250000,120.000"))
-        XCTAssertTrue(csv.contains("project,Toki,Codex,,10,5,2,1,3,21,0.250000,"))
-        XCTAssertTrue(csv.contains("session,Toki,Codex,gpt-5.4,10,5,2,1,3,21,0.250000,"))
+        XCTAssertTrue(csv.contains("source,Codex,Codex,,10,5,2,1,3,0,21,0.250000,120.000"))
+        XCTAssertTrue(csv.contains("model,gpt-5.4,Codex,gpt-5.4,,,,,,,21,0.250000,120.000"))
+        XCTAssertTrue(csv.contains("project,Toki,Codex,,10,5,2,1,3,,21,0.250000,"))
+        XCTAssertTrue(csv.contains("session,Toki,Codex,gpt-5.4,10,5,2,1,3,,21,0.250000,"))
         XCTAssertTrue(csv.contains("/Users/example/Toki,session-a,exact"))
     }
 

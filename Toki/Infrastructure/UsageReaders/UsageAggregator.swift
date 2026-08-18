@@ -28,6 +28,7 @@ struct UsageAggregationRequest: Equatable {
 
 struct UsageAggregationResult: Equatable {
     let usageData: UsageData
+    let modelReports: [String: UsageModelReport]
     let originReports: [UsageOriginReport]
     let readerStatuses: [ReaderStatus]
 }
@@ -55,6 +56,10 @@ final class UsageAggregator {
                 date: request.start,
                 endDate: request.end,
                 sourceStats: summary.sourceStats),
+            modelReports: UsageReportBuilder.buildModelReports(
+                from: summary.usage,
+                startDate: request.start,
+                endDate: request.end),
             originReports: summary.originSlices.map { slice in
                 UsageOriginReport(
                     origin: slice.origin,
@@ -62,13 +67,32 @@ final class UsageAggregator {
                         from: slice.usage,
                         date: request.start,
                         endDate: request.end,
-                        sourceStats: slice.sourceStats))
+                        sourceStats: slice.sourceStats),
+                    modelReports: UsageReportBuilder.buildModelReports(
+                        from: slice.usage,
+                        startDate: request.start,
+                        endDate: request.end))
             },
             readerStatuses: summary.readerStatuses)
     }
 
-    func aggregateTotalTokens(for request: UsageAggregationRequest, scope: UsageScope = .all) async -> Int {
-        await fetchTotalTokens(for: request, scope: scope)
+    func aggregateTotalTokens(
+        for request: UsageAggregationRequest,
+        scope: UsageScope = .all,
+        modelScope: UsageModelScope = .all) async -> Int {
+        if case let .model(modelID) = modelScope {
+            let result = await aggregateUsage(for: request)
+            switch scope {
+            case .all:
+                return result.modelReports[modelID]?.usageData.totalTokens ?? 0
+            case let .origin(originID):
+                return result.originReports
+                    .first { $0.id == originID }?
+                    .modelReports[modelID]?
+                    .usageData.totalTokens ?? 0
+            }
+        }
+        return await fetchTotalTokens(for: request, scope: scope)
     }
 
     func aggregateOutputTokens(for request: UsageAggregationRequest, scope: UsageScope = .all) async -> Int {
@@ -347,6 +371,7 @@ private struct SourceStatAggregate {
     var cacheReadTokens = 0
     var cacheWriteTokens = 0
     var reasoningTokens = 0
+    var unclassifiedTokens = 0
     var cost: Double = 0
     var activeSeconds: TimeInterval = 0
     var wallClockSeconds: TimeInterval = 0
@@ -357,6 +382,7 @@ private struct SourceStatAggregate {
         cacheReadTokens += stat.cacheReadTokens
         cacheWriteTokens += stat.cacheWriteTokens
         reasoningTokens += stat.reasoningTokens
+        unclassifiedTokens += stat.unclassifiedTokens
         cost += stat.cost
         activeSeconds += stat.activeSeconds
         wallClockSeconds += stat.wallClockSeconds
@@ -370,6 +396,7 @@ private struct SourceStatAggregate {
             cacheReadTokens: cacheReadTokens,
             cacheWriteTokens: cacheWriteTokens,
             reasoningTokens: reasoningTokens,
+            unclassifiedTokens: unclassifiedTokens,
             cost: cost,
             activeSeconds: activeSeconds,
             wallClockSeconds: wallClockSeconds)
@@ -475,6 +502,7 @@ private func sourceStat(from usage: RawTokenUsage, source: String, includeEmpty:
         cacheReadTokens: usage.cacheReadTokens,
         cacheWriteTokens: usage.cacheWriteTokens,
         reasoningTokens: usage.reasoningTokens,
+        unclassifiedTokens: usage.unclassifiedTokens,
         cost: usage.cost,
         activeSeconds: usage.activeSeconds,
         wallClockSeconds: usage.resolvedWorkTime.wallClockSeconds)

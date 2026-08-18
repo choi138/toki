@@ -478,11 +478,13 @@ extension UsageOriginAggregationTests {
         let allKey = PeriodTokenTotalsCacheKey(
             endDate: endDate,
             enabledReaderNames: ["Codex": true],
-            scope: .all)
+            scope: .all,
+            modelScope: .all)
         let remoteKey = PeriodTokenTotalsCacheKey(
             endDate: endDate,
             enabledReaderNames: ["Codex": true],
-            scope: .origin(remoteID))
+            scope: .origin(remoteID),
+            modelScope: .all)
         let linuxOrigin = UsageOrigin.remote(
             deviceID: "remote-a",
             name: "worker",

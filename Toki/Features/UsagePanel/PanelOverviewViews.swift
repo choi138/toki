@@ -117,6 +117,14 @@ struct PanelTokenBreakdownView: View {
                 value: usage.reasoningTokens.formattedTokens(),
                 accent: Color(red: 0.85, green: 0.68, blue: 1.0),
                 isLoading: isLoading)
+            if usage.unclassifiedTokens > 0 {
+                StatRowView(
+                    label: "Unclassified",
+                    value: usage.unclassifiedTokens.formattedTokens(),
+                    accent: Color.white.opacity(0.48),
+                    isLoading: isLoading)
+                    .help("Model-attributed tokens without an input/output/cache category.")
+            }
             StatRowView(
                 label: "Cache Hit",
                 value: String(format: "%.1f%%", usage.cacheEfficiency),
@@ -167,6 +175,9 @@ struct PanelTokenBreakdownView: View {
     }
 
     private var liveTokenHelp: String {
+        if liveTokenLabel == "Model Live TPS" {
+            return "Live TPS is not available for an individual model."
+        }
         if liveTokensPerSecond == nil {
             return "Live TPS is available only for This Mac."
         }

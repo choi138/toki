@@ -11,6 +11,7 @@ struct UsagePanelView: View {
     @ObservedObject private var tokenVelocityState: TokenVelocityState
     @State private var activeTab: PanelTab = .overview
     @State private var tabOrder: [PanelTab] = PanelTab.allCases
+    @State private var selectedModelsTabModelID: String?
     @State private var isShowingSecurityAudit = false
     @State private var isShowingSettings = false
     @State private var refreshCoordinator = UsagePanelRefreshCoordinator()
@@ -136,7 +137,12 @@ struct UsagePanelView: View {
         case .hourly:
             PanelHourlyUsageView(usage: viewModel.usageData, isLoading: viewModel.isLoading)
         case .byModel:
-            PanelByModelView(usage: viewModel.usageData, isLoading: viewModel.isLoading)
+            PanelByModelView(
+                usage: viewModel.modelCatalogUsageData,
+                modelReports: viewModel.availableModelReports,
+                selectedModelID: $selectedModelsTabModelID,
+                scopeTitle: viewModel.usageScopeTitle,
+                isLoading: viewModel.isLoading)
         case .sources:
             PanelSourceView(
                 usage: viewModel.usageData,
@@ -150,18 +156,20 @@ struct UsagePanelView: View {
             PanelWorkTimeView(usage: viewModel.usageData, isLoading: viewModel.isLoading)
         }
     }
+}
 
-    private var panelDivider: some View {
+private extension UsagePanelView {
+    var panelDivider: some View {
         Rectangle()
             .fill(Color.white.opacity(0.07))
             .frame(height: 0.5)
     }
 
-    private var showsDeviceBreakdown: Bool {
+    var showsDeviceBreakdown: Bool {
         viewModel.selectedUsageScope == .all && viewModel.originReports.count > 1
     }
 
-    private var scopedLiveTokensPerSecond: Double? {
+    var scopedLiveTokensPerSecond: Double? {
         switch viewModel.selectedUsageScope {
         case .all, .origin(.local):
             tokenVelocityState.liveTokensPerSecond
@@ -170,55 +178,55 @@ struct UsagePanelView: View {
         }
     }
 
-    private var liveTokenLabel: String {
+    var liveTokenLabel: String {
         viewModel.selectedUsageScope == .all ? "This Mac Live TPS" : "Live TPS"
     }
 
-    private func refresh() {
+    func refresh() {
         Task { await refreshVisibleData() }
     }
 
     /// Applies the new order locally first so the tab bar settles without a
     /// frame of the old layout, then persists it.
-    private func reorderTabs(_ order: [PanelTab]) {
+    func reorderTabs(_ order: [PanelTab]) {
         tabOrder = order
         viewModel.settings.setTabOrder(order)
     }
 
-    private func handleRemoteSyncChange() {
+    func handleRemoteSyncChange() {
         NotificationCenter.default.post(name: .usagePanelRemoteSyncDidChange, object: nil)
         Task { await viewModel.refreshAfterRemoteSyncChange() }
     }
 
-    private func selectDay(_ date: Date) {
+    func selectDay(_ date: Date) {
         viewModel.selectDay(date)
         refresh()
     }
 
-    private func selectRangeStart(_ date: Date) {
+    func selectRangeStart(_ date: Date) {
         viewModel.selectRangeStart(date)
         refresh()
     }
 
-    private func selectRangeEnd(_ date: Date) {
+    func selectRangeEnd(_ date: Date) {
         viewModel.selectRangeEnd(date)
         refresh()
     }
 
-    private func startRefreshLoop(refreshImmediately: Bool) {
+    func startRefreshLoop(refreshImmediately: Bool) {
         refreshCoordinator.startLoop(
             refreshImmediately: refreshImmediately,
             intervalSeconds: { viewModel.settings.refreshIntervalSeconds },
             refresh: { await refreshVisibleData() })
     }
 
-    private func scheduleSettingsRefresh() {
+    func scheduleSettingsRefresh() {
         refreshCoordinator.scheduleSettingsRefresh {
             await refreshVisibleData()
         }
     }
 
-    private func refreshVisibleData() async {
+    func refreshVisibleData() async {
         await viewModel.refresh()
         if activeTab == .overview {
             await viewModel.refreshPeriodTokenTotalsIfNeeded()
