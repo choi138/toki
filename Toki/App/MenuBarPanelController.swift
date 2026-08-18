@@ -96,6 +96,15 @@ enum MenuBarPanelPresentationPolicy {
     static func shouldShowPanel(isVisible: Bool) -> Bool {
         !isVisible
     }
+
+    /// Whether a status-item toggle may close the panel.
+    ///
+    /// AppKit keeps an attached sheet visible and attached when only its parent is ordered out, so
+    /// closing here would strand the sheet as an orphaned window while the controller reports the
+    /// panel hidden and tears down its event monitors.
+    static func shouldClosePanel(isVisible: Bool, hasAttachedSheet: Bool) -> Bool {
+        isVisible && !hasAttachedSheet
+    }
 }
 
 @MainActor
@@ -140,11 +149,18 @@ final class MenuBarPanelController {
 
     func toggle(relativeTo view: NSStatusBarButton) {
         guard let panel else { return }
-        if panel.isVisible {
-            closePanel()
-        } else {
+        guard panel.isVisible else {
             show(relativeTo: view)
+            return
         }
+        guard MenuBarPanelPresentationPolicy.shouldClosePanel(
+            isVisible: true,
+            hasAttachedSheet: MenuBarPanelWindowPolicy.hasAttachedSheet(in: panel)) else {
+            // Keep the panel and its sheet together; the sheet owns dismissal.
+            panel.makeKeyAndOrderFront(nil)
+            return
+        }
+        closePanel()
     }
 
     func show(relativeTo view: NSStatusBarButton) {

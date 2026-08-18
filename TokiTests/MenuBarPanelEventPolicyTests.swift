@@ -104,6 +104,20 @@ final class MenuBarPanelEventPolicyTests: XCTestCase {
         XCTAssertFalse(MenuBarPanelPresentationPolicy.shouldShowPanel(isVisible: true))
     }
 
+    /// Ordering out a panel that owns an attached sheet leaves the sheet on screen while the
+    /// controller reports the panel hidden, so the status-item toggle must not close it.
+    func test_statusItemToggleDoesNotClosePanelWithAttachedSheet() {
+        XCTAssertTrue(MenuBarPanelPresentationPolicy.shouldClosePanel(
+            isVisible: true,
+            hasAttachedSheet: false))
+        XCTAssertFalse(MenuBarPanelPresentationPolicy.shouldClosePanel(
+            isVisible: true,
+            hasAttachedSheet: true))
+        XCTAssertFalse(MenuBarPanelPresentationPolicy.shouldClosePanel(
+            isVisible: false,
+            hasAttachedSheet: false))
+    }
+
     private func keyDownEvent(keyCode: UInt16) -> NSEvent? {
         NSEvent.keyEvent(
             with: .keyDown,
