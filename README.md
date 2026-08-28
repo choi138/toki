@@ -1,39 +1,44 @@
+<p align="center">
+  <img src="web/public/icon.png" width="96" alt="Toki app icon" />
+</p>
 
+<h1 align="center">Toki</h1>
 
-# Toki
+<p align="center"><strong>The work beneath the output.</strong></p>
 
-[![CI](https://github.com/choi138/toki/actions/workflows/ci.yml/badge.svg)](https://github.com/choi138/toki/actions/workflows/ci.yml)
-![Platform](https://img.shields.io/badge/platform-macOS%2013.0%2B%20%7C%20Linux%20Agent-blue)
-![Swift](https://img.shields.io/badge/Swift-5.9.2-orange)
-![License](https://img.shields.io/github/license/choi138/toki)
-![Stars](https://img.shields.io/github/stars/choi138/toki?style=social)
+<p align="center">
+  A local-first macOS menu bar app for tokens, cost, project attribution,<br />
+  and the time your AI coding agents actually spend working.
+</p>
 
-Toki is a local-first macOS menu bar app for tracking token usage, cost,
-project attribution, and AI work time across Claude Code, Codex, Hermes,
-Cursor, Gemini CLI, GJC, OpenCode, and OpenClaw.
+<p align="center">
+  <a href="https://github.com/choi138/toki/releases/latest"><strong>Download</strong></a>
+  · <a href="#features">Features</a>
+  · <a href="#supported-agents">Supported agents</a>
+  · <a href="https://toki.choi138.com">Website</a>
+  · <a href="#contributing">Contributing</a>
+</p>
 
-It reads each tool's local usage store and gives you a six-tab popover for daily
-totals, date ranges, projects, models, sources, work time, hourly usage, exports,
-and security checks. Optional end-to-end encrypted remote sync can add those
-same supported local sources from Linux/Ubuntu or other macOS computers without
-giving Toki SSH or filesystem access.
+<p align="center">
+  <a href="https://github.com/choi138/toki/actions/workflows/ci.yml"><img src="https://github.com/choi138/toki/actions/workflows/ci.yml/badge.svg" alt="CI status" /></a>
+  <a href="https://github.com/choi138/toki/releases/latest"><img src="https://img.shields.io/github/v/release/choi138/toki" alt="Latest release" /></a>
+  <img src="https://img.shields.io/badge/platform-macOS%2013.0%2B%20%7C%20Linux%20Agent-blue" alt="macOS 13 or later and Linux Agent" />
+  <img src="https://img.shields.io/badge/Swift-5.9.2-orange" alt="Swift 5.9.2" />
+  <a href="./LICENSE"><img src="https://img.shields.io/github/license/choi138/toki" alt="MIT license" /></a>
+  <a href="https://github.com/choi138/toki/stargazers"><img src="https://img.shields.io/github/stars/choi138/toki?style=social" alt="GitHub stars" /></a>
+</p>
 
-**What makes Toki different from a token counter:** it measures how long your
-agents actually worked — direct main-agent time, delegated subagent time,
-wall-clock overlap, and a parallel multiplier — not just how many tokens they
-spent.
+Toki reads each supported tool's local usage store and turns it into six focused
+views for daily totals, date ranges, projects, models, sources, work time, hourly
+usage, exports, and security checks. Optional end-to-end encrypted remote sync
+can add the same local sources from Linux/Ubuntu or other Macs without giving
+Toki SSH or filesystem access.
+
+> **Beyond token counting:** Toki measures direct main-agent work, delegated
+> subagent work, wall-clock overlap, and a parallel multiplier, so you can see
+> how long your agents actually worked—not only how many tokens they spent.
 
 ---
-
-## Repository Layout
-
-| Folder | Contents |
-| --- | --- |
-| `core/` | Cross-platform SwiftPM package (`TokiRemote`): usage models, local readers, encrypted sync protocol, durable storage, and the Linux-compatible `toki-agent`. Shared by every other target. |
-| `menubar/` | The macOS menu bar app (`Toki.app`), its tests, and screenshots. |
-| `hub/` | `toki-hub`, the ciphertext-only Vapor server for remote usage sync. |
-| `ios/` | Placeholder for the upcoming iPhone app, which will reuse `core/`. Not started yet. |
-| `web/` | The official website (landing, docs, download) — Next.js with Feature-Sliced Design. |
 
 ## Install
 
@@ -110,7 +115,7 @@ tracked tool untouched.
 
 ---
 
-## What It Tracks
+## Features
 
 - **Daily and ranged usage**: total, input, output, cache read/write, reasoning
   tokens, cache hit rate, and estimated cost.
@@ -250,6 +255,18 @@ swift build --package-path hub -c release --product toki-hub
 
 ## Development
 
+### Repository layout
+
+| Folder | Contents |
+| --- | --- |
+| `core/` | Cross-platform SwiftPM packages for usage models, local readers, encrypted sync, durable storage, and the Linux-compatible `toki-agent`. |
+| `menubar/` | The macOS menu bar app (`Toki.app`), its tests, and screenshots. |
+| `hub/` | `toki-hub`, the ciphertext-only Vapor server for remote usage sync. |
+| `web/` | The official landing, docs, and download experience built with Next.js and Feature-Sliced Design. |
+| `ios/` | Placeholder for the upcoming iPhone app. Not started yet. |
+
+### macOS app and Swift packages
+
 Toki is organized by responsibility:
 
 - `menubar/Toki/App`: menu bar lifecycle and app entry points.
@@ -300,6 +317,23 @@ xcodebuild test \
 
 CI runs formatting, linting, XcodeGen, build, and tests on macOS, plus SwiftPM
 tests and release builds for the Agent and Hub on Ubuntu.
+
+### Website
+
+Visit the public site at [toki.choi138.com](https://toki.choi138.com). The landing
+page, docs, and release-aware download page live in [`web/`](./web/). To run
+them locally, use Node.js 22.19.0 and pnpm 11.24.0:
+
+```bash
+cd web
+corepack enable
+pnpm install --frozen-lockfile
+pnpm dev
+```
+
+Then open <http://localhost:3000>. Set `NEXT_PUBLIC_SITE_URL` to the canonical
+production URL when deploying so metadata, the sitemap, and robots directives
+use the public origin.
 
 ## Contributing
 
