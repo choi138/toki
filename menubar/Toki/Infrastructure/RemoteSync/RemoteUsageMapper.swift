@@ -111,6 +111,7 @@ struct RemoteUsageMapper {
             timestamp: event.timestamp,
             source: source,
             model: model,
+            provider: event.provider,
             inputTokens: event.inputTokens,
             outputTokens: event.outputTokens,
             cacheReadTokens: event.cacheReadTokens,

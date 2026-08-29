@@ -53,6 +53,26 @@ public func normalizedModelID(_ value: String?) -> String? {
     return trimmed
 }
 
+func inferredUsageProvider(from model: String?) -> String? {
+    guard let model = normalizedModelID(model)?.lowercased() else { return nil }
+    if model.contains("claude") || model.contains("opus") || model.contains("sonnet")
+        || model.contains("haiku") {
+        return "anthropic"
+    }
+    if model.contains("gemini") { return "google" }
+    if model.contains("kimi") { return "moonshot" }
+    if model.contains("qwen") { return "qwen" }
+    if model.contains("deepseek") { return "deepseek" }
+    if model.contains("mistral") || model.contains("codestral") { return "mistral" }
+    if model.contains("grok") { return "xai" }
+    if model.contains("glm") { return "zai" }
+    if model.hasPrefix("gpt-") || model.hasPrefix("o1") || model.hasPrefix("o3")
+        || model.hasPrefix("o4") || model.contains("codex") {
+        return "openai"
+    }
+    return nil
+}
+
 public extension RawTokenUsage {
     mutating func mergeActiveEstimate(_ estimate: ActivityTimeEstimate<String>, source: String) {
         activeSeconds += estimate.totalSeconds

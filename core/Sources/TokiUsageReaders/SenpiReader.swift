@@ -1,0 +1,137 @@
+import Foundation
+import TokiUsageCore
+
+public struct SenpiReader: TokenReader {
+    public static let sourceName = "Senpi"
+
+    public let name = Self.sourceName
+    private let sessionRootsOverride: [URL]?
+    private let readLimits: PiCompatibleReadLimits
+
+    public init(sessionRootsOverride: [URL]? = nil) {
+        self.sessionRootsOverride = sessionRootsOverride
+        readLimits = .default
+    }
+
+    init(
+        sessionRootsOverride: [URL]?,
+        readLimits: PiCompatibleReadLimits) {
+        self.sessionRootsOverride = sessionRootsOverride
+        self.readLimits = readLimits
+    }
+
+    public func readUsage(from startDate: Date, to endDate: Date) async throws -> RawTokenUsage {
+        let roots = sessionRootsOverride
+            ?? LocalUsageReaderPaths().senpiSessionDirectories
+        let files = Set(roots.flatMap { root in
+            findFiles(in: root, withExtension: "jsonl")
+                .map { $0.resolvingSymlinksInPath().standardizedFileURL }
+        })
+        .sorted { $0.path < $1.path }
+        guard files.count <= readLimits.maximumFileCount else {
+            throw PiCompatibleReaderError.tooManyFiles(files.count)
+        }
+
+        var recordsByKey: [PiCompatibleDeduplicationKey: PiCompatibleUsageRecord] = [:]
+        for file in files {
+            var parser = PiCompatibleSessionParser(
+                streamID: file.path,
+                agentKind: Self.agentKind(for: file))
+            try forEachBoundedJSONLLine(at: file, limits: readLimits) { line, lineIndex in
+                guard let record = parser.record(fromJSONLLine: line, lineIndex: lineIndex) else {
+                    return
+                }
+                recordsByKey[record.deduplicationKey] = recordsByKey[record.deduplicationKey]
+                    .map { $0.merged(with: record) } ?? record
+                guard recordsByKey.count <= readLimits.maximumEventCount else {
+                    throw PiCompatibleReaderError.tooManyEvents(recordsByKey.count)
+                }
+            }
+        }
+        return Self.usage(
+            from: recordsByKey.values,
+            from: startDate,
+            to: endDate)
+    }
+
+    static func usage(
+        fromJSONLLines lines: [String],
+        streamID: String,
+        from startDate: Date,
+        to endDate: Date) -> RawTokenUsage {
+        let records = PiCompatibleSessionParser.records(
+            fromJSONLLines: lines,
+            streamID: streamID,
+            agentKind: .main)
+        return usage(
+            from: records,
+            from: startDate,
+            to: endDate)
+    }
+
+    private static func usage(
+        from records: some Sequence<PiCompatibleUsageRecord>,
+        from startDate: Date,
+        to endDate: Date) -> RawTokenUsage {
+        var recordsByKey: [PiCompatibleDeduplicationKey: PiCompatibleUsageRecord] = [:]
+        for record in records {
+            recordsByKey[record.deduplicationKey] = recordsByKey[record.deduplicationKey]
+                .map { $0.merged(with: record) } ?? record
+        }
+
+        var result = RawTokenUsage()
+        var activityEvents: [ActivityTimeEvent<String>] = []
+        for record in recordsByKey.values.sorted(by: recordSort)
+            where record.timestamp >= startDate && record.timestamp < endDate {
+            result.inputTokens += record.inputTokens
+            result.outputTokens += record.outputTokens
+            result.cacheReadTokens += record.cacheReadTokens
+            result.cacheWriteTokens += record.cacheWriteTokens
+            result.reasoningTokens += record.reasoningTokens
+            result.cost += record.cost
+            result.accumulatePerModelUsage(
+                model: record.model,
+                source: sourceName,
+                totalTokens: record.totalTokens,
+                cost: record.cost)
+            result.recordTokenEvent(
+                timestamp: record.timestamp,
+                source: sourceName,
+                model: record.model,
+                provider: record.provider,
+                inputTokens: record.inputTokens,
+                outputTokens: record.outputTokens,
+                cacheReadTokens: record.cacheReadTokens,
+                cacheWriteTokens: record.cacheWriteTokens,
+                reasoningTokens: record.reasoningTokens,
+                cost: record.cost,
+                attribution: record.attribution)
+            activityEvents.append(ActivityTimeEvent(
+                streamID: record.attribution.sessionID ?? record.model,
+                timestamp: record.timestamp,
+                key: UsageModelGrouping.groupingKey(for: record.model),
+                agentKind: record.agentKind))
+        }
+        result.mergeActivityEvents(
+            activityEvents,
+            source: sourceName,
+            clippingEndDate: endDate)
+        return result
+    }
+
+    private static func agentKind(for file: URL) -> WorkTimeAgentKind {
+        let path = file.standardizedFileURL.path
+        return path.contains("/.omo/senpi-task/children/")
+            || path.contains("/.omo/senpi-task/sessions/") ? .subagent : .main
+    }
+
+    private static func recordSort(
+        _ lhs: PiCompatibleUsageRecord,
+        _ rhs: PiCompatibleUsageRecord) -> Bool {
+        if lhs.timestamp != rhs.timestamp { return lhs.timestamp < rhs.timestamp }
+        if lhs.model != rhs.model { return lhs.model < rhs.model }
+        if lhs.provider != rhs.provider { return (lhs.provider ?? "") < (rhs.provider ?? "") }
+        if lhs.inputTokens != rhs.inputTokens { return lhs.inputTokens < rhs.inputTokens }
+        return lhs.outputTokens < rhs.outputTokens
+    }
+}

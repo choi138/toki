@@ -13,8 +13,13 @@ final class UsagePanelSettings: ObservableObject {
         "Cursor",
         "Gemini CLI",
         "GJC",
+        "Senpi",
+        "Pi",
+        "Oh My Pi",
+        "Kimchi",
         "OpenCode",
         "OpenClaw",
+        "GitHub Copilot CLI",
         "Remote Devices",
     ]
 

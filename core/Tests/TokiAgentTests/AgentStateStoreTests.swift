@@ -506,8 +506,13 @@ extension AgentConfigurationAndDiagnosticsTests {
                 "Cursor",
                 "Gemini CLI",
                 "GJC",
+                "Senpi",
+                "Pi",
+                "Oh My Pi",
+                "Kimchi",
                 "OpenCode",
                 "OpenClaw",
+                "GitHub Copilot CLI",
             ])
         XCTAssertEqual(diagnostics.first(where: { $0.name == "Hermes" })?.status, .readable)
         XCTAssertTrue(diagnostics.filter { $0.name != "Hermes" }.allSatisfy { $0.status == .notFound })

@@ -124,6 +124,7 @@ public struct TokenUsageEvent: Equatable, Codable {
     public let timestamp: Date
     public let source: String
     public let model: String?
+    public let provider: String?
     public let inputTokens: Int
     public let outputTokens: Int
     public let cacheReadTokens: Int
@@ -136,6 +137,7 @@ public struct TokenUsageEvent: Equatable, Codable {
         timestamp: Date,
         source: String,
         model: String?,
+        provider: String? = nil,
         inputTokens: Int,
         outputTokens: Int,
         cacheReadTokens: Int,
@@ -146,6 +148,7 @@ public struct TokenUsageEvent: Equatable, Codable {
         self.timestamp = timestamp
         self.source = source
         self.model = model
+        self.provider = provider?.nilIfBlank
         self.inputTokens = inputTokens
         self.outputTokens = outputTokens
         self.cacheReadTokens = cacheReadTokens
@@ -336,6 +339,7 @@ public struct RawTokenUsage {
         timestamp: Date,
         source: String,
         model: String?,
+        provider: String? = nil,
         inputTokens: Int,
         outputTokens: Int,
         cacheReadTokens: Int = 0,
@@ -347,6 +351,7 @@ public struct RawTokenUsage {
             timestamp: timestamp,
             source: source,
             model: model,
+            provider: provider,
             inputTokens: inputTokens,
             outputTokens: outputTokens,
             cacheReadTokens: cacheReadTokens,

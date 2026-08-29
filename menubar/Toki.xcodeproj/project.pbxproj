@@ -65,6 +65,7 @@
 		5749C12527C71DC58B8F599D /* RemoteSyncLifecycleTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2B2E791E9576F6E07FBEAD30 /* RemoteSyncLifecycleTests.swift */; };
 		58DFC0CCDA089A70C1368340 /* RemoteSnapshotSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5DD5E9631A2AFE9BBB47D113 /* RemoteSnapshotSupport.swift */; };
 		590115D0DD0770D8AE1E99F2 /* UsageOriginAggregationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 282A1BF7C0245EB113DE2BA8 /* UsageOriginAggregationTests.swift */; };
+		59879C98FB2AA90877E956EA /* SenpiUsageAttributionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8C79B87968BCAAC5E5D9754 /* SenpiUsageAttributionTests.swift */; };
 		5C39A825A8F541801CBCD635 /* UsageAggregatorLightweightTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1970AD7949844A38FE750194 /* UsageAggregatorLightweightTests.swift */; };
 		5C7A9BCD44EE366E1FBA87E9 /* RemoteUsageReaderValidationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFA2DBD8FE3B6B7D1F66DEC3 /* RemoteUsageReaderValidationTests.swift */; };
 		5DFCC5FAC2D4E5BA818C5BA9 /* MenuBarStatusItemController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2A29762983DCCAA8DD498AE0 /* MenuBarStatusItemController.swift */; };
@@ -146,6 +147,7 @@
 		D1865BCE871FEDC1C4E86BFB /* TokenVelocityState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A24B75CC0D3F0E974190D1E /* TokenVelocityState.swift */; };
 		D370E136A34511750F12DF91 /* rabbit_run_05.png in Resources */ = {isa = PBXBuildFile; fileRef = A169A412590D629F7E46349A /* rabbit_run_05.png */; };
 		D44CC205C094FB726AF83048 /* PanelProjectTimelineView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 523E396F351DD1B72E9761FC /* PanelProjectTimelineView.swift */; };
+		D54163C0549A61D6D5E25892 /* CopilotCLIReaderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A946F016E11E141AF844E414 /* CopilotCLIReaderTests.swift */; };
 		D58EB0F166D8C267D67073DB /* PanelModelDetailRangeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2FBB437F13EB6BA54025319B /* PanelModelDetailRangeTests.swift */; };
 		D7C4B0711A2EE504535042CA /* SecurityAuditScanner.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5D1D5079616742DF022CA445 /* SecurityAuditScanner.swift */; };
 		D87F23F23E85EBA5CCA771BC /* UsageBehaviorTestSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = D702F0DFD9821AED06502BFF /* UsageBehaviorTestSupport.swift */; };
@@ -306,6 +308,7 @@
 		A4692734D41D5DC621C0BF7F /* CodexReaderTestSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodexReaderTestSupport.swift; sourceTree = "<group>"; };
 		A49F1AAB4B8599691A6D3561 /* UsageModelSelectionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UsageModelSelectionTests.swift; sourceTree = "<group>"; };
 		A935D97F072BD30BEA608E73 /* TokiTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = TokiTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		A946F016E11E141AF844E414 /* CopilotCLIReaderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CopilotCLIReaderTests.swift; sourceTree = "<group>"; };
 		AA6E92AC47DF57B49E5EF33C /* UsageModelSourceMerge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UsageModelSourceMerge.swift; sourceTree = "<group>"; };
 		AFF0A0D8A54BCA7B3B1D5403 /* LocalUsageReaderRegistryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalUsageReaderRegistryTests.swift; sourceTree = "<group>"; };
 		B03817C34A0165DBDAA6B1C1 /* RemoteHubClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteHubClient.swift; sourceTree = "<group>"; };
@@ -315,6 +318,7 @@
 		B60EB0929925CB9634708D25 /* OpenClawReaderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OpenClawReaderTests.swift; sourceTree = "<group>"; };
 		B6780BA4E1370D9DC631805A /* TokiApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TokiApp.swift; sourceTree = "<group>"; };
 		B6BAE1901B6B63C2F72788B4 /* PairingBundleClipboard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PairingBundleClipboard.swift; sourceTree = "<group>"; };
+		B8C79B87968BCAAC5E5D9754 /* SenpiUsageAttributionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SenpiUsageAttributionTests.swift; sourceTree = "<group>"; };
 		BDD7891CB45C773154861D21 /* Claude5ModelPricingBehaviorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Claude5ModelPricingBehaviorTests.swift; sourceTree = "<group>"; };
 		C08F6079C3FC989A7466B6E7 /* MenuBarActivityController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MenuBarActivityController.swift; sourceTree = "<group>"; };
 		C4BF69189BDE750B3BE66C4E /* RemoteSyncTransportTestSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteSyncTransportTestSupport.swift; sourceTree = "<group>"; };
@@ -644,6 +648,7 @@
 				744538423BE5FD3B64B2E8A0 /* CodexReaderBehaviorTests.swift */,
 				6D50499C69A39EA845632811 /* CodexReaderTests.swift */,
 				A4692734D41D5DC621C0BF7F /* CodexReaderTestSupport.swift */,
+				A946F016E11E141AF844E414 /* CopilotCLIReaderTests.swift */,
 				A2648C9A747404CF8E5E81E0 /* CursorReaderTests.swift */,
 				62EA09E68E4376A474428CB6 /* GJCReaderTests.swift */,
 				2BE1C427456BB8200627AEE4 /* HermesPricingRefreshTests.swift */,
@@ -686,6 +691,7 @@
 				D70C25A2FDAD65D9ACC194CD /* SecurityAuditSQLiteScannerTests.swift */,
 				52B50C813AEA3A99DD604528 /* SecurityAuditSQLiteTestSupport.swift */,
 				1B445FAED2BE66679303774D /* SecurityAuditViewModelTests.swift */,
+				B8C79B87968BCAAC5E5D9754 /* SenpiUsageAttributionTests.swift */,
 				DC7E73CAD1292B704B8F9896 /* TestSupport.swift */,
 				521CCFEC0E22E8C382682AC4 /* TokenVelocityMonitorTests.swift */,
 				40522C78CB031C7A74E1366E /* TokiBehaviorTests.swift */,
@@ -916,6 +922,7 @@
 				187A94A7422CB21663B9214F /* CodexReaderBehaviorTests.swift in Sources */,
 				25EBE4E00D69845C14F74474 /* CodexReaderTestSupport.swift in Sources */,
 				B8FE2901E73920CC3A9075BE /* CodexReaderTests.swift in Sources */,
+				D54163C0549A61D6D5E25892 /* CopilotCLIReaderTests.swift in Sources */,
 				0F7159AD505B6504367C7BAE /* CursorReaderTests.swift in Sources */,
 				BBBA1E0981491A3D5D6000B8 /* GJCReaderTests.swift in Sources */,
 				E71545EEA12908D204F6C4B3 /* HermesPricingRefreshTests.swift in Sources */,
@@ -958,6 +965,7 @@
 				C0DC30052F0DC7DA43384C92 /* SecurityAuditScannerRuleTests.swift in Sources */,
 				73045EE128D0F58EE2BA5387 /* SecurityAuditScannerTestSupport.swift in Sources */,
 				FF6CD22493695D186F029ED8 /* SecurityAuditViewModelTests.swift in Sources */,
+				59879C98FB2AA90877E956EA /* SenpiUsageAttributionTests.swift in Sources */,
 				99B50682FCFC076FCA1ADABD /* TestSupport.swift in Sources */,
 				64F85E0F6533E1DE2EE87EB2 /* TokenVelocityMonitorTests.swift in Sources */,
 				F5D48A1D4251979462223C95 /* TokiBehaviorTests.swift in Sources */,
