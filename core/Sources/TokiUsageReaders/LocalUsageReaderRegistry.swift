@@ -47,6 +47,10 @@ public struct LocalUsageReaderPaths: Equatable {
     public let xdgConfigDirectory: URL
     public let xdgDataDirectory: URL
     public let xdgStateDirectory: URL
+    private let kimiCLIHomeOverride: URL?
+    private let kimiCodeHomeOverride: URL?
+    private let qwenHomeOverride: URL?
+    private let qwenRuntimeOverride: URL?
 
     public init(
         homeDirectory: URL = homeDir(),
@@ -64,6 +68,18 @@ public struct LocalUsageReaderPaths: Equatable {
             key: "XDG_STATE_HOME",
             environment: environment)
             ?? homeDirectory.appendingPathComponent(".local/state")
+        kimiCLIHomeOverride = Self.absoluteEnvironmentDirectory(
+            key: "KIMI_SHARE_DIR",
+            environment: environment)
+        kimiCodeHomeOverride = Self.absoluteEnvironmentDirectory(
+            key: "KIMI_CODE_HOME",
+            environment: environment)
+        qwenHomeOverride = Self.absoluteEnvironmentDirectory(
+            key: "QWEN_HOME",
+            environment: environment)
+        qwenRuntimeOverride = Self.absoluteEnvironmentDirectory(
+            key: "QWEN_RUNTIME_DIR",
+            environment: environment)
     }
 
     public var claudeProjects: URL {
@@ -111,6 +127,27 @@ public struct LocalUsageReaderPaths: Equatable {
         homeDirectory.appendingPathComponent(".openclaw/agents")
     }
 
+    public var kimiCLISessions: [URL] {
+        Self.uniqueDirectories(
+            [homeDirectory.appendingPathComponent(".kimi")]
+                + [kimiCLIHomeOverride].compactMap { $0 })
+            .map { $0.appendingPathComponent("sessions") }
+    }
+
+    public var kimiCodeSessions: [URL] {
+        Self.uniqueDirectories(
+            [homeDirectory.appendingPathComponent(".kimi-code")]
+                + [kimiCodeHomeOverride].compactMap { $0 })
+            .map { $0.appendingPathComponent("sessions") }
+    }
+
+    public var qwenProjects: [URL] {
+        Self.uniqueDirectories(
+            [homeDirectory.appendingPathComponent(".qwen")]
+                + [qwenHomeOverride, qwenRuntimeOverride].compactMap { $0 })
+            .map { $0.appendingPathComponent("projects") }
+    }
+
     public var agentCacheDirectory: URL {
         xdgStateDirectory.appendingPathComponent("toki-agent")
     }
@@ -143,6 +180,14 @@ public struct LocalUsageReaderPaths: Equatable {
             return nil
         }
         return URL(fileURLWithPath: value)
+    }
+
+    private static func uniqueDirectories(_ directories: [URL]) -> [URL] {
+        var seen = Set<String>()
+        return directories.compactMap { directory in
+            let standardized = directory.standardizedFileURL
+            return seen.insert(standardized.path).inserted ? standardized : nil
+        }
     }
 }
 
@@ -214,6 +259,15 @@ public enum LocalUsageReaderRegistry {
             LocalUsageReaderDescriptor(
                 reader: OpenClawReader(agentsURLOverride: paths.openClawAgents),
                 sourceLocations: [.directory(paths.openClawAgents, extensions: ["jsonl"])]),
+            LocalUsageReaderDescriptor(
+                reader: KimiCLIReader(sessionRoots: paths.kimiCLISessions),
+                sourceLocations: paths.kimiCLISessions.map { .directory($0, extensions: ["jsonl"]) }),
+            LocalUsageReaderDescriptor(
+                reader: KimiCodeReader(sessionRoots: paths.kimiCodeSessions),
+                sourceLocations: paths.kimiCodeSessions.map { .directory($0, extensions: ["jsonl"]) }),
+            LocalUsageReaderDescriptor(
+                reader: QwenCLIReader(projectRoots: paths.qwenProjects),
+                sourceLocations: paths.qwenProjects.map { .directory($0, extensions: ["jsonl"]) }),
         ]
     }
 

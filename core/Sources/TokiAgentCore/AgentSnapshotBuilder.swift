@@ -482,12 +482,24 @@ private extension AgentSnapshotBuilder {
             timestamp: event.timestamp,
             source: event.source,
             model: remoteModel(event.model),
+            provider: remoteProvider(event.provider),
             inputTokens: event.inputTokens,
             outputTokens: event.outputTokens,
             cacheReadTokens: event.cacheReadTokens,
             cacheWriteTokens: event.cacheWriteTokens,
             reasoningTokens: event.reasoningTokens,
-            cost: event.cost > 0 ? event.cost : nil)
+            cost: event.costIsKnown == true
+                ? event.cost
+                : (event.costIsKnown == false ? nil : event.cost > 0 ? event.cost : nil),
+            costIsKnown: event.costIsKnown)
+    }
+
+    private func remoteProvider(_ provider: String?) -> String? {
+        guard let provider,
+              TokiSyncValidation.isSafeDisplayText(provider, maximumLength: 100) else {
+            return nil
+        }
+        return provider
     }
 
     private func remoteCostEvent(_ event: TokenUsageEvent) -> RemoteCostEvent? {

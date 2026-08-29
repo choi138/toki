@@ -15,6 +15,9 @@ final class UsagePanelSettings: ObservableObject {
         "GJC",
         "OpenCode",
         "OpenClaw",
+        "Kimi CLI",
+        "Kimi Code",
+        "Qwen CLI",
         "Remote Devices",
     ]
 

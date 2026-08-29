@@ -40,6 +40,11 @@ final class AgentSystemdServiceTests: XCTestCase {
             "%h/.local/share/opencode/opencode.db-wal",
             "%h/.local/share/opencode/opencode.db-shm",
             "%h/.openclaw/agents",
+            "%h/.kimi/config.toml",
+            "%h/.kimi/config.json",
+            "%h/.kimi/sessions",
+            "%h/.kimi-code/sessions",
+            "%h/.qwen/projects",
         ]
         for path in expectedReadOnlyPaths {
             XCTAssertTrue(service.contains("BindReadOnlyPaths=-\(path)"), path)

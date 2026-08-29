@@ -111,15 +111,20 @@ struct RemoteUsageMapper {
             timestamp: event.timestamp,
             source: source,
             model: model,
+            provider: event.provider,
             inputTokens: event.inputTokens,
             outputTokens: event.outputTokens,
             cacheReadTokens: event.cacheReadTokens,
             cacheWriteTokens: event.cacheWriteTokens,
             reasoningTokens: event.reasoningTokens,
-            cost: cost)
+            cost: cost,
+            costIsKnown: event.costIsKnown)
     }
 
     private func tokenCost(for event: RemoteTokenEvent, model: String?) -> Double {
+        if let costIsKnown = event.costIsKnown {
+            return costIsKnown ? event.cost ?? 0 : 0
+        }
         if let cost = event.cost, cost.isFinite, cost >= 0 {
             return cost
         }

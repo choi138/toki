@@ -29,7 +29,8 @@ private struct ModelSourceStatAggregate {
         sources.insert(event.source)
         if event.totalTokens > 0 {
             isPriceKnown = isPriceKnown
-                && (event.cost > 0 || modelPriceLookup(for: modelID, at: event.timestamp).isPriced)
+                && (event.costIsKnown
+                    ?? (event.cost > 0 || modelPriceLookup(for: modelID, at: event.timestamp).isPriced))
         }
     }
 

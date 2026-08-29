@@ -508,6 +508,9 @@ extension AgentConfigurationAndDiagnosticsTests {
                 "GJC",
                 "OpenCode",
                 "OpenClaw",
+                "Kimi CLI",
+                "Kimi Code",
+                "Qwen CLI",
             ])
         XCTAssertEqual(diagnostics.first(where: { $0.name == "Hermes" })?.status, .readable)
         XCTAssertTrue(diagnostics.filter { $0.name != "Hermes" }.allSatisfy { $0.status == .notFound })

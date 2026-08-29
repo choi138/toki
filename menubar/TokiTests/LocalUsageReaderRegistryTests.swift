@@ -11,7 +11,19 @@ final class LocalUsageReaderRegistryTests: XCTestCase {
         XCTAssertEqual(aggregatorNames.last, "Remote Devices")
         XCTAssertEqual(
             localNames,
-            ["Claude Code", "Codex", "Hermes", "Cursor", "Gemini CLI", "GJC", "OpenCode", "OpenClaw"])
+            [
+                "Claude Code",
+                "Codex",
+                "Hermes",
+                "Cursor",
+                "Gemini CLI",
+                "GJC",
+                "OpenCode",
+                "OpenClaw",
+                "Kimi CLI",
+                "Kimi Code",
+                "Qwen CLI",
+            ])
     }
 
     func test_readerPathsUseInjectedHomeAndXDGDirectories() {

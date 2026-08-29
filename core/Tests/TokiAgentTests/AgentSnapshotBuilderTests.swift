@@ -70,6 +70,7 @@ final class AgentSnapshotBuilderTests: XCTestCase {
                 "GJC",
                 "OpenCode",
                 "OpenClaw",
+                "Kimi CLI", "Kimi Code", "Qwen CLI",
             ])
         XCTAssertFalse(names.contains("Remote Devices"))
     }
