@@ -434,7 +434,9 @@ private extension AgentSnapshotBuilder {
         if lhs.cacheWriteTokens != rhs.cacheWriteTokens { return lhs.cacheWriteTokens < rhs.cacheWriteTokens }
         if lhs.reasoningTokens != rhs.reasoningTokens { return lhs.reasoningTokens < rhs.reasoningTokens }
         if lhs.cost != rhs.cost { return (lhs.cost ?? -1) < (rhs.cost ?? -1) }
-        if lhs.provider != rhs.provider { return (lhs.provider ?? "") < (rhs.provider ?? "") }
+        let lhsProvider = (lhs.provider == nil ? 0 : 1, lhs.provider ?? "")
+        let rhsProvider = (rhs.provider == nil ? 0 : 1, rhs.provider ?? "")
+        if lhsProvider != rhsProvider { return lhsProvider < rhsProvider }
         return (lhs.costIsKnown.map { $0 ? 2 : 1 } ?? 0)
             < (rhs.costIsKnown.map { $0 ? 2 : 1 } ?? 0)
     }

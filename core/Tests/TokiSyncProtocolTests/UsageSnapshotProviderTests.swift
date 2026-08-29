@@ -114,7 +114,7 @@ final class UsageSnapshotProviderTests: XCTestCase {
         XCTAssertNoThrow(try RemoteUsageSnapshotValidator.validate(
             snapshot(event: unknownZero, now: now),
             now: now))
-        XCTAssertThrowsError(try RemoteUsageSnapshotValidator.validate(
+        XCTAssertNoThrow(try RemoteUsageSnapshotValidator.validate(
             snapshot(event: missingUnknownCost, now: now),
             now: now))
         XCTAssertThrowsError(try RemoteUsageSnapshotValidator.validate(

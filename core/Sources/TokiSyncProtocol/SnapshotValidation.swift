@@ -50,7 +50,7 @@ public enum RemoteUsageSnapshotValidator {
                   validTokenCount(event.reasoningTokens),
                   event.cost.map(validCost) ?? true,
                   event.costIsKnown != true || event.cost != nil,
-                  event.costIsKnown != false || event.cost == 0,
+                  event.costIsKnown != false || event.cost == nil || event.cost == 0,
                   event.totalTokens > 0 else {
                 throw RemoteUsageSnapshotValidationError.invalidTokenEvent
             }

@@ -121,4 +121,25 @@ final class UsageFormattingBehaviorTests: XCTestCase {
         XCTAssertEqual(stat.cost, 0)
         XCTAssertFalse(stat.isPriceKnown)
     }
+
+    func test_knownZeroCostPreservesKnownPriceForUnpricedModel() throws {
+        let timestamp = Date(timeIntervalSince1970: 1_765_756_800)
+        var usage = RawTokenUsage()
+        usage.recordTokenEvent(
+            timestamp: timestamp,
+            source: "Kimi CLI",
+            model: "custom-free-model",
+            inputTokens: 1,
+            outputTokens: 0,
+            cost: 0,
+            costIsKnown: true)
+
+        let stat = try XCTUnwrap(UsageReportBuilder.buildModelStats(
+            from: usage,
+            startDate: timestamp.addingTimeInterval(-1),
+            endDate: timestamp.addingTimeInterval(1)).first)
+
+        XCTAssertEqual(stat.cost, 0)
+        XCTAssertTrue(stat.isPriceKnown)
+    }
 }
