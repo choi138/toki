@@ -151,9 +151,11 @@ private struct QwenTokenCounts {
     let reasoning: Int
 
     init(metadata: QwenUsageMetadata) {
-        input = max(0, metadata.promptTokenCount ?? 0)
+        let prompt = max(0, metadata.promptTokenCount ?? 0)
+        let cached = max(0, metadata.cachedContentTokenCount ?? 0)
+        input = max(0, prompt - cached)
         output = max(0, metadata.candidatesTokenCount ?? 0)
-        cacheRead = max(0, metadata.cachedContentTokenCount ?? 0)
+        cacheRead = cached
         reasoning = max(0, metadata.thoughtsTokenCount ?? 0)
     }
 

@@ -128,10 +128,16 @@ public struct LocalUsageReaderPaths: Equatable {
     }
 
     public var kimiCLISessions: [URL] {
-        Self.uniqueDirectories(
-            [homeDirectory.appendingPathComponent(".kimi")]
-                + [kimiCLIHomeOverride].compactMap { $0 })
-            .map { $0.appendingPathComponent("sessions") }
+        kimiCLIHomes.map { $0.appendingPathComponent("sessions") }
+    }
+
+    public var kimiCLIConfigFiles: [URL] {
+        kimiCLIHomes.flatMap { home in
+            [
+                home.appendingPathComponent("config.toml"),
+                home.appendingPathComponent("config.json"),
+            ]
+        }
     }
 
     public var kimiCodeSessions: [URL] {
@@ -170,6 +176,12 @@ public struct LocalUsageReaderPaths: Equatable {
         case .agent:
             agentCacheDirectory
         }
+    }
+
+    private var kimiCLIHomes: [URL] {
+        Self.uniqueDirectories(
+            [homeDirectory.appendingPathComponent(".kimi")]
+                + [kimiCLIHomeOverride].compactMap { $0 })
     }
 
     private static func absoluteEnvironmentDirectory(
@@ -261,7 +273,9 @@ public enum LocalUsageReaderRegistry {
                 sourceLocations: [.directory(paths.openClawAgents, extensions: ["jsonl"])]),
             LocalUsageReaderDescriptor(
                 reader: KimiCLIReader(sessionRoots: paths.kimiCLISessions),
-                sourceLocations: paths.kimiCLISessions.map { .directory($0, extensions: ["jsonl"]) }),
+                sourceLocations:
+                paths.kimiCLIConfigFiles.map { .file($0, includesSQLiteSidecars: false) }
+                    + paths.kimiCLISessions.map { .directory($0, extensions: ["jsonl"]) }),
             LocalUsageReaderDescriptor(
                 reader: KimiCodeReader(sessionRoots: paths.kimiCodeSessions),
                 sourceLocations: paths.kimiCodeSessions.map { .directory($0, extensions: ["jsonl"]) }),

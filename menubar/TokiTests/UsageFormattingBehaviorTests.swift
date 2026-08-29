@@ -100,4 +100,25 @@ final class UsageFormattingBehaviorTests: XCTestCase {
         XCTAssertEqual(stat.panelCostSummary, "$0.00")
         XCTAssertTrue(stat.hasKnownPanelCost)
     }
+
+    func test_unknownCostEventDoesNotContributeInventedCost() throws {
+        let timestamp = Date(timeIntervalSince1970: 1_765_756_800)
+        var usage = RawTokenUsage()
+        usage.recordTokenEvent(
+            timestamp: timestamp,
+            source: "Kimi CLI",
+            model: "gpt-5.4",
+            inputTokens: 1,
+            outputTokens: 0,
+            cost: 42,
+            costIsKnown: false)
+
+        let stat = try XCTUnwrap(UsageReportBuilder.buildModelStats(
+            from: usage,
+            startDate: timestamp.addingTimeInterval(-1),
+            endDate: timestamp.addingTimeInterval(1)).first)
+
+        XCTAssertEqual(stat.cost, 0)
+        XCTAssertFalse(stat.isPriceKnown)
+    }
 }

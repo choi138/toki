@@ -54,7 +54,6 @@ public struct KimiCLIReader: TokenReader {
 
         for session in sessions {
             let identity = kimiCLIIdentity(from: session.streamID)
-            var fallbackOccurrences: [String: Int] = [:]
             for line in session.lines {
                 guard let data = line.data(using: .utf8),
                       let wire = try? decoder.decode(KimiCLIWireLine.self, from: data),
@@ -70,28 +69,17 @@ public struct KimiCLIReader: TokenReader {
                 }
 
                 let model = normalizedModelID(session.model) ?? "kimi-for-coding"
-                let messageKey: String
-                if let messageID = nonemptyKimiValue(payload.messageID) {
-                    messageKey = "message:\(messageID)"
+                let messageKey = if let messageID = nonemptyKimiValue(payload.messageID) {
+                    "message:\(messageID)"
                 } else {
-                    let contentIdentity = [
-                        String(timestamp.timeIntervalSince1970.bitPattern),
-                        "\(model.utf8.count):\(model)",
-                        String(tokens.input),
-                        String(tokens.output),
-                        String(tokens.cacheRead),
-                        String(tokens.cacheWrite),
-                    ].joined(separator: "|")
-                    let occurrence = fallbackOccurrences[contentIdentity, default: 0]
-                    fallbackOccurrences[contentIdentity] = occurrence + 1
-                    messageKey = "content:\(contentIdentity)|occurrence:\(occurrence)"
+                    "stream"
                 }
                 let event = KimiUsageEvent(
                     timestamp: timestamp,
                     model: model,
                     sessionID: identity.sessionID,
                     projectName: identity.workspace,
-                    streamID: identity.sessionID,
+                    streamID: identity.dedupScope,
                     tokens: tokens,
                     totalTokens: totalTokens,
                     provider: session.provider,
@@ -205,7 +193,7 @@ public struct KimiCodeReader: TokenReader {
                     model: model,
                     sessionID: identity.sessionID,
                     projectName: identity.workspace,
-                    streamID: "\(identity.sessionID):\(identity.agent)",
+                    streamID: identity.streamID,
                     tokens: tokens,
                     totalTokens: totalTokens,
                     provider: nil,
@@ -515,16 +503,25 @@ private struct KimiCodeIdentity {
     let workspace: String?
     let sessionID: String
     let agent: String
+    let streamID: String
 }
 
 private func kimiCodeIdentity(from path: String) -> KimiCodeIdentity {
     let agent = URL(fileURLWithPath: path).deletingLastPathComponent()
     let session = agent.deletingLastPathComponent().deletingLastPathComponent()
     let workspace = session.deletingLastPathComponent()
+    let workspaceName = nonemptyKimiValue(workspace.lastPathComponent)
+    let sessionID = nonemptyKimiValue(session.lastPathComponent) ?? usageSessionID(fromPath: path)
+    let agentName = nonemptyKimiValue(agent.lastPathComponent) ?? "main"
     return KimiCodeIdentity(
-        workspace: nonemptyKimiValue(workspace.lastPathComponent),
-        sessionID: nonemptyKimiValue(session.lastPathComponent) ?? usageSessionID(fromPath: path),
-        agent: nonemptyKimiValue(agent.lastPathComponent) ?? "main")
+        workspace: workspaceName,
+        sessionID: sessionID,
+        agent: agentName,
+        streamID: [
+            "\(workspaceName?.utf8.count ?? 0):\(workspaceName ?? "")",
+            "\(sessionID.utf8.count):\(sessionID)",
+            "\(agentName.utf8.count):\(agentName)",
+        ].joined(separator: "|"))
 }
 
 private func concreteKimiCodeModel(_ value: String?) -> String? {

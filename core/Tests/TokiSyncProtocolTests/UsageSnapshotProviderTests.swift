@@ -69,12 +69,56 @@ final class UsageSnapshotProviderTests: XCTestCase {
             cacheWriteTokens: 0,
             reasoningTokens: 0,
             costIsKnown: true)
+        let unknownZero = RemoteTokenEvent(
+            timestamp: now,
+            source: "Kimi CLI",
+            model: "kimi-k2.5",
+            provider: "moonshot",
+            inputTokens: 1,
+            outputTokens: 0,
+            cacheReadTokens: 0,
+            cacheWriteTokens: 0,
+            reasoningTokens: 0,
+            cost: 0,
+            costIsKnown: false)
+        let missingUnknownCost = RemoteTokenEvent(
+            timestamp: now,
+            source: "Kimi CLI",
+            model: "kimi-k2.5",
+            provider: "moonshot",
+            inputTokens: 1,
+            outputTokens: 0,
+            cacheReadTokens: 0,
+            cacheWriteTokens: 0,
+            reasoningTokens: 0,
+            costIsKnown: false)
+        let positiveUnknownCost = RemoteTokenEvent(
+            timestamp: now,
+            source: "Kimi CLI",
+            model: "kimi-k2.5",
+            provider: "moonshot",
+            inputTokens: 1,
+            outputTokens: 0,
+            cacheReadTokens: 0,
+            cacheWriteTokens: 0,
+            reasoningTokens: 0,
+            cost: 1,
+            costIsKnown: false)
 
         XCTAssertNoThrow(try RemoteUsageSnapshotValidator.validate(
             snapshot(event: knownZero, now: now),
             now: now))
         XCTAssertThrowsError(try RemoteUsageSnapshotValidator.validate(
             snapshot(event: missingKnownCost, now: now),
+            now: now))
+        XCTAssertNoThrow(try RemoteUsageSnapshotValidator.validate(
+            snapshot(event: unknownZero, now: now),
+            now: now))
+        XCTAssertThrowsError(try RemoteUsageSnapshotValidator.validate(
+            snapshot(event: missingUnknownCost, now: now),
+            now: now))
+        XCTAssertThrowsError(try RemoteUsageSnapshotValidator.validate(
+            snapshot(event: positiveUnknownCost, now: now),
             now: now))
     }
 

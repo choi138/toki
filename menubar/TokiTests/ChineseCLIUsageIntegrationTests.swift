@@ -31,7 +31,7 @@ final class ChineseCLIUsageIntegrationTests: XCTestCase {
         XCTAssertEqual(
             Set(result.usageData.perModel.map(\.modelID)),
             ["kimi-for-coding", "moonshot/kimi-k2.6", "qwen3.5-plus"])
-        XCTAssertEqual(result.usageData.totalTokens, 97)
+        XCTAssertEqual(result.usageData.totalTokens, 96)
         XCTAssertEqual(
             Set(result.usageData.sessionStats.map(\.source)),
             ["Kimi CLI", "Kimi Code", "Qwen CLI"])

@@ -24,11 +24,12 @@ final class QwenReaderTests: XCTestCase {
             from: startDate,
             to: endDate)
 
-        XCTAssertEqual(usage.inputTokens, 120)
+        XCTAssertEqual(usage.inputTokens, 109)
         XCTAssertEqual(usage.outputTokens, 30)
         XCTAssertEqual(usage.cacheReadTokens, 11)
         XCTAssertEqual(usage.cacheWriteTokens, 0)
         XCTAssertEqual(usage.reasoningTokens, 7)
+        XCTAssertEqual(usage.totalTokens, 157)
         XCTAssertEqual(usage.cost, 0)
         XCTAssertEqual(usage.tokenEvents.map(\.source), ["Qwen CLI"])
         XCTAssertEqual(usage.tokenEvents.first?.model, "qwen3.5-plus")

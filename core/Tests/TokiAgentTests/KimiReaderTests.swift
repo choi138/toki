@@ -180,6 +180,10 @@ extension KimiReaderTests {
             "workspace-a",
             "workspace-b",
         ])
+        XCTAssertEqual(usage.resolvedWorkTime.activeStreamCount, 2)
+        XCTAssertEqual(usage.resolvedWorkTime.maxConcurrentStreams, 2)
+        XCTAssertEqual(usage.resolvedWorkTime.agentSeconds, 60)
+        XCTAssertEqual(usage.resolvedWorkTime.wallClockSeconds, 30)
     }
 
     func test_kimiCLIDeduplicatesMessageWithoutIDAcrossDivergentReplicas() async throws {
@@ -197,17 +201,21 @@ extension KimiReaderTests {
                 at: file.deletingLastPathComponent(),
                 withIntermediateDirectories: true)
         }
-        let event =
+        let firstSnapshot =
             #"{"timestamp":1770983410.0,"message":{"type":"StatusUpdate","payload":{"# +
             #""token_usage":{"input_other":10,"output":0}}}}"#
-        try event.write(to: defaultWire, atomically: true, encoding: .utf8)
-        try [#"{"type":"metadata"}"#, event].joined(separator: "\n")
+        let secondSnapshot =
+            #"{"timestamp":1770983420.0,"message":{"type":"StatusUpdate","payload":{"# +
+            #""token_usage":{"input_other":20,"output":0}}}}"#
+        try [firstSnapshot, secondSnapshot].joined(separator: "\n")
+            .write(to: defaultWire, atomically: true, encoding: .utf8)
+        try [#"{"type":"metadata"}"#, firstSnapshot, secondSnapshot].joined(separator: "\n")
             .write(to: overrideWire, atomically: true, encoding: .utf8)
 
         let usage = try await KimiCLIReader(sessionRoots: [defaultRoot, overrideRoot])
             .readUsage(from: startDate, to: endDate)
 
-        XCTAssertEqual(usage.totalTokens, 10)
+        XCTAssertEqual(usage.totalTokens, 20)
         XCTAssertEqual(usage.tokenEvents.count, 1)
     }
 
@@ -308,6 +316,10 @@ extension KimiReaderTests {
             "workspace-a",
             "workspace-b",
         ])
+        XCTAssertEqual(usage.resolvedWorkTime.activeStreamCount, 2)
+        XCTAssertEqual(usage.resolvedWorkTime.maxConcurrentStreams, 2)
+        XCTAssertEqual(usage.resolvedWorkTime.agentSeconds, 60)
+        XCTAssertEqual(usage.resolvedWorkTime.wallClockSeconds, 30)
     }
 
     func test_kimiDiscoveryRootsUseAbsoluteOverridesWithoutDuplicatingDefaults() {

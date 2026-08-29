@@ -25,12 +25,15 @@ private struct ModelSourceStatAggregate {
 
     mutating func accumulate(_ event: TokenUsageEvent, modelID: String) {
         totalTokens += event.totalTokens
-        cost += event.cost
+        if event.costIsKnown != false {
+            cost += event.cost
+        }
         sources.insert(event.source)
-        if event.totalTokens > 0 {
+        if event.costIsKnown == false {
+            isPriceKnown = false
+        } else if event.totalTokens > 0 {
             isPriceKnown = isPriceKnown
-                && (event.costIsKnown
-                    ?? (event.cost > 0 || modelPriceLookup(for: modelID, at: event.timestamp).isPriced))
+                && (event.cost > 0 || modelPriceLookup(for: modelID, at: event.timestamp).isPriced)
         }
     }
 

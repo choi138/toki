@@ -37,25 +37,39 @@ final class ChineseCLIAgentIntegrationTests: XCTestCase {
             to: fixture.root.appendingPathComponent(
                 ".qwen/projects/workspace/chats/session-qwen.jsonl"))
 
-        let changedSignature = try await builder.sourceSignature(
+        let sessionSignature = try await builder.sourceSignature(
+            configuration: fixture.configuration,
+            now: fixture.now)
+        try Self.write(
+            [#"default_model = "kimi-for-coding""#],
+            to: fixture.root.appendingPathComponent(".kimi/config.toml"))
+        let tomlSignature = try await builder.sourceSignature(
+            configuration: fixture.configuration,
+            now: fixture.now)
+        try Self.write(
+            [#"{"model":"kimi-for-coding"}"#],
+            to: fixture.root.appendingPathComponent(".kimi/config.json"))
+        let jsonSignature = try await builder.sourceSignature(
             configuration: fixture.configuration,
             now: fixture.now)
         let snapshot = try await builder.build(
             configuration: fixture.configuration,
             now: fixture.now)
 
-        XCTAssertNotEqual(initialSignature, changedSignature)
+        XCTAssertNotEqual(initialSignature, sessionSignature)
+        XCTAssertNotEqual(sessionSignature, tomlSignature)
+        XCTAssertNotEqual(tomlSignature, jsonSignature)
         XCTAssertTrue(snapshot.tokenEvents.contains {
             $0.source == "Kimi CLI" && $0.model == "kimi-for-coding"
-                && $0.provider == "moonshot" && $0.cost == nil && $0.costIsKnown == false
+                && $0.provider == "moonshot" && $0.cost == 0 && $0.costIsKnown == false
         })
         XCTAssertTrue(snapshot.tokenEvents.contains {
             $0.source == "Kimi Code" && $0.model == "moonshot/kimi-k2.6"
-                && $0.provider == "moonshot" && $0.cost == nil && $0.costIsKnown == false
+                && $0.provider == "moonshot" && $0.cost == 0 && $0.costIsKnown == false
         })
         XCTAssertTrue(snapshot.tokenEvents.contains {
             $0.source == "Qwen CLI" && $0.model == "qwen3.5-plus"
-                && $0.provider == "qwen" && $0.cost == nil && $0.costIsKnown == false
+                && $0.provider == "qwen" && $0.cost == 0 && $0.costIsKnown == false
         })
     }
 

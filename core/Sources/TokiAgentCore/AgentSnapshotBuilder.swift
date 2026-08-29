@@ -433,7 +433,10 @@ private extension AgentSnapshotBuilder {
         if lhs.cacheReadTokens != rhs.cacheReadTokens { return lhs.cacheReadTokens < rhs.cacheReadTokens }
         if lhs.cacheWriteTokens != rhs.cacheWriteTokens { return lhs.cacheWriteTokens < rhs.cacheWriteTokens }
         if lhs.reasoningTokens != rhs.reasoningTokens { return lhs.reasoningTokens < rhs.reasoningTokens }
-        return (lhs.cost ?? -1) < (rhs.cost ?? -1)
+        if lhs.cost != rhs.cost { return (lhs.cost ?? -1) < (rhs.cost ?? -1) }
+        if lhs.provider != rhs.provider { return (lhs.provider ?? "") < (rhs.provider ?? "") }
+        return (lhs.costIsKnown.map { $0 ? 2 : 1 } ?? 0)
+            < (rhs.costIsKnown.map { $0 ? 2 : 1 } ?? 0)
     }
 
     private func costEventSort(_ lhs: RemoteCostEvent, _ rhs: RemoteCostEvent) -> Bool {
@@ -488,9 +491,9 @@ private extension AgentSnapshotBuilder {
             cacheReadTokens: event.cacheReadTokens,
             cacheWriteTokens: event.cacheWriteTokens,
             reasoningTokens: event.reasoningTokens,
-            cost: event.costIsKnown == true
-                ? event.cost
-                : (event.costIsKnown == false ? nil : event.cost > 0 ? event.cost : nil),
+            cost: event.costIsKnown == false
+                ? 0
+                : (event.costIsKnown == true ? event.cost : event.cost > 0 ? event.cost : nil),
             costIsKnown: event.costIsKnown)
     }
 
@@ -514,6 +517,7 @@ private extension AgentSnapshotBuilder {
         guard counts.allSatisfy({ $0 == 0 }),
               event.cost.isFinite,
               event.cost > 0,
+              event.costIsKnown != false,
               validCostRange.contains(event.cost) else {
             return nil
         }
