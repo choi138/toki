@@ -18,8 +18,7 @@ public struct QwenCLIReader: TokenReader {
                 .map { file in
                     QwenSession(
                         streamID: file.path,
-                        lines: readJSONLLines(at: file),
-                        fallbackDate: qwenFileModificationDate(file))
+                        lineSource: .file(file))
                 }
         }
         return Self.usage(from: sessions, from: startDate, to: endDate)
@@ -31,7 +30,7 @@ public struct QwenCLIReader: TokenReader {
         from startDate: Date,
         to endDate: Date) -> RawTokenUsage {
         usage(
-            from: [QwenSession(streamID: streamID, lines: lines, fallbackDate: nil)],
+            from: [QwenSession(streamID: streamID, lineSource: .lines(lines))],
             from: startDate,
             to: endDate)
     }
@@ -42,7 +41,7 @@ public struct QwenCLIReader: TokenReader {
         to endDate: Date) -> RawTokenUsage {
         usage(
             from: sessions.map {
-                QwenSession(streamID: $0.streamID, lines: $0.lines, fallbackDate: nil)
+                QwenSession(streamID: $0.streamID, lineSource: .lines($0.lines))
             },
             from: startDate,
             to: endDate)
@@ -59,19 +58,19 @@ public struct QwenCLIReader: TokenReader {
             let pathIdentity = qwenPathIdentity(from: session.streamID)
             var contentOccurrences: [String: Int] = [:]
 
-            for line in session.lines {
+            session.lineSource.consume { line in
                 guard let data = line.data(using: .utf8),
                       let entry = try? decoder.decode(QwenLine.self, from: data),
                       entry.type == "assistant",
                       let metadata = entry.usageMetadata,
-                      let timestamp = entry.timestamp.flatMap(DateParser.parse) ?? session.fallbackDate,
+                      let timestamp = entry.timestamp.flatMap(DateParser.parse),
                       timestamp >= startDate,
                       timestamp < endDate else {
-                    continue
+                    return
                 }
 
                 let tokens = QwenTokenCounts(metadata: metadata)
-                guard let totalTokens = tokens.total, totalTokens > 0 else { continue }
+                guard let totalTokens = tokens.total, totalTokens > 0 else { return }
 
                 let sessionID = nonemptyQwenValue(entry.sessionID) ?? pathIdentity.sessionID
                 let model = normalizedModelID(entry.model)
@@ -93,7 +92,13 @@ public struct QwenCLIReader: TokenReader {
                     contentOccurrences[contentIdentity] = occurrence + 1
                     recordIdentity = "content:\(contentIdentity)|occurrence:\(occurrence)"
                 }
-                let key = "\(sessionID):\(recordIdentity)"
+                let projectIdentity = pathIdentity.project ?? projectPath
+                let key = if recordIdentity.hasPrefix("uuid:"),
+                             let projectIdentity {
+                    "project:\(projectIdentity.utf8.count):\(projectIdentity)|\(recordIdentity)"
+                } else {
+                    "\(sessionID):\(recordIdentity)"
+                }
                 let event = QwenUsageEvent(
                     timestamp: timestamp,
                     model: model,
@@ -104,7 +109,7 @@ public struct QwenCLIReader: TokenReader {
                     totalTokens: totalTokens,
                     dedupKey: key)
                 if let existing = eventsByKey[key], !event.shouldReplace(existing) {
-                    continue
+                    return
                 }
                 eventsByKey[key] = event
             }
@@ -118,8 +123,7 @@ public struct QwenCLIReader: TokenReader {
 
 private struct QwenSession {
     let streamID: String
-    let lines: [String]
-    let fallbackDate: Date?
+    let lineSource: JSONLLineSource
 }
 
 private struct QwenLine: Decodable {
@@ -279,8 +283,4 @@ private func nonemptyQwenValue(_ value: String?) -> String? {
         return nil
     }
     return value
-}
-
-private func qwenFileModificationDate(_ url: URL) -> Date? {
-    (try? url.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate
 }

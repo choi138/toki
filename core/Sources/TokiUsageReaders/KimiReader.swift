@@ -17,10 +17,9 @@ public struct KimiCLIReader: TokenReader {
             return kimiWireFiles(in: root).map { file in
                 KimiCLISession(
                     streamID: file.path,
-                    lines: readJSONLLines(at: file),
+                    lineSource: .file(file),
                     model: configuration?.model,
-                    provider: configuration?.provider,
-                    fallbackDate: fileModificationDate(file))
+                    provider: configuration?.provider)
             }
         }
         return Self.usage(from: sessions, from: startDate, to: endDate)
@@ -36,10 +35,9 @@ public struct KimiCLIReader: TokenReader {
             from: [
                 KimiCLISession(
                     streamID: streamID,
-                    lines: lines,
+                    lineSource: .lines(lines),
                     model: model,
-                    provider: nil,
-                    fallbackDate: nil),
+                    provider: nil),
             ],
             from: startDate,
             to: endDate)
@@ -54,7 +52,7 @@ public struct KimiCLIReader: TokenReader {
 
         for session in sessions {
             let identity = kimiCLIIdentity(from: session.streamID)
-            for line in session.lines {
+            session.lineSource.consume { line in
                 guard let data = line.data(using: .utf8),
                       let wire = try? decoder.decode(KimiCLIWireLine.self, from: data),
                       wire.message?.type == "StatusUpdate",
@@ -62,10 +60,10 @@ public struct KimiCLIReader: TokenReader {
                       let tokens = payload.tokenUsage?.counts,
                       let totalTokens = tokens.total,
                       totalTokens > 0,
-                      let timestamp = kimiCLITimestamp(wire.timestamp) ?? session.fallbackDate,
+                      let timestamp = kimiCLITimestamp(wire.timestamp),
                       timestamp >= startDate,
                       timestamp < endDate else {
-                    continue
+                    return
                 }
 
                 let model = normalizedModelID(session.model) ?? "kimi-for-coding"
@@ -77,7 +75,8 @@ public struct KimiCLIReader: TokenReader {
                 let event = KimiUsageEvent(
                     timestamp: timestamp,
                     model: model,
-                    sessionID: identity.sessionID,
+                    sessionID: identity.dedupScope,
+                    sessionLabel: identity.sessionID,
                     projectName: identity.workspace,
                     streamID: identity.dedupScope,
                     tokens: tokens,
@@ -86,7 +85,7 @@ public struct KimiCLIReader: TokenReader {
                     dedupKey: "\(identity.dedupScope):\(messageKey)")
                 if let existing = snapshots[event.dedupKey],
                    !event.shouldReplace(existing) {
-                    continue
+                    return
                 }
                 snapshots[event.dedupKey] = event
             }
@@ -114,8 +113,7 @@ public struct KimiCodeReader: TokenReader {
             kimiWireFiles(in: root).map { file in
                 KimiCodeSession(
                     streamID: file.path,
-                    lines: readJSONLLines(at: file),
-                    fallbackDate: fileModificationDate(file))
+                    lineSource: .file(file))
             }
         }
         return Self.usage(from: sessions, from: startDate, to: endDate)
@@ -130,8 +128,7 @@ public struct KimiCodeReader: TokenReader {
             from: [
                 KimiCodeSession(
                     streamID: streamID,
-                    lines: lines,
-                    fallbackDate: nil),
+                    lineSource: .lines(lines)),
             ],
             from: startDate,
             to: endDate)
@@ -149,15 +146,15 @@ public struct KimiCodeReader: TokenReader {
             var latestConcreteModel: String?
             var contentOccurrences: [String: Int] = [:]
 
-            for line in session.lines {
+            session.lineSource.consume { line in
                 guard let data = line.data(using: .utf8),
                       let wire = try? decoder.decode(KimiCodeWireLine.self, from: data) else {
-                    continue
+                    return
                 }
 
                 if wire.type == "llm.request" {
                     latestConcreteModel = concreteKimiCodeModel(wire.model) ?? latestConcreteModel
-                    continue
+                    return
                 }
 
                 guard wire.type == "usage.record",
@@ -165,10 +162,10 @@ public struct KimiCodeReader: TokenReader {
                       let tokens = wire.usage?.counts,
                       let totalTokens = tokens.total,
                       totalTokens > 0,
-                      let timestamp = kimiCodeTimestamp(wire.time) ?? session.fallbackDate,
+                      let timestamp = kimiCodeTimestamp(wire.time),
                       timestamp >= startDate,
                       timestamp < endDate else {
-                    continue
+                    return
                 }
 
                 let model = concreteKimiCodeModel(wire.model)
@@ -191,7 +188,8 @@ public struct KimiCodeReader: TokenReader {
                 eventsByKey[key] = KimiUsageEvent(
                     timestamp: timestamp,
                     model: model,
-                    sessionID: identity.sessionID,
+                    sessionID: identity.sessionScope,
+                    sessionLabel: identity.sessionID,
                     projectName: identity.workspace,
                     streamID: identity.streamID,
                     tokens: tokens,
@@ -210,16 +208,14 @@ public struct KimiCodeReader: TokenReader {
 
 private struct KimiCLISession {
     let streamID: String
-    let lines: [String]
+    let lineSource: JSONLLineSource
     let model: String?
     let provider: String?
-    let fallbackDate: Date?
 }
 
 private struct KimiCodeSession {
     let streamID: String
-    let lines: [String]
-    let fallbackDate: Date?
+    let lineSource: JSONLLineSource
 }
 
 private struct KimiCLIWireLine: Decodable {
@@ -301,6 +297,7 @@ private struct KimiUsageEvent {
     let timestamp: Date
     let model: String
     let sessionID: String
+    let sessionLabel: String
     let projectName: String?
     let streamID: String
     let tokens: KimiTokenCounts
@@ -353,6 +350,7 @@ private func kimiRawUsage(
             attribution: UsageAttribution(
                 projectName: event.projectName,
                 sessionID: event.sessionID,
+                sessionLabel: event.sessionLabel,
                 quality: event.projectName == nil ? .unknown : .inferred))
         activityEvents.append(
             ActivityTimeEvent(
@@ -502,6 +500,7 @@ private func kimiCLIIdentity(from path: String) -> KimiCLIIdentity {
 private struct KimiCodeIdentity {
     let workspace: String?
     let sessionID: String
+    let sessionScope: String
     let agent: String
     let streamID: String
 }
@@ -513,13 +512,17 @@ private func kimiCodeIdentity(from path: String) -> KimiCodeIdentity {
     let workspaceName = nonemptyKimiValue(workspace.lastPathComponent)
     let sessionID = nonemptyKimiValue(session.lastPathComponent) ?? usageSessionID(fromPath: path)
     let agentName = nonemptyKimiValue(agent.lastPathComponent) ?? "main"
+    let sessionScope = [
+        "\(workspaceName?.utf8.count ?? 0):\(workspaceName ?? "")",
+        "\(sessionID.utf8.count):\(sessionID)",
+    ].joined(separator: "|")
     return KimiCodeIdentity(
         workspace: workspaceName,
         sessionID: sessionID,
+        sessionScope: sessionScope,
         agent: agentName,
         streamID: [
-            "\(workspaceName?.utf8.count ?? 0):\(workspaceName ?? "")",
-            "\(sessionID.utf8.count):\(sessionID)",
+            sessionScope,
             "\(agentName.utf8.count):\(agentName)",
         ].joined(separator: "|"))
 }
@@ -545,10 +548,6 @@ private func kimiCodeTimestamp(_ value: Int64?) -> Date? {
 private func kimiEventSort(_ lhs: KimiUsageEvent, _ rhs: KimiUsageEvent) -> Bool {
     if lhs.timestamp != rhs.timestamp { return lhs.timestamp < rhs.timestamp }
     return lhs.dedupKey < rhs.dedupKey
-}
-
-private func fileModificationDate(_ url: URL) -> Date? {
-    (try? url.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate
 }
 
 private func nonemptyKimiValue(_ value: String?) -> String? {

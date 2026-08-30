@@ -77,4 +77,47 @@ final class AgentSystemdServiceTests: XCTestCase {
         XCTAssertTrue(serviceSection.contains("RestartSec=30s"))
         XCTAssertGreaterThan(10 * 60, 30 * 5)
     }
+
+    func test_overrideDropInExposesOnlyRequiredChineseCLIPaths() throws {
+        let repositoryRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let exampleURL = repositoryRoot.appendingPathComponent(
+            "packaging/systemd/toki-agent-overrides.conf.example")
+        let documentationURL = repositoryRoot.appendingPathComponent("docs/remote-sync.md")
+        let example = try String(contentsOf: exampleURL, encoding: .utf8)
+        let documentation = try String(contentsOf: documentationURL, encoding: .utf8)
+
+        for variable in [
+            "KIMI_SHARE_DIR",
+            "KIMI_CODE_HOME",
+            "QWEN_HOME",
+            "QWEN_RUNTIME_DIR",
+        ] {
+            XCTAssertTrue(example.contains("Environment=\"\(variable)="), variable)
+            XCTAssertTrue(documentation.contains(variable), variable)
+        }
+        let expectedReadOnlyPaths = [
+            "/home/USER/.local/share/kimi/sessions",
+            "/home/USER/.local/share/kimi-code/sessions",
+            "/home/USER/.local/share/qwen/projects",
+            "/home/USER/.cache/qwen/projects",
+        ]
+        for path in expectedReadOnlyPaths {
+            XCTAssertTrue(example.contains("BindReadOnlyPaths=\(path)"), path)
+        }
+        XCTAssertEqual(
+            example.components(separatedBy: "BindReadOnlyPaths=").count - 1,
+            expectedReadOnlyPaths.count)
+        XCTAssertFalse(example.contains("BindReadOnlyPaths=-"))
+        XCTAssertFalse(example.contains("BindReadOnlyPaths=/home/USER/.local/share/kimi\n"))
+        XCTAssertFalse(example.contains("BindReadOnlyPaths=/home/USER/.local/share/kimi-code\n"))
+        XCTAssertFalse(example.contains("BindReadOnlyPaths=/home/USER/.local/share/qwen\n"))
+        XCTAssertFalse(example.contains("BindReadOnlyPaths=/home/USER/.cache/qwen\n"))
+        XCTAssertFalse(example.contains("BindReadOnlyPaths=/home/USER/.local/share/kimi/config"))
+        XCTAssertTrue(documentation.contains("toki-agent-overrides.conf.example"))
+        XCTAssertTrue(documentation.contains("systemctl --user edit toki-agent"))
+    }
 }

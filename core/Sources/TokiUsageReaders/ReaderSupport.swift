@@ -44,6 +44,22 @@ func readJSONLLines(at url: URL) -> [String] {
         .filter { !$0.isEmpty }
 }
 
+enum JSONLLineSource {
+    case lines([String])
+    case file(URL)
+
+    func consume(_ body: (String) -> Void) {
+        switch self {
+        case let .lines(lines):
+            for line in lines {
+                body(line)
+            }
+        case let .file(url):
+            forEachJSONLLine(at: url) { line, _ in body(line) }
+        }
+    }
+}
+
 public func normalizedModelID(_ value: String?) -> String? {
     guard let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines),
           !trimmed.isEmpty,

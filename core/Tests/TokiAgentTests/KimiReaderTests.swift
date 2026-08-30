@@ -38,8 +38,9 @@ final class KimiReaderTests: XCTestCase {
         XCTAssertEqual(usage.tokenEvents.map(\.model), ["kimi-k2.5", "kimi-k2.5"])
         XCTAssertEqual(usage.tokenEvents.map(\.provider), ["moonshot", "moonshot"])
         XCTAssertTrue(usage.tokenEvents.allSatisfy { $0.costIsKnown == false })
+        XCTAssertEqual(Set(usage.tokenEvents.compactMap(\.attribution?.sessionID)).count, 1)
         XCTAssertEqual(
-            usage.tokenEvents.map(\.attribution?.sessionID),
+            usage.tokenEvents.map(\.attribution?.sessionLabel),
             ["session-cli", "session-cli"])
         XCTAssertEqual(
             usage.tokenEvents.map(\.attribution?.projectName),
@@ -118,7 +119,8 @@ final class KimiReaderTests: XCTestCase {
         XCTAssertEqual(usage.tokenEvents.first?.model, "moonshot/kimi-k2.6")
         XCTAssertEqual(usage.tokenEvents.first?.provider, "moonshot")
         XCTAssertEqual(usage.tokenEvents.first?.costIsKnown, false)
-        XCTAssertEqual(usage.tokenEvents.first?.attribution?.sessionID, "session-code")
+        XCTAssertNotEqual(usage.tokenEvents.first?.attribution?.sessionID, "session-code")
+        XCTAssertEqual(usage.tokenEvents.first?.attribution?.sessionLabel, "session-code")
         XCTAssertEqual(usage.tokenEvents.first?.attribution?.projectName, "workspace-b")
         XCTAssertEqual(usage.activityEvents.count, 1)
     }
@@ -180,6 +182,8 @@ extension KimiReaderTests {
             "workspace-a",
             "workspace-b",
         ])
+        XCTAssertEqual(Set(usage.tokenEvents.compactMap(\.attribution?.sessionID)).count, 2)
+        XCTAssertEqual(Set(usage.tokenEvents.compactMap(\.attribution?.sessionLabel)), ["session"])
         XCTAssertEqual(usage.resolvedWorkTime.activeStreamCount, 2)
         XCTAssertEqual(usage.resolvedWorkTime.maxConcurrentStreams, 2)
         XCTAssertEqual(usage.resolvedWorkTime.agentSeconds, 60)
@@ -316,6 +320,8 @@ extension KimiReaderTests {
             "workspace-a",
             "workspace-b",
         ])
+        XCTAssertEqual(Set(usage.tokenEvents.compactMap(\.attribution?.sessionID)).count, 2)
+        XCTAssertEqual(Set(usage.tokenEvents.compactMap(\.attribution?.sessionLabel)), ["session"])
         XCTAssertEqual(usage.resolvedWorkTime.activeStreamCount, 2)
         XCTAssertEqual(usage.resolvedWorkTime.maxConcurrentStreams, 2)
         XCTAssertEqual(usage.resolvedWorkTime.agentSeconds, 60)
@@ -334,5 +340,44 @@ extension KimiReaderTests {
         XCTAssertEqual(
             paths.kimiCodeSessions.map(\.path),
             ["/tmp/toki-home/.kimi-code/sessions", "/tmp/kimi-code/sessions"])
+    }
+
+    func test_kimiReadersDoNotRedateTimestampLessRecordsWhenFilesGrow() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let cliRoot = root.appendingPathComponent(".kimi/sessions")
+        let cliFile = cliRoot.appendingPathComponent("workspace/session/wire.jsonl")
+        let codeRoot = root.appendingPathComponent(".kimi-code/sessions")
+        let codeFile = codeRoot.appendingPathComponent(
+            "workspace/session/agents/main/wire.jsonl")
+        try FileManager.default.createDirectory(
+            at: cliFile.deletingLastPathComponent(),
+            withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(
+            at: codeFile.deletingLastPathComponent(),
+            withIntermediateDirectories: true)
+        try Data(
+            #"{"message":{"type":"StatusUpdate","payload":{"token_usage":{"input_other":10,"output":2}}}}"#
+                .utf8)
+            .write(to: cliFile)
+        try Data(
+            #"{"type":"usage.record","model":"kimi-k2","usage":{"inputOther":12,"output":3},"usageScope":"turn"}"#
+                .utf8)
+            .write(to: codeFile)
+        for file in [cliFile, codeFile] {
+            try FileManager.default.setAttributes(
+                [.modificationDate: startDate.addingTimeInterval(1)],
+                ofItemAtPath: file.path)
+        }
+
+        let cliUsage = try await KimiCLIReader(sessionRoots: [cliRoot])
+            .readUsage(from: startDate, to: endDate)
+        let codeUsage = try await KimiCodeReader(sessionRoots: [codeRoot])
+            .readUsage(from: startDate, to: endDate)
+
+        XCTAssertEqual(cliUsage.totalTokens, 0)
+        XCTAssertEqual(codeUsage.totalTokens, 0)
     }
 }

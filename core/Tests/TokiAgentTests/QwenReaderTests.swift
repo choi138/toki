@@ -75,6 +75,31 @@ final class QwenReaderTests: XCTestCase {
         XCTAssertEqual(usage.tokenEvents.count, 3)
     }
 
+    func test_qwenDeduplicatesUUIDAcrossDifferentReplicaMetadata() {
+        let replicated =
+            #"{"uuid":"same-message","type":"assistant","model":"qwen3-coder","# +
+            #""timestamp":"2026-02-23T14:24:56.857Z","usageMetadata":{"promptTokenCount":10,"# +
+            #""candidatesTokenCount":2}}"#
+        let usage = QwenCLIReader.usage(
+            fromJSONLSessions: [
+                (
+                    streamID: "/tmp/default/projects/-tmp-workspace/chats/original.jsonl",
+                    lines: [
+                        replicated.replacingOccurrences(
+                            of: #""usageMetadata""#,
+                            with: #""sessionId":"original","cwd":"/tmp/workspace","usageMetadata""#),
+                    ]),
+                (
+                    streamID: "/tmp/override/projects/-tmp-workspace/chats/renamed.jsonl",
+                    lines: [replicated]),
+            ],
+            from: startDate,
+            to: endDate)
+
+        XCTAssertEqual(usage.totalTokens, 12)
+        XCTAssertEqual(usage.tokenEvents.count, 1)
+    }
+
     func test_qwenSkipsMalformedAndTruncatedRecords() {
         let usage = QwenCLIReader.usage(
             fromJSONLLines: [
@@ -182,6 +207,28 @@ extension QwenReaderTests {
         XCTAssertEqual(forward.tokenEvents, reversed.tokenEvents)
     }
 
+    func test_qwenKeepsSameUUIDAcrossDifferentProjects() {
+        let first =
+            #"{"uuid":"same","type":"assistant","model":"qwen3","# +
+            #""timestamp":"2026-02-23T14:24:56.857Z","sessionId":"session","# +
+            #""usageMetadata":{"promptTokenCount":10,"candidatesTokenCount":0}}"#
+        let second =
+            #"{"uuid":"same","type":"assistant","model":"qwen3","# +
+            #""timestamp":"2026-02-23T14:25:56.857Z","sessionId":"session","# +
+            #""usageMetadata":{"promptTokenCount":20,"candidatesTokenCount":0}}"#
+
+        let usage = QwenCLIReader.usage(
+            fromJSONLSessions: [
+                (streamID: "/tmp/root/projects/first/chats/a.jsonl", lines: [first]),
+                (streamID: "/tmp/root/projects/second/chats/b.jsonl", lines: [second]),
+            ],
+            from: startDate,
+            to: endDate)
+
+        XCTAssertEqual(usage.totalTokens, 30)
+        XCTAssertEqual(usage.tokenEvents.count, 2)
+    }
+
     func test_qwenReadsInRangeRecordFromFileWithOldModificationDate() async throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
@@ -206,5 +253,42 @@ extension QwenReaderTests {
             .readUsage(from: startDate, to: endDate)
 
         XCTAssertEqual(usage.totalTokens, 12)
+    }
+
+    func test_qwenDoesNotRedateTimestampLessRecordWhenFileGrows() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let file = root.appendingPathComponent("workspace/chats/session.jsonl")
+        try FileManager.default.createDirectory(
+            at: file.deletingLastPathComponent(),
+            withIntermediateDirectories: true)
+        let timestampLess =
+            #"{"uuid":"old","type":"assistant","model":"qwen3","# +
+            #""usageMetadata":{"promptTokenCount":10,"candidatesTokenCount":2}}"#
+        try timestampLess.write(to: file, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes(
+            [.modificationDate: startDate.addingTimeInterval(1)],
+            ofItemAtPath: file.path)
+
+        let usage = try await QwenCLIReader(projectRoots: [root])
+            .readUsage(from: startDate, to: endDate)
+
+        XCTAssertEqual(usage.totalTokens, 0)
+        XCTAssertTrue(usage.tokenEvents.isEmpty)
+    }
+
+    func test_jsonlIteratorHandlesChunkBoundariesIncrementally() throws {
+        let file = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: file) }
+        let longLine = String(repeating: "x", count: 70000)
+        try Data(" \(longLine) \n\nsecond\nthird".utf8).write(to: file)
+
+        var lines: [String] = []
+        forEachJSONLLine(at: file) { line, _ in lines.append(line) }
+
+        XCTAssertEqual(lines, [longLine, "second", "third"])
     }
 }
