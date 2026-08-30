@@ -179,7 +179,13 @@ private func copilotTraceContexts(
 private extension CopilotCLIReader {
     func sourceFiles() throws -> [URL] {
         var files: Set<URL> = []
-        if FileManager.default.fileExists(atPath: otelDirectoryURL.path) {
+        var isDirectory: ObjCBool = false
+        if FileManager.default.fileExists(
+            atPath: otelDirectoryURL.path,
+            isDirectory: &isDirectory) {
+            guard isDirectory.boolValue else {
+                throw PiCompatibleReaderError.unreadableFile(otelDirectoryURL)
+            }
             let defaultFiles: [URL]
             do {
                 defaultFiles = try FileManager.default.contentsOfDirectory(
