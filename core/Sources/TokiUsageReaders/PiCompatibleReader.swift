@@ -36,13 +36,16 @@ struct PiCompatibleReader {
                 }
                 recordsByKey[record.deduplicationKey] = recordsByKey[record.deduplicationKey]
                     .map { $0.merged(with: record) } ?? record
-                guard recordsByKey.count <= readLimits.maximumEventCount else {
-                    throw PiCompatibleReaderError.tooManyEvents(recordsByKey.count)
-                }
             }
         }
+        let selectedRecords = recordsByKey.values.filter {
+            $0.timestamp >= startDate && $0.timestamp < endDate
+        }
+        guard selectedRecords.count <= readLimits.maximumEventCount else {
+            throw PiCompatibleReaderError.tooManyEvents(selectedRecords.count)
+        }
         return Self.usage(
-            from: recordsByKey.values,
+            from: selectedRecords,
             source: source,
             from: startDate,
             to: endDate)

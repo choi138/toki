@@ -7,12 +7,23 @@ public struct CopilotCLIReader: TokenReader {
     public let name = Self.sourceName
     private let otelDirectoryURLOverride: URL?
     private let exporterFileURLOverride: URL?
+    private let readLimits: PiCompatibleReadLimits
 
     public init(
         otelDirectoryURLOverride: URL? = nil,
         exporterFileURLOverride: URL? = nil) {
         self.otelDirectoryURLOverride = otelDirectoryURLOverride
         self.exporterFileURLOverride = exporterFileURLOverride
+        readLimits = .default
+    }
+
+    init(
+        otelDirectoryURLOverride: URL?,
+        exporterFileURLOverride: URL?,
+        readLimits: PiCompatibleReadLimits) {
+        self.otelDirectoryURLOverride = otelDirectoryURLOverride
+        self.exporterFileURLOverride = exporterFileURLOverride
+        self.readLimits = readLimits
     }
 
     private var otelDirectoryURL: URL {
@@ -20,10 +31,27 @@ public struct CopilotCLIReader: TokenReader {
     }
 
     public func readUsage(from startDate: Date, to endDate: Date) async throws -> RawTokenUsage {
-        Self.usage(
-            fromJSONLFiles: sourceFiles().map { file in
-                (streamID: file.path, lines: readJSONLLines(at: file))
-            },
+        let files = try sourceFiles()
+        guard files.count <= readLimits.maximumFileCount else {
+            throw PiCompatibleReaderError.tooManyFiles(files.count)
+        }
+        var decodedRecords: [DecodedCopilotRecord] = []
+        for file in files {
+            try forEachBoundedJSONLLine(at: file, limits: readLimits) { line, lineIndex in
+                guard let record = Self.decodedRecord(
+                    fromJSONLLine: line,
+                    streamID: file.path,
+                    lineIndex: lineIndex) else {
+                    return
+                }
+                decodedRecords.append(record)
+                guard decodedRecords.count <= readLimits.maximumEventCount else {
+                    throw PiCompatibleReaderError.tooManyEvents(decodedRecords.count)
+                }
+            }
+        }
+        return Self.usage(
+            fromDecodedRecords: decodedRecords,
             from: startDate,
             to: endDate)
     }
@@ -33,34 +61,22 @@ public struct CopilotCLIReader: TokenReader {
         streamID: String,
         from startDate: Date,
         to endDate: Date) -> RawTokenUsage {
-        usage(
-            fromJSONLFiles: [(streamID: streamID, lines: lines)],
+        let decodedRecords = lines.enumerated().compactMap { lineIndex, line in
+            decodedRecord(
+                fromJSONLLine: line,
+                streamID: streamID,
+                lineIndex: lineIndex)
+        }
+        return usage(
+            fromDecodedRecords: decodedRecords,
             from: startDate,
             to: endDate)
     }
 
     private static func usage(
-        fromJSONLFiles files: [(streamID: String, lines: [String])],
+        fromDecodedRecords decodedRecords: [DecodedCopilotRecord],
         from startDate: Date,
         to endDate: Date) -> RawTokenUsage {
-        let decoder = JSONDecoder()
-        var decodedRecords: [DecodedCopilotRecord] = []
-        for file in files {
-            for (lineIndex, line) in file.lines.enumerated() {
-                let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
-                guard !trimmed.isEmpty,
-                      let data = trimmed.data(using: .utf8),
-                      let record = try? decoder.decode(CopilotOTELRecord.self, from: data) else {
-                    continue
-                }
-                decodedRecords.append(
-                    DecodedCopilotRecord(
-                        record: record,
-                        bodyUsageSource: copilotBodyUsageSource(in: data),
-                        streamID: file.streamID,
-                        lineIndex: lineIndex))
-            }
-        }
         let traceContexts = copilotTraceContexts(from: decodedRecords.map(\.record))
         let candidates = decodedRecords.compactMap { item in
             CopilotUsageCandidate(
@@ -112,6 +128,23 @@ public struct CopilotCLIReader: TokenReader {
             clippingEndDate: endDate)
         return result
     }
+
+    private static func decodedRecord(
+        fromJSONLLine line: String,
+        streamID: String,
+        lineIndex: Int) -> DecodedCopilotRecord? {
+        let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty,
+              let data = trimmed.data(using: .utf8),
+              let record = try? JSONDecoder().decode(CopilotOTELRecord.self, from: data) else {
+            return nil
+        }
+        return DecodedCopilotRecord(
+            record: record,
+            bodyUsageSource: copilotBodyUsageSource(in: data),
+            streamID: streamID,
+            lineIndex: lineIndex)
+    }
 }
 
 private struct CopilotTraceContext {
@@ -144,27 +177,39 @@ private func copilotTraceContexts(
 }
 
 private extension CopilotCLIReader {
-    func sourceFiles() -> [URL] {
+    func sourceFiles() throws -> [URL] {
         var files: Set<URL> = []
-        if let defaultFiles = try? FileManager.default.contentsOfDirectory(
-            at: otelDirectoryURL,
-            includingPropertiesForKeys: [.isRegularFileKey, .isSymbolicLinkKey],
-            options: [.skipsHiddenFiles]) {
-            for file in defaultFiles where isReadableJSONLFile(file) {
+        if FileManager.default.fileExists(atPath: otelDirectoryURL.path) {
+            let defaultFiles: [URL]
+            do {
+                defaultFiles = try FileManager.default.contentsOfDirectory(
+                    at: otelDirectoryURL,
+                    includingPropertiesForKeys: [.isRegularFileKey, .isSymbolicLinkKey],
+                    options: [.skipsHiddenFiles])
+            } catch {
+                throw PiCompatibleReaderError.unreadableFile(otelDirectoryURL)
+            }
+            for file in defaultFiles where try isReadableJSONLFile(file) {
                 files.insert(canonicalFileURL(file))
             }
         }
         if let exporterFileURLOverride,
-           isReadableJSONLFile(exporterFileURLOverride) {
+           FileManager.default.fileExists(atPath: exporterFileURLOverride.path),
+           try isReadableJSONLFile(exporterFileURLOverride) {
             files.insert(canonicalFileURL(exporterFileURLOverride))
         }
         return files.sorted { $0.path < $1.path }
     }
 
-    func isReadableJSONLFile(_ url: URL) -> Bool {
-        guard url.pathExtension.lowercased() == "jsonl",
-              let values = try? url.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey]) else {
+    func isReadableJSONLFile(_ url: URL) throws -> Bool {
+        guard url.pathExtension.lowercased() == "jsonl" else {
             return false
+        }
+        let values: URLResourceValues
+        do {
+            values = try url.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey])
+        } catch {
+            throw PiCompatibleReaderError.unreadableFile(url)
         }
         return values.isRegularFile == true && values.isSymbolicLink != true
     }
@@ -217,6 +262,7 @@ private struct CopilotUsageCandidate {
     let cacheReadTokens: Int
     let cacheWriteTokens: Int
     let reasoningTokens: Int
+    let reportedBuckets: CopilotReportedBuckets
 
     init?(
         record: CopilotOTELRecord,
@@ -229,15 +275,22 @@ private struct CopilotUsageCandidate {
             return nil
         }
         let attributes = record.attributes
-        let inclusiveInput = max(0, attributes.inputTokens ?? 0)
-        let cacheRead = max(0, attributes.cacheReadTokens ?? 0)
-        let cacheWrite = max(0, attributes.cacheWriteTokens ?? 0)
-        let output = max(0, attributes.outputTokens ?? 0)
-        let reasoning = max(0, attributes.reasoningTokens ?? 0)
+        let inclusiveInput = boundedUsageTokenCount(attributes.inputTokens)
+        let cacheRead = boundedUsageTokenCount(attributes.cacheReadTokens)
+        let cacheWrite = boundedUsageTokenCount(attributes.cacheWriteTokens)
+        let inclusiveOutput = boundedUsageTokenCount(attributes.outputTokens)
+        let reasoning = boundedUsageTokenCount(attributes.reasoningTokens)
         let input = max(0, inclusiveInput - min(inclusiveInput, cacheRead))
+        let output = max(0, inclusiveOutput - min(inclusiveOutput, reasoning))
         guard input + output + cacheRead + cacheWrite + reasoning > 0 else {
             return nil
         }
+        var reportedBuckets: CopilotReportedBuckets = []
+        if attributes.inputTokens != nil { reportedBuckets.insert(.input) }
+        if attributes.outputTokens != nil { reportedBuckets.insert(.output) }
+        if attributes.cacheReadTokens != nil { reportedBuckets.insert(.cacheRead) }
+        if attributes.cacheWriteTokens != nil { reportedBuckets.insert(.cacheWrite) }
+        if attributes.reasoningTokens != nil { reportedBuckets.insert(.reasoning) }
 
         self.source = source
         traceID = record.validTraceID
@@ -268,6 +321,7 @@ private struct CopilotUsageCandidate {
         cacheReadTokens = cacheRead
         cacheWriteTokens = cacheWrite
         reasoningTokens = reasoning
+        self.reportedBuckets = reportedBuckets
     }
 
     var totalTokens: Int {
@@ -292,22 +346,40 @@ private struct CopilotUsageCandidate {
     }
 
     func merged(with other: Self) -> Self {
-        Self(
-            source: source.priority >= other.source.priority ? source : other.source,
-            traceID: traceID ?? other.traceID,
-            spanID: spanID ?? other.spanID,
-            responseID: responseID ?? other.responseID,
-            streamID: streamID,
-            lineIndex: min(lineIndex, other.lineIndex),
-            model: model ?? other.model,
-            provider: provider ?? other.provider,
-            sessionID: sessionID ?? other.sessionID,
-            timestamp: min(timestamp, other.timestamp),
-            inputTokens: max(inputTokens, other.inputTokens),
-            outputTokens: max(outputTokens, other.outputTokens),
-            cacheReadTokens: max(cacheReadTokens, other.cacheReadTokens),
-            cacheWriteTokens: max(cacheWriteTokens, other.cacheWriteTokens),
-            reasoningTokens: max(reasoningTokens, other.reasoningTokens))
+        let preferred: Self
+        let supplemental: Self
+        if source.priority != other.source.priority {
+            (preferred, supplemental) = source.priority > other.source.priority
+                ? (self, other) : (other, self)
+        } else if totalTokens != other.totalTokens {
+            (preferred, supplemental) = totalTokens > other.totalTokens
+                ? (self, other) : (other, self)
+        } else {
+            (preferred, supplemental) = lineIndex >= other.lineIndex
+                ? (self, other) : (other, self)
+        }
+        return Self(
+            source: preferred.source,
+            traceID: preferred.traceID ?? supplemental.traceID,
+            spanID: preferred.spanID ?? supplemental.spanID,
+            responseID: preferred.responseID ?? supplemental.responseID,
+            streamID: preferred.streamID,
+            lineIndex: preferred.lineIndex,
+            model: preferred.model ?? supplemental.model,
+            provider: preferred.provider ?? supplemental.provider,
+            sessionID: preferred.sessionID ?? supplemental.sessionID,
+            timestamp: preferred.timestamp,
+            inputTokens: preferred.reportedBuckets.contains(.input)
+                ? preferred.inputTokens : supplemental.inputTokens,
+            outputTokens: preferred.reportedBuckets.contains(.output)
+                ? preferred.outputTokens : supplemental.outputTokens,
+            cacheReadTokens: preferred.reportedBuckets.contains(.cacheRead)
+                ? preferred.cacheReadTokens : supplemental.cacheReadTokens,
+            cacheWriteTokens: preferred.reportedBuckets.contains(.cacheWrite)
+                ? preferred.cacheWriteTokens : supplemental.cacheWriteTokens,
+            reasoningTokens: preferred.reportedBuckets.contains(.reasoning)
+                ? preferred.reasoningTokens : supplemental.reasoningTokens,
+            reportedBuckets: preferred.reportedBuckets.union(supplemental.reportedBuckets))
     }
 
     private init(
@@ -325,7 +397,8 @@ private struct CopilotUsageCandidate {
         outputTokens: Int,
         cacheReadTokens: Int,
         cacheWriteTokens: Int,
-        reasoningTokens: Int) {
+        reasoningTokens: Int,
+        reportedBuckets: CopilotReportedBuckets) {
         self.source = source
         self.traceID = traceID
         self.spanID = spanID
@@ -341,7 +414,18 @@ private struct CopilotUsageCandidate {
         self.cacheReadTokens = cacheReadTokens
         self.cacheWriteTokens = cacheWriteTokens
         self.reasoningTokens = reasoningTokens
+        self.reportedBuckets = reportedBuckets
     }
+}
+
+private struct CopilotReportedBuckets: OptionSet {
+    let rawValue: Int
+
+    static let input = Self(rawValue: 1 << 0)
+    static let output = Self(rawValue: 1 << 1)
+    static let cacheRead = Self(rawValue: 1 << 2)
+    static let cacheWrite = Self(rawValue: 1 << 3)
+    static let reasoning = Self(rawValue: 1 << 4)
 }
 
 private func selectPreferredCandidates(_ candidates: [CopilotUsageCandidate]) -> [CopilotUsageCandidate] {
@@ -357,9 +441,8 @@ private func recordsDescribeSameUsage(
     _ lhs: CopilotUsageCandidate,
     _ rhs: CopilotUsageCandidate) -> Bool {
     if let lhsResponseID = lhs.responseID,
-       let rhsResponseID = rhs.responseID,
-       lhsResponseID == rhsResponseID {
-        return true
+       let rhsResponseID = rhs.responseID {
+        return lhsResponseID == rhsResponseID
     }
     if let lhsTraceID = lhs.traceID,
        let rhsTraceID = rhs.traceID,

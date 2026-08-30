@@ -286,7 +286,8 @@ public enum LocalUsageReaderRegistry {
                 reader: CopilotCLIReader(
                     otelDirectoryURLOverride: paths.copilotOTELDirectory,
                     exporterFileURLOverride: paths.copilotOTELExporterFile),
-                sourceLocations: copilotSourceLocations),
+                sourceLocations: copilotSourceLocations,
+                sourceSignatureStrategy: .allFiles),
         ]
     }
 

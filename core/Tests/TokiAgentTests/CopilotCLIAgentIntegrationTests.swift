@@ -1,4 +1,5 @@
 import Foundation
+import TokiSyncProtocol
 import XCTest
 @testable import TokiAgentCore
 @testable import TokiUsageReaders
@@ -50,18 +51,26 @@ final class CopilotCLIAgentIntegrationTests: XCTestCase {
         let builder = AgentSnapshotBuilder(
             home: fixture.root,
             environment: ["COPILOT_OTEL_FILE_EXPORTER_PATH": exporterFile.path])
+        let defaultDirectory = fixture.root.appendingPathComponent(".copilot/otel")
+        let oldDate = fixture.now.addingTimeInterval(-30 * 24 * 60 * 60)
+        try FileManager.default.createDirectory(
+            at: defaultDirectory,
+            withIntermediateDirectories: true)
+        try FileManager.default.setAttributes(
+            [.modificationDate: oldDate],
+            ofItemAtPath: defaultDirectory.path)
         let initial = try await builder.sourceSignature(
             configuration: fixture.configuration,
             now: fixture.now)
 
-        let defaultFile = fixture.root.appendingPathComponent(".copilot/otel/default.jsonl")
-        try FileManager.default.createDirectory(
-            at: defaultFile.deletingLastPathComponent(),
-            withIntermediateDirectories: true)
+        let defaultFile = defaultDirectory.appendingPathComponent("default.jsonl")
         try Data("{}\n".utf8).write(to: defaultFile)
         try FileManager.default.setAttributes(
-            [.modificationDate: fixture.now],
+            [.modificationDate: oldDate],
             ofItemAtPath: defaultFile.path)
+        try FileManager.default.setAttributes(
+            [.modificationDate: oldDate],
+            ofItemAtPath: defaultDirectory.path)
         let afterDefault = try await builder.sourceSignature(
             configuration: fixture.configuration,
             now: fixture.now)
@@ -76,6 +85,71 @@ final class CopilotCLIAgentIntegrationTests: XCTestCase {
 
         XCTAssertNotEqual(initial, afterDefault)
         XCTAssertNotEqual(afterDefault, afterExporter)
+    }
+
+    func test_readerRejectsOversizedTelemetryFiles() async throws {
+        let fixture = try AgentSnapshotFixture()
+        defer { fixture.remove() }
+        let otelDirectory = fixture.root.appendingPathComponent(".copilot/otel")
+        try FileManager.default.createDirectory(at: otelDirectory, withIntermediateDirectories: true)
+        let file = otelDirectory.appendingPathComponent("oversized.jsonl")
+        try Data(repeating: 0x20, count: 17).write(to: file)
+        let reader = CopilotCLIReader(
+            otelDirectoryURLOverride: otelDirectory,
+            exporterFileURLOverride: nil,
+            readLimits: PiCompatibleReadLimits(
+                maximumFileCount: 1,
+                maximumFileBytes: 16,
+                maximumLineBytes: 16,
+                maximumEventCount: 1))
+
+        do {
+            _ = try await reader.readUsage(from: .distantPast, to: .distantFuture)
+            XCTFail("Expected oversized telemetry to fail closed")
+        } catch {
+            XCTAssertEqual(error as? PiCompatibleReaderError, .fileTooLarge(file))
+        }
+    }
+
+    func test_readerPropagatesTelemetryDirectoryReadFailures() async throws {
+        let fixture = try AgentSnapshotFixture()
+        defer { fixture.remove() }
+        let nonDirectory = fixture.root.appendingPathComponent("copilot-otel.jsonl")
+        try Data("not a directory".utf8).write(to: nonDirectory)
+        let reader = CopilotCLIReader(otelDirectoryURLOverride: nonDirectory)
+
+        do {
+            _ = try await reader.readUsage(from: .distantPast, to: .distantFuture)
+            XCTFail("Expected unreadable telemetry source to fail closed")
+        } catch {
+            XCTAssertEqual(error as? PiCompatibleReaderError, .unreadableFile(nonDirectory))
+        }
+    }
+
+    func test_readerBoundsExtremeTelemetryTokenCounters() {
+        let line = copilotAgentJSONLLine("""
+        {
+          "type":"span",
+          "traceId":"trace-extreme",
+          "spanId":"span-extreme",
+          "name":"chat sentinel",
+          "startTime":[1784199940,0],
+          "attributes":{
+            "gen_ai.operation.name":"chat",
+            "gen_ai.usage.input_tokens":\(Int.max),
+            "gen_ai.usage.output_tokens":1
+          }
+        }
+        """)
+
+        let usage = CopilotCLIReader.usage(
+            fromJSONLLines: [line],
+            streamID: "fixture.jsonl",
+            from: .distantPast,
+            to: .distantFuture)
+
+        XCTAssertEqual(usage.inputTokens, RemoteUsageSnapshotValidator.maximumTokenCountPerBucket)
+        XCTAssertEqual(usage.outputTokens, 1)
     }
 }
 

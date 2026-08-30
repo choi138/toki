@@ -42,6 +42,7 @@ final class AgentSystemdServiceTests: XCTestCase {
             "%h/.pi/agent/sessions",
             "%h/.omp/agent/sessions",
             "%h/.config/kimchi/harness/sessions",
+            "%h/.copilot/otel",
             "%h/.local/share/opencode/opencode.db",
             "%h/.local/share/opencode/opencode.db-wal",
             "%h/.local/share/opencode/opencode.db-shm",

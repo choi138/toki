@@ -36,7 +36,7 @@ final class CopilotCLIReaderTests: XCTestCase {
             to: Date(timeIntervalSince1970: 1_765_756_900))
 
         XCTAssertEqual(usage.inputTokens, 100)
-        XCTAssertEqual(usage.outputTokens, 30)
+        XCTAssertEqual(usage.outputTokens, 23)
         XCTAssertEqual(usage.cacheReadTokens, 20)
         XCTAssertEqual(usage.cacheWriteTokens, 5)
         XCTAssertEqual(usage.reasoningTokens, 7)
@@ -75,7 +75,7 @@ final class CopilotCLIReaderTests: XCTestCase {
             to: Date(timeIntervalSince1970: 1_765_756_900))
 
         XCTAssertEqual(usage.inputTokens, 50)
-        XCTAssertEqual(usage.outputTokens, 11)
+        XCTAssertEqual(usage.outputTokens, 9)
         XCTAssertEqual(usage.cacheReadTokens, 40)
         XCTAssertEqual(usage.cacheWriteTokens, 3)
         XCTAssertEqual(usage.reasoningTokens, 2)
@@ -199,6 +199,96 @@ final class CopilotCLIReaderTests: XCTestCase {
         XCTAssertEqual(usage.cacheReadTokens, 3)
         XCTAssertEqual(usage.reasoningTokens, 2)
         XCTAssertEqual(usage.tokenEvents.count, 1)
+    }
+}
+
+extension CopilotCLIReaderTests {
+    func test_conflictingDuplicateRevisionsKeepOneCoherentCounterSet() {
+        let first = copilotSpan(
+            traceID: "trace-revision",
+            spanID: "span-revision",
+            timestamp: 1_765_756_800,
+            attributes: """
+            "gen_ai.response.id":"response-revision",
+            "gen_ai.usage.input_tokens":10,
+            "gen_ai.usage.output_tokens":20
+            """)
+        let second = copilotSpan(
+            traceID: "trace-revision",
+            spanID: "span-revision",
+            timestamp: 1_765_756_801,
+            attributes: """
+            "gen_ai.response.id":"response-revision",
+            "gen_ai.usage.input_tokens":20,
+            "gen_ai.usage.output_tokens":5
+            """)
+
+        let usage = CopilotCLIReader.usage(
+            fromJSONLLines: [first, second],
+            streamID: "fixture.jsonl",
+            from: Date(timeIntervalSince1970: 1_765_756_700),
+            to: Date(timeIntervalSince1970: 1_765_756_900))
+
+        XCTAssertEqual(usage.inputTokens, 10)
+        XCTAssertEqual(usage.outputTokens, 20)
+        XCTAssertEqual(usage.tokenEvents.count, 1)
+    }
+
+    func test_distinctResponsesSharingTraceAreBothCounted() {
+        let chat = copilotSpan(
+            traceID: "trace-multi-response",
+            spanID: "span-chat",
+            timestamp: 1_765_756_800,
+            attributes: """
+            "gen_ai.response.id":"response-chat",
+            "gen_ai.usage.input_tokens":10,
+            "gen_ai.usage.output_tokens":4
+            """)
+        let inference = """
+        {
+          "type":"log",
+          "traceId":"trace-multi-response",
+          "spanId":"span-inference",
+          "timeUnixNano":"1765756801000000000",
+          "attributes":{
+            "event.name":"gen_ai.client.inference.operation.details",
+            "gen_ai.response.id":"response-inference",
+            "gen_ai.usage.input_tokens":20,
+            "gen_ai.usage.output_tokens":8
+          }
+        }
+        """
+
+        let usage = CopilotCLIReader.usage(
+            fromJSONLLines: [chat, inference],
+            streamID: "fixture.jsonl",
+            from: Date(timeIntervalSince1970: 1_765_756_700),
+            to: Date(timeIntervalSince1970: 1_765_756_900))
+
+        XCTAssertEqual(usage.inputTokens, 30)
+        XCTAssertEqual(usage.outputTokens, 12)
+        XCTAssertEqual(usage.tokenEvents.count, 2)
+    }
+
+    func test_reasoningIsExcludedFromInclusiveOutput() {
+        let usage = CopilotCLIReader.usage(
+            fromJSONLLines: [
+                copilotSpan(
+                    traceID: "trace-reasoning",
+                    spanID: "span-reasoning",
+                    timestamp: 1_765_756_800,
+                    attributes: """
+                    "gen_ai.usage.output_tokens":30,
+                    "gen_ai.usage.reasoning.output_tokens":7
+                    """),
+            ],
+            streamID: "fixture.jsonl",
+            from: Date(timeIntervalSince1970: 1_765_756_700),
+            to: Date(timeIntervalSince1970: 1_765_756_900))
+
+        XCTAssertEqual(usage.outputTokens, 23)
+        XCTAssertEqual(usage.reasoningTokens, 7)
+        XCTAssertEqual(usage.totalTokens, 30)
     }
 }
 

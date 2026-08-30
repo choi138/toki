@@ -497,12 +497,16 @@ private extension AgentSnapshotBuilder {
     }
 
     private func remoteProvider(_ provider: String?) -> String? {
-        guard let provider,
-              TokiSyncValidation.isSafeDisplayText(provider, maximumLength: 100) else {
-            return nil
-        }
-        return provider
+        let normalized = provider?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return normalized.flatMap { Self.remoteProviderIdentifiers.contains($0) ? $0 : nil }
     }
+
+    private static let remoteProviderIdentifiers = Set([
+        "anthropic", "aws-bedrock", "azure", "bedrock", "cerebras",
+        "deepseek", "fireworks", "github", "google", "groq",
+        "mistral", "moonshot", "ollama", "openai", "openrouter",
+        "qwen", "together", "vertex-ai", "xai", "zai",
+    ])
 
     private func remoteCostEvent(_ event: TokenUsageEvent) -> RemoteCostEvent? {
         let counts = [

@@ -95,6 +95,52 @@ final class PiFamilyReaderTests: XCTestCase {
         XCTAssertEqual(usage.totalTokens, 13)
         XCTAssertEqual(usage.tokenEvents.count, 1)
     }
+}
+
+extension PiFamilyReaderTests {
+    func test_piAndSenpiApplyEventLimitAfterDateSelection() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("toki-pi-window-limit-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let session = root.appendingPathComponent("session.jsonl")
+        let content = [
+            #"{"type":"session","id":"window-limit","cwd":"/tmp/project"}"#,
+            piFamilyMessage(
+                id: "old-message",
+                timestamp: "2026-08-01T12:00:00Z",
+                input: 100,
+                output: 50),
+            piFamilyMessage(
+                id: "selected-message",
+                timestamp: "2026-08-20T12:00:00Z",
+                input: 9,
+                output: 4),
+        ].joined(separator: "\n")
+        try Data(content.utf8).write(to: session)
+        let limits = PiCompatibleReadLimits(
+            maximumFileCount: 1,
+            maximumFileBytes: 10 * 1024,
+            maximumLineBytes: 2 * 1024,
+            maximumEventCount: 1)
+
+        let piUsage = try PiCompatibleReader(
+            source: .pi,
+            sessionRoots: [root],
+            readLimits: limits)
+            .readUsage(
+                from: piFamilyDate("2026-08-20T00:00:00Z"),
+                to: piFamilyDate("2026-08-21T00:00:00Z"))
+        let senpiUsage = try await SenpiReader(
+            sessionRootsOverride: [root],
+            readLimits: limits)
+            .readUsage(
+                from: piFamilyDate("2026-08-20T00:00:00Z"),
+                to: piFamilyDate("2026-08-21T00:00:00Z"))
+
+        XCTAssertEqual(piUsage.totalTokens, 13)
+        XCTAssertEqual(senpiUsage.totalTokens, 13)
+    }
 
     func test_piRejectsEmptyGeneratedSubagentSuffix() {
         let usage = PiReader.usage(
@@ -189,6 +235,7 @@ private func piFamilyDate(_ value: String) -> Date {
 
 private func piFamilyMessage(
     id: String,
+    timestamp: String = "2026-08-20T12:00:00Z",
     model: String = "gpt-5.6-sol",
     provider: String = "openai",
     input: Int,
@@ -206,7 +253,7 @@ private func piFamilyMessage(
         usage.append(#""reasoning":\#(reasoning)"#)
     }
     return """
-    {"type":"message","id":"\(id)","timestamp":"2026-08-20T12:00:00Z","message":\
+    {"type":"message","id":"\(id)","timestamp":"\(timestamp)","message":\
     {"role":"assistant","model":"\(model)","provider":"\(provider)",\
     "usage":{\(usage.joined(separator: ","))}}}
     """
