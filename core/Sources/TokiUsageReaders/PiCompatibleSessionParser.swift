@@ -40,13 +40,15 @@ struct PiCompatibleUsageRecord {
     }
 
     func merged(with other: Self) -> Self {
-        let preferred = totalTokens > other.totalTokens
-            || (totalTokens == other.totalTokens && cost >= other.cost) ? self : other
+        let prefersSelf = totalTokens > other.totalTokens
+            || (totalTokens == other.totalTokens && cost >= other.cost)
+        let preferred = prefersSelf ? self : other
+        let supplemental = prefersSelf ? other : self
         return PiCompatibleUsageRecord(
             deduplicationKey: deduplicationKey,
             timestamp: preferred.timestamp,
             model: preferred.model,
-            provider: preferred.provider ?? other.provider,
+            provider: preferred.provider ?? supplemental.provider,
             inputTokens: preferred.inputTokens,
             outputTokens: preferred.outputTokens,
             cacheReadTokens: preferred.cacheReadTokens,
@@ -60,8 +62,8 @@ struct PiCompatibleUsageRecord {
 
 enum PiCompatibleDeduplicationKey: Hashable {
     case message(String)
+    case response(String)
     case record(
-        responseID: String?,
         timestamp: Date,
         provider: String?,
         model: String,
@@ -163,9 +165,10 @@ struct PiCompatibleSessionParser {
         let cost = boundedUsageCost(usage.cost?.total)
         let deduplicationKey: PiCompatibleDeduplicationKey = if let messageID {
             .message(messageID)
+        } else if let responseID {
+            .response(responseID)
         } else {
             .record(
-                responseID: responseID,
                 timestamp: timestamp,
                 provider: provider,
                 model: model,

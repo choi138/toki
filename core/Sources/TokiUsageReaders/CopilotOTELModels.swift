@@ -269,11 +269,11 @@ struct CopilotOTELAttributes: Decodable {
     }
 
     var cacheReadTokens: Int? {
-        firstPositive(cacheReadDotted, cacheReadUnderscored)
+        firstNonNegative(cacheReadDotted, cacheReadUnderscored)
     }
 
     var cacheWriteTokens: Int? {
-        firstPositive(
+        firstNonNegative(
             cacheWriteDotted,
             cacheCreationDotted,
             cacheWriteUnderscored,
@@ -281,7 +281,7 @@ struct CopilotOTELAttributes: Decodable {
     }
 
     var reasoningTokens: Int? {
-        firstPositive(reasoningOutputTokens, reasoningTokensValue)
+        firstNonNegative(reasoningOutputTokens, reasoningTokensValue)
     }
 }
 
@@ -350,8 +350,8 @@ private func validSpanIdentity(_ value: String?) -> String? {
     return value
 }
 
-private func firstPositive(_ values: Int?...) -> Int? {
-    values.compactMap { $0 }.first { $0 > 0 }
+private func firstNonNegative(_ values: Int?...) -> Int? {
+    values.compactMap { $0 }.first { $0 >= 0 }
 }
 
 private extension KeyedDecodingContainer {
@@ -360,7 +360,7 @@ private extension KeyedDecodingContainer {
             return value
         }
         if let value = try? decodeIfPresent(Double.self, forKey: key) {
-            return Int(value)
+            return Int(exactly: value)
         }
         if let value = try? decodeIfPresent(String.self, forKey: key) {
             return Int(value)

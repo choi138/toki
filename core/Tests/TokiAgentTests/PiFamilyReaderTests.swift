@@ -142,6 +142,64 @@ extension PiFamilyReaderTests {
         XCTAssertEqual(senpiUsage.totalTokens, 13)
     }
 
+    func test_outOfRangeRevisionDoesNotReplaceSelectedRevision() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("toki-pi-window-revision-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let session = root.appendingPathComponent("session.jsonl")
+        let content = [
+            #"{"type":"session","id":"window-revision","cwd":"/tmp/project"}"#,
+            piFamilyMessage(
+                id: "shared-message",
+                timestamp: "2026-08-01T12:00:00Z",
+                input: 100,
+                output: 50),
+            piFamilyMessage(
+                id: "shared-message",
+                timestamp: "2026-08-20T12:00:00Z",
+                input: 9,
+                output: 4),
+        ].joined(separator: "\n")
+        try Data(content.utf8).write(to: session)
+
+        let piUsage = try PiCompatibleReader(source: .pi, sessionRoots: [root])
+            .readUsage(
+                from: piFamilyDate("2026-08-20T00:00:00Z"),
+                to: piFamilyDate("2026-08-21T00:00:00Z"))
+        let senpiUsage = try await SenpiReader(sessionRootsOverride: [root])
+            .readUsage(
+                from: piFamilyDate("2026-08-20T00:00:00Z"),
+                to: piFamilyDate("2026-08-21T00:00:00Z"))
+
+        XCTAssertEqual(piUsage.totalTokens, 13)
+        XCTAssertEqual(senpiUsage.totalTokens, 13)
+    }
+
+    func test_responseIDAndProviderSurviveIdlessRevisionMerge() {
+        let usage = PiReader.usage(
+            fromJSONLLines: [
+                #"{"type":"session","id":"pi-revisions","cwd":"/tmp/project"}"#,
+                """
+                {"type":"message","timestamp":"2026-08-20T12:00:00Z","message":\
+                {"role":"assistant","model":"custom-model","provider":"custom-provider",\
+                "responseId":"shared-response","usage":{"input":3,"output":2}}}
+                """,
+                """
+                {"type":"message","timestamp":"2026-08-20T12:00:01Z","message":\
+                {"role":"assistant","model":"custom-model","responseId":"shared-response",\
+                "usage":{"input":9,"output":6}}}
+                """,
+            ],
+            streamID: "pi-revisions",
+            from: piFamilyDate("2026-08-20T00:00:00Z"),
+            to: piFamilyDate("2026-08-21T00:00:00Z"))
+
+        XCTAssertEqual(usage.totalTokens, 15)
+        XCTAssertEqual(usage.tokenEvents.count, 1)
+        XCTAssertEqual(usage.tokenEvents.first?.provider, "custom-provider")
+    }
+
     func test_piRejectsEmptyGeneratedSubagentSuffix() {
         let usage = PiReader.usage(
             fromJSONLLines: [

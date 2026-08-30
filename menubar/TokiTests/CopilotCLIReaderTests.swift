@@ -290,6 +290,89 @@ extension CopilotCLIReaderTests {
         XCTAssertEqual(usage.reasoningTokens, 7)
         XCTAssertEqual(usage.totalTokens, 30)
     }
+
+    func test_responseAddedToLaterSpanRevisionDoesNotDoubleCount() {
+        let first = copilotSpan(
+            traceID: "trace-added-response",
+            spanID: "span-added-response",
+            timestamp: 1_765_756_800,
+            attributes: #""gen_ai.usage.input_tokens":10"#)
+        let second = copilotSpan(
+            traceID: "trace-added-response",
+            spanID: "span-added-response",
+            timestamp: 1_765_756_801,
+            attributes: """
+            "gen_ai.response.id":"response-added-later",
+            "gen_ai.usage.input_tokens":20
+            """)
+
+        let usage = CopilotCLIReader.usage(
+            fromJSONLLines: [first, second],
+            streamID: "fixture.jsonl",
+            from: Date(timeIntervalSince1970: 1_765_756_700),
+            to: Date(timeIntervalSince1970: 1_765_756_900))
+
+        XCTAssertEqual(usage.inputTokens, 20)
+        XCTAssertEqual(usage.tokenEvents.count, 1)
+    }
+
+    func test_missingResponseIDDoesNotCollapseDistinctTraceUsage() {
+        let chat = copilotSpan(
+            traceID: "trace-partial-response",
+            spanID: "span-chat-partial-response",
+            timestamp: 1_765_756_800,
+            attributes: #""gen_ai.usage.input_tokens":10"#)
+        let inference = """
+        {
+          "type":"log",
+          "traceId":"trace-partial-response",
+          "spanId":"span-inference-partial-response",
+          "timeUnixNano":"1765756801000000000",
+          "attributes":{
+            "event.name":"gen_ai.client.inference.operation.details",
+            "gen_ai.response.id":"response-inference",
+            "gen_ai.usage.input_tokens":20
+          }
+        }
+        """
+
+        let usage = CopilotCLIReader.usage(
+            fromJSONLLines: [chat, inference],
+            streamID: "fixture.jsonl",
+            from: Date(timeIntervalSince1970: 1_765_756_700),
+            to: Date(timeIntervalSince1970: 1_765_756_900))
+
+        XCTAssertEqual(usage.inputTokens, 30)
+        XCTAssertEqual(usage.tokenEvents.count, 2)
+    }
+
+    func test_explicitZeroCacheRevisionDoesNotRestoreOlderValue() {
+        let first = copilotSpan(
+            traceID: "trace-zero-cache",
+            spanID: "span-zero-cache",
+            timestamp: 1_765_756_800,
+            attributes: """
+            "gen_ai.usage.input_tokens":10,
+            "gen_ai.usage.cache_read.input_tokens":5
+            """)
+        let second = copilotSpan(
+            traceID: "trace-zero-cache",
+            spanID: "span-zero-cache",
+            timestamp: 1_765_756_801,
+            attributes: """
+            "gen_ai.usage.input_tokens":20,
+            "gen_ai.usage.cache_read.input_tokens":0
+            """)
+
+        let usage = CopilotCLIReader.usage(
+            fromJSONLLines: [first, second],
+            streamID: "fixture.jsonl",
+            from: Date(timeIntervalSince1970: 1_765_756_700),
+            to: Date(timeIntervalSince1970: 1_765_756_900))
+
+        XCTAssertEqual(usage.inputTokens, 20)
+        XCTAssertEqual(usage.cacheReadTokens, 0)
+    }
 }
 
 final class CopilotCLIReaderRobustnessTests: XCTestCase {
@@ -371,6 +454,26 @@ final class CopilotCLIReaderRobustnessTests: XCTestCase {
 
         XCTAssertEqual(usage.totalTokens, 0)
         XCTAssertTrue(usage.tokenEvents.isEmpty)
+    }
+
+    func test_outOfRangeFloatingTokenValueIsIgnored() {
+        let usage = CopilotCLIReader.usage(
+            fromJSONLLines: [
+                copilotSpan(
+                    traceID: "trace-large-double",
+                    spanID: "span-large-double",
+                    timestamp: 1_765_756_800,
+                    attributes: """
+                    "gen_ai.usage.input_tokens":1e300,
+                    "gen_ai.usage.output_tokens":7
+                    """),
+            ],
+            streamID: "fixture.jsonl",
+            from: Date(timeIntervalSince1970: 1_765_756_700),
+            to: Date(timeIntervalSince1970: 1_765_756_900))
+
+        XCTAssertEqual(usage.inputTokens, 0)
+        XCTAssertEqual(usage.outputTokens, 7)
     }
 }
 

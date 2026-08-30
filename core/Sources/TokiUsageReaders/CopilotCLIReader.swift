@@ -328,10 +328,7 @@ private struct CopilotUsageCandidate {
         inputTokens + outputTokens + cacheReadTokens + cacheWriteTokens + reasoningTokens
     }
 
-    var stableIdentity: String? {
-        if let responseID {
-            return "response:\(responseID)"
-        }
+    var spanIdentity: String? {
         if let traceID, let spanID {
             return "span:\(traceID):\(spanID)"
         }
@@ -341,8 +338,12 @@ private struct CopilotUsageCandidate {
         return nil
     }
 
+    var responseIdentity: String? {
+        responseID.map { "response:\($0)" }
+    }
+
     var uniqueIdentity: String {
-        stableIdentity ?? "line:\(streamID):\(lineIndex)"
+        spanIdentity ?? responseIdentity ?? "line:\(streamID):\(lineIndex)"
     }
 
     func merged(with other: Self) -> Self {
@@ -429,35 +430,49 @@ private struct CopilotReportedBuckets: OptionSet {
 }
 
 private func selectPreferredCandidates(_ candidates: [CopilotUsageCandidate]) -> [CopilotUsageCandidate] {
-    candidates.filter { candidate in
-        !candidates.contains { preferred in
-            preferred.source.priority > candidate.source.priority
-                && recordsDescribeSameUsage(preferred, candidate)
+    var highestPriorityByResponse: [String: Int] = [:]
+    var highestPriorityByTrace: [String: Int] = [:]
+    for candidate in candidates {
+        if let responseID = candidate.responseID {
+            highestPriorityByResponse[responseID] = max(
+                highestPriorityByResponse[responseID] ?? Int.min,
+                candidate.source.priority)
+        }
+        if let traceID = candidate.traceID {
+            highestPriorityByTrace[traceID] = max(
+                highestPriorityByTrace[traceID] ?? Int.min,
+                candidate.source.priority)
         }
     }
-}
 
-private func recordsDescribeSameUsage(
-    _ lhs: CopilotUsageCandidate,
-    _ rhs: CopilotUsageCandidate) -> Bool {
-    if let lhsResponseID = lhs.responseID,
-       let rhsResponseID = rhs.responseID {
-        return lhsResponseID == rhsResponseID
-    }
-    if let lhsTraceID = lhs.traceID,
-       let rhsTraceID = rhs.traceID,
-       lhsTraceID == rhsTraceID {
+    return candidates.filter { candidate in
+        if let responseID = candidate.responseID {
+            return candidate.source.priority >= (highestPriorityByResponse[responseID] ?? Int.min)
+        }
+        if candidate.source == .agentSummarySpan, let traceID = candidate.traceID {
+            return candidate.source.priority >= (highestPriorityByTrace[traceID] ?? Int.min)
+        }
         return true
     }
-    return false
 }
 
 private func mergeDuplicateCandidates(
     _ candidates: [CopilotUsageCandidate]) -> [CopilotUsageCandidate] {
+    let spanMerged = mergeCandidates(candidates) {
+        $0.spanIdentity ?? "line:\($0.streamID):\($0.lineIndex)"
+    }
+    return mergeCandidates(spanMerged) {
+        $0.responseIdentity ?? $0.uniqueIdentity
+    }
+}
+
+private func mergeCandidates(
+    _ candidates: [CopilotUsageCandidate],
+    identity: (CopilotUsageCandidate) -> String) -> [CopilotUsageCandidate] {
     var merged: [String: CopilotUsageCandidate] = [:]
     var order: [String] = []
     for candidate in candidates {
-        let key = candidate.uniqueIdentity
+        let key = identity(candidate)
         if let existing = merged[key] {
             merged[key] = existing.merged(with: candidate)
         } else {
