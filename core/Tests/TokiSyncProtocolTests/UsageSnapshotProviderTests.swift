@@ -154,7 +154,9 @@ final class UsageSnapshotProviderTests: XCTestCase {
             tokenEvents: [event],
             activityEvents: [])
     }
+}
 
+extension UsageSnapshotProviderTests {
     func test_validatorAcceptsSupportedCostStates() {
         let fixtures: [(cost: Double?, costIsKnown: Bool?)] = [
             (nil, nil),

@@ -219,7 +219,9 @@ public struct LocalUsageReaderPaths: Equatable {
             agentCacheDirectory
         }
     }
+}
 
+private extension LocalUsageReaderPaths {
     private var kimiCLIHomes: [URL] {
         Self.uniqueDirectories(
             [homeDirectory.appendingPathComponent(".kimi")]
