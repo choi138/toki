@@ -64,8 +64,19 @@ public struct FactoryDroidReader: TokenReader {
                     ?? inferredUsageProvider(from: model),
                 tokenUsage: settings.tokenUsage,
                 transcript: transcript)
-            if summariesBySession[transcript.sessionID]?.modifiedDate ?? .distantPast
-                < modifiedDate {
+            if let existing = summariesBySession[transcript.sessionID] {
+                let prefersIncomingMetadata = existing.modifiedDate < modifiedDate
+                let metadata = prefersIncomingMetadata ? summary : existing
+                summariesBySession[transcript.sessionID] = FactoryDroidSummary(
+                    modifiedDate: metadata.modifiedDate,
+                    model: metadata.model,
+                    provider: metadata.provider,
+                    tokenUsage: metadata.tokenUsage,
+                    transcript: mergingFactoryDroidTranscripts(
+                        existing.transcript,
+                        transcript,
+                        prefersIncomingMetadata: prefersIncomingMetadata))
+            } else {
                 summariesBySession[transcript.sessionID] = summary
             }
         }
@@ -309,8 +320,38 @@ private struct FactoryDroidActivity {
 }
 
 private struct FactoryDroidTokenUsageRecord {
+    let id: String
     let timestamp: Date
     let tokenUsage: FactoryDroidTokenUsage
+}
+
+private func mergingFactoryDroidTranscripts(
+    _ existing: FactoryDroidTranscript,
+    _ incoming: FactoryDroidTranscript,
+    prefersIncomingMetadata: Bool) -> FactoryDroidTranscript {
+    let preferred = prefersIncomingMetadata ? incoming : existing
+    let fallback = prefersIncomingMetadata ? existing : incoming
+    var activitiesByID = Dictionary(
+        uniqueKeysWithValues: fallback.activities.map { ($0.id, $0) })
+    for activity in preferred.activities {
+        activitiesByID[activity.id] = activity
+    }
+    var tokenUsageRecordsByID = Dictionary(
+        uniqueKeysWithValues: fallback.tokenUsageRecords.map { ($0.id, $0) })
+    for record in preferred.tokenUsageRecords {
+        tokenUsageRecordsByID[record.id] = record
+    }
+
+    return FactoryDroidTranscript(
+        sessionID: preferred.sessionID,
+        projectPath: preferred.projectPath ?? fallback.projectPath,
+        activities: activitiesByID.values.sorted {
+            $0.timestamp == $1.timestamp ? $0.id < $1.id : $0.timestamp < $1.timestamp
+        },
+        tokenUsageRecords: tokenUsageRecordsByID.values.sorted {
+            $0.timestamp == $1.timestamp ? $0.id < $1.id : $0.timestamp < $1.timestamp
+        },
+        hasTokenUsageRecords: existing.hasTokenUsageRecords || incoming.hasTokenUsageRecords)
 }
 
 private func factoryDroidTranscript(
@@ -365,6 +406,7 @@ private func factoryDroidTranscript(
                timestamp < endDate,
                tokenUsageIDs.insert(activityID).inserted {
                 tokenUsageRecords.append(FactoryDroidTokenUsageRecord(
+                    id: activityID,
                     timestamp: timestamp,
                     tokenUsage: tokenUsage))
             }
