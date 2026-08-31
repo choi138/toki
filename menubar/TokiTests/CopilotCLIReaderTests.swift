@@ -199,6 +199,34 @@ extension CopilotCLIReaderTests {
         XCTAssertEqual(usage.tokenEvents.count, 2)
     }
 
+    func test_responseLessSummaryDoesNotDuplicateMultipleResponsesInOneTrace() {
+        let first = copilotSpan(
+            traceID: "multi-response-trace",
+            spanID: "first-span",
+            timestamp: 1_765_756_800,
+            attributes: #""gen_ai.response.id":"first-response","gen_ai.usage.input_tokens":10"#)
+        let second = copilotSpan(
+            traceID: "multi-response-trace",
+            spanID: "second-span",
+            timestamp: 1_765_756_801,
+            attributes: #""gen_ai.response.id":"second-response","gen_ai.usage.input_tokens":20"#)
+        let summary = copilotSpan(
+            operation: "invoke_agent",
+            traceID: "multi-response-trace",
+            spanID: "summary-span",
+            timestamp: 1_765_756_802,
+            attributes: #""gen_ai.usage.input_tokens":30"#)
+
+        let usage = CopilotCLIReader.usage(
+            fromJSONLLines: [first, second, summary],
+            streamID: "fixture.jsonl",
+            from: Date(timeIntervalSince1970: 1_765_756_700),
+            to: Date(timeIntervalSince1970: 1_765_756_900))
+
+        XCTAssertEqual(usage.inputTokens, 30)
+        XCTAssertEqual(usage.tokenEvents.count, 2)
+    }
+
     func test_complementaryRepresentationsMergeBeforePrioritySelection() {
         let span = copilotSpan(
             traceID: "merge-trace",

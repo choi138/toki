@@ -341,7 +341,7 @@ private extension AgentSnapshotBuilder {
                 values.contentModificationDate.map { $0 >= minimumDate } == true
             } ?? true
             guard values.isRegularFile == true,
-                  extensions.contains(fileURL.pathExtension),
+                  extensions.contains(fileURL.pathExtension.lowercased()),
                   isRecentEnough else {
                 continue
             }

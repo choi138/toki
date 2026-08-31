@@ -59,7 +59,7 @@ final class AgentAdditionalSourceSignatureTests: XCTestCase {
             configuration: fixture.configuration,
             now: fixture.now)
 
-        let defaultFile = fixture.root.appendingPathComponent(".copilot/otel/default.jsonl")
+        let defaultFile = fixture.root.appendingPathComponent(".copilot/otel/default.JsOnL")
         try FileManager.default.createDirectory(
             at: defaultFile.deletingLastPathComponent(),
             withIntermediateDirectories: true)

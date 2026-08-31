@@ -267,6 +267,22 @@ extension PiCompatibleReaderTests {
         XCTAssertNil(titleMessages.first?.agentName)
         XCTAssertEqual(titleMessages.first?.agentKind, .main)
     }
+
+    func test_newSessionClearsPriorSubagentName() {
+        let lines = [
+            sessionLine(id: "subagent-session"),
+            sessionInfoLine(name: "subagent-reviewer-208242ce-1"),
+            assistantLine(id: "subagent-message", timestamp: "2026-08-01T12:00:00Z", input: 1, output: 1),
+            sessionLine(id: "main-session"),
+            assistantLine(id: "main-message", timestamp: "2026-08-01T12:01:00Z", input: 2, output: 1),
+        ]
+
+        let messages = PiCompatibleSessionParser.messages(fromJSONLLines: lines, source: .pi)
+
+        XCTAssertEqual(messages.map(\.agentKind), [.subagent, .main])
+        XCTAssertEqual(messages.first?.agentName, "reviewer")
+        XCTAssertNil(messages.last?.agentName)
+    }
 }
 
 extension PiCompatibleReaderTests {

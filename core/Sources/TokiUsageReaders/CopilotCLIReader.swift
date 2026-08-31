@@ -368,29 +368,29 @@ private func copilotTraceContexts(
 }
 
 private func selectPreferredCandidates(_ candidates: [CopilotUsageCandidate]) -> [CopilotUsageCandidate] {
-    candidates.filter { candidate in
-        !candidates.contains { preferred in
-            preferred.source.priority > candidate.source.priority
-                && recordsDescribeSameUsage(preferred, candidate)
+    var highestPriorityByResponseID: [String: Int] = [:]
+    var highestPriorityByTraceID: [String: Int] = [:]
+    for candidate in candidates {
+        if let responseID = candidate.responseID {
+            highestPriorityByResponseID[responseID] = max(
+                highestPriorityByResponseID[responseID] ?? Int.min,
+                candidate.source.priority)
+        } else if let traceID = candidate.traceID {
+            highestPriorityByTraceID[traceID] = max(
+                highestPriorityByTraceID[traceID] ?? Int.min,
+                candidate.source.priority)
         }
     }
-}
 
-private func recordsDescribeSameUsage(
-    _ lhs: CopilotUsageCandidate,
-    _ rhs: CopilotUsageCandidate) -> Bool {
-    if let lhsResponseID = lhs.responseID,
-       let rhsResponseID = rhs.responseID {
-        return lhsResponseID == rhsResponseID
-    }
-    if let lhsTraceID = lhs.traceID,
-       let rhsTraceID = rhs.traceID,
-       lhs.responseID == nil,
-       rhs.responseID == nil,
-       lhsTraceID == rhsTraceID {
+    return candidates.filter { candidate in
+        if let responseID = candidate.responseID {
+            return candidate.source.priority >= (highestPriorityByResponseID[responseID] ?? Int.min)
+        }
+        if let traceID = candidate.traceID {
+            return candidate.source.priority >= (highestPriorityByTraceID[traceID] ?? Int.min)
+        }
         return true
     }
-    return false
 }
 
 private func reconcileTraceCandidates(
@@ -406,12 +406,12 @@ private func reconcileTraceCandidates(
                 && candidates[candidateIndex].responseID != nil
                 && candidates[candidateIndex].traceID == traceID
         }
-        guard matches.count == 1,
-              let match = matches.first else {
-            continue
+        if let match = matches.first, matches.count == 1 {
+            reconciled[match] = reconciled[match].merged(with: candidate)
         }
-        reconciled[match] = reconciled[match].merged(with: candidate)
-        removed.insert(index)
+        if !matches.isEmpty {
+            removed.insert(index)
+        }
     }
 
     return reconciled.indices.compactMap { index in

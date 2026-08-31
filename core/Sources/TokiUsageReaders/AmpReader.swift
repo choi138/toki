@@ -315,6 +315,11 @@ private struct AmpThreadRecordGroup {
     }
 }
 
+private struct AmpRecordMatchKey: Hashable {
+    let model: String?
+    let timestamp: Date
+}
+
 private struct LossyArray<Element: Decodable>: Decodable {
     let elements: [Element]
 
@@ -338,9 +343,26 @@ private func reconciledAmpRecords(
     var result = coalescedAmpRecords(ledgerRecords)
     var consumedLedgerIndexes = Set<Int>()
     var unmatchedMessages: [AmpUsageRecord] = []
+    var ledgerIndexesByMessageID: [Int64: [Int]] = [:]
+    var ledgerIndexesByMatchKey: [AmpRecordMatchKey: [Int]] = [:]
+    for (index, ledger) in result.enumerated() {
+        if let messageID = ledger.messageID {
+            ledgerIndexesByMessageID[messageID, default: []].append(index)
+        }
+        ledgerIndexesByMatchKey[
+            AmpRecordMatchKey(model: ledger.model, timestamp: ledger.timestamp),
+            default: []
+        ].append(index)
+    }
 
     for message in coalescedAmpRecords(messageRecords) {
-        let matchingIndex = result.indices.first { index in
+        var candidateIndexes = ledgerIndexesByMatchKey[
+            AmpRecordMatchKey(model: message.model, timestamp: message.timestamp)
+        ] ?? []
+        if let messageID = message.messageID {
+            candidateIndexes.append(contentsOf: ledgerIndexesByMessageID[messageID] ?? [])
+        }
+        let matchingIndex = Set(candidateIndexes).sorted().first { index in
             guard !consumedLedgerIndexes.contains(index) else { return false }
             let ledger = result[index]
             if let messageID = message.messageID,

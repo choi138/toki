@@ -194,7 +194,8 @@ private func saturatedTokenTotal(_ counts: Int...) -> Int {
 
 private func saturatedTokenAddition(_ lhs: Int, _ rhs: Int) -> Int {
     let (sum, overflow) = lhs.addingReportingOverflow(rhs)
-    return overflow ? Int.max : sum
+    guard overflow else { return sum }
+    return lhs >= 0 && rhs >= 0 ? Int.max : Int.min
 }
 
 package struct TokenReplacementCoverage: Equatable {

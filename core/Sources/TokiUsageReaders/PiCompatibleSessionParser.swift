@@ -137,6 +137,9 @@ enum PiCompatibleSessionParser {
 
             if entry.type == "session" {
                 if let id = entry.id?.nilIfBlank {
+                    if id != currentContext.id {
+                        agentName = nil
+                    }
                     currentContext.id = id
                 }
                 if let cwd = entry.cwd?.nilIfBlank {

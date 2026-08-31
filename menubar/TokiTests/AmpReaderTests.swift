@@ -307,7 +307,7 @@ extension AmpReaderTests {
             "usageLedger": [
                 "events": [
                     [
-                        "timestamp": "2026-08-21T00:00:00Z",
+                        "timestamp": "2026-08-20T12:00:00Z",
                         "model": "claude-sonnet-4-6",
                         "toMessageId": 1,
                         "tokens": ["input": 50, "output": 10],
@@ -332,8 +332,8 @@ extension AmpReaderTests {
             from: fixture.date("2026-08-20T00:00:00Z"),
             to: fixture.date("2026-08-21T00:00:00Z"))
 
-        XCTAssertEqual(usage.totalTokens, 60)
-        XCTAssertEqual(usage.tokenEvents.count, 1)
+        XCTAssertEqual(usage.totalTokens, 120)
+        XCTAssertEqual(usage.tokenEvents.count, 2)
         XCTAssertEqual(
             usage.tokenEvents.first?.timestamp,
             fixture.date("2026-08-20T11:00:00Z"))
@@ -383,6 +383,51 @@ extension AmpReaderTests {
         XCTAssertEqual(usage.totalTokens, 67)
         XCTAssertEqual(usage.cost, 0.25, accuracy: 0.000_001)
         XCTAssertEqual(usage.tokenEvents.count, 1)
+    }
+
+    func test_sameMessageIDSkipsIncompatibleLedgerCandidate() async throws {
+        let fixture = try AmpFixture()
+        defer { fixture.remove() }
+        try fixture.writeThread([
+            "id": "T-ledger-collision",
+            "created": fixture.milliseconds("2026-08-20T10:00:00Z"),
+            "usageLedger": [
+                "events": [
+                    [
+                        "timestamp": "2026-08-20T11:00:00Z",
+                        "model": "gpt-5.4",
+                        "toMessageId": 7,
+                        "tokens": ["input": 999],
+                    ],
+                    [
+                        "timestamp": "2026-08-20T11:00:00Z",
+                        "model": "gpt-5.4",
+                        "toMessageId": 7,
+                        "tokens": ["input": 50],
+                    ],
+                ],
+            ],
+            "messages": [
+                [
+                    "role": "assistant",
+                    "messageId": 7,
+                    "createdAt": "2026-08-20T11:00:00Z",
+                    "usage": [
+                        "model": "gpt-5.4",
+                        "inputTokens": 50,
+                        "outputTokens": 10,
+                    ],
+                ],
+            ],
+        ])
+
+        let usage = try await fixture.reader.readUsage(
+            from: fixture.date("2026-08-20T00:00:00Z"),
+            to: fixture.date("2026-08-21T00:00:00Z"))
+
+        XCTAssertEqual(usage.inputTokens, 1049)
+        XCTAssertEqual(usage.outputTokens, 10)
+        XCTAssertEqual(usage.tokenEvents.count, 2)
     }
 
     func test_readerPathsUseXDGDefaultAndIgnoreInvalidXDGValues() {
