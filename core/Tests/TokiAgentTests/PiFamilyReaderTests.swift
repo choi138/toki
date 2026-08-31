@@ -269,6 +269,26 @@ extension PiFamilyReaderTests {
             .main)
     }
 
+    func test_ompDeduplicatesIdlessResponsesAcrossParentAndChildSessions() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("toki-omp-idless-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let parent = root.appendingPathComponent("project/parent.jsonl")
+        let child = root.appendingPathComponent("project/parent/Child.jsonl")
+        try writePiFamilyIdlessSession(to: parent, sessionID: "parent", responseID: "copied")
+        try writePiFamilyIdlessSession(to: child, sessionID: "child", responseID: "copied")
+
+        let usage = try await OMPReader(sessionsURLOverride: root)
+            .readUsage(
+                from: piFamilyDate("2026-08-20T00:00:00Z"),
+                to: piFamilyDate("2026-08-21T00:00:00Z"))
+
+        XCTAssertEqual(usage.inputTokens, 3)
+        XCTAssertEqual(usage.outputTokens, 2)
+        XCTAssertEqual(usage.tokenEvents.count, 1)
+        XCTAssertEqual(usage.activityEvents.first?.agentKind, .main)
+    }
+
     func test_kimchiPreservesRecordedProviderAndModel() {
         let usage = KimchiReader.usage(
             fromJSONLLines: [
@@ -332,6 +352,24 @@ private func writePiFamilySession(
     let content = [
         #"{"type":"session","id":"\#(sessionID)","cwd":"/tmp/project"}"#,
         piFamilyMessage(id: messageID, input: input, output: output),
+    ].joined(separator: "\n")
+    try Data(content.utf8).write(to: url)
+}
+
+private func writePiFamilyIdlessSession(
+    to url: URL,
+    sessionID: String,
+    responseID: String) throws {
+    try FileManager.default.createDirectory(
+        at: url.deletingLastPathComponent(),
+        withIntermediateDirectories: true)
+    let content = [
+        #"{"type":"session","id":"\#(sessionID)","cwd":"/tmp/project"}"#,
+        """
+        {"type":"message","timestamp":"2026-08-20T12:00:00Z","message":\
+        {"role":"assistant","model":"gpt-5.6-sol","provider":"openai",\
+        "responseId":"\(responseID)","usage":{"input":3,"output":2}}}
+        """,
     ].joined(separator: "\n")
     try Data(content.utf8).write(to: url)
 }

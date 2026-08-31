@@ -107,12 +107,17 @@ enum PiCompatibleDeduplicationKey: Hashable {
         location: String)
 }
 
+private enum PiCompatibleReplicaIdentity: Hashable {
+    case message(String)
+    case response(String)
+}
+
 func reconciledPiCompatibleRecords(
     _ records: some Sequence<PiCompatibleUsageRecord>)
     -> [PiCompatibleDeduplicationKey: PiCompatibleUsageRecord] {
     var recordsByKey: [PiCompatibleDeduplicationKey: PiCompatibleUsageRecord] = [:]
     var knownProviders: [PiCompatibleResponseScope: Set<String>] = [:]
-    var messageKeysByID: [String: [PiCompatibleDeduplicationKey]] = [:]
+    var keysByReplicaIdentity: [PiCompatibleReplicaIdentity: [PiCompatibleDeduplicationKey]] = [:]
     for record in records {
         recordsByKey[record.deduplicationKey] = recordsByKey[record.deduplicationKey]
             .map { $0.merged(with: record) } ?? record
@@ -122,9 +127,14 @@ func reconciledPiCompatibleRecords(
                 default: []
             ].insert(provider)
         }
-        if case let .message(_, messageID) = record.deduplicationKey,
-           messageKeysByID[messageID]?.contains(record.deduplicationKey) != true {
-            messageKeysByID[messageID, default: []].append(record.deduplicationKey)
+        let replicaIdentity: PiCompatibleReplicaIdentity? = switch record.deduplicationKey {
+        case let .message(_, messageID): .message(messageID)
+        case let .response(_, _, responseID): .response(responseID)
+        case .record: nil
+        }
+        if let replicaIdentity,
+           keysByReplicaIdentity[replicaIdentity]?.contains(record.deduplicationKey) != true {
+            keysByReplicaIdentity[replicaIdentity, default: []].append(record.deduplicationKey)
         }
     }
 
@@ -147,14 +157,14 @@ func reconciledPiCompatibleRecords(
         recordsByKey.removeValue(forKey: key)
     }
 
-    for keys in messageKeysByID.values {
+    for keys in keysByReplicaIdentity.values {
         let mainKeys = keys.filter { recordsByKey[$0]?.agentKind == .main }
         let subagentKeys = keys.filter { recordsByKey[$0]?.agentKind == .subagent }
         for subagentKey in subagentKeys {
             guard let subagentRecord = recordsByKey[subagentKey] else { continue }
             let matchingMainKeys = mainKeys.filter {
                 guard let mainRecord = recordsByKey[$0] else { return false }
-                return copiedPiCompatibleMessagesMatch(mainRecord, subagentRecord)
+                return copiedPiCompatibleRecordsMatch(mainRecord, subagentRecord)
             }
             guard matchingMainKeys.count == 1, let mainKey = matchingMainKeys.first,
                   let mainRecord = recordsByKey[mainKey] else {
@@ -169,7 +179,7 @@ func reconciledPiCompatibleRecords(
     return recordsByKey
 }
 
-private func copiedPiCompatibleMessagesMatch(
+private func copiedPiCompatibleRecordsMatch(
     _ mainRecord: PiCompatibleUsageRecord,
     _ subagentRecord: PiCompatibleUsageRecord) -> Bool {
     guard mainRecord.timestamp == subagentRecord.timestamp,
