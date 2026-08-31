@@ -361,7 +361,7 @@ extension AmpReaderTests {
             "usageLedger": [
                 "events": [
                     [
-                        "timestamp": "2026-08-20T12:00:00Z",
+                        "timestamp": "2026-08-20T11:00:00Z",
                         "model": "claude-sonnet-4-6",
                         "toMessageId": 1,
                         "tokens": ["input": 50, "output": 10],

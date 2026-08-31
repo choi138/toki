@@ -151,11 +151,17 @@ public struct TokenUsageEvent: Equatable, Codable {
         self.source = source
         self.model = model
         self.provider = provider?.nilIfBlank
-        self.inputTokens = inputTokens
-        self.outputTokens = outputTokens
-        self.cacheReadTokens = cacheReadTokens
-        self.cacheWriteTokens = cacheWriteTokens
-        self.reasoningTokens = reasoningTokens
+        let counts = Self.sanitizedTokenCounts(
+            input: inputTokens,
+            output: outputTokens,
+            cacheRead: cacheReadTokens,
+            cacheWrite: cacheWriteTokens,
+            reasoning: reasoningTokens)
+        self.inputTokens = counts.input
+        self.outputTokens = counts.output
+        self.cacheReadTokens = counts.cacheRead
+        self.cacheWriteTokens = counts.cacheWrite
+        self.reasoningTokens = counts.reasoning
         self.cost = cost
         self.costIsKnown = costIsKnown
         self.attribution = attribution
