@@ -1,6 +1,17 @@
 import Foundation
 import TokiUsageCore
 
+enum LocalUsageReaderDiagnosticError: LocalizedError {
+    case decodeFailed(source: String, stage: String)
+
+    var errorDescription: String? {
+        switch self {
+        case let .decodeFailed(source, stage):
+            "\(source) \(stage) decode failed"
+        }
+    }
+}
+
 func findFiles(in directory: URL, withExtension ext: String, modifiedAfter: Date? = nil) -> [URL] {
     (try? findFiles(
         in: directory,
@@ -60,7 +71,9 @@ enum UsageFileDiscoveryError: Error {
 func findFilesThrowing(
     in directory: URL,
     withExtension ext: String,
-    modifiedAfter: Date? = nil) throws -> [URL] {
+    modifiedAfter: Date? = nil,
+    maximumFileCount: Int? = nil,
+    maximumEntryCount: Int? = nil) throws -> [URL] {
     try Task.checkCancellation()
 
     let keys: [URLResourceKey] = modifiedAfter != nil
@@ -95,8 +108,15 @@ func findFilesThrowing(
     }
 
     var files: [URL] = []
+    var visitedEntryCount = 0
     while let url = enumerator.nextObject() as? URL {
         try Task.checkCancellation()
+        let (nextEntryCount, entryOverflow) = visitedEntryCount.addingReportingOverflow(1)
+        guard !entryOverflow,
+              maximumEntryCount.map({ nextEntryCount <= $0 }) ?? true else {
+            throw PiCompatibleReaderError.tooManyEntries(entryOverflow ? Int.max : nextEntryCount)
+        }
+        visitedEntryCount = nextEntryCount
         let values: URLResourceValues
         do {
             values = try url.resourceValues(forKeys: Set(keys))
@@ -117,12 +137,50 @@ func findFilesThrowing(
                   modifiedDate >= since else { continue }
         }
 
+        let (nextFileCount, fileOverflow) = files.count.addingReportingOverflow(1)
+        guard !fileOverflow,
+              maximumFileCount.map({ nextFileCount <= $0 }) ?? true else {
+            throw PiCompatibleReaderError.tooManyFiles(fileOverflow ? Int.max : nextFileCount)
+        }
         files.append(url)
     }
     if traversalFailed {
         throw UsageFileDiscoveryError.cannotEnumerateRoot
     }
     return files
+}
+
+func boundedUsageFileData(at url: URL, maximumBytes: Int) throws -> Data {
+    guard maximumBytes >= 0 else {
+        throw PiCompatibleReaderError.fileTooLarge(url)
+    }
+    let handle: FileHandle
+    do {
+        handle = try FileHandle(forReadingFrom: url)
+    } catch {
+        throw PiCompatibleReaderError.unreadableFile(url)
+    }
+    defer { try? handle.close() }
+    do {
+        let readLimit = maximumBytes == Int.max ? Int.max : maximumBytes + 1
+        let data = try handle.read(upToCount: readLimit) ?? Data()
+        guard data.count <= maximumBytes else {
+            throw PiCompatibleReaderError.fileTooLarge(url)
+        }
+        return data
+    } catch let error as PiCompatibleReaderError {
+        throw error
+    } catch {
+        throw PiCompatibleReaderError.unreadableFile(url)
+    }
+}
+
+func recordUsageEvents(_ count: Int, total: inout Int, maximum: Int) throws {
+    let (nextCount, overflow) = total.addingReportingOverflow(count)
+    guard count >= 0, !overflow, nextCount <= maximum else {
+        throw PiCompatibleReaderError.tooManyEvents(overflow ? Int.max : nextCount)
+    }
+    total = nextCount
 }
 
 func findUsageFiles(
@@ -132,7 +190,7 @@ func findUsageFiles(
     maximumEntryCount: Int? = nil,
     visitedEntryCount: inout Int) throws -> [URL] {
     try Task.checkCancellation()
-    let normalizedDirectory = directory.standardizedFileURL
+    let normalizedDirectory = directory.resolvingSymlinksInPath().standardizedFileURL
     let rootValues: URLResourceValues
     do {
         rootValues = try normalizedDirectory.resourceValues(forKeys: [.isDirectoryKey])
@@ -149,6 +207,7 @@ func findUsageFiles(
     }
 
     let keys: Set<URLResourceKey> = [
+        .isHiddenKey,
         .isDirectoryKey,
         .isRegularFileKey,
         .isSymbolicLinkKey,
@@ -157,7 +216,7 @@ func findUsageFiles(
     guard let enumerator = FileManager.default.enumerator(
         at: normalizedDirectory,
         includingPropertiesForKeys: Array(keys),
-        options: [.skipsHiddenFiles],
+        options: [],
         errorHandler: { url, _ in
             failedURL = url
             return false
@@ -179,6 +238,12 @@ func findUsageFiles(
             values = try url.resourceValues(forKeys: keys)
         } catch {
             throw PiCompatibleReaderError.unreadableFile(url.standardizedFileURL)
+        }
+        if values.isHidden == true || url.lastPathComponent.hasPrefix(".") {
+            if values.isDirectory == true {
+                enumerator.skipDescendants()
+            }
+            continue
         }
         if values.isSymbolicLink == true {
             if values.isDirectory == true {
@@ -255,17 +320,6 @@ func inferredUsageProvider(from model: String?) -> String? {
         return "openai"
     }
     return nil
-}
-
-func checkedTokenTotal(_ values: Int...) -> Int? {
-    var total = 0
-    for value in values {
-        guard value >= 0 else { return nil }
-        let addition = total.addingReportingOverflow(value)
-        guard !addition.overflow else { return nil }
-        total = addition.partialValue
-    }
-    return total
 }
 
 public extension RawTokenUsage {

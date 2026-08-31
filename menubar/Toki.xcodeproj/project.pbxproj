@@ -65,6 +65,7 @@
 		5749C12527C71DC58B8F599D /* RemoteSyncLifecycleTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2B2E791E9576F6E07FBEAD30 /* RemoteSyncLifecycleTests.swift */; };
 		58DFC0CCDA089A70C1368340 /* RemoteSnapshotSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5DD5E9631A2AFE9BBB47D113 /* RemoteSnapshotSupport.swift */; };
 		590115D0DD0770D8AE1E99F2 /* UsageOriginAggregationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 282A1BF7C0245EB113DE2BA8 /* UsageOriginAggregationTests.swift */; };
+		5A04C5F3A301AC45D753865B /* DroidAmpIntegrationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 557BF6BDA123C204DA4DBE1A /* DroidAmpIntegrationTests.swift */; };
 		59879C98FB2AA90877E956EA /* SenpiUsageAttributionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8C79B87968BCAAC5E5D9754 /* SenpiUsageAttributionTests.swift */; };
 		5C39A825A8F541801CBCD635 /* UsageAggregatorLightweightTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1970AD7949844A38FE750194 /* UsageAggregatorLightweightTests.swift */; };
 		5C7A9BCD44EE366E1FBA87E9 /* RemoteUsageReaderValidationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFA2DBD8FE3B6B7D1F66DEC3 /* RemoteUsageReaderValidationTests.swift */; };
@@ -76,6 +77,7 @@
 		65BEA24D6ED3ED62CFF15B89 /* ReaderUnattributedModelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3896CC7305256B664CA40B51 /* ReaderUnattributedModelTests.swift */; };
 		6751D862DC17A0DE9D1506BF /* MenuBarPanelEventPolicyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 397C529D1EF35B7EF722A1AD /* MenuBarPanelEventPolicyTests.swift */; };
 		6858D0524CF8B4E2AE04D3E5 /* Security.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 0B85308CE0483EBF29F028DD /* Security.framework */; };
+		6CB284FB3E39C5144377BBE1 /* FactoryDroidReaderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1B0A428E0D3E973E6F4EA84A /* FactoryDroidReaderTests.swift */; };
 		6CFA95243695415B46ED9010 /* PanelByModelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 86C783AE85726291211C84FF /* PanelByModelView.swift */; };
 		6D753446EBD2D0C4D34CB728 /* PanelUXBehaviorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0ED2530F4E6EEF1D2BC72036 /* PanelUXBehaviorTests.swift */; };
 		6EEA4D7FD3B514CA968C1C84 /* MenuBarPanelController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1FB320EF0F3A7B12DC831BB4 /* MenuBarPanelController.swift */; };
@@ -97,9 +99,11 @@
 		8D79804583D91BCE0F2EA009 /* ActivityMonitorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = EC521FA17498DD38DCCE60C3 /* ActivityMonitorTests.swift */; };
 		8EBFC313C49C883F9F949FA1 /* LocalAgentIdentityProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = E50483956143F3CE467BC5C7 /* LocalAgentIdentityProvider.swift */; };
 		8FCAC25F97AE2CBD58C8C60C /* RemoteSyncSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 95C4DD5CE6E1BD400FEDC0A7 /* RemoteSyncSettingsView.swift */; };
+		9764ACAD5C48E0DEA6527002 /* RawTokenUsageArithmeticTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66A5282190AFECC91ECFEBBB /* RawTokenUsageArithmeticTests.swift */; };
 		981AF0BBB3ED88C13CE30447 /* RemoteSyncTransportRegressionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 783228D3069ECDC7545872CE /* RemoteSyncTransportRegressionTests.swift */; };
 		984208087B7A16E1F1DE4D02 /* PanelTabBarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2093913FA9BA770A4DD27B38 /* PanelTabBarView.swift */; };
 		98F86ABAD7705F39D59FCE41 /* ActivityTimeEstimatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 837F35C1D7999DD0AD1401EE /* ActivityTimeEstimatorTests.swift */; };
+		992A36CBA00791A7711DFFF4 /* AmpReaderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9A2303660B46BC3FA6AC24C /* AmpReaderTests.swift */; };
 		99B50682FCFC076FCA1ADABD /* TestSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = DC7E73CAD1292B704B8F9896 /* TestSupport.swift */; };
 		9A4B70065BCD2F79537DC64C /* ReaderFetchResult.swift in Sources */ = {isa = PBXBuildFile; fileRef = D43001DCEB9A2BC563AAC217 /* ReaderFetchResult.swift */; };
 		9A4D33ED42435E4F7C557235 /* PanelHeaderView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1956F137B4D8CF68B7086735 /* PanelHeaderView.swift */; };
@@ -129,6 +133,7 @@
 		B8FE2901E73920CC3A9075BE /* CodexReaderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6D50499C69A39EA845632811 /* CodexReaderTests.swift */; };
 		B9888C45B58DB3285A185AEF /* SecurityAuditScannerCancellationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2911A1E6546BEA285E0D8956 /* SecurityAuditScannerCancellationTests.swift */; };
 		BBBA1E0981491A3D5D6000B8 /* GJCReaderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 62EA09E68E4376A474428CB6 /* GJCReaderTests.swift */; };
+		BC57DC9C9BCF49F918F5CDF9 /* AmpReaderReplicaTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = ADDD8392FF55A2EDD82EE65A /* AmpReaderReplicaTests.swift */; };
 		BFA649180FEA64FB81ABE332 /* UsageServiceActiveTimeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3971E00801C71BA0662D329 /* UsageServiceActiveTimeTests.swift */; };
 		C0DC30052F0DC7DA43384C92 /* SecurityAuditScannerRuleTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 79410B9DB64140E6924887DB /* SecurityAuditScannerRuleTests.swift */; };
 		C137A93A24E33EB8C8A7B0F8 /* PanelTab.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9C2B5EEA5616B27CACD283D9 /* PanelTab.swift */; };
@@ -204,6 +209,7 @@
 		1956F137B4D8CF68B7086735 /* PanelHeaderView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PanelHeaderView.swift; sourceTree = "<group>"; };
 		1970AD7949844A38FE750194 /* UsageAggregatorLightweightTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UsageAggregatorLightweightTests.swift; sourceTree = "<group>"; };
 		1A24B75CC0D3F0E974190D1E /* TokenVelocityState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TokenVelocityState.swift; sourceTree = "<group>"; };
+		1B0A428E0D3E973E6F4EA84A /* FactoryDroidReaderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FactoryDroidReaderTests.swift; sourceTree = "<group>"; };
 		1B445FAED2BE66679303774D /* SecurityAuditViewModelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SecurityAuditViewModelTests.swift; sourceTree = "<group>"; };
 		1DFAAE90B6B20174754C0B0E /* UsagePanelRefreshCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UsagePanelRefreshCoordinator.swift; sourceTree = "<group>"; };
 		1E23FBF6A1F60FF28A6FAE62 /* UsageReportModelStats.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UsageReportModelStats.swift; sourceTree = "<group>"; };
@@ -246,6 +252,7 @@
 		521CF88CBD64339B062AD498 /* LaunchAtLoginViewModelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LaunchAtLoginViewModelTests.swift; sourceTree = "<group>"; };
 		523E396F351DD1B72E9761FC /* PanelProjectTimelineView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PanelProjectTimelineView.swift; sourceTree = "<group>"; };
 		52B50C813AEA3A99DD604528 /* SecurityAuditSQLiteTestSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SecurityAuditSQLiteTestSupport.swift; sourceTree = "<group>"; };
+		557BF6BDA123C204DA4DBE1A /* DroidAmpIntegrationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DroidAmpIntegrationTests.swift; sourceTree = "<group>"; };
 		56BCB8B33ABBE36CC5C6008F /* LaunchAtLoginViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LaunchAtLoginViewModel.swift; sourceTree = "<group>"; };
 		5A99E233235E7ED7777321F8 /* ProjectTimelineBreakdown.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProjectTimelineBreakdown.swift; sourceTree = "<group>"; };
 		5B4F3756F7F4366E3226FECC /* RemoteSnapshotLoader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteSnapshotLoader.swift; sourceTree = "<group>"; };
@@ -257,6 +264,7 @@
 		6453C6BDFACDA6F3EA9184A2 /* RemoteUsageReaderTestFixtures.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteUsageReaderTestFixtures.swift; sourceTree = "<group>"; };
 		64BF71B8A34B7EF4415E4B2E /* RemoteUsageReaderError.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteUsageReaderError.swift; sourceTree = "<group>"; };
 		6505D569EA8EE2E43BC1107E /* rabbit_run_01.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = rabbit_run_01.png; sourceTree = "<group>"; };
+		66A5282190AFECC91ECFEBBB /* RawTokenUsageArithmeticTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RawTokenUsageArithmeticTests.swift; sourceTree = "<group>"; };
 		68C8E69152F69E73C1E2223B /* SecurityAuditSources.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SecurityAuditSources.swift; sourceTree = "<group>"; };
 		69D48CA6EC643C2709E6D33B /* HermesReaderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HermesReaderTests.swift; sourceTree = "<group>"; };
 		6BAAA589FDAB3639AB37F055 /* PanelStatComponents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PanelStatComponents.swift; sourceTree = "<group>"; };
@@ -311,6 +319,7 @@
 		A935D97F072BD30BEA608E73 /* TokiTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = TokiTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		A946F016E11E141AF844E414 /* CopilotCLIReaderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CopilotCLIReaderTests.swift; sourceTree = "<group>"; };
 		AA6E92AC47DF57B49E5EF33C /* UsageModelSourceMerge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UsageModelSourceMerge.swift; sourceTree = "<group>"; };
+		ADDD8392FF55A2EDD82EE65A /* AmpReaderReplicaTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AmpReaderReplicaTests.swift; sourceTree = "<group>"; };
 		AFF0A0D8A54BCA7B3B1D5403 /* LocalUsageReaderRegistryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalUsageReaderRegistryTests.swift; sourceTree = "<group>"; };
 		B03817C34A0165DBDAA6B1C1 /* RemoteHubClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteHubClient.swift; sourceTree = "<group>"; };
 		B1081585613F3D38A303C7B0 /* RemoteUsageReader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteUsageReader.swift; sourceTree = "<group>"; };
@@ -320,6 +329,7 @@
 		B6780BA4E1370D9DC631805A /* TokiApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TokiApp.swift; sourceTree = "<group>"; };
 		B6BAE1901B6B63C2F72788B4 /* PairingBundleClipboard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PairingBundleClipboard.swift; sourceTree = "<group>"; };
 		B8C79B87968BCAAC5E5D9754 /* SenpiUsageAttributionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SenpiUsageAttributionTests.swift; sourceTree = "<group>"; };
+		B9A2303660B46BC3FA6AC24C /* AmpReaderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AmpReaderTests.swift; sourceTree = "<group>"; };
 		BDD7891CB45C773154861D21 /* Claude5ModelPricingBehaviorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Claude5ModelPricingBehaviorTests.swift; sourceTree = "<group>"; };
 		C08F6079C3FC989A7466B6E7 /* MenuBarActivityController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MenuBarActivityController.swift; sourceTree = "<group>"; };
 		C4BF69189BDE750B3BE66C4E /* RemoteSyncTransportTestSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteSyncTransportTestSupport.swift; sourceTree = "<group>"; };
@@ -644,6 +654,8 @@
 			children = (
 				EC521FA17498DD38DCCE60C3 /* ActivityMonitorTests.swift */,
 				837F35C1D7999DD0AD1401EE /* ActivityTimeEstimatorTests.swift */,
+				ADDD8392FF55A2EDD82EE65A /* AmpReaderReplicaTests.swift */,
+				B9A2303660B46BC3FA6AC24C /* AmpReaderTests.swift */,
 				D8507A2215F3294EABC1B7A8 /* ChineseCLIUsageIntegrationTests.swift */,
 				BDD7891CB45C773154861D21 /* Claude5ModelPricingBehaviorTests.swift */,
 				6C701FB0F7AA1BCC13644B56 /* ClaudeCodeReaderActivityTests.swift */,
@@ -653,6 +665,8 @@
 				A4692734D41D5DC621C0BF7F /* CodexReaderTestSupport.swift */,
 				A946F016E11E141AF844E414 /* CopilotCLIReaderTests.swift */,
 				A2648C9A747404CF8E5E81E0 /* CursorReaderTests.swift */,
+				557BF6BDA123C204DA4DBE1A /* DroidAmpIntegrationTests.swift */,
+				1B0A428E0D3E973E6F4EA84A /* FactoryDroidReaderTests.swift */,
 				62EA09E68E4376A474428CB6 /* GJCReaderTests.swift */,
 				2BE1C427456BB8200627AEE4 /* HermesPricingRefreshTests.swift */,
 				69D48CA6EC643C2709E6D33B /* HermesReaderTests.swift */,
@@ -670,6 +684,7 @@
 				0ED2530F4E6EEF1D2BC72036 /* PanelUXBehaviorTests.swift */,
 				42D1CC0CB1C608F2ED3FAFBA /* PeriodTokenTotalsCacheTests.swift */,
 				B4C3B0595A6C521B237BC8AE /* ProjectTimelineBreakdownTests.swift */,
+				66A5282190AFECC91ECFEBBB /* RawTokenUsageArithmeticTests.swift */,
 				3896CC7305256B664CA40B51 /* ReaderUnattributedModelTests.swift */,
 				36330D960147799B00A54231 /* RemotePricingCatalogReviewRegressionTests.swift */,
 				710D8EB8263EC4B8E8E34B63 /* RemotePricingCatalogTests.swift */,
@@ -919,6 +934,8 @@
 			files = (
 				8D79804583D91BCE0F2EA009 /* ActivityMonitorTests.swift in Sources */,
 				98F86ABAD7705F39D59FCE41 /* ActivityTimeEstimatorTests.swift in Sources */,
+				BC57DC9C9BCF49F918F5CDF9 /* AmpReaderReplicaTests.swift in Sources */,
+				992A36CBA00791A7711DFFF4 /* AmpReaderTests.swift in Sources */,
 				DCE667F81BE19927F658234D /* ChineseCLIUsageIntegrationTests.swift in Sources */,
 				9ECB1D2E9867709AB53A9BAA /* Claude5ModelPricingBehaviorTests.swift in Sources */,
 				A0410CD60E76BB566574000D /* ClaudeCodeReaderActivityTests.swift in Sources */,
@@ -928,6 +945,8 @@
 				B8FE2901E73920CC3A9075BE /* CodexReaderTests.swift in Sources */,
 				D54163C0549A61D6D5E25892 /* CopilotCLIReaderTests.swift in Sources */,
 				0F7159AD505B6504367C7BAE /* CursorReaderTests.swift in Sources */,
+				5A04C5F3A301AC45D753865B /* DroidAmpIntegrationTests.swift in Sources */,
+				6CB284FB3E39C5144377BBE1 /* FactoryDroidReaderTests.swift in Sources */,
 				BBBA1E0981491A3D5D6000B8 /* GJCReaderTests.swift in Sources */,
 				E71545EEA12908D204F6C4B3 /* HermesPricingRefreshTests.swift in Sources */,
 				7DC42416F57E69C032FD29A9 /* HermesReaderTests.swift in Sources */,
@@ -945,6 +964,7 @@
 				6D753446EBD2D0C4D34CB728 /* PanelUXBehaviorTests.swift in Sources */,
 				AC97BA41DC13A5DC613870F9 /* PeriodTokenTotalsCacheTests.swift in Sources */,
 				8918E8E69CD59B38BB1E369C /* ProjectTimelineBreakdownTests.swift in Sources */,
+				9764ACAD5C48E0DEA6527002 /* RawTokenUsageArithmeticTests.swift in Sources */,
 				65BEA24D6ED3ED62CFF15B89 /* ReaderUnattributedModelTests.swift in Sources */,
 				4816D8234A1D5A401100A330 /* RemotePricingCatalogReviewRegressionTests.swift in Sources */,
 				F33BD3A41CA4185BA5D78D99 /* RemotePricingCatalogTests.swift in Sources */,

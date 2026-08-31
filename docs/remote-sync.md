@@ -296,12 +296,13 @@ The supplied unit mounts only the default Oh My Pi session directories. When
 using a named OMP profile, add that active profile's exact `sessions` directory
 to a systemd override rather than exposing the complete `profiles` tree.
 
-The Kimi and Qwen readers also support `KIMI_SHARE_DIR`, `KIMI_CODE_HOME`,
+The Copilot, Kimi, and Qwen readers also support
+`COPILOT_OTEL_FILE_EXPORTER_PATH`, `KIMI_SHARE_DIR`, `KIMI_CODE_HOME`,
 `QWEN_HOME`, and `QWEN_RUNTIME_DIR`. `ProtectHome=tmpfs` hides override
 directories under the user's home unless the service explicitly bind-mounts
 them. Start from the supplied drop-in example, replace every `/home/USER/...`
-value with the matching absolute tool home, and create every listed `sessions`
-or `projects` directory before starting the service. Keep those required mounts
+value with the matching absolute path, and create every listed exporter file,
+`sessions`, or `projects` parent directory before starting the service. Keep those required mounts
 in the drop-in so a missing data directory fails at startup instead of silently
 omitting usage:
 

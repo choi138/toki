@@ -1,6 +1,8 @@
 [Service]
 # Replace each example with the absolute tool home configured for this user.
 # BindReadOnlyPaths does not expand values from Environment.
+Environment="COPILOT_OTEL_FILE_EXPORTER_PATH=/home/USER/.local/share/copilot/otel.jsonl"
+BindReadOnlyPaths=/home/USER/.local/share/copilot/otel.jsonl
 Environment="KIMI_SHARE_DIR=/home/USER/.local/share/kimi"
 BindReadOnlyPaths=/home/USER/.local/share/kimi/sessions
 Environment="KIMI_CODE_HOME=/home/USER/.local/share/kimi-code"

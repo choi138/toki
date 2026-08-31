@@ -13,7 +13,7 @@ final class PiFamilyFollowUpTests: XCTestCase {
             homeDirectory: home,
             environment: ["PI_CONFIG_DIR": ".custom-omp"])
 
-        XCTAssertEqual(agentOverride.ompSessions.path, "/tmp/omp-agent/sessions")
+        XCTAssertEqual(agentOverride.ompSessions.path, "/tmp/toki-home/.omp/agent/sessions")
         XCTAssertEqual(
             configOverride.ompSessions.path,
             "/tmp/toki-home/.custom-omp/agent/sessions")
@@ -61,7 +61,9 @@ final class PiFamilyFollowUpTests: XCTestCase {
             ].contains($0)
         }
 
-        XCTAssertEqual(familyNames, [SharedPiOMPReader.sourceName, KimchiReader.sourceName])
+        XCTAssertEqual(
+            familyNames,
+            [PiReader.sourceName, OMPReader.sourceName, KimchiReader.sourceName])
     }
 
     func test_ompAutoDetectionRequiresSessionsAndExplicitConfigWins() throws {
@@ -148,7 +150,7 @@ final class PiFamilyFollowUpTests: XCTestCase {
 
         XCTAssertTrue(names.contains(SharedPiOMPReader.sourceName))
         XCTAssertFalse(names.contains(PiReader.sourceName))
-        XCTAssertFalse(names.contains(OMPReader.sourceName))
+        XCTAssertTrue(names.contains(OMPReader.sourceName))
     }
 
     func test_recordedZeroAndInvalidNegativeCostRemainDistinct() {
@@ -191,12 +193,54 @@ final class PiFamilyFollowUpTests: XCTestCase {
             XCTAssertEqual(merged.inputTokens, 100)
             XCTAssertEqual(merged.provider, "openai")
             XCTAssertEqual(merged.cost, 0.25, accuracy: 0.000001)
-            XCTAssertTrue(merged.costIsKnown)
+            XCTAssertEqual(merged.costIsKnown, true)
         }
     }
 }
 
 extension PiFamilyFollowUpTests {
+    func test_ompAbsoluteConfigDirectoryRemainsAbsolute() {
+        let paths = LocalUsageReaderPaths(
+            homeDirectory: URL(fileURLWithPath: "/tmp/toki-home"),
+            environment: ["PI_CONFIG_DIR": "/var/lib/omp"])
+
+        XCTAssertEqual(paths.ompSessionRoots.map(\.path), ["/var/lib/omp/agent/sessions"])
+    }
+
+    func test_ompReadsBothDefaultRootsCreatedAfterPathResolution() async throws {
+        let root = temporaryRoot("toki-omp-default-roots")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let home = root.appendingPathComponent("home")
+        let xdgData = root.appendingPathComponent("data")
+        let paths = LocalUsageReaderPaths(
+            homeDirectory: home,
+            environment: ["XDG_DATA_HOME": xdgData.path])
+        let legacySessions = home.appendingPathComponent(".omp/agent/sessions")
+        let xdgSessions = xdgData.appendingPathComponent("omp/sessions")
+
+        XCTAssertEqual(paths.ompSessionRoots.map(\.path), [legacySessions.path, xdgSessions.path])
+
+        try writeSession(
+            to: legacySessions.appendingPathComponent("legacy.jsonl"),
+            sessionID: "legacy-session",
+            messageID: "legacy-message",
+            input: 3,
+            output: 2)
+        try writeSession(
+            to: xdgSessions.appendingPathComponent("xdg.jsonl"),
+            sessionID: "xdg-session",
+            messageID: "xdg-message",
+            input: 7,
+            output: 4)
+
+        let usage = try await OMPReader(sessionRootsOverride: paths.ompSessionRoots).readUsage(
+            from: date("2026-08-20T00:00:00Z"),
+            to: date("2026-08-21T00:00:00Z"))
+
+        XCTAssertEqual(usage.totalTokens, 16)
+        XCTAssertEqual(usage.tokenEvents.count, 2)
+    }
+
     func test_revisionMergeIsDeterministicAcrossAllOrders() {
         let records = [
             usageRecord(
@@ -230,7 +274,7 @@ extension PiFamilyFollowUpTests {
             XCTAssertEqual(merged.inputTokens, 100)
             XCTAssertEqual(merged.provider, "azure")
             XCTAssertEqual(merged.cost, 0.30, accuracy: 0.000001)
-            XCTAssertTrue(merged.costIsKnown)
+            XCTAssertEqual(merged.costIsKnown, true)
         }
     }
 
@@ -279,7 +323,8 @@ final class PiFamilyReaderLimitTests: XCTestCase {
     func test_sharedPiAndOMPReaderPreservesSessionLocalMessageIDs() async throws {
         let root = temporaryRoot("toki-pi-omp-shared")
         defer { try? FileManager.default.removeItem(at: root) }
-        let agentRoot = root.appendingPathComponent("shared-agent")
+        let ompConfigRoot = root.appendingPathComponent("shared")
+        let agentRoot = ompConfigRoot.appendingPathComponent("agent")
         let sessions = agentRoot.appendingPathComponent("sessions")
         try writeSession(
             to: sessions.appendingPathComponent("a.jsonl"),
@@ -295,7 +340,10 @@ final class PiFamilyReaderLimitTests: XCTestCase {
             output: 9)
         let reader = try XCTUnwrap(LocalUsageReaderRegistry.readers(
             home: root,
-            environment: ["PI_CODING_AGENT_DIR": agentRoot.path])
+            environment: [
+                "PI_CODING_AGENT_DIR": agentRoot.path,
+                "PI_CONFIG_DIR": ompConfigRoot.path,
+            ])
             .first { $0.name == SharedPiOMPReader.sourceName })
 
         let usage = try await reader.readUsage(
@@ -359,6 +407,34 @@ final class PiFamilyReaderLimitTests: XCTestCase {
         }
     }
 
+    func test_piEventLimitCountsParsedOutOfRangeRecords() async throws {
+        let root = temporaryRoot("toki-pi-out-of-range-limit")
+        defer { try? FileManager.default.removeItem(at: root) }
+        try writeLines(
+            [
+                #"{"type":"session","id":"limited-session"}"#,
+                message(id: "first", input: 1, output: 1),
+                message(id: "second", input: 1, output: 1),
+            ],
+            to: root.appendingPathComponent("limited.jsonl"))
+        let reader = PiReader(
+            sessionsURLOverride: root,
+            readLimits: PiCompatibleReadLimits(
+                maximumFileCount: 1,
+                maximumFileBytes: 10000,
+                maximumLineBytes: 1000,
+                maximumEventCount: 1))
+
+        do {
+            _ = try await reader.readUsage(
+                from: date("2026-08-21T00:00:00Z"),
+                to: date("2026-08-22T00:00:00Z"))
+            XCTFail("Expected the second parsed record to exceed the limit")
+        } catch {
+            XCTAssertEqual(error as? PiCompatibleReaderError, .tooManyEvents(2))
+        }
+    }
+
     func test_piFileLimitStopsAtFirstExcessFile() async throws {
         let root = temporaryRoot("toki-pi-file-limit")
         defer { try? FileManager.default.removeItem(at: root) }
@@ -412,102 +488,29 @@ final class PiFamilyReaderLimitTests: XCTestCase {
             XCTAssertEqual(error as? PiCompatibleReaderError, .tooManyEntries(2))
         }
     }
-}
 
-extension PiFamilyReaderLimitTests {
-    func test_idlessExactCopiesDeduplicateButReusedResponsesRemainDistinct() async throws {
-        let root = temporaryRoot("toki-pi-idless")
+    func test_piEntryLimitCountsHiddenEntries() async throws {
+        let root = temporaryRoot("toki-pi-hidden-entry-limit")
         defer { try? FileManager.default.removeItem(at: root) }
-        let copied = idlessMessage(
-            responseID: "response-copy",
-            timestamp: "2026-08-20T12:00:00Z",
-            input: 3,
-            output: 2)
-        try writeLines(
-            [#"{"type":"session","id":"session-a"}"#, copied],
-            to: root.appendingPathComponent("a.jsonl"))
-        try writeLines(
-            [#"{"type":"session","id":"session-b"}"#, copied],
-            to: root.appendingPathComponent("b.jsonl"))
-        try writeLines(
-            [
-                #"{"type":"session","id":"session-c"}"#,
-                idlessMessage(
-                    responseID: "response-copy",
-                    timestamp: "2026-08-20T13:00:00Z",
-                    input: 7,
-                    output: 4),
-            ],
-            to: root.appendingPathComponent("c.jsonl"))
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        try Data().write(to: root.appendingPathComponent(".hidden"))
+        let reader = PiReader(
+            sessionsURLOverride: root,
+            readLimits: PiCompatibleReadLimits(
+                maximumFileCount: 10,
+                maximumFileBytes: 10000,
+                maximumLineBytes: 1000,
+                maximumEventCount: 10,
+                maximumEntryCount: 0))
 
-        let usage = try await PiReader(sessionsURLOverride: root).readUsage(
-            from: date("2026-08-20T00:00:00Z"),
-            to: date("2026-08-21T00:00:00Z"))
-
-        XCTAssertEqual(usage.totalTokens, 16)
-        XCTAssertEqual(usage.tokenEvents.count, 2)
-    }
-
-    func test_copiedResponseKeepsOriginalIdentityAfterEnrichment() async throws {
-        let root = temporaryRoot("toki-pi-copy-enrichment")
-        defer { try? FileManager.default.removeItem(at: root) }
-        let original = idlessMessage(
-            responseID: "response-copy",
-            timestamp: "2026-08-20T12:00:00Z",
-            input: 3,
-            output: 2)
-        let enriched = """
-        {"type":"message","timestamp":"2026-08-20T12:00:01Z","message":\
-        {"role":"assistant","responseId":"response-copy","model":"gpt-5",\
-        "provider":"azure","usage":{"input":3,"output":2,"cost":{"total":0.25}}}}
-        """
-        try writeLines(
-            [#"{"type":"session","id":"session-a"}"#, original],
-            to: root.appendingPathComponent("a.jsonl"))
-        try writeLines(
-            [#"{"type":"session","id":"session-b"}"#, original, enriched],
-            to: root.appendingPathComponent("b.jsonl"))
-
-        let usage = try await PiReader(sessionsURLOverride: root).readUsage(
-            from: date("2026-08-20T00:00:00Z"),
-            to: date("2026-08-21T00:00:00Z"))
-
-        XCTAssertEqual(usage.totalTokens, 5)
-        XCTAssertEqual(usage.tokenEvents.count, 1)
-        XCTAssertEqual(usage.cost, 0.25, accuracy: 0.000001)
-        XCTAssertEqual(usage.tokenEvents.first?.provider, "azure")
-    }
-
-    func test_sameResponseIdentityWithDifferentPayloadsRemainsDistinct() async throws {
-        let root = temporaryRoot("toki-pi-copy-payload")
-        defer { try? FileManager.default.removeItem(at: root) }
-        try writeLines(
-            [
-                #"{"type":"session","id":"session-a"}"#,
-                idlessMessage(
-                    responseID: "response-reused",
-                    timestamp: "2026-08-20T12:00:00Z",
-                    input: 3,
-                    output: 2),
-            ],
-            to: root.appendingPathComponent("a.jsonl"))
-        try writeLines(
-            [
-                #"{"type":"session","id":"session-b"}"#,
-                idlessMessage(
-                    responseID: "response-reused",
-                    timestamp: "2026-08-20T12:00:00Z",
-                    input: 7,
-                    output: 4),
-            ],
-            to: root.appendingPathComponent("b.jsonl"))
-
-        let usage = try await PiReader(sessionsURLOverride: root).readUsage(
-            from: date("2026-08-20T00:00:00Z"),
-            to: date("2026-08-21T00:00:00Z"))
-
-        XCTAssertEqual(usage.totalTokens, 16)
-        XCTAssertEqual(usage.tokenEvents.count, 2)
+        do {
+            _ = try await reader.readUsage(
+                from: date("2026-08-20T00:00:00Z"),
+                to: date("2026-08-21T00:00:00Z"))
+            XCTFail("Expected the hidden filesystem entry to exceed the limit")
+        } catch {
+            XCTAssertEqual(error as? PiCompatibleReaderError, .tooManyEntries(1))
+        }
     }
 }
 
@@ -533,18 +536,6 @@ private func message(id: String, input: Int, output: Int) -> String {
     {"type":"message","id":"\(id)","timestamp":"2026-08-20T12:00:00Z","message":\
     {"role":"assistant","model":"gpt-5","provider":"openai",\
     "usage":{"input":\(input),"output":\(output)}}}
-    """
-}
-
-private func idlessMessage(
-    responseID: String,
-    timestamp: String,
-    input: Int,
-    output: Int) -> String {
-    """
-    {"type":"message","timestamp":"\(timestamp)","message":\
-    {"role":"assistant","responseId":"\(responseID)","model":"gpt-5",\
-    "provider":"openai","usage":{"input":\(input),"output":\(output)}}}
     """
 }
 

@@ -122,6 +122,7 @@ final class AgentSystemdServiceTests: XCTestCase {
         let documentation = try String(contentsOf: documentationURL, encoding: .utf8)
 
         for variable in [
+            "COPILOT_OTEL_FILE_EXPORTER_PATH",
             "KIMI_SHARE_DIR",
             "KIMI_CODE_HOME",
             "QWEN_HOME",
@@ -131,6 +132,7 @@ final class AgentSystemdServiceTests: XCTestCase {
             XCTAssertTrue(documentation.contains(variable), variable)
         }
         let expectedReadOnlyPaths = [
+            "/home/USER/.local/share/copilot/otel.jsonl",
             "/home/USER/.local/share/kimi/sessions",
             "/home/USER/.local/share/kimi-code/sessions",
             "/home/USER/.local/share/qwen/projects",

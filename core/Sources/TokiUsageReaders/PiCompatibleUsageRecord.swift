@@ -19,7 +19,7 @@ struct PiCompatibleRevisionIdentity: Hashable {
 
 enum PiCompatibleMergeAlias: Hashable {
     case sessionMessage(sessionID: String, messageID: String)
-    case sessionResponse(sessionID: String, responseID: String)
+    case sessionResponse(sessionID: String, responseID: String, usageIdentity: String)
     case responseCopy(id: String, payloadDigest: String)
     case messageCopy(id: String, payloadDigest: String)
     case legacyResponseCopy(PiCompatibleLegacyResponseCopyIdentity)
@@ -38,8 +38,9 @@ struct PiCompatibleUsageRecord {
     let cacheWriteTokens: Int
     let reasoningTokens: Int
     let cost: Double
-    let costIsKnown: Bool
+    let costIsKnown: Bool?
     let attribution: UsageAttribution
+    let agentName: String?
     let agentKind: WorkTimeAgentKind
     private let revisionIdentity: PiCompatibleRevisionIdentity
     private let providerRevisionIdentity: PiCompatibleRevisionIdentity?
@@ -58,8 +59,9 @@ struct PiCompatibleUsageRecord {
         cacheWriteTokens: Int,
         reasoningTokens: Int,
         cost: Double,
-        costIsKnown: Bool,
+        costIsKnown: Bool?,
         attribution: UsageAttribution,
+        agentName: String? = nil,
         agentKind: WorkTimeAgentKind,
         revisionIdentity: PiCompatibleRevisionIdentity? = nil) {
         let identity = revisionIdentity ?? PiCompatibleRevisionIdentity.derived(
@@ -89,6 +91,7 @@ struct PiCompatibleUsageRecord {
             cost: cost,
             costIsKnown: costIsKnown,
             attribution: attribution,
+            agentName: agentName,
             agentKind: agentKind,
             revisionIdentity: identity,
             providerRevisionIdentity: provider == nil ? nil : identity,
@@ -108,8 +111,9 @@ struct PiCompatibleUsageRecord {
         cacheWriteTokens: Int,
         reasoningTokens: Int,
         cost: Double,
-        costIsKnown: Bool,
+        costIsKnown: Bool?,
         attribution: UsageAttribution,
+        agentName: String?,
         agentKind: WorkTimeAgentKind,
         revisionIdentity: PiCompatibleRevisionIdentity,
         providerRevisionIdentity: PiCompatibleRevisionIdentity?,
@@ -128,6 +132,7 @@ struct PiCompatibleUsageRecord {
         self.cost = cost
         self.costIsKnown = costIsKnown
         self.attribution = attribution
+        self.agentName = agentName
         self.agentKind = agentKind
         self.revisionIdentity = revisionIdentity
         self.providerRevisionIdentity = providerRevisionIdentity
@@ -140,9 +145,9 @@ struct PiCompatibleUsageRecord {
 }
 
 extension PiCompatibleUsageRecord {
-    func merged(with other: Self) -> Self {
+    func merged(with other: Self, retainingAliases: Bool = true) -> Self {
         if mergePolicy == .legacy || other.mergePolicy == .legacy {
-            return legacyMerged(with: other)
+            return legacyMerged(with: other, retainingAliases: retainingAliases)
         }
         let selfIsPreferred = isCorePreferred(over: other)
         let preferred = selfIsPreferred ? self : other
@@ -152,7 +157,7 @@ extension PiCompatibleUsageRecord {
             deduplicationKey: deduplicationKey.isOrdered(before: other.deduplicationKey)
                 ? deduplicationKey
                 : other.deduplicationKey,
-            mergeAliases: mergeAliases.union(other.mergeAliases),
+            mergeAliases: retainingAliases ? mergeAliases.union(other.mergeAliases) : [],
             mergePolicy: .deterministic,
             timestamp: preferred.timestamp,
             model: preferred.model,
@@ -165,20 +170,21 @@ extension PiCompatibleUsageRecord {
             cost: selectedCost.value,
             costIsKnown: selectedCost.isKnown,
             attribution: deterministicAttribution(attribution, other.attribution),
+            agentName: preferred.agentName ?? (selfIsPreferred ? other.agentName : agentName),
             agentKind: agentKind == .subagent || other.agentKind == .subagent ? .subagent : .main,
             revisionIdentity: preferred.revisionIdentity,
             providerRevisionIdentity: selectedProvider.identity,
             costRevisionIdentity: selectedCost.identity)
     }
 
-    private func legacyMerged(with other: Self) -> Self {
+    private func legacyMerged(with other: Self, retainingAliases: Bool) -> Self {
         let selfIsPreferred = isLegacyPreferred(over: other)
         let preferred = selfIsPreferred ? self : other
         let fallback = selfIsPreferred ? other : self
         let providerRecord = preferred.provider == nil ? fallback : preferred
         return PiCompatibleUsageRecord(
             deduplicationKey: deduplicationKey,
-            mergeAliases: mergeAliases.union(other.mergeAliases),
+            mergeAliases: retainingAliases ? mergeAliases.union(other.mergeAliases) : [],
             mergePolicy: .legacy,
             timestamp: preferred.timestamp,
             model: preferred.model,
@@ -191,17 +197,45 @@ extension PiCompatibleUsageRecord {
             cost: preferred.cost,
             costIsKnown: preferred.costIsKnown,
             attribution: bestUsageAttribution(attribution, other.attribution) ?? attribution,
+            agentName: preferred.agentName ?? fallback.agentName,
             agentKind: agentKind == .subagent || other.agentKind == .subagent ? .subagent : .main,
             revisionIdentity: preferred.revisionIdentity,
             providerRevisionIdentity: providerRecord.providerRevisionIdentity,
             costRevisionIdentity: preferred.costRevisionIdentity)
     }
 
+    func replacingMergeAliases(_ aliases: Set<PiCompatibleMergeAlias>) -> Self {
+        PiCompatibleUsageRecord(
+            deduplicationKey: deduplicationKey,
+            mergeAliases: aliases,
+            mergePolicy: mergePolicy,
+            timestamp: timestamp,
+            model: model,
+            provider: provider,
+            inputTokens: inputTokens,
+            outputTokens: outputTokens,
+            cacheReadTokens: cacheReadTokens,
+            cacheWriteTokens: cacheWriteTokens,
+            reasoningTokens: reasoningTokens,
+            cost: cost,
+            costIsKnown: costIsKnown,
+            attribution: attribution,
+            agentName: agentName,
+            agentKind: agentKind,
+            revisionIdentity: revisionIdentity,
+            providerRevisionIdentity: providerRevisionIdentity,
+            costRevisionIdentity: costRevisionIdentity)
+    }
+
     private func isLegacyPreferred(over other: Self) -> Bool {
         if totalTokens != other.totalTokens { return totalTokens > other.totalTokens }
         if cost != other.cost { return cost > other.cost }
-        if costIsKnown != other.costIsKnown { return costIsKnown }
-        return true
+        if costIsKnown != other.costIsKnown {
+            return costKnowledgeRank(costIsKnown) > costKnowledgeRank(other.costIsKnown)
+        }
+        if timestamp != other.timestamp { return timestamp > other.timestamp }
+        if model != other.model { return model < other.model }
+        return revisionIdentity.isPreferred(over: other.revisionIdentity)
     }
 
     private func deterministicProvider(with other: Self) -> PiCompatibleSelectedProvider {
@@ -227,7 +261,7 @@ extension PiCompatibleUsageRecord {
 
     private func deterministicCost(with other: Self) -> PiCompatibleSelectedCost {
         if costIsKnown != other.costIsKnown {
-            return costIsKnown
+            return costKnowledgeRank(costIsKnown) > costKnowledgeRank(other.costIsKnown)
                 ? selectedCost()
                 : other.selectedCost()
         }
@@ -275,7 +309,7 @@ enum PiCompatibleDeduplicationKey: Hashable {
     case message(String)
     case sessionMessage(sessionID: String, messageID: String)
     case sessionResponse(sessionID: String, responseID: String)
-    case legacySessionResponse(sessionID: String, responseID: String, model: String)
+    case legacySessionResponse(sessionID: String, responseID: String)
     case legacyRecord(PiCompatibleLegacyRecordIdentity)
     case record(streamID: String, lineIndex: Int)
 
@@ -295,11 +329,10 @@ enum PiCompatibleDeduplicationKey: Hashable {
             if lhsSession != rhsSession { return lhsSession < rhsSession }
             return lhsResponse < rhsResponse
         case let (
-            .legacySessionResponse(lhsSession, lhsResponse, lhsModel),
-            .legacySessionResponse(rhsSession, rhsResponse, rhsModel)):
+            .legacySessionResponse(lhsSession, lhsResponse),
+            .legacySessionResponse(rhsSession, rhsResponse)):
             if lhsSession != rhsSession { return lhsSession < rhsSession }
-            if lhsResponse != rhsResponse { return lhsResponse < rhsResponse }
-            return lhsModel < rhsModel
+            return lhsResponse < rhsResponse
         case let (.legacyRecord(lhs), .legacyRecord(rhs)):
             return lhs.location < rhs.location
         case let (.record(lhsStream, lhsLine), .record(rhsStream, rhsLine)):
@@ -324,13 +357,7 @@ enum PiCompatibleDeduplicationKey: Hashable {
 
 struct PiCompatibleLegacyResponseCopyIdentity: Hashable {
     let responseID: String
-    let timestamp: Date
-    let model: String
-    let inputTokens: Int
-    let outputTokens: Int
-    let cacheReadTokens: Int
-    let cacheWriteTokens: Int
-    let reasoningTokens: Int
+    let payloadDigest: String
 }
 
 struct PiCompatibleLegacyRecordIdentity: Hashable {
@@ -353,7 +380,7 @@ private struct PiCompatibleSelectedProvider {
 
 private struct PiCompatibleSelectedCost {
     let value: Double
-    let isKnown: Bool
+    let isKnown: Bool?
     let identity: PiCompatibleRevisionIdentity
 }
 
@@ -368,9 +395,9 @@ private extension PiCompatibleRevisionIdentity {
         cacheWriteTokens: Int,
         reasoningTokens: Int,
         cost: Double,
-        costIsKnown: Bool,
+        costIsKnown: Bool?,
         attribution: UsageAttribution) -> Self {
-        let fields = [
+        let fields: [String] = [
             model,
             provider ?? "",
             String(inputTokens),
@@ -379,7 +406,7 @@ private extension PiCompatibleRevisionIdentity {
             String(cacheWriteTokens),
             String(reasoningTokens),
             String(cost.bitPattern),
-            String(costIsKnown),
+            String(describing: costIsKnown),
             attribution.projectPath ?? "",
             attribution.projectName ?? "",
             attribution.sessionID ?? "",
@@ -389,6 +416,14 @@ private extension PiCompatibleRevisionIdentity {
         return Self(
             timestamp: timestamp,
             payloadDigest: SnapshotCipher.digest(fields.joined(separator: "\u{0}")))
+    }
+}
+
+private func costKnowledgeRank(_ value: Bool?) -> Int {
+    switch value {
+    case true: 2
+    case nil: 1
+    case false: 0
     }
 }
 

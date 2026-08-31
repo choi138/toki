@@ -36,6 +36,7 @@ public struct SenpiReader: TokenReader {
         }
 
         var recordsByKey: [PiCompatibleDeduplicationKey: PiCompatibleUsageRecord] = [:]
+        var examinedRecordCount = 0
         for file in files {
             var parser = PiCompatibleSessionParser(
                 streamID: file.path,
@@ -44,14 +45,13 @@ public struct SenpiReader: TokenReader {
                 guard let record = parser.record(fromJSONLLine: line, lineIndex: lineIndex) else {
                     return
                 }
-                guard record.timestamp >= startDate, record.timestamp < endDate else {
-                    return
+                let (nextCount, overflow) = examinedRecordCount.addingReportingOverflow(1)
+                guard !overflow, nextCount <= readLimits.maximumEventCount else {
+                    throw PiCompatibleReaderError.tooManyEvents(overflow ? Int.max : nextCount)
                 }
+                examinedRecordCount = nextCount
                 recordsByKey[record.deduplicationKey] = recordsByKey[record.deduplicationKey]
                     .map { $0.merged(with: record) } ?? record
-                guard recordsByKey.count <= readLimits.maximumEventCount else {
-                    throw PiCompatibleReaderError.tooManyEvents(recordsByKey.count)
-                }
             }
         }
         return Self.usage(

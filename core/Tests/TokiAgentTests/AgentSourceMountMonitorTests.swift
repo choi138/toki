@@ -212,6 +212,7 @@ final class AgentSourceMountMonitorTests: XCTestCase {
     func test_sourceMountFailuresRequireProcessRestart() {
         XCTAssertTrue(AgentSnapshotBuilderError.sourceMountRefreshRequired.requiresProcessRestart)
         XCTAssertTrue(AgentSnapshotBuilderError.sourceInspectionFailed.requiresProcessRestart)
+        XCTAssertFalse(AgentSnapshotBuilderError.sourceLimitExceeded.requiresProcessRestart)
         XCTAssertFalse(AgentSnapshotBuilderError.readerFailed("Hermes").requiresProcessRestart)
     }
 }

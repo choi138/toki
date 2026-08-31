@@ -111,6 +111,10 @@ func forEachBoundedJSONLLine(
         consumedBytes = nextConsumedBytes
         pending.append(chunk)
         while let newlineIndex = pending.firstIndex(of: 0x0A) {
+            guard pending.distance(from: pending.startIndex, to: newlineIndex)
+                <= limits.maximumLineBytes else {
+                throw PiCompatibleReaderError.lineTooLong(url)
+            }
             let lineData = pending.subdata(in: pending.startIndex..<newlineIndex)
             pending.removeSubrange(pending.startIndex...newlineIndex)
             try consumeJSONLLine(

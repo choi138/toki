@@ -64,13 +64,9 @@ struct AgentSnapshotAssembler {
         coveredFrom: Date,
         coveredTo: Date) throws -> RemoteUsageSnapshot {
         try Task.checkCancellation()
-        let identifierHasher = try SnapshotCipher.makeOpaqueIdentifierHasher(
-            key: configuration.encryptionKey)
+        let identifierHasher = try identifierHasher(for: configuration)
         let tokenReplacementCoverages = try boundedReplacementCoverages(from: readerUsages)
-        let device = RemoteDeviceDescriptor(
-            id: configuration.deviceID,
-            name: configuration.deviceName,
-            platform: platformName)
+        let device = deviceDescriptor(for: configuration)
         var encodedBytes = try initialEncodedByteCount(
             device: device,
             generatedAt: generatedAt,
@@ -93,6 +89,7 @@ struct AgentSnapshotAssembler {
                 guard event.timestamp >= coveredFrom, event.timestamp < coveredTo else {
                     continue
                 }
+                guard event.timestamp <= generatedAt else { continue }
                 guard try !isReplaced(
                     event,
                     by: tokenReplacementCoverages,
@@ -122,6 +119,7 @@ struct AgentSnapshotAssembler {
                 guard event.timestamp >= coveredFrom, event.timestamp < coveredTo else {
                     continue
                 }
+                guard event.timestamp <= generatedAt else { continue }
                 guard activityEvents.count < limits.maximumActivityEventCount else {
                     throw AgentSnapshotBuilderError.snapshotLimitExceeded
                 }
@@ -145,6 +143,18 @@ struct AgentSnapshotAssembler {
             tokenEvents: tokenEvents,
             costEvents: costEvents,
             activityEvents: activityEvents)
+    }
+
+    private func identifierHasher(
+        for configuration: AgentConfiguration) throws -> SnapshotOpaqueIdentifierHasher {
+        try SnapshotCipher.makeOpaqueIdentifierHasher(key: configuration.encryptionKey)
+    }
+
+    private func deviceDescriptor(for configuration: AgentConfiguration) -> RemoteDeviceDescriptor {
+        RemoteDeviceDescriptor(
+            id: configuration.deviceID,
+            name: configuration.deviceName,
+            platform: platformName)
     }
 }
 
@@ -326,7 +336,7 @@ private extension AgentSnapshotAssembler {
 
     private static let remoteProviderIdentifiers = Set([
         "anthropic", "aws-bedrock", "azure", "bedrock", "cerebras",
-        "deepseek", "fireworks", "github", "google", "groq",
+        "deepseek", "fireworks", "github", "google", "groq", "kimchi-dev",
         "mistral", "moonshot", "ollama", "openai", "openrouter",
         "qwen", "together", "vertex-ai", "xai", "zai",
     ])

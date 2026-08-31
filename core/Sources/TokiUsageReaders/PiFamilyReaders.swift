@@ -5,26 +5,33 @@ public struct PiReader: TokenReader {
     public static let sourceName = "Pi"
 
     public let name = Self.sourceName
-    private let sessionsURLOverride: URL?
+    private let sessionRootsOverride: [URL]?
     private let readLimits: PiCompatibleReadLimits
 
     public init(sessionsURLOverride: URL? = nil) {
-        self.sessionsURLOverride = sessionsURLOverride
+        sessionRootsOverride = sessionsURLOverride.map { [$0] }
         readLimits = .default
+    }
+
+    init(
+        sessionRootsOverride: [URL],
+        readLimits: PiCompatibleReadLimits = .default) {
+        self.sessionRootsOverride = sessionRootsOverride
+        self.readLimits = readLimits
     }
 
     init(
         sessionsURLOverride: URL?,
         readLimits: PiCompatibleReadLimits) {
-        self.sessionsURLOverride = sessionsURLOverride
+        sessionRootsOverride = sessionsURLOverride.map { [$0] }
         self.readLimits = readLimits
     }
 
     public func readUsage(from startDate: Date, to endDate: Date) async throws -> RawTokenUsage {
-        let sessionsURL = sessionsURLOverride ?? LocalUsageReaderPaths().piSessions
+        let sessionRoots = sessionRootsOverride ?? [LocalUsageReaderPaths().piSessions]
         return try PiCompatibleReader(
             source: .pi,
-            sessionRoots: [sessionsURL],
+            sessionRoots: sessionRoots,
             readLimits: readLimits)
             .readUsage(from: startDate, to: endDate)
     }
@@ -47,15 +54,19 @@ public struct OMPReader: TokenReader {
     public static let sourceName = "Oh My Pi"
 
     public let name = Self.sourceName
-    private let sessionsURLOverride: URL?
+    private let sessionRootsOverride: [URL]?
 
     public init(sessionsURLOverride: URL? = nil) {
-        self.sessionsURLOverride = sessionsURLOverride
+        sessionRootsOverride = sessionsURLOverride.map { [$0] }
+    }
+
+    init(sessionRootsOverride: [URL]) {
+        self.sessionRootsOverride = sessionRootsOverride
     }
 
     public func readUsage(from startDate: Date, to endDate: Date) async throws -> RawTokenUsage {
-        let sessionsURL = sessionsURLOverride ?? LocalUsageReaderPaths().ompSessions
-        return try PiCompatibleReader(source: .ohMyPi, sessionRoots: [sessionsURL])
+        let sessionRoots = sessionRootsOverride ?? LocalUsageReaderPaths().ompSessionRoots
+        return try PiCompatibleReader(source: .ohMyPi, sessionRoots: sessionRoots)
             .readUsage(from: startDate, to: endDate)
     }
 

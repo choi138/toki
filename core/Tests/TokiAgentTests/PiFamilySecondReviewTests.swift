@@ -187,6 +187,56 @@ final class PiFamilySecondReviewTests: XCTestCase {
 }
 
 extension PiFamilySecondReviewTests {
+    func test_senpiModelCorrectionRemainsOneSessionResponse() {
+        let usage = SenpiReader.usage(
+            fromJSONLLines: [
+                secondReviewSession("senpi-model-correction"),
+                secondReviewMessage(
+                    responseID: "response-1",
+                    timestamp: "2026-08-20T12:00:00Z",
+                    model: "gpt-5-preview",
+                    input: 3,
+                    output: 2),
+                secondReviewMessage(
+                    responseID: "response-1",
+                    timestamp: "2026-08-20T12:01:00Z",
+                    model: "gpt-5",
+                    input: 3,
+                    output: 2),
+            ],
+            streamID: "/tmp/senpi-model-correction.jsonl",
+            from: secondReviewDate("2026-08-20T00:00:00Z"),
+            to: secondReviewDate("2026-08-21T00:00:00Z"))
+
+        XCTAssertEqual(usage.totalTokens, 5)
+        XCTAssertEqual(usage.tokenEvents.count, 1)
+        XCTAssertEqual(usage.tokenEvents.first?.model, "gpt-5")
+    }
+
+    func test_senpiContentDistinctResponsesKeepSeparateLegacyAliases() {
+        let usage = SenpiReader.usage(
+            fromJSONLLines: [
+                secondReviewSession("senpi-a"),
+                secondReviewMessage(
+                    responseID: "shared-response",
+                    input: 3,
+                    output: 2,
+                    content: "alpha"),
+                secondReviewSession("senpi-b"),
+                secondReviewMessage(
+                    responseID: "shared-response",
+                    input: 3,
+                    output: 2,
+                    content: "beta"),
+            ],
+            streamID: "/tmp/senpi-distinct-content.jsonl",
+            from: secondReviewDate("2026-08-20T00:00:00Z"),
+            to: secondReviewDate("2026-08-21T00:00:00Z"))
+
+        XCTAssertEqual(usage.totalTokens, 10)
+        XCTAssertEqual(usage.tokenEvents.count, 2)
+    }
+
     func test_senpiMergeKeepsPreferredRevisionCoherent() {
         let usage = SenpiReader.usage(
             fromJSONLLines: [

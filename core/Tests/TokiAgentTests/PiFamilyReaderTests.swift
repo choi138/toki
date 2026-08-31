@@ -98,7 +98,7 @@ final class PiFamilyReaderTests: XCTestCase {
 }
 
 extension PiFamilyReaderTests {
-    func test_piAndSenpiApplyEventLimitAfterDateSelection() async throws {
+    func test_piCountsOutOfRangeEventsAgainstParseLimit() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("toki-pi-window-limit-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: root) }
@@ -124,25 +124,16 @@ extension PiFamilyReaderTests {
             maximumLineBytes: 2 * 1024,
             maximumEventCount: 1)
 
-        let piUsage = try PiCompatibleReader(
+        XCTAssertThrowsError(try PiCompatibleReader(
             source: .pi,
             sessionRoots: [root],
             readLimits: limits)
             .readUsage(
                 from: piFamilyDate("2026-08-20T00:00:00Z"),
-                to: piFamilyDate("2026-08-21T00:00:00Z"))
-        let senpiUsage = try await SenpiReader(
-            sessionRootsOverride: [root],
-            readLimits: limits)
-            .readUsage(
-                from: piFamilyDate("2026-08-20T00:00:00Z"),
-                to: piFamilyDate("2026-08-21T00:00:00Z"))
-
-        XCTAssertEqual(piUsage.totalTokens, 13)
-        XCTAssertEqual(senpiUsage.totalTokens, 13)
+                to: piFamilyDate("2026-08-21T00:00:00Z")))
     }
 
-    func test_outOfRangeRevisionDoesNotReplaceSelectedRevision() async throws {
+    func test_revisionSpanningDateBoundaryIsCountedInOnlyOneWindow() async throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("toki-pi-window-revision-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: root) }
@@ -163,7 +154,11 @@ extension PiFamilyReaderTests {
         ].joined(separator: "\n")
         try Data(content.utf8).write(to: session)
 
-        let piUsage = try PiCompatibleReader(source: .pi, sessionRoots: [root])
+        let reader = PiCompatibleReader(source: .pi, sessionRoots: [root])
+        let firstDayUsage = try reader.readUsage(
+            from: piFamilyDate("2026-08-01T00:00:00Z"),
+            to: piFamilyDate("2026-08-02T00:00:00Z"))
+        let piUsage = try reader
             .readUsage(
                 from: piFamilyDate("2026-08-20T00:00:00Z"),
                 to: piFamilyDate("2026-08-21T00:00:00Z"))
@@ -172,8 +167,10 @@ extension PiFamilyReaderTests {
                 from: piFamilyDate("2026-08-20T00:00:00Z"),
                 to: piFamilyDate("2026-08-21T00:00:00Z"))
 
-        XCTAssertEqual(piUsage.totalTokens, 13)
-        XCTAssertEqual(senpiUsage.totalTokens, 13)
+        XCTAssertEqual(firstDayUsage.totalTokens, 150)
+        XCTAssertEqual(piUsage.totalTokens, 0)
+        XCTAssertEqual(senpiUsage.totalTokens, 0)
+        XCTAssertEqual(firstDayUsage.totalTokens + piUsage.totalTokens, 150)
     }
 
     func test_responseIDAndProviderSurviveIdlessRevisionMerge() {

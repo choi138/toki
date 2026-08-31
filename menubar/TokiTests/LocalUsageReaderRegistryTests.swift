@@ -18,6 +18,8 @@ final class LocalUsageReaderRegistryTests: XCTestCase {
                 "Cursor",
                 "Gemini CLI",
                 "GJC",
+                "Factory Droid",
+                "Amp",
                 "Senpi",
                 "Pi",
                 "Oh My Pi",
@@ -43,6 +45,8 @@ final class LocalUsageReaderRegistryTests: XCTestCase {
 
         XCTAssertEqual(paths.claudeProjects.path, "/tmp/toki-reader-home/.claude/projects")
         XCTAssertEqual(paths.hermesDatabase.path, "/tmp/toki-reader-home/.hermes/state.db")
+        XCTAssertEqual(paths.factoryDroidSessions.path, "/tmp/toki-reader-home/.factory/sessions")
+        XCTAssertEqual(paths.ampThreads.path, "/tmp/toki-xdg-data/amp/threads")
         XCTAssertEqual(paths.openCodeDatabase.path, "/tmp/toki-xdg-data/opencode/opencode.db")
         XCTAssertEqual(
             paths.senpiSessionDirectories.map(\.path),
@@ -65,7 +69,38 @@ final class LocalUsageReaderRegistryTests: XCTestCase {
                 "/tmp/toki-reader-home/Library/Application Support/Cursor/User/globalStorage/state.vscdb")
         #endif
     }
+}
 
+extension LocalUsageReaderRegistryTests {
+    func test_factoryDroidAndAmpReadersAreRegisteredExactlyOnce() {
+        let home = URL(fileURLWithPath: "/tmp/toki-reader-home")
+        let descriptors = LocalUsageReaderRegistry.descriptors(
+            home: home,
+            environment: ["XDG_DATA_HOME": "/tmp/toki-xdg-data"])
+
+        let droid = descriptors.filter { $0.name == FactoryDroidReader.sourceName }
+        let amp = descriptors.filter { $0.name == AmpReader.sourceName }
+
+        XCTAssertEqual(droid.count, 1)
+        XCTAssertEqual(amp.count, 1)
+        XCTAssertEqual(
+            droid.first?.sourceLocations,
+            [
+                .directory(
+                    home.appendingPathComponent(".factory/sessions"),
+                    extensions: ["json", "jsonl"]),
+            ])
+        XCTAssertEqual(
+            amp.first?.sourceLocations,
+            [
+                .directory(
+                    URL(fileURLWithPath: "/tmp/toki-xdg-data/amp/threads"),
+                    extensions: ["json"]),
+            ])
+    }
+}
+
+extension LocalUsageReaderRegistryTests {
     func test_senpiPathsUseOnlyAbsoluteOverridesAndIncludeDelegatedRoots() {
         let home = URL(fileURLWithPath: "/tmp/toki-reader-home")
         let paths = LocalUsageReaderPaths(

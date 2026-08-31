@@ -8,6 +8,7 @@ private struct ModelSourceStatAggregate {
     var activeSeconds: TimeInterval = 0
     var wallClockSeconds: TimeInterval = 0
     var sources = Set<String>()
+    var providers = Set<String>()
     var isPriceKnown = true
 
     init() {}
@@ -29,6 +30,9 @@ private struct ModelSourceStatAggregate {
             cost += event.cost
         }
         sources.insert(event.source)
+        if let provider = event.provider?.trimmedNonEmpty {
+            providers.insert(provider)
+        }
         if event.costIsKnown == false {
             isPriceKnown = false
         } else if event.costIsKnown == nil, event.totalTokens > 0 {
@@ -80,6 +84,9 @@ extension UsageReportBuilder {
 
         return reportableAggregates.map { key, aggregate in
             let sources = aggregate.sources.sorted()
+            let providers = aggregate.providers
+                .union(eventStats[key]?.providers ?? [])
+                .sorted()
             let rowID = sourceCountByModel[key.modelID, default: 0] > 1
                 ? "\(key.modelID)|\(key.source)"
                 : key.modelID
@@ -91,6 +98,7 @@ extension UsageReportBuilder {
                 activeSeconds: aggregate.activeSeconds,
                 wallClockSeconds: aggregate.wallClockSeconds,
                 sources: sources,
+                providers: providers,
                 isPriceKnown: priceIsKnown(
                     for: key,
                     aggregate: aggregate,

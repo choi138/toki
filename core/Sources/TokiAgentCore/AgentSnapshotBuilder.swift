@@ -100,6 +100,10 @@ struct AgentSnapshotBuilder: AgentSnapshotBuilding {
         let coveredFrom = window.start
         let coveredTo = window.end
         let readerUsages = try await readUsages(from: coveredFrom, to: coveredTo)
+        let earliestDeferredTimestamp = try earliestDeferredEventTimestamp(
+            in: readerUsages,
+            after: now,
+            before: coveredTo)
         let assembledSnapshot = try AgentSnapshotAssembler(limits: snapshotLimits).snapshot(
             from: readerUsages,
             configuration: configuration,
@@ -109,16 +113,9 @@ struct AgentSnapshotBuilder: AgentSnapshotBuilding {
         let allTokenEvents = assembledSnapshot.tokenEvents
         let allCostEvents = assembledSnapshot.costEvents ?? []
         let allActivityEvents = assembledSnapshot.activityEvents
-        let earliestDeferredTimestamp = [
-            allTokenEvents.first { $0.timestamp > now }?.timestamp,
-            allCostEvents.first { $0.timestamp > now }?.timestamp,
-            allActivityEvents.first { $0.timestamp > now }?.timestamp,
-        ]
-        .compactMap { $0 }
-        .min()
-        let tokenEvents = allTokenEvents.filter { $0.timestamp <= now }
-        let costEvents = allCostEvents.filter { $0.timestamp <= now }
-        let activityEvents = allActivityEvents.filter { $0.timestamp <= now }
+        let tokenEvents = allTokenEvents
+        let costEvents = allCostEvents
+        let activityEvents = allActivityEvents
 
         let snapshot = try AgentSnapshotEventBounder(limits: eventLimits).snapshot(
             device: assembledSnapshot.device,
@@ -238,7 +235,7 @@ private extension AgentSnapshotBuilder {
         maximumEntryCount: Int? = nil) throws -> [String] {
         guard maximumFileCount.map({ $0 >= 0 }) ?? true,
               maximumEntryCount.map({ $0 >= 0 }) ?? true else {
-            throw AgentSnapshotBuilderError.sourceInspectionFailed
+            throw AgentSnapshotBuilderError.sourceLimitExceeded
         }
         var records: [String] = []
         var discoveredFileCount = 0
@@ -327,11 +324,12 @@ private extension AgentSnapshotBuilder {
             at: directory,
             includingPropertiesForKeys: [
                 .contentModificationDateKey,
+                .isHiddenKey,
                 .isDirectoryKey,
                 .isRegularFileKey,
                 .isSymbolicLinkKey,
             ],
-            options: [.skipsHiddenFiles],
+            options: [],
             errorHandler: { _, _ in
                 inspectionFailed = true
                 return false
@@ -345,19 +343,26 @@ private extension AgentSnapshotBuilder {
             let (nextEntryCount, entryCountOverflow) = visitedEntryCount.addingReportingOverflow(1)
             guard !entryCountOverflow,
                   maximumEntryCount.map({ nextEntryCount <= $0 }) ?? true else {
-                throw AgentSnapshotBuilderError.sourceInspectionFailed
+                throw AgentSnapshotBuilderError.sourceLimitExceeded
             }
             visitedEntryCount = nextEntryCount
             let values: URLResourceValues
             do {
                 values = try fileURL.resourceValues(forKeys: [
                     .contentModificationDateKey,
+                    .isHiddenKey,
                     .isDirectoryKey,
                     .isRegularFileKey,
                     .isSymbolicLinkKey,
                 ])
             } catch {
                 throw AgentSnapshotBuilderError.sourceInspectionFailed
+            }
+            if values.isHidden == true || fileURL.lastPathComponent.hasPrefix(".") {
+                if values.isDirectory == true {
+                    enumerator.skipDescendants()
+                }
+                continue
             }
             if values.isSymbolicLink == true {
                 if values.isDirectory == true {
@@ -366,17 +371,17 @@ private extension AgentSnapshotBuilder {
                 continue
             }
             guard values.isRegularFile == true,
-                  extensions.contains(fileURL.pathExtension),
+                  extensions.contains(fileURL.pathExtension.lowercased()),
                   values.contentModificationDate.map({ $0 >= minimumDate }) == true else {
                 continue
             }
             if let maximumFileCount,
                discoveredFileCount >= maximumFileCount {
-                throw AgentSnapshotBuilderError.sourceInspectionFailed
+                throw AgentSnapshotBuilderError.sourceLimitExceeded
             }
             let (nextCount, overflow) = discoveredFileCount.addingReportingOverflow(1)
             guard !overflow else {
-                throw AgentSnapshotBuilderError.sourceInspectionFailed
+                throw AgentSnapshotBuilderError.sourceLimitExceeded
             }
             discoveredFileCount = nextCount
             files.insert(fileURL.standardizedFileURL)
@@ -460,45 +465,131 @@ private extension AgentSnapshotBuilder {
         let fileNumber = (attributes[.systemFileNumber] as? NSNumber)?.uint64Value ?? 0
         return "\(pathDigest):\(type):\(size):\(modified):\(fileNumber)"
     }
+
+    private func tokenEventSort(_ lhs: RemoteTokenEvent, _ rhs: RemoteTokenEvent) -> Bool {
+        if lhs.timestamp != rhs.timestamp { return lhs.timestamp < rhs.timestamp }
+        if lhs.source != rhs.source { return lhs.source < rhs.source }
+        if lhs.model != rhs.model { return (lhs.model ?? "") < (rhs.model ?? "") }
+        if lhs.provider != rhs.provider { return (lhs.provider ?? "") < (rhs.provider ?? "") }
+        if lhs.inputTokens != rhs.inputTokens { return lhs.inputTokens < rhs.inputTokens }
+        if lhs.outputTokens != rhs.outputTokens { return lhs.outputTokens < rhs.outputTokens }
+        if lhs.cacheReadTokens != rhs.cacheReadTokens { return lhs.cacheReadTokens < rhs.cacheReadTokens }
+        if lhs.cacheWriteTokens != rhs.cacheWriteTokens { return lhs.cacheWriteTokens < rhs.cacheWriteTokens }
+        if lhs.reasoningTokens != rhs.reasoningTokens { return lhs.reasoningTokens < rhs.reasoningTokens }
+        if lhs.cost != rhs.cost { return (lhs.cost ?? -1) < (rhs.cost ?? -1) }
+        let lhsProvider = (lhs.provider == nil ? 0 : 1, lhs.provider ?? "")
+        let rhsProvider = (rhs.provider == nil ? 0 : 1, rhs.provider ?? "")
+        if lhsProvider != rhsProvider { return lhsProvider < rhsProvider }
+        return (lhs.costIsKnown.map { $0 ? 2 : 1 } ?? 0)
+            < (rhs.costIsKnown.map { $0 ? 2 : 1 } ?? 0)
+    }
+
+    private func costEventSort(_ lhs: RemoteCostEvent, _ rhs: RemoteCostEvent) -> Bool {
+        if lhs.timestamp != rhs.timestamp { return lhs.timestamp < rhs.timestamp }
+        if lhs.source != rhs.source { return lhs.source < rhs.source }
+        if lhs.model != rhs.model { return (lhs.model ?? "") < (rhs.model ?? "") }
+        return lhs.cost < rhs.cost
+    }
+
+    private func activityEventSort(_ lhs: RemoteActivityEvent, _ rhs: RemoteActivityEvent) -> Bool {
+        if lhs.timestamp != rhs.timestamp { return lhs.timestamp < rhs.timestamp }
+        if lhs.source != rhs.source { return lhs.source < rhs.source }
+        if lhs.model != rhs.model { return (lhs.model ?? "") < (rhs.model ?? "") }
+        if lhs.streamID != rhs.streamID { return lhs.streamID < rhs.streamID }
+        return lhs.agentKind.rawValue < rhs.agentKind.rawValue
+    }
+
+    private func remoteModel(_ model: String?) -> String? {
+        guard let model,
+              model != UsageModelGrouping.mixedOrUnattributedKey,
+              TokiSyncValidation.isSafeDisplayText(
+                  model,
+                  maximumLength: RemoteUsageSnapshotValidator.maximumModelLength) else {
+            return nil
+        }
+        return model
+    }
+
+    private func remoteTokenEvent(_ event: TokenUsageEvent) -> RemoteTokenEvent? {
+        let counts = [
+            event.inputTokens,
+            event.outputTokens,
+            event.cacheReadTokens,
+            event.cacheWriteTokens,
+            event.reasoningTokens,
+        ]
+        let validRange = 0...RemoteUsageSnapshotValidator.maximumTokenCountPerBucket
+        let validCostRange = 0...RemoteUsageSnapshotValidator.maximumCostPerEvent
+        guard counts.allSatisfy(validRange.contains),
+              event.cost.isFinite,
+              validCostRange.contains(event.cost),
+              counts.contains(where: { $0 > 0 }) else {
+            return nil
+        }
+        return RemoteTokenEvent(
+            timestamp: event.timestamp,
+            source: event.source,
+            model: remoteModel(event.model),
+            provider: remoteProvider(event.provider),
+            inputTokens: event.inputTokens,
+            outputTokens: event.outputTokens,
+            cacheReadTokens: event.cacheReadTokens,
+            cacheWriteTokens: event.cacheWriteTokens,
+            reasoningTokens: event.reasoningTokens,
+            cost: event.costIsKnown == false
+                ? 0
+                : (event.costIsKnown == true ? event.cost : event.cost > 0 ? event.cost : nil),
+            costIsKnown: event.costIsKnown)
+    }
+
+    private func remoteProvider(_ provider: String?) -> String? {
+        let normalized = provider?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return normalized.flatMap { Self.remoteProviderIdentifiers.contains($0) ? $0 : nil }
+    }
+
+    private static let remoteProviderIdentifiers = Set([
+        "anthropic", "aws-bedrock", "azure", "bedrock", "cerebras",
+        "deepseek", "fireworks", "github", "google", "groq", "kimchi-dev",
+        "mistral", "moonshot", "ollama", "openai", "openrouter",
+        "qwen", "together", "vertex-ai", "xai", "zai",
+    ])
+
+    private func remoteCostEvent(_ event: TokenUsageEvent) -> RemoteCostEvent? {
+        let counts = [
+            event.inputTokens,
+            event.outputTokens,
+            event.cacheReadTokens,
+            event.cacheWriteTokens,
+            event.reasoningTokens,
+        ]
+        let validCostRange = 0...RemoteUsageSnapshotValidator.maximumCostPerEvent
+        guard counts.allSatisfy({ $0 == 0 }),
+              event.cost.isFinite,
+              event.cost > 0,
+              event.costIsKnown != false,
+              validCostRange.contains(event.cost) else {
+            return nil
+        }
+        return RemoteCostEvent(
+            timestamp: event.timestamp,
+            source: event.source,
+            model: remoteModel(event.model),
+            cost: event.cost)
+    }
+
+    private var platformName: String {
+        #if os(Linux)
+            "linux"
+        #elseif os(macOS)
+            "macos"
+        #else
+            "unknown"
+        #endif
+    }
 }
 
 struct AgentReaderUsage {
     let index: Int
     let name: String
     let usage: RawTokenUsage
-}
-
-enum AgentSnapshotBuilderError: LocalizedError {
-    case cacheResetFailed
-    case invalidDateRange
-    case readerFailed(String)
-    case snapshotLimitExceeded
-    case sourceMountRefreshRequired
-    case sourceInspectionFailed
-
-    var requiresProcessRestart: Bool {
-        switch self {
-        case .sourceMountRefreshRequired, .sourceInspectionFailed:
-            true
-        default:
-            false
-        }
-    }
-
-    var errorDescription: String? {
-        switch self {
-        case .cacheResetFailed:
-            "Could not safely reset the local usage parse caches."
-        case .invalidDateRange:
-            "Could not construct the configured retention window."
-        case let .readerFailed(name):
-            "The \(name) usage reader failed. The previous remote snapshot was preserved."
-        case .snapshotLimitExceeded:
-            "The local usage snapshot exceeds the safe synchronization limit."
-        case .sourceMountRefreshRequired:
-            "A sandboxed usage source was replaced. Restarting the Agent to refresh its read-only mounts."
-        case .sourceInspectionFailed:
-            "Could not inspect local usage source metadata. Run `toki-agent doctor`."
-        }
-    }
 }

@@ -242,6 +242,17 @@ extension RemoteUsageReaderTests {
                     reasoningTokens: 0,
                     cost: 0,
                     costIsKnown: true),
+                RemoteTokenEvent(
+                    timestamp: fixture.start.addingTimeInterval(150),
+                    source: "GJC",
+                    model: "gpt-5",
+                    inputTokens: 1000,
+                    outputTokens: 500,
+                    cacheReadTokens: 0,
+                    cacheWriteTokens: 0,
+                    reasoningTokens: 0,
+                    cost: nil,
+                    costIsKnown: nil),
             ],
             activityEvents: [])
 
@@ -250,10 +261,11 @@ extension RemoteUsageReaderTests {
             startDate: fixture.start,
             endDate: fixture.end))
 
-        XCTAssertEqual(slice.usage.tokenEvents.map(\.costIsKnown), [nil, false, true])
+        XCTAssertEqual(slice.usage.tokenEvents.map(\.costIsKnown), [nil, false, true, nil])
         XCTAssertGreaterThan(slice.usage.tokenEvents[0].cost, 0)
         XCTAssertEqual(slice.usage.tokenEvents[1].cost, 0)
         XCTAssertEqual(slice.usage.tokenEvents[2].cost, 0)
+        XCTAssertGreaterThan(slice.usage.cost, 0)
     }
 
     func test_remoteReaderReturnsOneOriginSlicePerStableDeviceID() async throws {

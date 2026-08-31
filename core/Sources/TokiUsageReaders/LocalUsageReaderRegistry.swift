@@ -49,9 +49,11 @@ public struct LocalUsageReaderPaths: Equatable {
     public let xdgConfigDirectory: URL
     public let xdgDataDirectory: URL
     public let xdgStateDirectory: URL
+    public let senpiSessions: [URL]
     public let senpiSessionDirectories: [URL]
     public let piSessions: URL
     public let ompSessions: URL
+    public let ompSessionRoots: [URL]
     public let kimchiSessions: URL
     public let copilotOTELExporterFile: URL?
     private let kimiCLIHomeOverride: URL?
@@ -75,6 +77,13 @@ public struct LocalUsageReaderPaths: Equatable {
             key: "XDG_STATE_HOME",
             environment: environment)
             ?? homeDirectory.appendingPathComponent(".local/state")
+        let senpiSessionOverride = Self.absoluteEnvironmentDirectory(
+            key: "SENPI_CODING_AGENT_SESSION_DIR",
+            environment: environment)
+        senpiSessions = senpiSessionOverride.map { [$0] } ?? [
+            homeDirectory.appendingPathComponent(".omo/agent/sessions"),
+            homeDirectory.appendingPathComponent(".senpi/agent/sessions"),
+        ]
         var senpiDirectories = [
             homeDirectory.appendingPathComponent(".omo/agent/sessions"),
             homeDirectory.appendingPathComponent(".senpi/agent/sessions"),
@@ -86,9 +95,7 @@ public struct LocalUsageReaderPaths: Equatable {
             environment: environment) {
             senpiDirectories.append(agentDirectory.appendingPathComponent("sessions"))
         }
-        if let sessionDirectory = Self.absoluteEnvironmentDirectory(
-            key: "SENPI_CODING_AGENT_SESSION_DIR",
-            environment: environment) {
+        if let sessionDirectory = senpiSessionOverride {
             senpiDirectories.append(sessionDirectory)
         }
         if let projectDirectory = Self.absoluteEnvironmentDirectory(
@@ -106,10 +113,11 @@ public struct LocalUsageReaderPaths: Equatable {
                 environment: environment)
             .map { $0.appendingPathComponent("sessions") }
             ?? homeDirectory.appendingPathComponent(".pi/agent/sessions")
-        ompSessions = Self.ompSessionsDirectory(
+        ompSessionRoots = Self.ompSessionDirectories(
             homeDirectory: homeDirectory,
             xdgDataDirectory: xdgDataDirectory,
             environment: environment)
+        ompSessions = ompSessionRoots[0]
         kimchiSessions = xdgConfigDirectory.appendingPathComponent("kimchi/harness/sessions")
         copilotOTELExporterFile = Self.absoluteEnvironmentDirectory(
             key: "COPILOT_OTEL_FILE_EXPORTER_PATH",
@@ -164,6 +172,14 @@ public struct LocalUsageReaderPaths: Equatable {
 
     public var gjcSessions: URL {
         homeDirectory.appendingPathComponent(".gjc/agent/sessions")
+    }
+
+    public var factoryDroidSessions: URL {
+        homeDirectory.appendingPathComponent(".factory/sessions")
+    }
+
+    public var ampThreads: URL {
+        xdgDataDirectory.appendingPathComponent("amp/threads")
     }
 
     public var openCodeDatabase: URL {
@@ -246,16 +262,21 @@ private extension LocalUsageReaderPaths {
         }
     }
 
-    private static func ompSessionsDirectory(
+    private static func ompSessionDirectories(
         homeDirectory: URL,
         xdgDataDirectory: URL,
-        environment: [String: String]) -> URL {
+        environment: [String: String]) -> [URL] {
         let profileValue = environment.keys.contains("OMP_PROFILE")
             ? environment["OMP_PROFILE"]
             : environment["PI_PROFILE"]
         let profile = normalizedOMPProfile(profileValue)
         let explicitConfigDirectory = normalizedConfigDirectory(environment["PI_CONFIG_DIR"])
-        let configRoot = homeDirectory.appendingPathComponent(explicitConfigDirectory ?? ".omp")
+        let configRoot: URL = if let explicitConfigDirectory,
+                                 NSString(string: explicitConfigDirectory).isAbsolutePath {
+            URL(fileURLWithPath: explicitConfigDirectory)
+        } else {
+            homeDirectory.appendingPathComponent(explicitConfigDirectory ?? ".omp")
+        }
 
         if let profile {
             let configuredSessions = configRoot
@@ -263,32 +284,25 @@ private extension LocalUsageReaderPaths {
                 .appendingPathComponent(profile)
                 .appendingPathComponent("agent/sessions")
             if explicitConfigDirectory != nil {
-                return configuredSessions
+                return [configuredSessions]
             }
             let xdgSessions = xdgDataDirectory
                 .appendingPathComponent("omp/profiles")
                 .appendingPathComponent(profile)
                 .appendingPathComponent("sessions")
-            if isExistingDirectory(xdgSessions) {
-                return xdgSessions
-            }
-            return configuredSessions
+            return isExistingDirectory(xdgSessions)
+                ? uniqueDirectories([xdgSessions, configuredSessions])
+                : uniqueDirectories([configuredSessions, xdgSessions])
         }
 
-        if let agentDirectory = absoluteEnvironmentDirectory(
-            key: "PI_CODING_AGENT_DIR",
-            environment: environment) {
-            return agentDirectory.appendingPathComponent("sessions")
-        }
         let configuredSessions = configRoot.appendingPathComponent("agent/sessions")
         if explicitConfigDirectory != nil {
-            return configuredSessions
+            return [configuredSessions]
         }
         let xdgSessions = xdgDataDirectory.appendingPathComponent("omp/sessions")
-        if isExistingDirectory(xdgSessions) {
-            return xdgSessions
-        }
-        return configuredSessions
+        return isExistingDirectory(xdgSessions)
+            ? uniqueDirectories([xdgSessions, configuredSessions])
+            : uniqueDirectories([configuredSessions, xdgSessions])
     }
 
     private static func normalizedOMPProfile(_ value: String?) -> String? {
@@ -376,6 +390,14 @@ public enum LocalUsageReaderRegistry {
                 reader: GJCReader(sessionsURLOverride: paths.gjcSessions),
                 sourceLocations: [.directory(paths.gjcSessions, extensions: ["jsonl"])]),
             LocalUsageReaderDescriptor(
+                reader: FactoryDroidReader(sessionsURLOverride: paths.factoryDroidSessions),
+                sourceLocations: [.directory(paths.factoryDroidSessions, extensions: ["json", "jsonl"])],
+                sourceSignatureStrategy: .allFiles),
+            LocalUsageReaderDescriptor(
+                reader: AmpReader(threadsURLOverride: paths.ampThreads),
+                sourceLocations: [.directory(paths.ampThreads, extensions: ["json"])],
+                sourceSignatureStrategy: .allFiles),
+            LocalUsageReaderDescriptor(
                 reader: SenpiReader(sessionRootsOverride: paths.senpiSessionDirectories),
                 sourceLocations: paths.senpiSessionDirectories.map {
                     .directory($0, extensions: ["jsonl"])
@@ -419,9 +441,14 @@ public enum LocalUsageReaderRegistry {
 
     private static func piFamilyDescriptors(
         paths: LocalUsageReaderPaths) -> [LocalUsageReaderDescriptor] {
-        let sharesSessionDirectory = directoriesShareStorage(paths.piSessions, paths.ompSessions)
+        let sharedOMPRoots = paths.ompSessionRoots.filter {
+            directoriesShareStorage(paths.piSessions, $0)
+        }
+        let independentOMPRoots = paths.ompSessionRoots.filter { root in
+            !sharedOMPRoots.contains { directoriesShareStorage(root, $0) }
+        }
         var descriptors: [LocalUsageReaderDescriptor] = []
-        if sharesSessionDirectory {
+        if !sharedOMPRoots.isEmpty {
             descriptors.append(LocalUsageReaderDescriptor(
                 reader: SharedPiOMPReader(sessionsURL: paths.piSessions),
                 sourceLocations: [.directory(paths.piSessions, extensions: ["jsonl"])],
@@ -435,9 +462,11 @@ public enum LocalUsageReaderRegistry {
                 sourceSignatureStrategy: .boundedAllFiles(
                     maximumFileCount: PiCompatibleReadLimits.default.maximumFileCount,
                     maximumEntryCount: PiCompatibleReadLimits.default.maximumEntryCount)))
+        }
+        if !independentOMPRoots.isEmpty {
             descriptors.append(LocalUsageReaderDescriptor(
-                reader: OMPReader(sessionsURLOverride: paths.ompSessions),
-                sourceLocations: [.directory(paths.ompSessions, extensions: ["jsonl"])],
+                reader: OMPReader(sessionRootsOverride: independentOMPRoots),
+                sourceLocations: independentOMPRoots.map { .directory($0, extensions: ["jsonl"]) },
                 sourceSignatureStrategy: .boundedAllFiles(
                     maximumFileCount: PiCompatibleReadLimits.default.maximumFileCount,
                     maximumEntryCount: PiCompatibleReadLimits.default.maximumEntryCount)))

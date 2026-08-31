@@ -23,8 +23,8 @@ final class AgentPiFamilySourceSignatureTests: XCTestCase {
                 now: fixture.now)
             XCTFail("Expected the second source file to exceed the signature limit")
         } catch {
-            guard case .sourceInspectionFailed? = error as? AgentSnapshotBuilderError else {
-                return XCTFail("Expected sourceInspectionFailed, got \(error)")
+            guard case .sourceLimitExceeded? = error as? AgentSnapshotBuilderError else {
+                return XCTFail("Expected sourceLimitExceeded, got \(error)")
             }
         }
     }
@@ -75,8 +75,34 @@ final class AgentPiFamilySourceSignatureTests: XCTestCase {
                 now: fixture.now)
             XCTFail("Expected the second source entry to exceed the signature limit")
         } catch {
-            guard case .sourceInspectionFailed? = error as? AgentSnapshotBuilderError else {
-                return XCTFail("Expected sourceInspectionFailed, got \(error)")
+            guard case .sourceLimitExceeded? = error as? AgentSnapshotBuilderError else {
+                return XCTFail("Expected sourceLimitExceeded, got \(error)")
+            }
+        }
+    }
+
+    func test_boundedAllFilesCountsHiddenEntries() async throws {
+        let fixture = try AgentSnapshotFixture()
+        defer { fixture.remove() }
+        let sessions = fixture.root.appendingPathComponent("pi-sessions")
+        try FileManager.default.createDirectory(at: sessions, withIntermediateDirectories: true)
+        try Data().write(to: sessions.appendingPathComponent(".hidden"))
+        let builder = AgentSnapshotBuilder(
+            home: fixture.root,
+            environment: [:],
+            readerDescriptors: [descriptor(
+                sessions: sessions,
+                maximumFileCount: 10,
+                maximumEntryCount: 0)])
+
+        do {
+            _ = try await builder.sourceSignature(
+                configuration: fixture.configuration,
+                now: fixture.now)
+            XCTFail("Expected the hidden source entry to exceed the signature limit")
+        } catch {
+            guard case .sourceLimitExceeded? = error as? AgentSnapshotBuilderError else {
+                return XCTFail("Expected sourceLimitExceeded, got \(error)")
             }
         }
     }

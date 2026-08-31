@@ -25,7 +25,8 @@ struct PiCompatibleReader {
         }
 
         var recordsByKey: [PiCompatibleDeduplicationKey: PiCompatibleUsageRecord] = [:]
-        var acceptedRecordCount = 0
+        var aliasesByKey: [PiCompatibleDeduplicationKey: Set<PiCompatibleMergeAlias>] = [:]
+        var examinedRecordCount = 0
         for file in files {
             var parser = PiCompatibleSessionParser(
                 streamID: file.path,
@@ -35,20 +36,21 @@ struct PiCompatibleReader {
                 guard let record = parser.record(fromJSONLLine: line, lineIndex: lineIndex) else {
                     return
                 }
-                guard record.timestamp >= startDate, record.timestamp < endDate else {
-                    return
-                }
-                let (nextCount, overflow) = acceptedRecordCount.addingReportingOverflow(1)
+                let (nextCount, overflow) = examinedRecordCount.addingReportingOverflow(1)
                 guard !overflow, nextCount <= readLimits.maximumEventCount else {
                     throw PiCompatibleReaderError.tooManyEvents(overflow ? Int.max : nextCount)
                 }
-                acceptedRecordCount = nextCount
+                examinedRecordCount = nextCount
+                aliasesByKey[record.deduplicationKey, default: []]
+                    .formUnion(record.mergeAliases)
                 recordsByKey[record.deduplicationKey] = recordsByKey[record.deduplicationKey]
-                    .map { $0.merged(with: record) } ?? record
+                    .map { $0.merged(with: record, retainingAliases: false) } ?? record
             }
         }
         return Self.usage(
-            from: recordsByKey.values,
+            from: recordsByKey.map { key, record in
+                record.replacingMergeAliases(aliasesByKey[key] ?? [])
+            },
             source: source,
             from: startDate,
             to: endDate)
@@ -105,17 +107,25 @@ struct PiCompatibleReader {
         from startDate: Date,
         to endDate: Date) -> RawTokenUsage {
         var recordsByKey: [PiCompatibleDeduplicationKey: PiCompatibleUsageRecord] = [:]
+        var aliasesByKey: [PiCompatibleDeduplicationKey: Set<PiCompatibleMergeAlias>] = [:]
         for record in records {
+            aliasesByKey[record.deduplicationKey, default: []]
+                .formUnion(record.mergeAliases)
             recordsByKey[record.deduplicationKey] = recordsByKey[record.deduplicationKey]
-                .map { $0.merged(with: record) } ?? record
+                .map { $0.merged(with: record, retainingAliases: false) } ?? record
         }
 
-        let uniqueRecords = mergeAliasedRecords(recordsByKey.values)
+        let uniqueRecords = mergeAliasedRecords(recordsByKey.map { key, record in
+            record.replacingMergeAliases(aliasesByKey[key] ?? [])
+        })
 
         var result = RawTokenUsage()
         var activityEvents: [ActivityTimeEvent<String>] = []
         for record in uniqueRecords.sorted(by: recordSort)
             where record.timestamp >= startDate && record.timestamp < endDate {
+            let outputModel = record.model == UsageModelGrouping.mixedOrUnattributedKey
+                ? nil
+                : record.model
             result.inputTokens += record.inputTokens
             result.outputTokens += record.outputTokens
             result.cacheReadTokens += record.cacheReadTokens
@@ -123,14 +133,14 @@ struct PiCompatibleReader {
             result.reasoningTokens += record.reasoningTokens
             result.cost += record.cost
             result.accumulatePerModelUsage(
-                model: record.model,
+                model: outputModel,
                 source: source.sourceName,
                 totalTokens: record.totalTokens,
                 cost: record.cost)
             result.recordTokenEvent(
                 timestamp: record.timestamp,
                 source: source.sourceName,
-                model: record.model,
+                model: outputModel,
                 provider: record.provider,
                 inputTokens: record.inputTokens,
                 outputTokens: record.outputTokens,
@@ -141,9 +151,9 @@ struct PiCompatibleReader {
                 costIsKnown: record.costIsKnown,
                 attribution: record.attribution)
             activityEvents.append(ActivityTimeEvent(
-                streamID: record.attribution.sessionID ?? record.model,
+                streamID: record.attribution.sessionID ?? outputModel ?? source.sourceName,
                 timestamp: record.timestamp,
-                key: UsageModelGrouping.groupingKey(for: record.model),
+                key: UsageModelGrouping.groupingKey(for: outputModel),
                 agentKind: record.agentKind))
         }
         result.mergeActivityEvents(
@@ -184,7 +194,8 @@ func mergeAliasedRecords(
     var recordsByRoot: [Int: PiCompatibleUsageRecord] = [:]
     for (index, record) in orderedRecords.enumerated() {
         let root = disjointSet.root(of: index)
-        recordsByRoot[root] = recordsByRoot[root].map { $0.merged(with: record) } ?? record
+        recordsByRoot[root] = recordsByRoot[root]
+            .map { $0.merged(with: record, retainingAliases: false) } ?? record
     }
     return Array(recordsByRoot.values)
 }

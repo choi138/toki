@@ -118,6 +118,24 @@ final class QwenReaderTests: XCTestCase {
         XCTAssertEqual(usage.tokenEvents.first?.attribution?.sessionLabel, "fallback-session")
     }
 
+    func test_qwenPreservesUsageWhenOptionalMetadataIsMalformed() throws {
+        let usage = try QwenCLIReader.usage(
+            fromJSONLLines: [
+                #"{"uuid":{"unexpected":true},"type":"assistant","model":["qwen3"],"# +
+                    #""timestamp":"2026-02-23T14:24:56.857Z","sessionId":42,"cwd":false,"# +
+                    #""usageMetadata":{"promptTokenCount":10,"candidatesTokenCount":2}}"#,
+            ],
+            streamID: "/tmp/.qwen/projects/workspace/chats/fallback-session.jsonl",
+            from: startDate,
+            to: endDate)
+
+        XCTAssertEqual(usage.totalTokens, 12)
+        XCTAssertEqual(usage.tokenEvents.count, 1)
+        XCTAssertNil(usage.tokenEvents.first?.model)
+        XCTAssertEqual(usage.tokenEvents.first?.attribution?.sessionLabel, "fallback-session")
+        XCTAssertEqual(usage.tokenEvents.first?.attribution?.quality, .inferred)
+    }
+
     func test_qwenSkipsOverflowingTokenRecords() throws {
         let overflowing =
             #"{"uuid":"overflow","type":"assistant","model":"qwen3","# +

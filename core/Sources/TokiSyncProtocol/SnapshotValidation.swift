@@ -86,9 +86,9 @@ public enum RemoteUsageSnapshotValidator {
 
     private static func validCostState(_ event: RemoteTokenEvent) -> Bool {
         switch event.costIsKnown {
-        case true:
+        case .some(true):
             event.cost.map(validCost) == true
-        case false:
+        case .some(false):
             event.cost.map { $0 == 0 } ?? true
         case nil:
             event.cost.map(validCost) ?? true
