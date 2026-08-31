@@ -261,6 +261,119 @@ extension PiFamilyReaderTests {
         XCTAssertEqual(usage.inputTokens, 8)
         XCTAssertEqual(usage.outputTokens, 6)
         XCTAssertEqual(usage.tokenEvents.count, 2)
+        XCTAssertEqual(
+            usage.activityEvents.first { $0.streamID == "parent" }?.agentKind,
+            .main)
+    }
+
+    func test_ompDeduplicatesIdlessResponsesAcrossParentAndChildSessions() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("toki-omp-idless-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let parent = root.appendingPathComponent("project/parent.jsonl")
+        let child = root.appendingPathComponent("project/parent/Child.jsonl")
+        try writePiFamilyIdlessSession(to: parent, sessionID: "parent", responseID: "copied")
+        try writePiFamilyIdlessSession(to: child, sessionID: "child", responseID: "copied")
+
+        let usage = try await OMPReader(sessionsURLOverride: root)
+            .readUsage(
+                from: piFamilyDate("2026-08-20T00:00:00Z"),
+                to: piFamilyDate("2026-08-21T00:00:00Z"))
+
+        XCTAssertEqual(usage.inputTokens, 3)
+        XCTAssertEqual(usage.outputTokens, 2)
+        XCTAssertEqual(usage.tokenEvents.count, 1)
+        XCTAssertEqual(usage.activityEvents.first?.agentKind, .main)
+    }
+
+    func test_ompPreservesMainAttributionForCopiedChildWithParentSessionID() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("toki-omp-shared-session-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let parent = root.appendingPathComponent("project/parent.jsonl")
+        let child = root.appendingPathComponent("project/parent/Child.jsonl")
+        try writePiFamilySession(
+            to: parent,
+            sessionID: "parent",
+            messageID: "copied",
+            input: 3,
+            output: 2)
+        try writePiFamilySession(
+            to: child,
+            sessionID: "parent",
+            messageID: "copied",
+            input: 3,
+            output: 2)
+
+        let usage = try await OMPReader(sessionsURLOverride: root)
+            .readUsage(
+                from: piFamilyDate("2026-08-20T00:00:00Z"),
+                to: piFamilyDate("2026-08-21T00:00:00Z"))
+
+        XCTAssertEqual(usage.tokenEvents.count, 1)
+        XCTAssertEqual(usage.activityEvents.first?.agentKind, .main)
+    }
+
+    func test_ompDeduplicatesCopiedChildWhenOneProjectPathIsMissing() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("toki-omp-missing-cwd-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let parent = root.appendingPathComponent("project/parent.jsonl")
+        let child = root.appendingPathComponent("project/parent/Child.jsonl")
+        try writePiFamilySession(
+            to: parent,
+            sessionID: "parent",
+            messageID: "copied",
+            input: 3,
+            output: 2)
+        try writePiFamilySession(
+            to: child,
+            sessionID: "child",
+            messageID: "copied",
+            input: 3,
+            output: 2,
+            cwd: nil)
+
+        let usage = try await OMPReader(sessionsURLOverride: root)
+            .readUsage(
+                from: piFamilyDate("2026-08-20T00:00:00Z"),
+                to: piFamilyDate("2026-08-21T00:00:00Z"))
+
+        XCTAssertEqual(usage.inputTokens, 3)
+        XCTAssertEqual(usage.outputTokens, 2)
+        XCTAssertEqual(usage.tokenEvents.count, 1)
+        XCTAssertEqual(usage.tokenEvents.first?.attribution?.projectPath, "/tmp/project")
+    }
+
+    func test_ompKeepsCopiedIDsFromConflictingProjectPathsIndependent() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("toki-omp-conflicting-cwd-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let parent = root.appendingPathComponent("project/parent.jsonl")
+        let child = root.appendingPathComponent("project/parent/Child.jsonl")
+        try writePiFamilySession(
+            to: parent,
+            sessionID: "parent",
+            messageID: "shared",
+            input: 3,
+            output: 2,
+            cwd: "/tmp/project-a")
+        try writePiFamilySession(
+            to: child,
+            sessionID: "child",
+            messageID: "shared",
+            input: 3,
+            output: 2,
+            cwd: "/tmp/project-b")
+
+        let usage = try await OMPReader(sessionsURLOverride: root)
+            .readUsage(
+                from: piFamilyDate("2026-08-20T00:00:00Z"),
+                to: piFamilyDate("2026-08-21T00:00:00Z"))
+
+        XCTAssertEqual(usage.inputTokens, 6)
+        XCTAssertEqual(usage.outputTokens, 4)
+        XCTAssertEqual(usage.tokenEvents.count, 2)
     }
 
     func test_kimchiPreservesRecordedProviderAndModel() {
@@ -319,13 +432,36 @@ private func writePiFamilySession(
     sessionID: String,
     messageID: String,
     input: Int,
-    output: Int) throws {
+    output: Int,
+    cwd: String? = "/tmp/project") throws {
+    try FileManager.default.createDirectory(
+        at: url.deletingLastPathComponent(),
+        withIntermediateDirectories: true)
+    var sessionFields = [#""type":"session""#, #""id":"\#(sessionID)""#]
+    if let cwd {
+        sessionFields.append(#""cwd":"\#(cwd)""#)
+    }
+    let content = [
+        "{\(sessionFields.joined(separator: ","))}",
+        piFamilyMessage(id: messageID, input: input, output: output),
+    ].joined(separator: "\n")
+    try Data(content.utf8).write(to: url)
+}
+
+private func writePiFamilyIdlessSession(
+    to url: URL,
+    sessionID: String,
+    responseID: String) throws {
     try FileManager.default.createDirectory(
         at: url.deletingLastPathComponent(),
         withIntermediateDirectories: true)
     let content = [
         #"{"type":"session","id":"\#(sessionID)","cwd":"/tmp/project"}"#,
-        piFamilyMessage(id: messageID, input: input, output: output),
+        """
+        {"type":"message","timestamp":"2026-08-20T12:00:00Z","message":\
+        {"role":"assistant","model":"gpt-5.6-sol","provider":"openai",\
+        "responseId":"\(responseID)","usage":{"input":3,"output":2}}}
+        """,
     ].joined(separator: "\n")
     try Data(content.utf8).write(to: url)
 }

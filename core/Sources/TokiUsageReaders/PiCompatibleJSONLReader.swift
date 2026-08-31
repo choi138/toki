@@ -15,6 +15,10 @@ struct PiCompatibleReadLimits: Equatable {
     let maximumEventCount: Int
     let maximumEntryCount: Int
 
+    var maximumUnreconciledEventCount: Int {
+        maximumEventCount > Int.max / 2 ? Int.max : maximumEventCount * 2
+    }
+
     init(
         maximumFileCount: Int,
         maximumFileBytes: Int,

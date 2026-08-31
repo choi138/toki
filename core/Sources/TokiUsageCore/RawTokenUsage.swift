@@ -391,6 +391,7 @@ public struct RawTokenUsage {
             || !supplemental.isEmpty
     }
 
+    @discardableResult
     public mutating func recordTokenEvent(
         timestamp: Date,
         source: String,
@@ -403,14 +404,14 @@ public struct RawTokenUsage {
         reasoningTokens: Int = 0,
         cost: Double = 0,
         costIsKnown: Bool? = nil,
-        attribution: UsageAttribution? = nil) {
+        attribution: UsageAttribution? = nil) -> Bool {
         guard let totalTokens = checkedUsageEventTokenTotal(
             inputTokens,
             outputTokens,
             cacheReadTokens,
             cacheWriteTokens,
             reasoningTokens) else {
-            return
+            return false
         }
         let event = TokenUsageEvent(
             timestamp: timestamp,
@@ -425,8 +426,10 @@ public struct RawTokenUsage {
             cost: cost,
             costIsKnown: costIsKnown,
             attribution: attribution)
-        guard totalTokens > 0 || event.cost > 0 else { return }
-        tokenEvents.append(event)
+        if totalTokens > 0 || event.cost > 0 {
+            tokenEvents.append(event)
+        }
+        return true
     }
 
     @discardableResult

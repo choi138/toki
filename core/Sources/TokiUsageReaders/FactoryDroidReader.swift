@@ -1,4 +1,5 @@
 import Foundation
+import TokiSyncProtocol
 import TokiUsageCore
 
 /// Reads Factory Droid cumulative session summaries from ~/.factory/sessions.
@@ -263,6 +264,39 @@ private struct FactoryDroidTokenUsage: Decodable {
         cacheReadTokens = try? container.decodeIfPresent(Int.self, forKey: .cacheReadTokens)
         thinkingTokens = try? container.decodeIfPresent(Int.self, forKey: .thinkingTokens)
     }
+
+    func fillingMissingValues(from fallback: Self) -> Self {
+        Self(
+            inputTokens: inputTokens ?? validFactoryDroidTokenCount(fallback.inputTokens),
+            outputTokens: outputTokens ?? validFactoryDroidTokenCount(fallback.outputTokens),
+            cacheCreationTokens: cacheCreationTokens
+                ?? validFactoryDroidTokenCount(fallback.cacheCreationTokens),
+            cacheReadTokens: cacheReadTokens
+                ?? validFactoryDroidTokenCount(fallback.cacheReadTokens),
+            thinkingTokens: thinkingTokens
+                ?? validFactoryDroidTokenCount(fallback.thinkingTokens))
+    }
+
+    private init(
+        inputTokens: Int?,
+        outputTokens: Int?,
+        cacheCreationTokens: Int?,
+        cacheReadTokens: Int?,
+        thinkingTokens: Int?) {
+        self.inputTokens = inputTokens
+        self.outputTokens = outputTokens
+        self.cacheCreationTokens = cacheCreationTokens
+        self.cacheReadTokens = cacheReadTokens
+        self.thinkingTokens = thinkingTokens
+    }
+}
+
+private func validFactoryDroidTokenCount(_ value: Int?) -> Int? {
+    guard let value,
+          (0...RemoteUsageSnapshotValidator.maximumTokenCountPerBucket).contains(value) else {
+        return nil
+    }
+    return value
 }
 
 private struct FactoryDroidTokenCounts {
@@ -356,7 +390,15 @@ private func mergingFactoryDroidTranscripts(
     var tokenUsageRecordsByID = Dictionary(
         uniqueKeysWithValues: fallback.tokenUsageRecords.map { ($0.id, $0) })
     for record in preferred.tokenUsageRecords {
-        tokenUsageRecordsByID[record.id] = record
+        if let existing = tokenUsageRecordsByID[record.id] {
+            tokenUsageRecordsByID[record.id] = FactoryDroidTokenUsageRecord(
+                id: record.id,
+                timestamp: record.timestamp,
+                tokenUsage: record.tokenUsage.fillingMissingValues(
+                    from: existing.tokenUsage))
+        } else {
+            tokenUsageRecordsByID[record.id] = record
+        }
     }
 
     return FactoryDroidTranscript(

@@ -42,7 +42,7 @@ enum PiCompatibleSource {
     }
 
     var createsSharedMessageAliases: Bool {
-        self == .pi || self == .ohMyPi || self == .piAndOhMyPi
+        self == .pi || self == .piAndOhMyPi
     }
 }
 
@@ -53,6 +53,7 @@ struct PiCompatibleSessionParser {
     private var agentKind: WorkTimeAgentKind
     private var agentName: String?
     private var sessionContext: PiCompatibleSessionContext?
+    private var responseProviders: [PiCompatibleResponseScope: String] = [:]
     private var rejectedPreHeader = false
 
     init(
@@ -146,7 +147,7 @@ struct PiCompatibleSessionParser {
 }
 
 private extension PiCompatibleSessionParser {
-    func usageRecord(
+    mutating func usageRecord(
         data: Data,
         entry: PiCompatibleEntry,
         message: PiCompatibleMessage,
@@ -162,7 +163,17 @@ private extension PiCompatibleSessionParser {
         let reasoning = source.reportsReasoningSeparately ? recordedReasoning : 0
         let messageID = nonEmptyPiValue(entry.id)
         let responseID = nonEmptyPiValue(message.responseID)
-        let provider = nonEmptyPiValue(message.provider) ?? inferredUsageProvider(from: model)
+        let responseScope = responseID.map {
+            PiCompatibleResponseScope(sessionID: sessionContext.id, responseID: $0)
+        }
+        let declaredProvider = nonEmptyPiValue(message.provider)
+        let explicitProvider = declaredProvider
+            ?? responseScope.flatMap { responseProviders[$0] }
+        let provider = explicitProvider
+            ?? inferredUsageProvider(from: model)
+        if let responseScope, let declaredProvider {
+            responseProviders[responseScope] = declaredProvider
+        }
         let inputTokens = boundedUsageTokenCount(usage.input)
         let outputTokens = outputIncludingReasoning - reasoning
         let cacheReadTokens = boundedUsageTokenCount(usage.cacheRead)
@@ -174,7 +185,7 @@ private extension PiCompatibleSessionParser {
             messageID: messageID,
             responseID: responseID,
             model: model,
-            provider: provider,
+            provider: explicitProvider,
             timestamp: timestamp,
             inputTokens: inputTokens,
             outputTokens: outputTokens,
@@ -206,6 +217,7 @@ private extension PiCompatibleSessionParser {
             timestamp: timestamp,
             model: model,
             provider: provider,
+            providerIsExplicit: explicitProvider != nil,
             inputTokens: inputTokens,
             outputTokens: outputTokens,
             cacheReadTokens: cacheReadTokens,
@@ -263,6 +275,7 @@ private extension PiCompatibleSessionParser {
         if let responseID {
             return .sessionResponse(
                 sessionID: sessionID,
+                provider: provider,
                 responseID: responseID)
         }
         return .record(streamID: streamID, lineIndex: lineIndex)
@@ -333,7 +346,9 @@ private extension PiCompatibleSessionParser {
                 responseID: responseID,
                 usageIdentity: piUsageIdentity(
                     inputTokens, outputTokens, cacheReadTokens, cacheWriteTokens, reasoningTokens)))
-            aliases.insert(.responseCopy(id: responseID, payloadDigest: payloadDigest))
+            if source != .ohMyPi {
+                aliases.insert(.responseCopy(id: responseID, payloadDigest: payloadDigest))
+            }
         }
         return aliases
     }
@@ -423,6 +438,11 @@ private func piUsageIdentity(_ values: Int...) -> String {
 private struct PiCompatibleSessionContext {
     let id: String
     let cwd: String?
+}
+
+struct PiCompatibleResponseScope: Hashable {
+    let sessionID: String
+    let responseID: String
 }
 
 private struct PiCompatibleEntry: Decodable {

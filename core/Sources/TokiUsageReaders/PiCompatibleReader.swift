@@ -24,10 +24,10 @@ struct PiCompatibleReader {
             throw PiCompatibleReaderError.tooManyFiles(files.count)
         }
 
-        var recordsByKey: [PiCompatibleDeduplicationKey: PiCompatibleUsageRecord] = [:]
-        var aliasesByKey: [PiCompatibleDeduplicationKey: Set<PiCompatibleMergeAlias>] = [:]
-        var examinedRecordCount = 0
+        var records: [PiCompatibleUsageRecord] = []
+        var unreconciledRecordCount = 0
         for file in files {
+            var fileRecordCount = 0
             var parser = PiCompatibleSessionParser(
                 streamID: file.path,
                 source: source,
@@ -36,21 +36,26 @@ struct PiCompatibleReader {
                 guard let record = parser.record(fromJSONLLine: line, lineIndex: lineIndex) else {
                     return
                 }
-                let (nextCount, overflow) = examinedRecordCount.addingReportingOverflow(1)
-                guard !overflow, nextCount <= readLimits.maximumEventCount else {
+                let (nextFileCount, fileOverflow) = fileRecordCount.addingReportingOverflow(1)
+                guard !fileOverflow, nextFileCount <= readLimits.maximumEventCount else {
+                    throw PiCompatibleReaderError.tooManyEvents(
+                        fileOverflow ? Int.max : nextFileCount)
+                }
+                fileRecordCount = nextFileCount
+                let (nextCount, overflow) = unreconciledRecordCount.addingReportingOverflow(1)
+                guard !overflow, nextCount <= readLimits.maximumUnreconciledEventCount else {
                     throw PiCompatibleReaderError.tooManyEvents(overflow ? Int.max : nextCount)
                 }
-                examinedRecordCount = nextCount
-                aliasesByKey[record.deduplicationKey, default: []]
-                    .formUnion(record.mergeAliases)
-                recordsByKey[record.deduplicationKey] = recordsByKey[record.deduplicationKey]
-                    .map { $0.merged(with: record, retainingAliases: false) } ?? record
+                unreconciledRecordCount = nextCount
+                records.append(record)
             }
         }
+        let uniqueRecords = Self.uniqueRecords(from: records, source: source)
+        guard uniqueRecords.count <= readLimits.maximumEventCount else {
+            throw PiCompatibleReaderError.tooManyEvents(uniqueRecords.count)
+        }
         return Self.usage(
-            from: recordsByKey.map { key, record in
-                record.replacingMergeAliases(aliasesByKey[key] ?? [])
-            },
+            fromUniqueRecords: uniqueRecords,
             source: source,
             from: startDate,
             to: endDate)
@@ -106,6 +111,16 @@ struct PiCompatibleReader {
         source: PiCompatibleSource,
         from startDate: Date,
         to endDate: Date) -> RawTokenUsage {
+        usage(
+            fromUniqueRecords: uniqueRecords(from: records, source: source),
+            source: source,
+            from: startDate,
+            to: endDate)
+    }
+
+    private static func uniqueRecords(
+        from records: some Sequence<PiCompatibleUsageRecord>,
+        source: PiCompatibleSource) -> [PiCompatibleUsageRecord] {
         var recordsByKey: [PiCompatibleDeduplicationKey: PiCompatibleUsageRecord] = [:]
         var aliasesByKey: [PiCompatibleDeduplicationKey: Set<PiCompatibleMergeAlias>] = [:]
         for record in records {
@@ -115,10 +130,20 @@ struct PiCompatibleReader {
                 .map { $0.merged(with: record, retainingAliases: false) } ?? record
         }
 
-        let uniqueRecords = mergeAliasedRecords(recordsByKey.map { key, record in
+        enrichUniqueResponseProviders(recordsByKey: &recordsByKey, aliasesByKey: &aliasesByKey)
+        let aliasedRecords = mergeAliasedRecords(recordsByKey.map { key, record in
             record.replacingMergeAliases(aliasesByKey[key] ?? [])
         })
+        return source == .ohMyPi
+            ? reconcileDelegatedReplicas(aliasedRecords)
+            : aliasedRecords
+    }
 
+    private static func usage(
+        fromUniqueRecords uniqueRecords: some Sequence<PiCompatibleUsageRecord>,
+        source: PiCompatibleSource,
+        from startDate: Date,
+        to endDate: Date) -> RawTokenUsage {
         var result = RawTokenUsage()
         var activityEvents: [ActivityTimeEvent<String>] = []
         for record in uniqueRecords.sorted(by: recordSort)
@@ -172,6 +197,112 @@ struct PiCompatibleReader {
         if lhs.inputTokens != rhs.inputTokens { return lhs.inputTokens < rhs.inputTokens }
         return lhs.outputTokens < rhs.outputTokens
     }
+}
+
+private enum PiCompatibleReplicaIdentity: Hashable {
+    case message(String)
+    case response(String)
+}
+
+private func enrichUniqueResponseProviders(
+    recordsByKey: inout [PiCompatibleDeduplicationKey: PiCompatibleUsageRecord],
+    aliasesByKey: inout [PiCompatibleDeduplicationKey: Set<PiCompatibleMergeAlias>]) {
+    var providersByScope: [PiCompatibleResponseScope: Set<String>] = [:]
+    for key in recordsByKey.keys {
+        guard case let .sessionResponse(sessionID, provider?, responseID) = key else {
+            continue
+        }
+        providersByScope[
+            PiCompatibleResponseScope(sessionID: sessionID, responseID: responseID),
+            default: []
+        ].insert(provider)
+    }
+
+    for key in Array(recordsByKey.keys) {
+        guard case let .sessionResponse(sessionID, nil, responseID) = key,
+              let record = recordsByKey[key] else {
+            continue
+        }
+        let scope = PiCompatibleResponseScope(sessionID: sessionID, responseID: responseID)
+        guard let providers = providersByScope[scope], providers.count == 1,
+              let provider = providers.first else {
+            continue
+        }
+        let enrichedKey = PiCompatibleDeduplicationKey.sessionResponse(
+            sessionID: sessionID,
+            provider: provider,
+            responseID: responseID)
+        let unknownAliases = aliasesByKey[key] ?? []
+        recordsByKey[enrichedKey] = recordsByKey[enrichedKey]
+            .map { $0.merged(with: record, retainingAliases: false) } ?? record
+        aliasesByKey[enrichedKey, default: []].formUnion(unknownAliases)
+        recordsByKey.removeValue(forKey: key)
+        aliasesByKey.removeValue(forKey: key)
+    }
+}
+
+private func reconcileDelegatedReplicas(
+    _ records: [PiCompatibleUsageRecord]) -> [PiCompatibleUsageRecord] {
+    var reconciled = records.sorted {
+        $0.deduplicationKey.isOrdered(before: $1.deduplicationKey)
+    }
+    var indicesByIdentity: [PiCompatibleReplicaIdentity: [Int]] = [:]
+    for (index, record) in reconciled.enumerated() {
+        guard let identity = replicaIdentity(for: record.deduplicationKey) else { continue }
+        indicesByIdentity[identity, default: []].append(index)
+    }
+
+    var removedIndices: Set<Int> = []
+    for indices in indicesByIdentity.values {
+        let mainIndices = indices.filter { reconciled[$0].agentKind == .main }
+        let subagentIndices = indices.filter { reconciled[$0].agentKind == .subagent }
+        for subagentIndex in subagentIndices {
+            guard !removedIndices.contains(subagentIndex) else { continue }
+            let matchingMainIndices = mainIndices.filter {
+                !removedIndices.contains($0)
+                    && copiedRecordsMatch(reconciled[$0], reconciled[subagentIndex])
+            }
+            guard matchingMainIndices.count == 1, let mainIndex = matchingMainIndices.first else {
+                continue
+            }
+            reconciled[mainIndex] = reconciled[mainIndex].merged(
+                with: reconciled[subagentIndex],
+                retainingAliases: false)
+            removedIndices.insert(subagentIndex)
+        }
+    }
+    return reconciled.indices.compactMap {
+        removedIndices.contains($0) ? nil : reconciled[$0]
+    }
+}
+
+private func replicaIdentity(
+    for key: PiCompatibleDeduplicationKey) -> PiCompatibleReplicaIdentity? {
+    switch key {
+    case let .message(messageID), let .sessionMessage(_, messageID):
+        .message(messageID)
+    case let .sessionResponse(_, _, responseID), let .legacySessionResponse(_, responseID):
+        .response(responseID)
+    case .legacyRecord, .record:
+        nil
+    }
+}
+
+private func copiedRecordsMatch(
+    _ mainRecord: PiCompatibleUsageRecord,
+    _ subagentRecord: PiCompatibleUsageRecord) -> Bool {
+    guard mainRecord.timestamp == subagentRecord.timestamp,
+          mainRecord.model == subagentRecord.model else {
+        return false
+    }
+    if let mainProjectPath = mainRecord.attribution.projectPath,
+       let subagentProjectPath = subagentRecord.attribution.projectPath,
+       mainProjectPath != subagentProjectPath {
+        return false
+    }
+    return mainRecord.provider == subagentRecord.provider
+        || !mainRecord.providerIsExplicit
+        || !subagentRecord.providerIsExplicit
 }
 
 func mergeAliasedRecords(

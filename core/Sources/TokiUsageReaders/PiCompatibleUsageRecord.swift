@@ -32,6 +32,7 @@ struct PiCompatibleUsageRecord {
     let timestamp: Date
     let model: String
     let provider: String?
+    let providerIsExplicit: Bool
     let inputTokens: Int
     let outputTokens: Int
     let cacheReadTokens: Int
@@ -53,6 +54,7 @@ struct PiCompatibleUsageRecord {
         timestamp: Date,
         model: String,
         provider: String?,
+        providerIsExplicit: Bool? = nil,
         inputTokens: Int,
         outputTokens: Int,
         cacheReadTokens: Int,
@@ -64,6 +66,7 @@ struct PiCompatibleUsageRecord {
         agentName: String? = nil,
         agentKind: WorkTimeAgentKind,
         revisionIdentity: PiCompatibleRevisionIdentity? = nil) {
+        let explicitProvider = providerIsExplicit ?? (provider != nil)
         let identity = revisionIdentity ?? PiCompatibleRevisionIdentity.derived(
             timestamp: timestamp,
             model: model,
@@ -83,6 +86,7 @@ struct PiCompatibleUsageRecord {
             timestamp: timestamp,
             model: model,
             provider: provider,
+            providerIsExplicit: explicitProvider,
             inputTokens: inputTokens,
             outputTokens: outputTokens,
             cacheReadTokens: cacheReadTokens,
@@ -105,6 +109,7 @@ struct PiCompatibleUsageRecord {
         timestamp: Date,
         model: String,
         provider: String?,
+        providerIsExplicit: Bool,
         inputTokens: Int,
         outputTokens: Int,
         cacheReadTokens: Int,
@@ -124,6 +129,7 @@ struct PiCompatibleUsageRecord {
         self.timestamp = timestamp
         self.model = model
         self.provider = provider
+        self.providerIsExplicit = providerIsExplicit
         self.inputTokens = inputTokens
         self.outputTokens = outputTokens
         self.cacheReadTokens = cacheReadTokens
@@ -151,8 +157,9 @@ extension PiCompatibleUsageRecord {
         }
         let selfIsPreferred = isCorePreferred(over: other)
         let preferred = selfIsPreferred ? self : other
+        let supplemental = selfIsPreferred ? other : self
         let selectedProvider = deterministicProvider(with: other)
-        let selectedCost = deterministicCost(with: other)
+        let selectedCost = deterministicCost(with: other, preferred: preferred, supplemental: supplemental)
         return PiCompatibleUsageRecord(
             deduplicationKey: deduplicationKey.isOrdered(before: other.deduplicationKey)
                 ? deduplicationKey
@@ -162,6 +169,7 @@ extension PiCompatibleUsageRecord {
             timestamp: preferred.timestamp,
             model: preferred.model,
             provider: selectedProvider.value,
+            providerIsExplicit: selectedProvider.isExplicit,
             inputTokens: preferred.inputTokens,
             outputTokens: preferred.outputTokens,
             cacheReadTokens: preferred.cacheReadTokens,
@@ -169,9 +177,12 @@ extension PiCompatibleUsageRecord {
             reasoningTokens: preferred.reasoningTokens,
             cost: selectedCost.value,
             costIsKnown: selectedCost.isKnown,
-            attribution: deterministicAttribution(attribution, other.attribution),
-            agentName: preferred.agentName ?? (selfIsPreferred ? other.agentName : agentName),
-            agentKind: agentKind == .subagent || other.agentKind == .subagent ? .subagent : .main,
+            attribution: mergedAttribution(with: other),
+            agentName: mergedAgentName(
+                with: other,
+                preferred: preferred,
+                supplemental: supplemental),
+            agentKind: agentKind == .subagent && other.agentKind == .subagent ? .subagent : .main,
             revisionIdentity: preferred.revisionIdentity,
             providerRevisionIdentity: selectedProvider.identity,
             costRevisionIdentity: selectedCost.identity)
@@ -189,6 +200,7 @@ extension PiCompatibleUsageRecord {
             timestamp: preferred.timestamp,
             model: preferred.model,
             provider: providerRecord.provider,
+            providerIsExplicit: providerRecord.providerIsExplicit,
             inputTokens: preferred.inputTokens,
             outputTokens: preferred.outputTokens,
             cacheReadTokens: preferred.cacheReadTokens,
@@ -198,7 +210,7 @@ extension PiCompatibleUsageRecord {
             costIsKnown: preferred.costIsKnown,
             attribution: bestUsageAttribution(attribution, other.attribution) ?? attribution,
             agentName: preferred.agentName ?? fallback.agentName,
-            agentKind: agentKind == .subagent || other.agentKind == .subagent ? .subagent : .main,
+            agentKind: agentKind == .subagent && other.agentKind == .subagent ? .subagent : .main,
             revisionIdentity: preferred.revisionIdentity,
             providerRevisionIdentity: providerRecord.providerRevisionIdentity,
             costRevisionIdentity: preferred.costRevisionIdentity)
@@ -212,6 +224,7 @@ extension PiCompatibleUsageRecord {
             timestamp: timestamp,
             model: model,
             provider: provider,
+            providerIsExplicit: providerIsExplicit,
             inputTokens: inputTokens,
             outputTokens: outputTokens,
             cacheReadTokens: cacheReadTokens,
@@ -238,32 +251,82 @@ extension PiCompatibleUsageRecord {
         return revisionIdentity.isPreferred(over: other.revisionIdentity)
     }
 
+    private func mergedAttribution(with other: Self) -> UsageAttribution {
+        if agentKind != other.agentKind {
+            return agentKind == .main ? attribution : other.attribution
+        }
+        return deterministicAttribution(attribution, other.attribution)
+    }
+
+    private func mergedAgentName(
+        with other: Self,
+        preferred: Self,
+        supplemental: Self) -> String? {
+        if agentKind != other.agentKind {
+            return agentKind == .main ? agentName : other.agentName
+        }
+        return preferred.agentName ?? supplemental.agentName
+    }
+
     private func deterministicProvider(with other: Self) -> PiCompatibleSelectedProvider {
+        if providerIsExplicit != other.providerIsExplicit {
+            return providerIsExplicit
+                ? PiCompatibleSelectedProvider(
+                    value: provider,
+                    isExplicit: true,
+                    identity: providerRevisionIdentity)
+                : PiCompatibleSelectedProvider(
+                    value: other.provider,
+                    isExplicit: true,
+                    identity: other.providerRevisionIdentity)
+        }
         guard let provider else {
             return PiCompatibleSelectedProvider(
                 value: other.provider,
+                isExplicit: other.providerIsExplicit,
                 identity: other.providerRevisionIdentity)
         }
         guard let otherProvider = other.provider else {
-            return PiCompatibleSelectedProvider(value: provider, identity: providerRevisionIdentity)
+            return PiCompatibleSelectedProvider(
+                value: provider,
+                isExplicit: providerIsExplicit,
+                identity: providerRevisionIdentity)
         }
         let identity = providerRevisionIdentity ?? revisionIdentity
         let otherIdentity = other.providerRevisionIdentity ?? other.revisionIdentity
         if identity != otherIdentity {
             return identity.isPreferred(over: otherIdentity)
-                ? PiCompatibleSelectedProvider(value: provider, identity: identity)
-                : PiCompatibleSelectedProvider(value: otherProvider, identity: otherIdentity)
+                ? PiCompatibleSelectedProvider(
+                    value: provider,
+                    isExplicit: providerIsExplicit,
+                    identity: identity)
+                : PiCompatibleSelectedProvider(
+                    value: otherProvider,
+                    isExplicit: other.providerIsExplicit,
+                    identity: otherIdentity)
         }
         return provider <= otherProvider
-            ? PiCompatibleSelectedProvider(value: provider, identity: identity)
-            : PiCompatibleSelectedProvider(value: otherProvider, identity: otherIdentity)
+            ? PiCompatibleSelectedProvider(
+                value: provider,
+                isExplicit: providerIsExplicit,
+                identity: identity)
+            : PiCompatibleSelectedProvider(
+                value: otherProvider,
+                isExplicit: other.providerIsExplicit,
+                identity: otherIdentity)
     }
 
-    private func deterministicCost(with other: Self) -> PiCompatibleSelectedCost {
+    private func deterministicCost(
+        with other: Self,
+        preferred: Self,
+        supplemental: Self) -> PiCompatibleSelectedCost {
         if costIsKnown != other.costIsKnown {
             return costKnowledgeRank(costIsKnown) > costKnowledgeRank(other.costIsKnown)
                 ? selectedCost()
                 : other.selectedCost()
+        }
+        if preferred.timestamp == supplemental.timestamp {
+            return preferred.selectedCost()
         }
         if costRevisionIdentity != other.costRevisionIdentity {
             return costRevisionIdentity.isPreferred(over: other.costRevisionIdentity)
@@ -308,7 +371,7 @@ extension PiCompatibleUsageRecord {
 enum PiCompatibleDeduplicationKey: Hashable {
     case message(String)
     case sessionMessage(sessionID: String, messageID: String)
-    case sessionResponse(sessionID: String, responseID: String)
+    case sessionResponse(sessionID: String, provider: String?, responseID: String)
     case legacySessionResponse(sessionID: String, responseID: String)
     case legacyRecord(PiCompatibleLegacyRecordIdentity)
     case record(streamID: String, lineIndex: Int)
@@ -324,9 +387,10 @@ enum PiCompatibleDeduplicationKey: Hashable {
             if lhsSession != rhsSession { return lhsSession < rhsSession }
             return lhsMessage < rhsMessage
         case let (
-            .sessionResponse(lhsSession, lhsResponse),
-            .sessionResponse(rhsSession, rhsResponse)):
+            .sessionResponse(lhsSession, lhsProvider, lhsResponse),
+            .sessionResponse(rhsSession, rhsProvider, rhsResponse)):
             if lhsSession != rhsSession { return lhsSession < rhsSession }
+            if lhsProvider != rhsProvider { return (lhsProvider ?? "") < (rhsProvider ?? "") }
             return lhsResponse < rhsResponse
         case let (
             .legacySessionResponse(lhsSession, lhsResponse),
@@ -375,6 +439,7 @@ struct PiCompatibleLegacyRecordIdentity: Hashable {
 
 private struct PiCompatibleSelectedProvider {
     let value: String?
+    let isExplicit: Bool
     let identity: PiCompatibleRevisionIdentity?
 }
 
