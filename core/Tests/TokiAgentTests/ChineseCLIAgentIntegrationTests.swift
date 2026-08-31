@@ -110,6 +110,63 @@ final class ChineseCLIAgentIntegrationTests: XCTestCase {
         XCTAssertEqual(initialSignature, removedSignature)
     }
 
+    func test_kimiSourceSignaturesTrackOldMtimeFiles() async throws {
+        let fixture = try AgentSnapshotFixture()
+        defer { fixture.remove() }
+        let kimiCLIRoot = fixture.root.appendingPathComponent(".kimi/sessions")
+        let kimiCodeRoot = fixture.root.appendingPathComponent(".kimi-code/sessions")
+        try FileManager.default.createDirectory(at: kimiCLIRoot, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: kimiCodeRoot, withIntermediateDirectories: true)
+        let builder = AgentSnapshotBuilder(home: fixture.root)
+        let initialSignature = try await builder.sourceSignature(
+            configuration: fixture.configuration,
+            now: fixture.now)
+        let timestamp = fixture.latestEventDate.timeIntervalSince1970
+        let cliHistory = kimiCLIRoot.appendingPathComponent("workspace/session-cli/wire.jsonl")
+        try Self.write(
+            [
+                #"{"timestamp":\#(timestamp),"message":{"type":"StatusUpdate","payload":{"# +
+                    #""token_usage":{"input_other":20,"output":5},"message_id":"old-cli"}}}"#,
+            ],
+            to: cliHistory)
+        try FileManager.default.setAttributes(
+            [.modificationDate: Date(timeIntervalSince1970: 978_307_200)],
+            ofItemAtPath: cliHistory.path)
+
+        let cliAddedSignature = try await builder.sourceSignature(
+            configuration: fixture.configuration,
+            now: fixture.now)
+        try FileManager.default.removeItem(at: cliHistory)
+        let cliRemovedSignature = try await builder.sourceSignature(
+            configuration: fixture.configuration,
+            now: fixture.now)
+
+        let codeHistory = kimiCodeRoot.appendingPathComponent(
+            "workspace/session-code/agents/main/wire.jsonl")
+        try Self.write(
+            [
+                #"{"type":"usage.record","model":"moonshot/kimi-k2.6","usage":{"inputOther":30,"# +
+                    #""output":8},"usageScope":"turn","time":\#(Int64(timestamp * 1000))}"#,
+            ],
+            to: codeHistory)
+        try FileManager.default.setAttributes(
+            [.modificationDate: Date(timeIntervalSince1970: 978_307_200)],
+            ofItemAtPath: codeHistory.path)
+
+        let codeAddedSignature = try await builder.sourceSignature(
+            configuration: fixture.configuration,
+            now: fixture.now)
+        try FileManager.default.removeItem(at: codeHistory)
+        let codeRemovedSignature = try await builder.sourceSignature(
+            configuration: fixture.configuration,
+            now: fixture.now)
+
+        XCTAssertNotEqual(initialSignature, cliAddedSignature)
+        XCTAssertEqual(initialSignature, cliRemovedSignature)
+        XCTAssertNotEqual(initialSignature, codeAddedSignature)
+        XCTAssertEqual(initialSignature, codeRemovedSignature)
+    }
+
     private static func write(_ lines: [String], to url: URL) throws {
         try FileManager.default.createDirectory(
             at: url.deletingLastPathComponent(),

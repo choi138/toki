@@ -265,10 +265,12 @@ public enum LocalUsageReaderRegistry {
                 sourceLocations: [.directory(paths.openClawAgents, extensions: ["jsonl"])]),
             LocalUsageReaderDescriptor(
                 reader: KimiCLIReader(sessionRoots: paths.kimiCLISessions),
-                sourceLocations: paths.kimiCLISessions.map { .directory($0, extensions: ["jsonl"]) }),
+                sourceLocations: paths.kimiCLISessions.map { .directory($0, extensions: ["jsonl"]) },
+                sourceSignatureStrategy: .allFiles),
             LocalUsageReaderDescriptor(
                 reader: KimiCodeReader(sessionRoots: paths.kimiCodeSessions),
-                sourceLocations: paths.kimiCodeSessions.map { .directory($0, extensions: ["jsonl"]) }),
+                sourceLocations: paths.kimiCodeSessions.map { .directory($0, extensions: ["jsonl"]) },
+                sourceSignatureStrategy: .allFiles),
             LocalUsageReaderDescriptor(
                 reader: QwenCLIReader(projectRoots: paths.qwenProjects),
                 sourceLocations: paths.qwenProjects.map { .directory($0, extensions: ["jsonl"]) },
