@@ -18,8 +18,13 @@ final class LocalUsageReaderRegistryTests: XCTestCase {
                 "Cursor",
                 "Gemini CLI",
                 "GJC",
+                "Senpi",
+                "Pi",
+                "Oh My Pi",
+                "Kimchi",
                 "OpenCode",
                 "OpenClaw",
+                "GitHub Copilot CLI",
                 "Kimi CLI",
                 "Kimi Code",
                 "Qwen CLI",
@@ -39,6 +44,16 @@ final class LocalUsageReaderRegistryTests: XCTestCase {
         XCTAssertEqual(paths.claudeProjects.path, "/tmp/toki-reader-home/.claude/projects")
         XCTAssertEqual(paths.hermesDatabase.path, "/tmp/toki-reader-home/.hermes/state.db")
         XCTAssertEqual(paths.openCodeDatabase.path, "/tmp/toki-xdg-data/opencode/opencode.db")
+        XCTAssertEqual(
+            paths.senpiSessionDirectories.map(\.path),
+            [
+                "/tmp/toki-reader-home/.omo/agent/sessions",
+                "/tmp/toki-reader-home/.senpi/agent/sessions",
+                "/tmp/toki-reader-home/.omo/senpi-task/children",
+                "/tmp/toki-reader-home/.omo/senpi-task/sessions",
+            ])
+        XCTAssertEqual(paths.copilotOTELDirectory.path, "/tmp/toki-reader-home/.copilot/otel")
+        XCTAssertNil(paths.copilotOTELExporterFile)
         XCTAssertEqual(paths.agentCacheDirectory.path, "/tmp/toki-xdg-state/toki-agent")
         #if os(Linux)
             XCTAssertEqual(
@@ -49,6 +64,125 @@ final class LocalUsageReaderRegistryTests: XCTestCase {
                 paths.cursorDatabase.path,
                 "/tmp/toki-reader-home/Library/Application Support/Cursor/User/globalStorage/state.vscdb")
         #endif
+    }
+
+    func test_senpiPathsUseOnlyAbsoluteOverridesAndIncludeDelegatedRoots() {
+        let home = URL(fileURLWithPath: "/tmp/toki-reader-home")
+        let paths = LocalUsageReaderPaths(
+            homeDirectory: home,
+            environment: [
+                "PWD": "/tmp/toki-project",
+                "SENPI_CODING_AGENT_DIR": "/tmp/senpi-agent",
+                "SENPI_CODING_AGENT_SESSION_DIR": "/tmp/senpi-sessions",
+            ])
+
+        XCTAssertEqual(paths.senpiSessionDirectories.map(\.path), [
+            "/tmp/toki-reader-home/.omo/agent/sessions",
+            "/tmp/toki-reader-home/.senpi/agent/sessions",
+            "/tmp/toki-reader-home/.omo/senpi-task/children",
+            "/tmp/toki-reader-home/.omo/senpi-task/sessions",
+            "/tmp/senpi-agent/sessions",
+            "/tmp/senpi-sessions",
+            "/tmp/toki-project/.omo/senpi-task/children",
+            "/tmp/toki-project/.omo/senpi-task/sessions",
+        ])
+
+        let ignored = LocalUsageReaderPaths(
+            homeDirectory: home,
+            environment: [
+                "PWD": "",
+                "SENPI_CODING_AGENT_DIR": "relative-agent",
+                "SENPI_CODING_AGENT_SESSION_DIR": "relative-sessions",
+            ])
+
+        XCTAssertEqual(
+            ignored.senpiSessionDirectories.map(\.path),
+            [
+                "/tmp/toki-reader-home/.omo/agent/sessions",
+                "/tmp/toki-reader-home/.senpi/agent/sessions",
+                "/tmp/toki-reader-home/.omo/senpi-task/children",
+                "/tmp/toki-reader-home/.omo/senpi-task/sessions",
+            ])
+    }
+
+    func test_copilotExporterPathRequiresAnAbsoluteNonEmptyJSONLFile() {
+        let home = URL(fileURLWithPath: "/tmp/toki-reader-home")
+
+        XCTAssertEqual(
+            LocalUsageReaderPaths(
+                homeDirectory: home,
+                environment: ["COPILOT_OTEL_FILE_EXPORTER_PATH": "/tmp/copilot.jsonl"])
+                .copilotOTELExporterFile?.path,
+            "/tmp/copilot.jsonl")
+        XCTAssertNil(
+            LocalUsageReaderPaths(
+                homeDirectory: home,
+                environment: ["COPILOT_OTEL_FILE_EXPORTER_PATH": "relative/copilot.jsonl"])
+                .copilotOTELExporterFile)
+        XCTAssertNil(
+            LocalUsageReaderPaths(
+                homeDirectory: home,
+                environment: ["COPILOT_OTEL_FILE_EXPORTER_PATH": ""])
+                .copilotOTELExporterFile)
+        XCTAssertNil(
+            LocalUsageReaderPaths(
+                homeDirectory: home,
+                environment: ["COPILOT_OTEL_FILE_EXPORTER_PATH": "/tmp"])
+                .copilotOTELExporterFile)
+    }
+
+    func test_copilotReaderIsRegisteredOnceWithDefaultAndOverrideLocations() {
+        let home = URL(fileURLWithPath: "/tmp/toki-reader-home")
+        let descriptors = LocalUsageReaderRegistry.descriptors(
+            home: home,
+            environment: ["COPILOT_OTEL_FILE_EXPORTER_PATH": "/tmp/copilot.jsonl"])
+        let copilotDescriptors = descriptors.filter { $0.name == CopilotCLIReader.sourceName }
+
+        XCTAssertEqual(copilotDescriptors.count, 1)
+        XCTAssertEqual(
+            copilotDescriptors.first?.sourceLocations,
+            [
+                .directory(home.appendingPathComponent(".copilot/otel"), extensions: ["jsonl"]),
+                .file(URL(fileURLWithPath: "/tmp/copilot.jsonl"), includesSQLiteSidecars: false),
+            ])
+    }
+
+    func test_senpiReaderIsRegisteredExactlyOnceWithEveryDiscoveryRoot() {
+        let home = URL(fileURLWithPath: "/tmp/toki-reader-home")
+        let descriptors = LocalUsageReaderRegistry.descriptors(
+            home: home,
+            environment: [
+                "PWD": "/tmp/toki-project",
+                "SENPI_CODING_AGENT_SESSION_DIR": "/tmp/senpi-sessions",
+            ])
+        let senpiDescriptors = descriptors.filter { $0.name == SenpiReader.sourceName }
+
+        XCTAssertEqual(senpiDescriptors.count, 1)
+        XCTAssertEqual(
+            senpiDescriptors.first?.sourceLocations,
+            [
+                .directory(
+                    home.appendingPathComponent(".omo/agent/sessions"),
+                    extensions: ["jsonl"]),
+                .directory(
+                    home.appendingPathComponent(".senpi/agent/sessions"),
+                    extensions: ["jsonl"]),
+                .directory(
+                    home.appendingPathComponent(".omo/senpi-task/children"),
+                    extensions: ["jsonl"]),
+                .directory(
+                    home.appendingPathComponent(".omo/senpi-task/sessions"),
+                    extensions: ["jsonl"]),
+                .directory(
+                    URL(fileURLWithPath: "/tmp/senpi-sessions"),
+                    extensions: ["jsonl"]),
+                .directory(
+                    URL(fileURLWithPath: "/tmp/toki-project/.omo/senpi-task/children"),
+                    extensions: ["jsonl"]),
+                .directory(
+                    URL(fileURLWithPath: "/tmp/toki-project/.omo/senpi-task/sessions"),
+                    extensions: ["jsonl"]),
+            ])
     }
 
     func test_readerCachesUseExplicitApplicationAndAgentScopes() {

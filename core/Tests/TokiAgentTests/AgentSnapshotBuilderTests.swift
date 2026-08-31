@@ -68,8 +68,11 @@ final class AgentSnapshotBuilderTests: XCTestCase {
                 "Cursor",
                 "Gemini CLI",
                 "GJC",
+                "Senpi",
+                "Pi", "Oh My Pi", "Kimchi",
                 "OpenCode",
                 "OpenClaw",
+                "GitHub Copilot CLI",
                 "Kimi CLI", "Kimi Code", "Qwen CLI",
             ])
         XCTAssertFalse(names.contains("Remote Devices"))
@@ -594,7 +597,4 @@ struct FixedTokenReader: TokenReader {
     }
 }
 
-private enum AgentSnapshotFixtureError: Error {
-    case date
-    case sqlite
-}
+private enum AgentSnapshotFixtureError: Error { case date, sqlite }
