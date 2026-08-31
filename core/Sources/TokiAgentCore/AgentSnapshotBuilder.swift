@@ -428,6 +428,7 @@ private extension AgentSnapshotBuilder {
         if lhs.timestamp != rhs.timestamp { return lhs.timestamp < rhs.timestamp }
         if lhs.source != rhs.source { return lhs.source < rhs.source }
         if lhs.model != rhs.model { return (lhs.model ?? "") < (rhs.model ?? "") }
+        if lhs.provider != rhs.provider { return (lhs.provider ?? "") < (rhs.provider ?? "") }
         if lhs.inputTokens != rhs.inputTokens { return lhs.inputTokens < rhs.inputTokens }
         if lhs.outputTokens != rhs.outputTokens { return lhs.outputTokens < rhs.outputTokens }
         if lhs.cacheReadTokens != rhs.cacheReadTokens { return lhs.cacheReadTokens < rhs.cacheReadTokens }
@@ -482,12 +483,24 @@ private extension AgentSnapshotBuilder {
             timestamp: event.timestamp,
             source: event.source,
             model: remoteModel(event.model),
+            provider: remoteProvider(event.provider),
             inputTokens: event.inputTokens,
             outputTokens: event.outputTokens,
             cacheReadTokens: event.cacheReadTokens,
             cacheWriteTokens: event.cacheWriteTokens,
             reasoningTokens: event.reasoningTokens,
-            cost: event.cost > 0 ? event.cost : nil)
+            cost: event.costIsKnown == false
+                ? 0
+                : event.costIsKnown == true || event.cost > 0 ? event.cost : nil,
+            costIsKnown: event.costIsKnown)
+    }
+
+    private func remoteProvider(_ provider: String?) -> String? {
+        guard let provider,
+              TokiSyncValidation.isSafeDisplayText(provider, maximumLength: 100) else {
+            return nil
+        }
+        return provider
     }
 
     private func remoteCostEvent(_ event: TokenUsageEvent) -> RemoteCostEvent? {

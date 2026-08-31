@@ -132,6 +132,7 @@ private struct UsageExportModel: Encodable {
     let activeSeconds: TimeInterval
     let wallClockSeconds: TimeInterval
     let sources: [String]
+    let providers: [String]
     let isPriceKnown: Bool
 
     init(model: ModelStat) {
@@ -141,6 +142,7 @@ private struct UsageExportModel: Encodable {
         activeSeconds = model.activeSeconds
         wallClockSeconds = model.wallClockSeconds
         sources = model.sources
+        providers = model.providers
         isPriceKnown = model.isPriceKnown
     }
 }
@@ -231,6 +233,7 @@ private extension UsageExport {
             "project_path",
             "session_id",
             "attribution_quality",
+            "providers",
         ]
     }
 
@@ -255,6 +258,7 @@ private extension UsageExport {
             String(format: "%.3f", usage.workTime.wallClockSeconds),
             startDate,
             endDate,
+            "",
             "",
             "",
             "",
@@ -283,6 +287,7 @@ private extension UsageExport {
                 String(format: "%.3f", source.wallClockSeconds),
                 startDate,
                 endDate,
+                "",
                 "",
                 "",
                 "",
@@ -315,6 +320,7 @@ private extension UsageExport {
                 "",
                 "",
                 "",
+                model.providers.joined(separator: ";"),
             ]
         }
     }
@@ -341,6 +347,7 @@ private extension UsageExport {
                 project.path ?? "",
                 "",
                 project.quality.rawValue,
+                "",
             ]
         }
     }
@@ -367,6 +374,7 @@ private extension UsageExport {
                 session.projectPath ?? "",
                 session.sessionID ?? "",
                 session.quality.rawValue,
+                "",
             ]
         }
     }

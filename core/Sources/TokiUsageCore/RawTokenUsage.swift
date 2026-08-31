@@ -124,40 +124,77 @@ public struct TokenUsageEvent: Equatable, Codable {
     public let timestamp: Date
     public let source: String
     public let model: String?
+    public let provider: String?
     public let inputTokens: Int
     public let outputTokens: Int
     public let cacheReadTokens: Int
     public let cacheWriteTokens: Int
     public let reasoningTokens: Int
     public let cost: Double
+    public let costIsKnown: Bool?
     public let attribution: UsageAttribution?
 
     public init(
         timestamp: Date,
         source: String,
         model: String?,
+        provider: String? = nil,
         inputTokens: Int,
         outputTokens: Int,
         cacheReadTokens: Int,
         cacheWriteTokens: Int,
         reasoningTokens: Int,
         cost: Double,
+        costIsKnown: Bool? = nil,
         attribution: UsageAttribution? = nil) {
         self.timestamp = timestamp
         self.source = source
         self.model = model
+        self.provider = provider?.nilIfBlank
         self.inputTokens = inputTokens
         self.outputTokens = outputTokens
         self.cacheReadTokens = cacheReadTokens
         self.cacheWriteTokens = cacheWriteTokens
         self.reasoningTokens = reasoningTokens
         self.cost = cost
+        self.costIsKnown = costIsKnown
         self.attribution = attribution
     }
 
     public var totalTokens: Int {
-        inputTokens + outputTokens + cacheReadTokens + cacheWriteTokens + reasoningTokens
+        saturatedTokenTotal(
+            inputTokens,
+            outputTokens,
+            cacheReadTokens,
+            cacheWriteTokens,
+            reasoningTokens)
     }
+}
+
+public func checkedTokenTotal(_ counts: Int...) -> Int? {
+    var total = 0
+    for count in counts {
+        guard count >= 0 else { return nil }
+        let (next, overflow) = total.addingReportingOverflow(count)
+        guard !overflow else { return nil }
+        total = next
+    }
+    return total
+}
+
+private func saturatedTokenTotal(_ counts: Int...) -> Int {
+    var total = 0
+    for count in counts {
+        let (next, overflow) = total.addingReportingOverflow(max(0, count))
+        if overflow { return Int.max }
+        total = next
+    }
+    return total
+}
+
+private func saturatedTokenAddition(_ lhs: Int, _ rhs: Int) -> Int {
+    let (sum, overflow) = lhs.addingReportingOverflow(rhs)
+    return overflow ? Int.max : sum
 }
 
 package struct TokenReplacementCoverage: Equatable {
@@ -304,7 +341,13 @@ public struct RawTokenUsage {
     }
 
     public var totalTokens: Int {
-        inputTokens + outputTokens + cacheReadTokens + cacheWriteTokens + reasoningTokens + unclassifiedTokens
+        saturatedTokenTotal(
+            inputTokens,
+            outputTokens,
+            cacheReadTokens,
+            cacheWriteTokens,
+            reasoningTokens,
+            unclassifiedTokens)
     }
 
     public var resolvedWorkTime: WorkTimeMetrics {
@@ -336,26 +379,61 @@ public struct RawTokenUsage {
         timestamp: Date,
         source: String,
         model: String?,
+        provider: String? = nil,
         inputTokens: Int,
         outputTokens: Int,
         cacheReadTokens: Int = 0,
         cacheWriteTokens: Int = 0,
         reasoningTokens: Int = 0,
         cost: Double = 0,
+        costIsKnown: Bool? = nil,
         attribution: UsageAttribution? = nil) {
+        guard let totalTokens = checkedTokenTotal(
+            inputTokens,
+            outputTokens,
+            cacheReadTokens,
+            cacheWriteTokens,
+            reasoningTokens) else {
+            return
+        }
         let event = TokenUsageEvent(
             timestamp: timestamp,
             source: source,
             model: model,
+            provider: provider,
             inputTokens: inputTokens,
             outputTokens: outputTokens,
             cacheReadTokens: cacheReadTokens,
             cacheWriteTokens: cacheWriteTokens,
             reasoningTokens: reasoningTokens,
             cost: cost,
+            costIsKnown: costIsKnown,
             attribution: attribution)
-        guard event.totalTokens > 0 || event.cost > 0 else { return }
+        guard totalTokens > 0 || event.cost > 0 else { return }
         tokenEvents.append(event)
+    }
+
+    @discardableResult
+    public mutating func accumulateTokenCounts(
+        input: Int,
+        output: Int,
+        cacheRead: Int = 0,
+        cacheWrite: Int = 0,
+        reasoning: Int = 0) -> Int? {
+        guard let total = checkedTokenTotal(
+            input,
+            output,
+            cacheRead,
+            cacheWrite,
+            reasoning) else {
+            return nil
+        }
+        inputTokens = saturatedTokenAddition(inputTokens, input)
+        outputTokens = saturatedTokenAddition(outputTokens, output)
+        cacheReadTokens = saturatedTokenAddition(cacheReadTokens, cacheRead)
+        cacheWriteTokens = saturatedTokenAddition(cacheWriteTokens, cacheWrite)
+        reasoningTokens = saturatedTokenAddition(reasoningTokens, reasoning)
+        return total
     }
 
     /// Records a per-model row, folding usage with no model name into the shared
@@ -374,7 +452,9 @@ public struct RawTokenUsage {
         totalTokens: Int,
         cost: Double = 0) {
         let key = UsageModelGrouping.groupingKey(for: model)
-        perModel[key, default: PerModelUsage()].totalTokens += totalTokens
+        perModel[key, default: PerModelUsage()].totalTokens = saturatedTokenAddition(
+            perModel[key, default: PerModelUsage()].totalTokens,
+            totalTokens)
         perModel[key, default: PerModelUsage()].cost += cost
         perModel[key, default: PerModelUsage()].sources.insert(source)
     }
@@ -422,12 +502,12 @@ public func += (lhs: inout RawTokenUsage, rhs: RawTokenUsage) {
     let lhsFallbackWorkTime = lhs.resolvedFallbackWorkTime
     let rhsFallbackWorkTime = rhs.resolvedFallbackWorkTime
 
-    lhs.inputTokens += rhs.inputTokens
-    lhs.outputTokens += rhs.outputTokens
-    lhs.cacheReadTokens += rhs.cacheReadTokens
-    lhs.cacheWriteTokens += rhs.cacheWriteTokens
-    lhs.reasoningTokens += rhs.reasoningTokens
-    lhs.unclassifiedTokens += rhs.unclassifiedTokens
+    lhs.inputTokens = saturatedTokenAddition(lhs.inputTokens, rhs.inputTokens)
+    lhs.outputTokens = saturatedTokenAddition(lhs.outputTokens, rhs.outputTokens)
+    lhs.cacheReadTokens = saturatedTokenAddition(lhs.cacheReadTokens, rhs.cacheReadTokens)
+    lhs.cacheWriteTokens = saturatedTokenAddition(lhs.cacheWriteTokens, rhs.cacheWriteTokens)
+    lhs.reasoningTokens = saturatedTokenAddition(lhs.reasoningTokens, rhs.reasoningTokens)
+    lhs.unclassifiedTokens = saturatedTokenAddition(lhs.unclassifiedTokens, rhs.unclassifiedTokens)
     lhs.cost += rhs.cost
     lhs.activeSeconds += rhs.activeSeconds
     lhs.activityEvents.append(contentsOf: rhs.activityEvents)
@@ -443,7 +523,9 @@ public func += (lhs: inout RawTokenUsage, rhs: RawTokenUsage) {
     // still report something. When events exist, recomputeMergedActiveEstimate()
     // replaces both values with one merged estimate over every event.
     for (id, usage) in rhs.perModel {
-        lhs.perModel[id, default: PerModelUsage()].totalTokens += usage.totalTokens
+        lhs.perModel[id, default: PerModelUsage()].totalTokens = saturatedTokenAddition(
+            lhs.perModel[id, default: PerModelUsage()].totalTokens,
+            usage.totalTokens)
         lhs.perModel[id, default: PerModelUsage()].cost += usage.cost
         lhs.perModel[id, default: PerModelUsage()].activeSeconds += usage.activeSeconds
         lhs.perModel[id, default: PerModelUsage()].wallClockSeconds += usage.wallClockSeconds
@@ -451,7 +533,9 @@ public func += (lhs: inout RawTokenUsage, rhs: RawTokenUsage) {
     }
 
     for (key, usage) in rhs.perModelBySource {
-        lhs.perModelBySource[key, default: PerModelUsage()].totalTokens += usage.totalTokens
+        lhs.perModelBySource[key, default: PerModelUsage()].totalTokens = saturatedTokenAddition(
+            lhs.perModelBySource[key, default: PerModelUsage()].totalTokens,
+            usage.totalTokens)
         lhs.perModelBySource[key, default: PerModelUsage()].cost += usage.cost
         lhs.perModelBySource[key, default: PerModelUsage()].activeSeconds += usage.activeSeconds
         lhs.perModelBySource[key, default: PerModelUsage()].wallClockSeconds += usage.wallClockSeconds

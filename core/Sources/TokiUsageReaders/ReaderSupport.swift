@@ -1,6 +1,17 @@
 import Foundation
 import TokiUsageCore
 
+enum LocalUsageReaderDiagnosticError: LocalizedError {
+    case decodeFailed(source: String, stage: String)
+
+    var errorDescription: String? {
+        switch self {
+        case let .decodeFailed(source, stage):
+            "\(source) \(stage) decode failed"
+        }
+    }
+}
+
 func findFiles(in directory: URL, withExtension ext: String, modifiedAfter: Date? = nil) -> [URL] {
     let keys: [URLResourceKey] = modifiedAfter != nil
         ? [.isDirectoryKey, .isRegularFileKey, .isSymbolicLinkKey, .contentModificationDateKey]
@@ -51,6 +62,26 @@ public func normalizedModelID(_ value: String?) -> String? {
         return nil
     }
     return trimmed
+}
+
+func inferredUsageProvider(from model: String?) -> String? {
+    guard let model = normalizedModelID(model)?.lowercased() else { return nil }
+    if model.contains("claude") || model.contains("opus") || model.contains("sonnet")
+        || model.contains("haiku") {
+        return "anthropic"
+    }
+    if model.contains("gemini") { return "google" }
+    if model.contains("kimi") { return "moonshot" }
+    if model.contains("qwen") { return "qwen" }
+    if model.contains("deepseek") { return "deepseek" }
+    if model.contains("mistral") || model.contains("codestral") { return "mistral" }
+    if model.contains("grok") { return "xai" }
+    if model.contains("glm") { return "zai" }
+    if model.hasPrefix("gpt-") || model.hasPrefix("o1") || model.hasPrefix("o3")
+        || model.hasPrefix("o4") || model.contains("codex") {
+        return "openai"
+    }
+    return nil
 }
 
 public extension RawTokenUsage {
