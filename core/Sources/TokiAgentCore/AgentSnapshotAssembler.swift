@@ -16,6 +16,7 @@ struct AgentSnapshotBuildLimits: Equatable {
     let maximumExaminedTokenEventCount: Int
     let maximumExaminedActivityEventCount: Int
     let maximumReplacementCoverageCount: Int
+    let maximumCoverageComparisonCount: Int
 
     init(
         maximumTokenEventCount: Int,
@@ -24,22 +25,32 @@ struct AgentSnapshotBuildLimits: Equatable {
         maximumEncodedBytes: Int,
         maximumExaminedTokenEventCount: Int? = nil,
         maximumExaminedActivityEventCount: Int? = nil,
-        maximumReplacementCoverageCount: Int? = nil) {
+        maximumReplacementCoverageCount: Int? = nil,
+        maximumCoverageComparisonCount: Int? = nil) {
+        let examinedTokenEventCount = maximumExaminedTokenEventCount
+            ?? Self.saturatingSum(maximumTokenEventCount, maximumCostEventCount)
         self.maximumTokenEventCount = maximumTokenEventCount
         self.maximumCostEventCount = maximumCostEventCount
         self.maximumActivityEventCount = maximumActivityEventCount
         self.maximumEncodedBytes = maximumEncodedBytes
-        self.maximumExaminedTokenEventCount = maximumExaminedTokenEventCount
-            ?? Self.saturatingSum(maximumTokenEventCount, maximumCostEventCount)
+        self.maximumExaminedTokenEventCount = examinedTokenEventCount
         self.maximumExaminedActivityEventCount = maximumExaminedActivityEventCount
             ?? maximumActivityEventCount
         self.maximumReplacementCoverageCount = maximumReplacementCoverageCount
             ?? maximumTokenEventCount
+        self.maximumCoverageComparisonCount =
+            maximumCoverageComparisonCount
+                ?? Self.saturatingProduct(examinedTokenEventCount, 8)
     }
 
     private static func saturatingSum(_ lhs: Int, _ rhs: Int) -> Int {
         let (sum, overflow) = lhs.addingReportingOverflow(rhs)
         return overflow ? Int.max : sum
+    }
+
+    private static func saturatingProduct(_ lhs: Int, _ rhs: Int) -> Int {
+        let (product, overflow) = lhs.multipliedReportingOverflow(by: rhs)
+        return overflow ? Int.max : product
     }
 }
 
@@ -71,6 +82,7 @@ struct AgentSnapshotAssembler {
         var activityEvents: [RemoteActivityEvent] = []
         var examinedTokenEventCount = 0
         var examinedActivityEventCount = 0
+        var replacementCoverageComparisonCount = 0
         for readerUsage in readerUsages {
             try Task.checkCancellation()
             for event in readerUsage.usage.tokenEvents {
@@ -78,9 +90,13 @@ struct AgentSnapshotAssembler {
                 try consumeBudget(
                     &examinedTokenEventCount,
                     maximum: limits.maximumExaminedTokenEventCount)
-                guard event.timestamp >= coveredFrom,
-                      event.timestamp < coveredTo,
-                      !tokenReplacementCoverages.contains(where: { $0.replaces(event) }) else {
+                guard event.timestamp >= coveredFrom, event.timestamp < coveredTo else {
+                    continue
+                }
+                guard try !isReplaced(
+                    event,
+                    by: tokenReplacementCoverages,
+                    comparisonCount: &replacementCoverageComparisonCount) else {
                     continue
                 }
                 if let tokenEvent = remoteTokenEvent(event) {
@@ -121,6 +137,26 @@ struct AgentSnapshotAssembler {
             }
         }
 
+        return try validatedSnapshot(
+            device: device,
+            generatedAt: generatedAt,
+            coveredFrom: coveredFrom,
+            coveredTo: coveredTo,
+            tokenEvents: tokenEvents,
+            costEvents: costEvents,
+            activityEvents: activityEvents)
+    }
+}
+
+private extension AgentSnapshotAssembler {
+    private func validatedSnapshot(
+        device: RemoteDeviceDescriptor,
+        generatedAt: Date,
+        coveredFrom: Date,
+        coveredTo: Date,
+        tokenEvents: [RemoteTokenEvent],
+        costEvents: [RemoteCostEvent],
+        activityEvents: [RemoteActivityEvent]) throws -> RemoteUsageSnapshot {
         let snapshot = RemoteUsageSnapshot(
             device: device,
             generatedAt: generatedAt,
@@ -134,9 +170,7 @@ struct AgentSnapshotAssembler {
         }
         return snapshot
     }
-}
 
-private extension AgentSnapshotAssembler {
     private func initialEncodedByteCount(
         device: RemoteDeviceDescriptor,
         generatedAt: Date,
@@ -177,6 +211,20 @@ private extension AgentSnapshotAssembler {
             throw AgentSnapshotBuilderError.snapshotLimitExceeded
         }
         count = next
+    }
+
+    private func isReplaced(
+        _ event: TokenUsageEvent,
+        by coverages: [TokenReplacementCoverage],
+        comparisonCount: inout Int) throws -> Bool {
+        for coverage in coverages {
+            try Task.checkCancellation()
+            try consumeBudget(
+                &comparisonCount,
+                maximum: limits.maximumCoverageComparisonCount)
+            if coverage.replaces(event) { return true }
+        }
+        return false
     }
 
     private func reserveSnapshotBytes(
@@ -253,7 +301,7 @@ private extension AgentSnapshotAssembler {
         case true:
             event.cost
         case false:
-            nil
+            0
         case nil:
             event.cost > 0 ? event.cost : nil
         }

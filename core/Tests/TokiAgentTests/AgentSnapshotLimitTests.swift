@@ -44,7 +44,7 @@ final class AgentSnapshotLimitTests: XCTestCase {
             configuration: fixture.configuration,
             now: fixture.now)
 
-        XCTAssertNil(snapshot.tokenEvents.first?.cost)
+        XCTAssertEqual(snapshot.tokenEvents.first?.cost, 0)
         XCTAssertEqual(snapshot.tokenEvents.first?.costIsKnown, false)
     }
 
@@ -176,6 +176,32 @@ final class AgentSnapshotLimitTests: XCTestCase {
 
         await assertSnapshotLimit(builder: builder, fixture: fixture)
     }
+
+    func test_snapshotBuildBoundsReplacementCoverageComparisons() async throws {
+        let fixture = try AgentSnapshotFixture()
+        defer { fixture.remove() }
+        var usage = RawTokenUsage()
+        usage.recordTokenEvent(
+            timestamp: fixture.latestEventDate,
+            source: "Pi",
+            model: "gpt-5",
+            inputTokens: 1,
+            outputTokens: 1)
+        usage.tokenReplacementCoverages = ["Other A", "Other B"].map { source in
+            TokenReplacementCoverage(
+                coveredFrom: fixture.latestEventDate.addingTimeInterval(-1),
+                coveredTo: fixture.latestEventDate.addingTimeInterval(1),
+                sources: [source])
+        }
+        let builder = limitedBuilder(
+            fixture: fixture,
+            usage: usage,
+            maximumTokenEventCount: 10,
+            maximumEncodedBytes: 10000,
+            maximumCoverageComparisonCount: 1)
+
+        await assertSnapshotLimit(builder: builder, fixture: fixture)
+    }
 }
 
 private extension AgentSnapshotLimitTests {
@@ -199,7 +225,8 @@ private extension AgentSnapshotLimitTests {
         maximumEncodedBytes: Int,
         maximumExaminedTokenEventCount: Int? = nil,
         maximumExaminedActivityEventCount: Int? = nil,
-        maximumReplacementCoverageCount: Int? = nil) -> AgentSnapshotBuilder {
+        maximumReplacementCoverageCount: Int? = nil,
+        maximumCoverageComparisonCount: Int? = nil) -> AgentSnapshotBuilder {
         AgentSnapshotBuilder(
             home: fixture.root,
             readerDescriptors: [
@@ -214,7 +241,8 @@ private extension AgentSnapshotLimitTests {
                 maximumEncodedBytes: maximumEncodedBytes,
                 maximumExaminedTokenEventCount: maximumExaminedTokenEventCount,
                 maximumExaminedActivityEventCount: maximumExaminedActivityEventCount,
-                maximumReplacementCoverageCount: maximumReplacementCoverageCount))
+                maximumReplacementCoverageCount: maximumReplacementCoverageCount,
+                maximumCoverageComparisonCount: maximumCoverageComparisonCount))
     }
 
     func assertSnapshotLimit(

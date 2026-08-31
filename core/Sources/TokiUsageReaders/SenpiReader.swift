@@ -84,10 +84,11 @@ public struct SenpiReader: TokenReader {
             recordsByKey[record.deduplicationKey] = recordsByKey[record.deduplicationKey]
                 .map { $0.merged(with: record) } ?? record
         }
+        let uniqueRecords = mergeAliasedRecords(recordsByKey.values)
 
         var result = RawTokenUsage()
         var activityEvents: [ActivityTimeEvent<String>] = []
-        for record in recordsByKey.values.sorted(by: recordSort)
+        for record in uniqueRecords.sorted(by: recordSort)
             where record.timestamp >= startDate && record.timestamp < endDate {
             result.inputTokens += record.inputTokens
             result.outputTokens += record.outputTokens
@@ -111,6 +112,7 @@ public struct SenpiReader: TokenReader {
                 cacheWriteTokens: record.cacheWriteTokens,
                 reasoningTokens: record.reasoningTokens,
                 cost: record.cost,
+                costIsKnown: record.costIsKnown,
                 attribution: record.attribution)
             activityEvents.append(ActivityTimeEvent(
                 streamID: record.attribution.sessionID ?? record.model,

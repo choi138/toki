@@ -110,17 +110,7 @@ struct PiCompatibleReader {
                 .map { $0.merged(with: record) } ?? record
         }
 
-        var copiedResponses: [PiCompatibleResponseCopyKey: PiCompatibleUsageRecord] = [:]
-        var uniqueRecords: [PiCompatibleUsageRecord] = []
-        for record in recordsByKey.values {
-            guard let copyKey = record.responseCopyKey else {
-                uniqueRecords.append(record)
-                continue
-            }
-            copiedResponses[copyKey] = copiedResponses[copyKey]
-                .map { $0.merged(with: record) } ?? record
-        }
-        uniqueRecords.append(contentsOf: copiedResponses.values)
+        let uniqueRecords = mergeAliasedRecords(recordsByKey.values)
 
         var result = RawTokenUsage()
         var activityEvents: [ActivityTimeEvent<String>] = []
@@ -171,5 +161,59 @@ struct PiCompatibleReader {
         if lhs.provider != rhs.provider { return (lhs.provider ?? "") < (rhs.provider ?? "") }
         if lhs.inputTokens != rhs.inputTokens { return lhs.inputTokens < rhs.inputTokens }
         return lhs.outputTokens < rhs.outputTokens
+    }
+}
+
+func mergeAliasedRecords(
+    _ records: some Sequence<PiCompatibleUsageRecord>) -> [PiCompatibleUsageRecord] {
+    let orderedRecords = records.sorted {
+        $0.deduplicationKey.isOrdered(before: $1.deduplicationKey)
+    }
+    var disjointSet = PiCompatibleDisjointSet(count: orderedRecords.count)
+    var ownerByAlias: [PiCompatibleMergeAlias: Int] = [:]
+    for (index, record) in orderedRecords.enumerated() {
+        for alias in record.mergeAliases {
+            if let owner = ownerByAlias[alias] {
+                disjointSet.connect(index, owner)
+            } else {
+                ownerByAlias[alias] = index
+            }
+        }
+    }
+
+    var recordsByRoot: [Int: PiCompatibleUsageRecord] = [:]
+    for (index, record) in orderedRecords.enumerated() {
+        let root = disjointSet.root(of: index)
+        recordsByRoot[root] = recordsByRoot[root].map { $0.merged(with: record) } ?? record
+    }
+    return Array(recordsByRoot.values)
+}
+
+private struct PiCompatibleDisjointSet {
+    private var parents: [Int]
+
+    init(count: Int) {
+        parents = Array(0..<count)
+    }
+
+    mutating func connect(_ lhs: Int, _ rhs: Int) {
+        let lhsRoot = root(of: lhs)
+        let rhsRoot = root(of: rhs)
+        guard lhsRoot != rhsRoot else { return }
+        parents[max(lhsRoot, rhsRoot)] = min(lhsRoot, rhsRoot)
+    }
+
+    mutating func root(of index: Int) -> Int {
+        var root = index
+        while parents[root] != root {
+            root = parents[root]
+        }
+        var node = index
+        while parents[node] != node {
+            let parent = parents[node]
+            parents[node] = root
+            node = parent
+        }
+        return root
     }
 }

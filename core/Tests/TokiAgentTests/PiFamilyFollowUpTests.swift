@@ -199,9 +199,24 @@ final class PiFamilyFollowUpTests: XCTestCase {
 extension PiFamilyFollowUpTests {
     func test_revisionMergeIsDeterministicAcrossAllOrders() {
         let records = [
-            usageRecord(inputTokens: 100, provider: nil, cost: 0, costIsKnown: false),
-            usageRecord(inputTokens: 90, provider: "openai", cost: 0.25, costIsKnown: true),
-            usageRecord(inputTokens: 80, provider: "azure", cost: 0.30, costIsKnown: true),
+            usageRecord(
+                inputTokens: 100,
+                provider: nil,
+                cost: 0,
+                costIsKnown: false,
+                timestamp: date("2026-08-20T12:00:00Z")),
+            usageRecord(
+                inputTokens: 90,
+                provider: "openai",
+                cost: 0.25,
+                costIsKnown: true,
+                timestamp: date("2026-08-20T12:01:00Z")),
+            usageRecord(
+                inputTokens: 80,
+                provider: "azure",
+                cost: 0.30,
+                costIsKnown: true,
+                timestamp: date("2026-08-20T12:02:00Z")),
         ]
         let orders = [
             [0, 1, 2], [0, 2, 1], [1, 0, 2],
@@ -545,10 +560,11 @@ private func usageRecord(
     inputTokens: Int,
     provider: String?,
     cost: Double,
-    costIsKnown: Bool) -> PiCompatibleUsageRecord {
+    costIsKnown: Bool,
+    timestamp: Date = date("2026-08-20T12:00:00Z")) -> PiCompatibleUsageRecord {
     PiCompatibleUsageRecord(
         deduplicationKey: .message("shared-revision"),
-        timestamp: date("2026-08-20T12:00:00Z"),
+        timestamp: timestamp,
         model: "gpt-5",
         provider: provider,
         inputTokens: inputTokens,
