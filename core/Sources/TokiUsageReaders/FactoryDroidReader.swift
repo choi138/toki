@@ -1,4 +1,5 @@
 import Foundation
+import TokiSyncProtocol
 import TokiUsageCore
 
 /// Reads Factory Droid cumulative session summaries from ~/.factory/sessions.
@@ -249,11 +250,14 @@ private struct FactoryDroidTokenUsage: Decodable {
 
     func fillingMissingValues(from fallback: Self) -> Self {
         Self(
-            inputTokens: inputTokens ?? fallback.inputTokens,
-            outputTokens: outputTokens ?? fallback.outputTokens,
-            cacheCreationTokens: cacheCreationTokens ?? fallback.cacheCreationTokens,
-            cacheReadTokens: cacheReadTokens ?? fallback.cacheReadTokens,
-            thinkingTokens: thinkingTokens ?? fallback.thinkingTokens)
+            inputTokens: inputTokens ?? validFactoryDroidTokenCount(fallback.inputTokens),
+            outputTokens: outputTokens ?? validFactoryDroidTokenCount(fallback.outputTokens),
+            cacheCreationTokens: cacheCreationTokens
+                ?? validFactoryDroidTokenCount(fallback.cacheCreationTokens),
+            cacheReadTokens: cacheReadTokens
+                ?? validFactoryDroidTokenCount(fallback.cacheReadTokens),
+            thinkingTokens: thinkingTokens
+                ?? validFactoryDroidTokenCount(fallback.thinkingTokens))
     }
 
     private init(
@@ -268,6 +272,14 @@ private struct FactoryDroidTokenUsage: Decodable {
         self.cacheReadTokens = cacheReadTokens
         self.thinkingTokens = thinkingTokens
     }
+}
+
+private func validFactoryDroidTokenCount(_ value: Int?) -> Int? {
+    guard let value,
+          (0...RemoteUsageSnapshotValidator.maximumTokenCountPerBucket).contains(value) else {
+        return nil
+    }
+    return value
 }
 
 private struct FactoryDroidTokenCounts {

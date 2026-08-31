@@ -264,6 +264,9 @@ extension PiFamilyReaderTests {
         XCTAssertEqual(usage.inputTokens, 8)
         XCTAssertEqual(usage.outputTokens, 6)
         XCTAssertEqual(usage.tokenEvents.count, 2)
+        XCTAssertEqual(
+            usage.activityEvents.first { $0.streamID == "parent" }?.agentKind,
+            .main)
     }
 
     func test_kimchiPreservesRecordedProviderAndModel() {

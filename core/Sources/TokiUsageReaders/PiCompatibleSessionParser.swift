@@ -44,7 +44,9 @@ struct PiCompatibleUsageRecord {
         inputTokens + outputTokens + cacheReadTokens + cacheWriteTokens + reasoningTokens
     }
 
-    func merged(with other: Self) -> Self {
+    func merged(
+        with other: Self,
+        agentKind mergedAgentKind: WorkTimeAgentKind? = nil) -> Self {
         let prefersSelf = totalTokens > other.totalTokens
             || (totalTokens == other.totalTokens && cost > other.cost)
             || (totalTokens == other.totalTokens && cost == other.cost
@@ -84,7 +86,8 @@ struct PiCompatibleUsageRecord {
                 : (preferred.costIsKnown ?? supplemental.costIsKnown),
             attribution: bestUsageAttribution(attribution, other.attribution) ?? attribution,
             agentName: preferred.agentName ?? supplemental.agentName,
-            agentKind: agentKind == .subagent || other.agentKind == .subagent ? .subagent : .main)
+            agentKind: mergedAgentKind
+                ?? (agentKind == .subagent || other.agentKind == .subagent ? .subagent : .main))
     }
 }
 
@@ -157,7 +160,9 @@ func reconciledPiCompatibleRecords(
                   let mainRecord = recordsByKey[mainKey] else {
                 continue
             }
-            recordsByKey[mainKey] = mainRecord.merged(with: subagentRecord)
+            recordsByKey[mainKey] = mainRecord.merged(
+                with: subagentRecord,
+                agentKind: .main)
             recordsByKey.removeValue(forKey: subagentKey)
         }
     }
