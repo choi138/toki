@@ -12,12 +12,14 @@ public struct KimiCLIReader: TokenReader {
     }
 
     public func readUsage(from startDate: Date, to endDate: Date) async throws -> RawTokenUsage {
-        let sessions = sessionRoots.flatMap { root in
-            kimiWireFiles(in: root).map { file in
+        var sessions: [KimiCLISession] = []
+        for root in sessionRoots {
+            try Task.checkCancellation()
+            try sessions.append(contentsOf: kimiWireFiles(in: root).map { file in
                 KimiCLISession(
                     streamID: file.path,
                     lineSource: .file(file))
-            }
+            })
         }
         return try Self.usage(from: sessions, from: startDate, to: endDate)
     }
@@ -121,12 +123,14 @@ public struct KimiCodeReader: TokenReader {
     }
 
     public func readUsage(from startDate: Date, to endDate: Date) async throws -> RawTokenUsage {
-        let sessions = sessionRoots.flatMap { root in
-            kimiWireFiles(in: root).map { file in
+        var sessions: [KimiCodeSession] = []
+        for root in sessionRoots {
+            try Task.checkCancellation()
+            try sessions.append(contentsOf: kimiWireFiles(in: root).map { file in
                 KimiCodeSession(
                     streamID: file.path,
                     lineSource: .file(file))
-            }
+            })
         }
         return try Self.usage(from: sessions, from: startDate, to: endDate)
     }
@@ -429,8 +433,8 @@ private func kimiActivityEventSort(
     return lhs.streamID < rhs.streamID
 }
 
-private func kimiWireFiles(in root: URL) -> [URL] {
-    findFiles(in: root, withExtension: "jsonl")
+private func kimiWireFiles(in root: URL) throws -> [URL] {
+    try findFilesThrowing(in: root, withExtension: "jsonl")
         .filter { $0.lastPathComponent == "wire.jsonl" }
         .reduce(into: [String: URL]()) { files, file in
             files[file.resolvingSymlinksInPath().standardizedFileURL.path] = file

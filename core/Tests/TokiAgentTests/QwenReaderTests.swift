@@ -260,6 +260,30 @@ extension QwenReaderTests {
         }
     }
 
+    func test_chineseCLIReadersPropagateRootTraversalFailure() async throws {
+        let file = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: file) }
+        try Data().write(to: file)
+
+        let readers: [any TokenReader] = [
+            KimiCLIReader(sessionRoots: [file]),
+            KimiCodeReader(sessionRoots: [file]),
+            QwenCLIReader(projectRoots: [file]),
+        ]
+
+        for reader in readers {
+            do {
+                _ = try await reader.readUsage(from: startDate, to: endDate)
+                XCTFail("Expected discovery failure from \(reader.name)")
+            } catch is UsageFileDiscoveryError {
+                // Expected.
+            } catch {
+                XCTFail("Unexpected error from \(reader.name): \(error)")
+            }
+        }
+    }
+
     func test_qwenResolvesConflictingUUIDReplicasDeterministically() throws {
         let smaller =
             #"{"uuid":"same","type":"assistant","model":"qwen3","# +
@@ -286,6 +310,35 @@ extension QwenReaderTests {
         XCTAssertEqual(forward.totalTokens, 20)
         XCTAssertEqual(reversed.totalTokens, 20)
         XCTAssertEqual(forward.tokenEvents, reversed.tokenEvents)
+    }
+
+    func test_qwenDeduplicatesUUIDReplicasBeforeDateFiltering() throws {
+        let boundary = try XCTUnwrap(ISO8601DateFormatter().date(from: "2026-02-23T14:25:00Z"))
+        let before =
+            #"{"uuid":"same","type":"assistant","model":"qwen3","# +
+            #""timestamp":"2026-02-23T14:24:59.000Z","sessionId":"session","# +
+            #""usageMetadata":{"promptTokenCount":10,"candidatesTokenCount":0}}"#
+        let after =
+            #"{"uuid":"same","type":"assistant","model":"qwen3","# +
+            #""timestamp":"2026-02-23T14:25:01.000Z","sessionId":"session","# +
+            #""usageMetadata":{"promptTokenCount":20,"candidatesTokenCount":0}}"#
+        let sessions = [
+            (streamID: "/tmp/a/projects/workspace/chats/a.jsonl", lines: [before]),
+            (streamID: "/tmp/b/projects/workspace/chats/b.jsonl", lines: [after]),
+        ]
+
+        let beforeBoundary = try QwenCLIReader.usage(
+            fromJSONLSessions: sessions,
+            from: startDate,
+            to: boundary)
+        let afterBoundary = try QwenCLIReader.usage(
+            fromJSONLSessions: sessions,
+            from: boundary,
+            to: endDate)
+
+        XCTAssertEqual(beforeBoundary.totalTokens, 0)
+        XCTAssertEqual(afterBoundary.totalTokens, 20)
+        XCTAssertEqual(beforeBoundary.totalTokens + afterBoundary.totalTokens, 20)
     }
 
     func test_qwenKeepsSameUUIDAcrossDifferentProjects() throws {

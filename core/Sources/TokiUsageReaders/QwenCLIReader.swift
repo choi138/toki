@@ -12,14 +12,16 @@ public struct QwenCLIReader: TokenReader {
     }
 
     public func readUsage(from startDate: Date, to endDate: Date) async throws -> RawTokenUsage {
-        let sessions = projectRoots.flatMap { root in
-            findFiles(in: root, withExtension: "jsonl")
+        var sessions: [QwenSession] = []
+        for root in projectRoots {
+            try Task.checkCancellation()
+            try sessions.append(contentsOf: findFilesThrowing(in: root, withExtension: "jsonl")
                 .sorted { $0.path < $1.path }
                 .map { file in
                     QwenSession(
                         streamID: file.path,
                         lineSource: .file(file))
-                }
+                })
         }
         return try Self.usage(from: sessions, from: startDate, to: endDate)
     }
@@ -65,9 +67,7 @@ public struct QwenCLIReader: TokenReader {
                       let entry = try? decoder.decode(QwenLine.self, from: data),
                       entry.type == "assistant",
                       let metadata = entry.usageMetadata,
-                      let timestamp = entry.timestamp.flatMap(DateParser.parse),
-                      timestamp >= startDate,
-                      timestamp < endDate else {
+                      let timestamp = entry.timestamp.flatMap(DateParser.parse) else {
                     return
                 }
 
@@ -134,7 +134,9 @@ public struct QwenCLIReader: TokenReader {
         resolveQwenReplicas(replicaBuckets, into: &eventsByKey)
 
         return qwenRawUsage(
-            events: eventsByKey.values.sorted(by: qwenEventSort),
+            events: eventsByKey.values
+                .filter { $0.timestamp >= startDate && $0.timestamp < endDate }
+                .sorted(by: qwenEventSort),
             clippingEndDate: endDate)
     }
 }
