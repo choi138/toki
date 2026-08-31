@@ -199,6 +199,21 @@ private struct FactoryDroidTokenUsage: Decodable {
     let cacheCreationTokens: Int?
     let cacheReadTokens: Int?
     let thinkingTokens: Int?
+
+    enum CodingKeys: String, CodingKey {
+        case inputTokens, outputTokens, cacheCreationTokens, cacheReadTokens, thinkingTokens
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        inputTokens = try? container.decodeIfPresent(Int.self, forKey: .inputTokens)
+        outputTokens = try? container.decodeIfPresent(Int.self, forKey: .outputTokens)
+        cacheCreationTokens = try? container.decodeIfPresent(
+            Int.self,
+            forKey: .cacheCreationTokens)
+        cacheReadTokens = try? container.decodeIfPresent(Int.self, forKey: .cacheReadTokens)
+        thinkingTokens = try? container.decodeIfPresent(Int.self, forKey: .thinkingTokens)
+    }
 }
 
 private struct FactoryDroidTokenCounts {

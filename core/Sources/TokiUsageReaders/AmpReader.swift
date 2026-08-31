@@ -195,6 +195,26 @@ private struct AmpMessageUsage: Decodable {
     let cacheCreationInputTokens: Int?
     let credits: Double?
     let timestamp: String?
+
+    enum CodingKeys: String, CodingKey {
+        case model, inputTokens, outputTokens, cacheReadInputTokens
+        case cacheCreationInputTokens, credits, timestamp
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        model = try? container.decodeIfPresent(String.self, forKey: .model)
+        inputTokens = try? container.decodeIfPresent(Int.self, forKey: .inputTokens)
+        outputTokens = try? container.decodeIfPresent(Int.self, forKey: .outputTokens)
+        cacheReadInputTokens = try? container.decodeIfPresent(
+            Int.self,
+            forKey: .cacheReadInputTokens)
+        cacheCreationInputTokens = try? container.decodeIfPresent(
+            Int.self,
+            forKey: .cacheCreationInputTokens)
+        credits = try? container.decodeIfPresent(Double.self, forKey: .credits)
+        timestamp = try? container.decodeIfPresent(String.self, forKey: .timestamp)
+    }
 }
 
 private struct AmpUsageLedger: Decodable {
@@ -447,10 +467,10 @@ private func ampMessageRecords(
     var records: [AmpUsageRecord] = []
     for (sequenceIndex, message) in messages.enumerated() {
         guard message.role == "assistant",
-              let usage = message.usage,
-              let model = normalizedModelID(usage.model) else {
+              let usage = message.usage else {
             continue
         }
+        let model = normalizedModelID(usage.model)
         let explicitDate = usage.timestamp.flatMap(DateParser.parse)
             ?? message.createdAt.flatMap(DateParser.parse)
         guard let timestamp = explicitDate ?? fallbackDate else { continue }

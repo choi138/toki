@@ -137,6 +137,29 @@ final class FactoryDroidReaderTests: XCTestCase {
         XCTAssertNil(usage.tokenEvents.first?.provider)
     }
 
+    func test_malformedOptionalTokenCounterDoesNotDropValidUsage() async throws {
+        let fixture = try FactoryDroidFixture()
+        defer { fixture.remove() }
+        let settingsURL = fixture.root.appendingPathComponent("lossy-counter.settings.json")
+        try JSONSerialization.data(withJSONObject: [
+            "model": "gpt-5.4",
+            "tokenUsage": [
+                "inputTokens": 12,
+                "outputTokens": 3,
+                "thinkingTokens": "not-a-number",
+            ],
+        ])
+        .write(to: settingsURL)
+        try fixture.setModificationDate("2026-08-20T08:00:00Z", for: settingsURL)
+
+        let usage = try await fixture.reader.readUsage(
+            from: fixture.date("2026-08-20T00:00:00Z"),
+            to: fixture.date("2026-08-21T00:00:00Z"))
+
+        XCTAssertEqual(usage.totalTokens, 15)
+        XCTAssertEqual(usage.tokenEvents.count, 1)
+    }
+
     func test_dateRangeIsStartInclusiveAndEndExclusive() async throws {
         let fixture = try FactoryDroidFixture()
         defer { fixture.remove() }

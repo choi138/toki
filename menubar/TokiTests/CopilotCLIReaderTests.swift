@@ -302,6 +302,33 @@ extension CopilotCLIReaderTests {
         XCTAssertEqual(usage.tokenEvents.count, 1)
     }
 
+    func test_traceReconciliationKeepsResponseTimestampAcrossRangeBoundary() {
+        let response = copilotSpan(
+            traceID: "boundary-trace",
+            spanID: "response-span",
+            timestamp: 1_765_756_800,
+            attributes: #""gen_ai.response.id":"boundary-response","gen_ai.usage.input_tokens":10"#)
+        let summary = copilotSpan(
+            operation: "invoke_agent",
+            traceID: "boundary-trace",
+            spanID: "summary-span",
+            timestamp: 1_765_756_799,
+            attributes: #""gen_ai.usage.output_tokens":4"#)
+
+        let usage = CopilotCLIReader.usage(
+            fromJSONLLines: [summary, response],
+            streamID: "fixture.jsonl",
+            from: Date(timeIntervalSince1970: 1_765_756_800),
+            to: Date(timeIntervalSince1970: 1_765_756_900))
+
+        XCTAssertEqual(usage.inputTokens, 10)
+        XCTAssertEqual(usage.outputTokens, 4)
+        XCTAssertEqual(usage.tokenEvents.count, 1)
+        XCTAssertEqual(
+            usage.tokenEvents.first?.timestamp,
+            Date(timeIntervalSince1970: 1_765_756_800))
+    }
+
     func test_preferredNormalizedInputIsNotCombinedWithConflictingReplicaInput() {
         let span = copilotSpan(
             traceID: "normalized-trace",

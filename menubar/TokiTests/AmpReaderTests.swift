@@ -172,7 +172,7 @@ extension AmpReaderTests {
                 [
                     "role": "assistant",
                     "messageId": 2,
-                    "usage": ["inputTokens": 999],
+                    "usage": ["inputTokens": "not-a-number"],
                 ],
             ],
         ])
@@ -212,6 +212,60 @@ extension AmpReaderTests {
 
         XCTAssertEqual(usage.totalTokens, 25)
         XCTAssertEqual(usage.tokenEvents.count, 1)
+    }
+
+    func test_malformedOptionalMessageUsageMetadataDoesNotDropValidTokens() async throws {
+        let fixture = try AmpFixture()
+        defer { fixture.remove() }
+        try fixture.writeThread([
+            "id": "T-lossy-usage",
+            "created": fixture.milliseconds("2026-08-20T10:00:00Z"),
+            "messages": [[
+                "role": "assistant",
+                "messageId": 1,
+                "createdAt": "2026-08-20T11:00:00Z",
+                "usage": [
+                    "model": "gpt-5.4",
+                    "inputTokens": 20,
+                    "outputTokens": 5,
+                    "credits": "not-a-number",
+                ],
+            ]],
+        ])
+
+        let usage = try await fixture.reader.readUsage(
+            from: fixture.date("2026-08-20T00:00:00Z"),
+            to: fixture.date("2026-08-21T00:00:00Z"))
+
+        XCTAssertEqual(usage.totalTokens, 25)
+        XCTAssertEqual(usage.tokenEvents.count, 1)
+        XCTAssertEqual(usage.cost, 0)
+    }
+
+    func test_modelLessMessageUsageIsRetainedAsUnattributed() async throws {
+        let fixture = try AmpFixture()
+        defer { fixture.remove() }
+        try fixture.writeThread([
+            "id": "T-model-less",
+            "created": fixture.milliseconds("2026-08-20T10:00:00Z"),
+            "messages": [[
+                "role": "assistant",
+                "messageId": 1,
+                "createdAt": "2026-08-20T11:00:00Z",
+                "usage": [
+                    "inputTokens": 20,
+                    "outputTokens": 5,
+                ],
+            ]],
+        ])
+
+        let usage = try await fixture.reader.readUsage(
+            from: fixture.date("2026-08-20T00:00:00Z"),
+            to: fixture.date("2026-08-21T00:00:00Z"))
+
+        XCTAssertEqual(usage.totalTokens, 25)
+        XCTAssertEqual(usage.tokenEvents.count, 1)
+        XCTAssertNil(usage.tokenEvents.first?.model)
     }
 
     func test_dateRangeIsStartInclusiveAndEndExclusive() async throws {

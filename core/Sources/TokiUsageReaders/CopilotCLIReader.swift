@@ -286,7 +286,7 @@ private struct CopilotUsageCandidate {
             model: preferred.model ?? fallback.model,
             provider: preferred.provider ?? fallback.provider,
             sessionID: preferred.sessionID ?? fallback.sessionID,
-            timestamp: min(timestamp, other.timestamp),
+            timestamp: preferred.timestamp,
             inputTokens: preferred.inputTokens > 0
                 ? preferred.inputTokens
                 : fallback.inputTokens,

@@ -182,6 +182,15 @@ public func checkedTokenTotal(_ counts: Int...) -> Int? {
     return total
 }
 
+private let maximumTokenCountPerUsageEvent = 1_000_000_000
+
+private func checkedUsageEventTokenTotal(_ counts: Int...) -> Int? {
+    guard counts.allSatisfy({ (0...maximumTokenCountPerUsageEvent).contains($0) }) else {
+        return nil
+    }
+    return counts.reduce(0, +)
+}
+
 private func saturatedTokenTotal(_ counts: Int...) -> Int {
     var total = 0
     for count in counts {
@@ -389,7 +398,7 @@ public struct RawTokenUsage {
         cost: Double = 0,
         costIsKnown: Bool? = nil,
         attribution: UsageAttribution? = nil) {
-        guard let totalTokens = checkedTokenTotal(
+        guard let totalTokens = checkedUsageEventTokenTotal(
             inputTokens,
             outputTokens,
             cacheReadTokens,
@@ -421,7 +430,7 @@ public struct RawTokenUsage {
         cacheRead: Int = 0,
         cacheWrite: Int = 0,
         reasoning: Int = 0) -> Int? {
-        guard let total = checkedTokenTotal(
+        guard let total = checkedUsageEventTokenTotal(
             input,
             output,
             cacheRead,
