@@ -54,9 +54,7 @@ public struct KimiCLIReader: TokenReader {
                       let tokens = payload.tokenUsage?.counts,
                       let totalTokens = tokens.total,
                       totalTokens > 0,
-                      let timestamp = kimiCLITimestamp(wire.timestamp),
-                      timestamp >= startDate,
-                      timestamp < endDate else {
+                      let timestamp = kimiCLITimestamp(wire.timestamp) else {
                     return
                 }
 
@@ -73,6 +71,7 @@ public struct KimiCLIReader: TokenReader {
                     sessionLabel: identity.sessionID,
                     projectName: identity.workspace,
                     streamID: identity.dedupScope,
+                    agentKind: .main,
                     tokens: tokens,
                     totalTokens: totalTokens,
                     dedupKey: "\(identity.dedupScope):\(messageKey)")
@@ -85,7 +84,9 @@ public struct KimiCLIReader: TokenReader {
         }
 
         return kimiRawUsage(
-            events: snapshots.values.sorted(by: kimiEventSort),
+            events: snapshots.values
+                .filter { $0.timestamp >= startDate && $0.timestamp < endDate }
+                .sorted(by: kimiEventSort),
             source: sourceName,
             clippingEndDate: endDate)
     }
@@ -186,6 +187,7 @@ public struct KimiCodeReader: TokenReader {
                     sessionLabel: identity.sessionID,
                     projectName: identity.workspace,
                     streamID: identity.streamID,
+                    agentKind: identity.agentKind,
                     tokens: tokens,
                     totalTokens: totalTokens,
                     dedupKey: key)
@@ -296,6 +298,7 @@ private struct KimiUsageEvent {
     let sessionLabel: String
     let projectName: String?
     let streamID: String
+    let agentKind: WorkTimeAgentKind
     let tokens: KimiTokenCounts
     let totalTokens: Int
     let dedupKey: String
@@ -359,7 +362,8 @@ private func kimiRawUsage(
             ActivityTimeEvent(
                 streamID: event.streamID,
                 timestamp: event.timestamp,
-                key: event.model))
+                key: event.model,
+                agentKind: event.agentKind))
     }
 
     result.mergeActivityEvents(
@@ -400,6 +404,7 @@ private struct KimiCodeIdentity {
     let sessionID: String
     let sessionScope: String
     let agent: String
+    let agentKind: WorkTimeAgentKind
     let streamID: String
 }
 
@@ -419,6 +424,7 @@ private func kimiCodeIdentity(from path: String) -> KimiCodeIdentity {
         sessionID: sessionID,
         sessionScope: sessionScope,
         agent: agentName,
+        agentKind: agentName == "main" ? .main : .subagent,
         streamID: [
             sessionScope,
             "\(agentName.utf8.count):\(agentName)",

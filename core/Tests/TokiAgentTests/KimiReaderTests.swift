@@ -47,6 +47,33 @@ final class KimiReaderTests: XCTestCase {
         XCTAssertEqual(usage.activityEvents.count, 2)
     }
 
+    func test_kimiCLIDeduplicatesSnapshotsBeforeDateFiltering() {
+        let boundary = startDate.addingTimeInterval(60)
+        let lines = [
+            #"{"timestamp":"# + String(boundary.timeIntervalSince1970 - 1) +
+                #", "message":{"type":"StatusUpdate","payload":{"token_usage":{"# +
+                #""input_other":100,"output":0},"message_id":"spanning-message"}}}"#,
+            #"{"timestamp":"# + String(boundary.timeIntervalSince1970 + 1) +
+                #", "message":{"type":"StatusUpdate","payload":{"token_usage":{"# +
+                #""input_other":150,"output":0},"message_id":"spanning-message"}}}"#,
+        ]
+
+        let beforeBoundary = KimiCLIReader.usage(
+            fromJSONLLines: lines,
+            streamID: "/tmp/.kimi/sessions/workspace/session/wire.jsonl",
+            from: startDate,
+            to: boundary)
+        let afterBoundary = KimiCLIReader.usage(
+            fromJSONLLines: lines,
+            streamID: "/tmp/.kimi/sessions/workspace/session/wire.jsonl",
+            from: boundary,
+            to: endDate)
+
+        XCTAssertEqual(beforeBoundary.totalTokens, 0)
+        XCTAssertEqual(afterBoundary.totalTokens, 150)
+        XCTAssertEqual(beforeBoundary.totalTokens + afterBoundary.totalTokens, 150)
+    }
+
     func test_kimiCLIDoesNotReattributeHistoryWhenCurrentConfigChanges() async throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
@@ -116,6 +143,21 @@ final class KimiReaderTests: XCTestCase {
         XCTAssertEqual(usage.tokenEvents.first?.attribution?.sessionLabel, "session-code")
         XCTAssertEqual(usage.tokenEvents.first?.attribution?.projectName, "workspace-b")
         XCTAssertEqual(usage.activityEvents.count, 1)
+    }
+
+    func test_kimiCodeClassifiesNonMainAgentActivityAsSubagent() {
+        let usage = KimiCodeReader.usage(
+            fromJSONLLines: [
+                #"{"type":"usage.record","model":"kimi-k2","usage":{"inputOther":12,"# +
+                    #""output":3},"usageScope":"turn","time":1770983410000}"#,
+            ],
+            streamID: "/tmp/.kimi-code/sessions/workspace/session/agents/researcher/wire.jsonl",
+            from: startDate,
+            to: endDate)
+
+        XCTAssertEqual(usage.activityEvents.map(\.agentKind), [.subagent])
+        XCTAssertEqual(usage.resolvedWorkTime.mainAgentSeconds, 0)
+        XCTAssertEqual(usage.resolvedWorkTime.subagentSeconds, 30)
     }
 
     func test_kimiReadersSkipMalformedAndTruncatedRecords() {
