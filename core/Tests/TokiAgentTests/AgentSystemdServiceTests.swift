@@ -20,7 +20,12 @@ final class AgentSystemdServiceTests: XCTestCase {
         XCTAssertFalse(service.contains("ProtectKernelLogs="))
         XCTAssertFalse(service.contains("ProtectKernelModules="))
         XCTAssertFalse(service.contains("ProtectKernelTunables="))
-        XCTAssertTrue(service.contains("ExecStartPre=/usr/local/bin/toki-agent doctor"))
+        let prepareSenpiMounts = try XCTUnwrap(service.range(
+            of: "ExecStartPre=+/usr/bin/mkdir -p -m 0700 \"%h/.omo/senpi-task/children\" "
+                + "\"%h/.omo/senpi-task/sessions\""))
+        let doctor = try XCTUnwrap(service.range(
+            of: "ExecStartPre=/usr/local/bin/toki-agent doctor"))
+        XCTAssertLessThan(prepareSenpiMounts.lowerBound, doctor.lowerBound)
         let expectedReadOnlyPaths = [
             "%h/.claude/projects",
             "%h/.codex/state_5.sqlite",
