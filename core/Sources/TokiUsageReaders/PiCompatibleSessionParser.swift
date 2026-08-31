@@ -18,291 +18,287 @@ enum PiCompatibleSource {
         }
     }
 
-    fileprivate var preHeaderPolicy: PiPreHeaderPolicy {
-        self == .ohMyPi ? .titles : .none
-    }
-
-    fileprivate var sessionInfoPolicy: PiSessionInfoPolicy {
-        self == .pi ? .generatedSubagent : .ignored
-    }
-
-    fileprivate var usagePolicy: PiUsagePolicy {
-        self == .gjc ? .gjc : .assistant
-    }
-
-    var dedupNamespace: String {
-        switch self {
-        case .gjc: "gjc"
-        case .senpi: "senpi"
-        case .pi: "pi"
-        case .ohMyPi: "omp"
-        case .kimchi: "kimchi"
-        }
+    var reportsReasoningSeparately: Bool {
+        self == .senpi || self == .gjc
     }
 }
 
-struct PiCompatibleMessage {
-    let id: String?
-    let responseID: String?
+struct PiCompatibleUsageRecord {
+    let deduplicationKey: PiCompatibleDeduplicationKey
     let timestamp: Date
-    let sessionID: String
-    let cwd: String?
-    let provider: String?
     let model: String?
+    let provider: String?
     let inputTokens: Int
     let outputTokens: Int
     let cacheReadTokens: Int
     let cacheWriteTokens: Int
     let reasoningTokens: Int
-    let cost: Double?
+    let cost: Double
+    let costIsKnown: Bool?
+    let attribution: UsageAttribution
     let agentName: String?
     let agentKind: WorkTimeAgentKind
 
     var totalTokens: Int {
-        checkedTokenTotal(
-            inputTokens,
-            outputTokens,
-            cacheReadTokens,
-            cacheWriteTokens,
-            reasoningTokens) ?? 0
+        inputTokens + outputTokens + cacheReadTokens + cacheWriteTokens + reasoningTokens
     }
 
-    func dedupKey(namespace: String) -> String {
-        if let responseID = responseID?.nilIfBlank {
-            let components: [String] = [
-                namespace,
-                "response",
-                sessionID,
-                provider ?? "unknown",
-                model ?? "unknown",
-                responseID,
-                "\(timestamp.timeIntervalSince1970)",
-                "\(inputTokens)",
-                "\(outputTokens)",
-                "\(cacheReadTokens)",
-                "\(cacheWriteTokens)",
-                "\(reasoningTokens)",
-            ]
-            return components.joined(separator: ":")
+    func merged(with other: Self) -> Self {
+        let prefersSelf = totalTokens > other.totalTokens
+            || (totalTokens == other.totalTokens && cost > other.cost)
+            || (totalTokens == other.totalTokens && cost == other.cost
+                && costIsKnown == true && other.costIsKnown != true)
+        let preferred = prefersSelf ? self : other
+        let supplemental = prefersSelf ? other : self
+        return PiCompatibleUsageRecord(
+            deduplicationKey: deduplicationKey,
+            timestamp: preferred.timestamp,
+            model: preferred.model,
+            provider: preferred.provider ?? supplemental.provider,
+            inputTokens: preferred.inputTokens,
+            outputTokens: preferred.outputTokens,
+            cacheReadTokens: preferred.cacheReadTokens,
+            cacheWriteTokens: preferred.cacheWriteTokens,
+            reasoningTokens: preferred.reasoningTokens,
+            cost: preferred.cost,
+            costIsKnown: preferred.costIsKnown ?? supplemental.costIsKnown,
+            attribution: bestUsageAttribution(attribution, other.attribution) ?? attribution,
+            agentName: preferred.agentName ?? supplemental.agentName,
+            agentKind: agentKind == .subagent || other.agentKind == .subagent ? .subagent : .main)
+    }
+}
+
+enum PiCompatibleDeduplicationKey: Hashable {
+    case message(String)
+    case response(String)
+    case record(
+        timestamp: Date,
+        provider: String?,
+        model: String?,
+        inputTokens: Int,
+        outputTokens: Int,
+        cacheReadTokens: Int,
+        cacheWriteTokens: Int,
+        reasoningTokens: Int,
+        cost: Double,
+        location: String)
+}
+
+struct PiCompatibleSessionParser {
+    private let decoder = JSONDecoder()
+    private let streamID: String
+    private let source: PiCompatibleSource
+    private var agentKind: WorkTimeAgentKind
+    private var agentName: String?
+    private var sessionContext: PiCompatibleSessionContext?
+    private var rejectedPreHeader = false
+
+    init(
+        streamID: String,
+        source: PiCompatibleSource = .senpi,
+        agentKind: WorkTimeAgentKind) {
+        self.streamID = streamID
+        self.source = source
+        self.agentKind = agentKind
+        agentName = nil
+        sessionContext = source == .gjc
+            ? PiCompatibleSessionContext(
+                id: usageSessionID(fromPath: streamID),
+                cwd: nil)
+            : nil
+    }
+
+    static func records(
+        fromJSONLLines lines: [String],
+        streamID: String,
+        source: PiCompatibleSource = .senpi,
+        agentKind: WorkTimeAgentKind) -> [PiCompatibleUsageRecord] {
+        var parser = Self(streamID: streamID, source: source, agentKind: agentKind)
+        var records: [PiCompatibleUsageRecord] = []
+
+        for (lineIndex, line) in lines.enumerated() {
+            if let record = parser.record(fromJSONLLine: line, lineIndex: lineIndex) {
+                records.append(record)
+            }
         }
-        let components: [String] = [
-            namespace,
-            "message",
-            sessionID,
-            id?.nilIfBlank ?? "missing",
-            "\(timestamp.timeIntervalSince1970)",
-            provider ?? "unknown",
-            model ?? "unknown",
-            "\(inputTokens)",
-            "\(outputTokens)",
-            "\(cacheReadTokens)",
-            "\(cacheWriteTokens)",
-            "\(reasoningTokens)",
-        ]
-        return components.joined(separator: ":")
+        return records
     }
 
-    func mergingEnrichment(from other: PiCompatibleMessage) -> PiCompatibleMessage {
-        PiCompatibleMessage(
-            id: id ?? other.id,
-            responseID: responseID ?? other.responseID,
+    mutating func record(
+        fromJSONLLine line: String,
+        lineIndex: Int) -> PiCompatibleUsageRecord? {
+        guard let data = line.data(using: .utf8),
+              let entry = try? decoder.decode(PiCompatibleEntry.self, from: data) else {
+            return nil
+        }
+
+        if entry.type == "session" {
+            let nextSessionID = nonEmptyPiValue(entry.id) ?? usageSessionID(fromPath: streamID)
+            if sessionContext != nil, sessionContext?.id != nextSessionID {
+                agentName = nil
+                agentKind = .main
+            }
+            sessionContext = PiCompatibleSessionContext(
+                id: nextSessionID,
+                cwd: nonEmptyPiValue(entry.cwd))
+            return nil
+        }
+
+        guard sessionContext != nil else {
+            if source == .ohMyPi, entry.type == "title" {
+                return nil
+            }
+            if source != .senpi, source != .gjc {
+                rejectedPreHeader = true
+            }
+            return nil
+        }
+        guard !rejectedPreHeader else { return nil }
+
+        if source == .pi, entry.type == "session_info" {
+            agentName = strictPiSubagentName(from: entry.name)
+            agentKind = agentName == nil ? .main : .subagent
+            return nil
+        }
+
+        guard let sessionContext,
+              entry.type == "message",
+              let message = entry.message,
+              let usage = usage(from: message),
+              let timestamp = entry.timestamp.flatMap(DateParser.parse) else {
+            return nil
+        }
+
+        return makeRecord(
+            entry: entry,
+            message: message,
+            usage: usage,
             timestamp: timestamp,
-            sessionID: sessionID,
-            cwd: cwd ?? other.cwd,
-            provider: provider ?? other.provider,
-            model: model ?? other.model,
+            sessionContext: sessionContext,
+            lineIndex: lineIndex)
+    }
+
+    private func makeRecord(
+        entry: PiCompatibleEntry,
+        message: PiCompatibleMessage,
+        usage: PiCompatibleUsage,
+        timestamp: Date,
+        sessionContext: PiCompatibleSessionContext,
+        lineIndex: Int) -> PiCompatibleUsageRecord? {
+        let model = normalizedModelID(message.model)
+        guard source == .gjc || model != nil else { return nil }
+        let outputIncludingReasoning = boundedUsageTokenCount(usage.output)
+        let recordedReasoning = min(
+            boundedUsageTokenCount(usage.reasoning ?? usage.reasoningTokens),
+            outputIncludingReasoning)
+        let reasoning = source.reportsReasoningSeparately ? recordedReasoning : 0
+        let messageID = nonEmptyPiValue(entry.id)
+        let responseID = nonEmptyPiValue(message.responseID)
+        let provider = nonEmptyPiValue(message.provider) ?? inferredUsageProvider(from: model)
+        let inputTokens = boundedUsageTokenCount(usage.input)
+        let outputTokens = outputIncludingReasoning - reasoning
+        let cacheReadTokens = boundedUsageTokenCount(usage.cacheRead)
+        let cacheWriteTokens = boundedUsageTokenCount(usage.cacheWrite)
+        let cost = boundedUsageCost(usage.cost?.total)
+        let costIsKnown: Bool? = if usage.cost != nil {
+            true
+        } else if source == .gjc {
+            nil
+        } else {
+            false
+        }
+        let deduplicationKey: PiCompatibleDeduplicationKey = if let messageID {
+            .message(messageID)
+        } else if let responseID {
+            .response(responseID)
+        } else {
+            .record(
+                timestamp: timestamp,
+                provider: provider,
+                model: model,
+                inputTokens: inputTokens,
+                outputTokens: outputTokens,
+                cacheReadTokens: cacheReadTokens,
+                cacheWriteTokens: cacheWriteTokens,
+                reasoningTokens: reasoning,
+                cost: cost,
+                location: "\(streamID)#\(lineIndex)")
+        }
+        return PiCompatibleUsageRecord(
+            deduplicationKey: deduplicationKey,
+            timestamp: timestamp,
+            model: model,
+            provider: provider,
             inputTokens: inputTokens,
             outputTokens: outputTokens,
             cacheReadTokens: cacheReadTokens,
             cacheWriteTokens: cacheWriteTokens,
-            reasoningTokens: reasoningTokens,
-            cost: cost ?? other.cost,
-            agentName: agentName ?? other.agentName,
-            agentKind: agentName != nil ? agentKind : other.agentKind)
+            reasoningTokens: reasoning,
+            cost: cost,
+            costIsKnown: costIsKnown,
+            attribution: UsageAttribution(
+                projectPath: sessionContext.cwd,
+                sessionID: sessionContext.id,
+                quality: sessionContext.cwd == nil ? .unknown : .exact),
+            agentName: agentName,
+            agentKind: agentKind)
+    }
+
+    private func usage(from message: PiCompatibleMessage) -> PiCompatibleUsage? {
+        if message.role == "assistant" {
+            return message.usage
+        }
+        guard source == .gjc,
+              message.role == "toolResult",
+              message.toolName == "task" else {
+            return nil
+        }
+        return message.details?.usage
     }
 }
 
-enum PiCompatibleSessionParser {
+struct PiCompatibleMessageSnapshot {
+    let provider: String?
+    let model: String?
+    let sessionID: String?
+    let cwd: String?
+    let agentName: String?
+    let agentKind: WorkTimeAgentKind
+}
+
+extension PiCompatibleSessionParser {
     static func messages(
         fromJSONLLines lines: [String],
-        source: PiCompatibleSource,
-        fallbackSessionID: String? = nil) -> [PiCompatibleMessage] {
-        let decoder = JSONDecoder()
-        var context = source == .gjc
-            ? fallbackSessionID?.nilIfBlank.map { PiSessionContext(id: $0, cwd: nil) }
-            : nil
-        var agentName: String?
-        var messages: [PiCompatibleMessage] = []
-
-        for line in lines {
-            guard let data = line.data(using: .utf8),
-                  let entry = try? decoder.decode(PiEntry.self, from: data) else {
-                continue
+        source: PiCompatibleSource) -> [PiCompatibleMessageSnapshot] {
+        records(
+            fromJSONLLines: lines,
+            streamID: "inline-session",
+            source: source,
+            agentKind: .main)
+            .map { record in
+                PiCompatibleMessageSnapshot(
+                    provider: record.provider,
+                    model: record.model,
+                    sessionID: record.attribution.sessionID,
+                    cwd: record.attribution.projectPath,
+                    agentName: record.agentName,
+                    agentKind: record.agentKind)
             }
-
-            guard var currentContext = context else {
-                if entry.type == "session",
-                   let id = entry.id?.nilIfBlank {
-                    context = PiSessionContext(id: id, cwd: entry.cwd?.nilIfBlank)
-                    continue
-                }
-                if source.preHeaderPolicy.accepts(entry.type) {
-                    continue
-                }
-                return []
-            }
-
-            if entry.type == "session" {
-                if let id = entry.id?.nilIfBlank {
-                    if id != currentContext.id {
-                        agentName = nil
-                    }
-                    currentContext.id = id
-                }
-                if let cwd = entry.cwd?.nilIfBlank {
-                    currentContext.cwd = cwd
-                }
-                context = currentContext
-                continue
-            }
-
-            if entry.type == "session_info" {
-                agentName = source.sessionInfoPolicy.agentName(from: entry.name)
-                continue
-            }
-
-            guard entry.type == "message",
-                  let message = entry.message,
-                  let usage = source.usagePolicy.usage(from: message),
-                  let timestamp = entry.timestamp.flatMap(DateParser.parse) else {
-                continue
-            }
-
-            guard let counts = source.usagePolicy.counts(from: usage) else {
-                continue
-            }
-            let model = normalizedModelID(message.model)
-            let provider = message.provider?.nilIfBlank
-                ?? inferredUsageProvider(from: model)
-            messages.append(PiCompatibleMessage(
-                id: entry.id,
-                responseID: message.responseID,
-                timestamp: timestamp,
-                sessionID: currentContext.id,
-                cwd: currentContext.cwd,
-                provider: provider,
-                model: model,
-                inputTokens: counts.input,
-                outputTokens: counts.output,
-                cacheReadTokens: counts.cacheRead,
-                cacheWriteTokens: counts.cacheWrite,
-                reasoningTokens: counts.reasoning,
-                cost: usage.cost?.total.map { max(0, $0) },
-                agentName: agentName,
-                agentKind: agentName == nil ? .main : .subagent))
-        }
-
-        return context == nil ? [] : messages
     }
 }
 
-private enum PiPreHeaderPolicy {
-    case none
-    case titles
-
-    func accepts(_ type: String?) -> Bool {
-        self == .titles && type == "title"
-    }
+private struct PiCompatibleSessionContext {
+    let id: String
+    let cwd: String?
 }
 
-private enum PiSessionInfoPolicy {
-    case ignored
-    case generatedSubagent
-
-    func agentName(from value: String?) -> String? {
-        switch self {
-        case .ignored:
-            nil
-        case .generatedSubagent:
-            piSubagentName(from: value)
-        }
-    }
-}
-
-private enum PiUsagePolicy {
-    case assistant
-    case gjc
-
-    func usage(from message: PiMessage) -> PiUsage? {
-        switch self {
-        case .assistant:
-            return message.role == "assistant" ? message.usage : nil
-        case .gjc:
-            if message.role == "assistant" {
-                return message.usage
-            }
-            return message.role == "toolResult" && message.toolName == "task"
-                ? message.details?.usage
-                : nil
-        }
-    }
-
-    func counts(from usage: PiUsage) -> PiTokenCounts? {
-        guard let input = normalizedPiTokenCount(usage.input),
-              let output = normalizedPiTokenCount(usage.output),
-              let cacheRead = normalizedPiTokenCount(usage.cacheRead),
-              let cacheWrite = normalizedPiTokenCount(usage.cacheWrite) else {
-            return nil
-        }
-        guard self == .gjc else {
-            guard let reasoning = normalizedPiTokenCount(
-                usage.reasoning ?? usage.reasoningTokens) else {
-                return nil
-            }
-            return PiTokenCounts(
-                input: input,
-                output: output,
-                cacheRead: cacheRead,
-                cacheWrite: cacheWrite,
-                reasoning: reasoning)
-        }
-        guard let reasoning = normalizedPiTokenCount(usage.reasoningTokens) else {
-            return nil
-        }
-        return PiTokenCounts(
-            input: input,
-            output: max(0, output - reasoning),
-            cacheRead: cacheRead,
-            cacheWrite: cacheWrite,
-            reasoning: reasoning)
-    }
-}
-
-private func normalizedPiTokenCount(_ value: Int?) -> Int? {
-    let value = max(0, value ?? 0)
-    return value <= 1_000_000_000_000 ? value : nil
-}
-
-private struct PiSessionContext {
-    var id: String
-    var cwd: String?
-}
-
-private struct PiTokenCounts {
-    let input: Int
-    let output: Int
-    let cacheRead: Int
-    let cacheWrite: Int
-    let reasoning: Int
-}
-
-private struct PiEntry: Decodable {
+private struct PiCompatibleEntry: Decodable {
     let type: String?
     let id: String?
     let timestamp: String?
     let cwd: String?
     let name: String?
-    let message: PiMessage?
+    let message: PiCompatibleMessage?
 
     enum CodingKeys: String, CodingKey {
         case type, id, timestamp, cwd, name, message
@@ -315,18 +311,18 @@ private struct PiEntry: Decodable {
         timestamp = try? container.decodeIfPresent(String.self, forKey: .timestamp)
         cwd = try? container.decodeIfPresent(String.self, forKey: .cwd)
         name = try? container.decodeIfPresent(String.self, forKey: .name)
-        message = try? container.decodeIfPresent(PiMessage.self, forKey: .message)
+        message = try? container.decodeIfPresent(PiCompatibleMessage.self, forKey: .message)
     }
 }
 
-private struct PiMessage: Decodable {
+private struct PiCompatibleMessage: Decodable {
     let role: String?
     let toolName: String?
     let model: String?
     let provider: String?
     let responseID: String?
-    let usage: PiUsage?
-    let details: PiDetails?
+    let usage: PiCompatibleUsage?
+    let details: PiCompatibleDetails?
 
     enum CodingKeys: String, CodingKey {
         case role, toolName, model, provider, usage, details
@@ -340,13 +336,13 @@ private struct PiMessage: Decodable {
         model = try? container.decodeIfPresent(String.self, forKey: .model)
         provider = try? container.decodeIfPresent(String.self, forKey: .provider)
         responseID = try? container.decodeIfPresent(String.self, forKey: .responseID)
-        usage = try? container.decodeIfPresent(PiUsage.self, forKey: .usage)
-        details = try? container.decodeIfPresent(PiDetails.self, forKey: .details)
+        usage = try? container.decodeIfPresent(PiCompatibleUsage.self, forKey: .usage)
+        details = try? container.decodeIfPresent(PiCompatibleDetails.self, forKey: .details)
     }
 }
 
-private struct PiDetails: Decodable {
-    let usage: PiUsage?
+private struct PiCompatibleDetails: Decodable {
+    let usage: PiCompatibleUsage?
 
     enum CodingKeys: String, CodingKey {
         case usage
@@ -354,18 +350,18 @@ private struct PiDetails: Decodable {
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        usage = try? container.decodeIfPresent(PiUsage.self, forKey: .usage)
+        usage = try? container.decodeIfPresent(PiCompatibleUsage.self, forKey: .usage)
     }
 }
 
-private struct PiUsage: Decodable {
+private struct PiCompatibleUsage: Decodable {
     let input: Int?
     let output: Int?
     let cacheRead: Int?
     let cacheWrite: Int?
     let reasoning: Int?
     let reasoningTokens: Int?
-    let cost: PiCost?
+    let cost: PiCompatibleCost?
 
     enum CodingKeys: String, CodingKey {
         case input, output, cacheRead, cacheWrite, reasoning, reasoningTokens, cost
@@ -379,11 +375,11 @@ private struct PiUsage: Decodable {
         cacheWrite = try? container.decodeIfPresent(Int.self, forKey: .cacheWrite)
         reasoning = try? container.decodeIfPresent(Int.self, forKey: .reasoning)
         reasoningTokens = try? container.decodeIfPresent(Int.self, forKey: .reasoningTokens)
-        cost = try? container.decodeIfPresent(PiCost.self, forKey: .cost)
+        cost = try? container.decodeIfPresent(PiCompatibleCost.self, forKey: .cost)
     }
 }
 
-private struct PiCost: Decodable {
+private struct PiCompatibleCost: Decodable {
     let total: Double?
 
     enum CodingKeys: String, CodingKey {
@@ -396,43 +392,48 @@ private struct PiCost: Decodable {
     }
 }
 
-private func piSubagentName(from value: String?) -> String? {
-    guard var name = value?.nilIfBlank,
+private func nonEmptyPiValue(_ value: String?) -> String? {
+    guard let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines),
+          !trimmed.isEmpty else {
+        return nil
+    }
+    return trimmed
+}
+
+private func strictPiSubagentName(from value: String?) -> String? {
+    guard var name = nonEmptyPiValue(value),
           name.hasPrefix("subagent-") else {
         return nil
     }
     name.removeFirst("subagent-".count)
-    if let agentName = piAgentName(fromGeneratedSuffix: name) {
-        return agentName
+    if let parsed = piAgentName(fromGeneratedSuffix: name) {
+        return parsed
     }
-    if let index = name.lastIndex(of: "-"),
-       name[name.index(after: index)...].allSatisfy(\.isNumber) {
-        name = String(name[..<index])
-        return piAgentName(fromGeneratedSuffix: name)
+    guard let index = name.lastIndex(of: "-") else { return nil }
+    let numericSuffix = name[name.index(after: index)...]
+    guard !numericSuffix.isEmpty,
+          numericSuffix.allSatisfy(\.isNumber) else {
+        return nil
     }
-    return nil
+    return piAgentName(fromGeneratedSuffix: String(name[..<index]))
 }
 
 private func piAgentName(fromGeneratedSuffix name: String) -> String? {
     if name.count > 36 {
-        let uuidStart = name.index(name.endIndex, offsetBy: -36)
-        let separator = name.index(before: uuidStart)
-        let generatedID = String(name[uuidStart...])
-        if name[separator] == "-",
-           UUID(uuidString: generatedID) != nil {
-            return String(name[..<separator]).nilIfBlank
+        let suffixStart = name.index(name.endIndex, offsetBy: -36)
+        let separator = name.index(before: suffixStart)
+        let suffix = String(name[suffixStart...])
+        if name[separator] == "-", UUID(uuidString: suffix) != nil {
+            return nonEmptyPiValue(String(name[..<separator]))
         }
     }
-    guard let separator = name.lastIndex(of: "-") else { return nil }
-    let generatedID = String(name[name.index(after: separator)...])
-    let agentName = String(name[..<separator])
-    let isShortID = generatedID.count == 8 && generatedID.allSatisfy(\.isHexDigit)
-    return isShortID ? agentName.nilIfBlank : nil
-}
-
-private extension String {
-    var nilIfBlank: String? {
-        let trimmed = trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty ? nil : trimmed
+    guard name.count > 8 else { return nil }
+    let suffixStart = name.index(name.endIndex, offsetBy: -8)
+    let separator = name.index(before: suffixStart)
+    let suffix = name[suffixStart...]
+    guard name[separator] == "-",
+          suffix.allSatisfy(\.isHexDigit) else {
+        return nil
     }
+    return nonEmptyPiValue(String(name[..<separator]))
 }

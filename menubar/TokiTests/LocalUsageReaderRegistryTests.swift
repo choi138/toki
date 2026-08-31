@@ -45,25 +45,19 @@ final class LocalUsageReaderRegistryTests: XCTestCase {
 
         XCTAssertEqual(paths.claudeProjects.path, "/tmp/toki-reader-home/.claude/projects")
         XCTAssertEqual(paths.hermesDatabase.path, "/tmp/toki-reader-home/.hermes/state.db")
-        XCTAssertEqual(
-            paths.factoryDroidSessions.path,
-            "/tmp/toki-reader-home/.factory/sessions")
+        XCTAssertEqual(paths.factoryDroidSessions.path, "/tmp/toki-reader-home/.factory/sessions")
         XCTAssertEqual(paths.ampThreads.path, "/tmp/toki-xdg-data/amp/threads")
         XCTAssertEqual(paths.openCodeDatabase.path, "/tmp/toki-xdg-data/opencode/opencode.db")
-        XCTAssertEqual(paths.senpiSessions.map(\.path), [
-            "/tmp/toki-reader-home/.omo/agent/sessions",
-            "/tmp/toki-reader-home/.senpi/agent/sessions",
-        ])
-        XCTAssertEqual(paths.piSessions.path, "/tmp/toki-reader-home/.pi/agent/sessions")
-        XCTAssertEqual(paths.ompSessions.path, "/tmp/toki-reader-home/.omp/agent/sessions")
         XCTAssertEqual(
-            paths.kimchiSessions.path,
-            "/tmp/toki-reader-home/.config/kimchi/harness/sessions")
+            paths.senpiSessionDirectories.map(\.path),
+            [
+                "/tmp/toki-reader-home/.omo/agent/sessions",
+                "/tmp/toki-reader-home/.senpi/agent/sessions",
+                "/tmp/toki-reader-home/.omo/senpi-task/children",
+                "/tmp/toki-reader-home/.omo/senpi-task/sessions",
+            ])
         XCTAssertEqual(paths.copilotOTELDirectory.path, "/tmp/toki-reader-home/.copilot/otel")
         XCTAssertNil(paths.copilotOTELExporterFile)
-        XCTAssertEqual(paths.kimiCLISessions.map(\.path), ["/tmp/toki-reader-home/.kimi/sessions"])
-        XCTAssertEqual(paths.kimiCodeSessions.map(\.path), ["/tmp/toki-reader-home/.kimi-code/sessions"])
-        XCTAssertEqual(paths.qwenProjects.map(\.path), ["/tmp/toki-reader-home/.qwen/projects"])
         XCTAssertEqual(paths.agentCacheDirectory.path, "/tmp/toki-xdg-state/toki-agent")
         #if os(Linux)
             XCTAssertEqual(
@@ -75,7 +69,9 @@ final class LocalUsageReaderRegistryTests: XCTestCase {
                 "/tmp/toki-reader-home/Library/Application Support/Cursor/User/globalStorage/state.vscdb")
         #endif
     }
+}
 
+extension LocalUsageReaderRegistryTests {
     func test_factoryDroidAndAmpReadersAreRegisteredExactlyOnce() {
         let home = URL(fileURLWithPath: "/tmp/toki-reader-home")
         let descriptors = LocalUsageReaderRegistry.descriptors(
@@ -102,23 +98,46 @@ final class LocalUsageReaderRegistryTests: XCTestCase {
                     extensions: ["json"]),
             ])
     }
+}
 
-    func test_kimiAndQwenRootsIgnoreInvalidOverridesAndDeduplicateDefaults() {
+extension LocalUsageReaderRegistryTests {
+    func test_senpiPathsUseOnlyAbsoluteOverridesAndIncludeDelegatedRoots() {
         let home = URL(fileURLWithPath: "/tmp/toki-reader-home")
         let paths = LocalUsageReaderPaths(
             homeDirectory: home,
             environment: [
-                "KIMI_SHARE_DIR": "/tmp/toki-reader-home/.kimi",
-                "KIMI_CODE_HOME": "relative-kimi-code",
-                "QWEN_HOME": "/tmp/qwen-home",
-                "QWEN_RUNTIME_DIR": "",
+                "PWD": "/tmp/toki-project",
+                "SENPI_CODING_AGENT_DIR": "/tmp/senpi-agent",
+                "SENPI_CODING_AGENT_SESSION_DIR": "/tmp/senpi-sessions",
             ])
 
-        XCTAssertEqual(paths.kimiCLISessions.map(\.path), ["/tmp/toki-reader-home/.kimi/sessions"])
-        XCTAssertEqual(paths.kimiCodeSessions.map(\.path), ["/tmp/toki-reader-home/.kimi-code/sessions"])
+        XCTAssertEqual(paths.senpiSessionDirectories.map(\.path), [
+            "/tmp/toki-reader-home/.omo/agent/sessions",
+            "/tmp/toki-reader-home/.senpi/agent/sessions",
+            "/tmp/toki-reader-home/.omo/senpi-task/children",
+            "/tmp/toki-reader-home/.omo/senpi-task/sessions",
+            "/tmp/senpi-agent/sessions",
+            "/tmp/senpi-sessions",
+            "/tmp/toki-project/.omo/senpi-task/children",
+            "/tmp/toki-project/.omo/senpi-task/sessions",
+        ])
+
+        let ignored = LocalUsageReaderPaths(
+            homeDirectory: home,
+            environment: [
+                "PWD": "",
+                "SENPI_CODING_AGENT_DIR": "relative-agent",
+                "SENPI_CODING_AGENT_SESSION_DIR": "relative-sessions",
+            ])
+
         XCTAssertEqual(
-            paths.qwenProjects.map(\.path),
-            ["/tmp/toki-reader-home/.qwen/projects", "/tmp/qwen-home/projects"])
+            ignored.senpiSessionDirectories.map(\.path),
+            [
+                "/tmp/toki-reader-home/.omo/agent/sessions",
+                "/tmp/toki-reader-home/.senpi/agent/sessions",
+                "/tmp/toki-reader-home/.omo/senpi-task/children",
+                "/tmp/toki-reader-home/.omo/senpi-task/sessions",
+            ])
     }
 
     func test_copilotExporterPathRequiresAnAbsoluteNonEmptyJSONLFile() {
@@ -160,6 +179,44 @@ final class LocalUsageReaderRegistryTests: XCTestCase {
             [
                 .directory(home.appendingPathComponent(".copilot/otel"), extensions: ["jsonl"]),
                 .file(URL(fileURLWithPath: "/tmp/copilot.jsonl"), includesSQLiteSidecars: false),
+            ])
+    }
+
+    func test_senpiReaderIsRegisteredExactlyOnceWithEveryDiscoveryRoot() {
+        let home = URL(fileURLWithPath: "/tmp/toki-reader-home")
+        let descriptors = LocalUsageReaderRegistry.descriptors(
+            home: home,
+            environment: [
+                "PWD": "/tmp/toki-project",
+                "SENPI_CODING_AGENT_SESSION_DIR": "/tmp/senpi-sessions",
+            ])
+        let senpiDescriptors = descriptors.filter { $0.name == SenpiReader.sourceName }
+
+        XCTAssertEqual(senpiDescriptors.count, 1)
+        XCTAssertEqual(
+            senpiDescriptors.first?.sourceLocations,
+            [
+                .directory(
+                    home.appendingPathComponent(".omo/agent/sessions"),
+                    extensions: ["jsonl"]),
+                .directory(
+                    home.appendingPathComponent(".senpi/agent/sessions"),
+                    extensions: ["jsonl"]),
+                .directory(
+                    home.appendingPathComponent(".omo/senpi-task/children"),
+                    extensions: ["jsonl"]),
+                .directory(
+                    home.appendingPathComponent(".omo/senpi-task/sessions"),
+                    extensions: ["jsonl"]),
+                .directory(
+                    URL(fileURLWithPath: "/tmp/senpi-sessions"),
+                    extensions: ["jsonl"]),
+                .directory(
+                    URL(fileURLWithPath: "/tmp/toki-project/.omo/senpi-task/children"),
+                    extensions: ["jsonl"]),
+                .directory(
+                    URL(fileURLWithPath: "/tmp/toki-project/.omo/senpi-task/sessions"),
+                    extensions: ["jsonl"]),
             ])
     }
 

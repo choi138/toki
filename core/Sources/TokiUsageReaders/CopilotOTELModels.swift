@@ -15,8 +15,6 @@ struct CopilotOTELRecord: Decodable {
     private let timestampValue: CopilotTimestamp?
     private let observedTimestamp: CopilotTimestamp?
     private let timeUnixNano: CopilotTimestamp?
-    private let bodyMarksInference: Bool
-    private let bodyMarksAgentTurn: Bool
     let attributes: CopilotOTELAttributes
 
     enum CodingKeys: String, CodingKey {
@@ -25,8 +23,6 @@ struct CopilotOTELRecord: Decodable {
         case time
         case timestampValue = "timestamp"
         case observedTimestamp, timeUnixNano, attributes
-        case body
-        case alternateBody = "_body"
     }
 
     init(from decoder: Decoder) throws {
@@ -44,10 +40,6 @@ struct CopilotOTELRecord: Decodable {
         timestampValue = try? container.decodeIfPresent(CopilotTimestamp.self, forKey: .timestampValue)
         observedTimestamp = try? container.decodeIfPresent(CopilotTimestamp.self, forKey: .observedTimestamp)
         timeUnixNano = try? container.decodeIfPresent(CopilotTimestamp.self, forKey: .timeUnixNano)
-        let body = (try? container.decodeIfPresent(String.self, forKey: .body))
-            ?? (try? container.decodeIfPresent(String.self, forKey: .alternateBody))
-        bodyMarksInference = body?.hasPrefix("GenAI inference:") == true
-        bodyMarksAgentTurn = body?.hasPrefix("copilot_chat.agent.turn") == true
         attributes = (try? container.decodeIfPresent(CopilotOTELAttributes.self, forKey: .attributes))
             ?? CopilotOTELAttributes()
     }
@@ -64,10 +56,10 @@ struct CopilotOTELRecord: Decodable {
             return nil
         }
 
-        if attributes.eventName == "gen_ai.client.inference.operation.details" || bodyMarksInference {
+        if attributes.eventName == "gen_ai.client.inference.operation.details" {
             return .inferenceLog
         }
-        if attributes.eventName == "copilot_chat.agent.turn" || bodyMarksAgentTurn {
+        if attributes.eventName == "copilot_chat.agent.turn" {
             return .agentTurnLog
         }
         return nil
@@ -92,6 +84,91 @@ struct CopilotOTELRecord: Decodable {
             observedTimestamp,
             timeUnixNano,
         ].compactMap { $0?.date }.first
+    }
+}
+
+func copilotBodyUsageSource(in data: Data) -> CopilotUsageSource? {
+    let inferenceMarker = Array("GenAI inference:".utf8)
+    let agentTurnMarker = Array("copilot_chat.agent.turn".utf8)
+
+    return data.withUnsafeBytes { rawBuffer in
+        let bytes = rawBuffer.bindMemory(to: UInt8.self)
+        var depth = 0
+        var index = 0
+
+        func stringEnd(after start: Int) -> Int? {
+            var cursor = start + 1
+            var escaped = false
+            while cursor < bytes.count {
+                let byte = bytes[cursor]
+                if escaped {
+                    escaped = false
+                } else if byte == 0x5C {
+                    escaped = true
+                } else if byte == 0x22 {
+                    return cursor
+                }
+                cursor += 1
+            }
+            return nil
+        }
+
+        func skipsWhitespace(from start: Int) -> Int {
+            var cursor = start
+            while cursor < bytes.count, [0x20, 0x09, 0x0A, 0x0D].contains(bytes[cursor]) {
+                cursor += 1
+            }
+            return cursor
+        }
+
+        func matches(_ marker: [UInt8], at start: Int) -> Bool {
+            guard start + marker.count <= bytes.count else { return false }
+            return marker.indices.allSatisfy { bytes[start + $0] == marker[$0] }
+        }
+
+        while index < bytes.count {
+            switch bytes[index] {
+            case 0x7B, 0x5B:
+                depth += 1
+                index += 1
+            case 0x7D, 0x5D:
+                depth -= 1
+                index += 1
+            case 0x22:
+                guard let end = stringEnd(after: index) else { return nil }
+                guard depth == 1 else {
+                    index = end + 1
+                    continue
+                }
+                let key = bytes[(index + 1)..<end]
+                let isBodyKey = key.elementsEqual("body".utf8) || key.elementsEqual("_body".utf8)
+                guard isBodyKey else {
+                    index = end + 1
+                    continue
+                }
+                var valueStart = skipsWhitespace(from: end + 1)
+                guard valueStart < bytes.count, bytes[valueStart] == 0x3A else {
+                    index = end + 1
+                    continue
+                }
+                valueStart = skipsWhitespace(from: valueStart + 1)
+                guard valueStart < bytes.count, bytes[valueStart] == 0x22 else {
+                    index = end + 1
+                    continue
+                }
+                let contentStart = valueStart + 1
+                if matches(inferenceMarker, at: contentStart) {
+                    return .inferenceLog
+                }
+                if matches(agentTurnMarker, at: contentStart) {
+                    return .agentTurnLog
+                }
+                index = end + 1
+            default:
+                index += 1
+            }
+        }
+        return nil
     }
 }
 
@@ -192,11 +269,11 @@ struct CopilotOTELAttributes: Decodable {
     }
 
     var cacheReadTokens: Int? {
-        firstPositive(cacheReadDotted, cacheReadUnderscored)
+        firstNonNegative(cacheReadDotted, cacheReadUnderscored)
     }
 
     var cacheWriteTokens: Int? {
-        firstPositive(
+        firstNonNegative(
             cacheWriteDotted,
             cacheCreationDotted,
             cacheWriteUnderscored,
@@ -204,7 +281,7 @@ struct CopilotOTELAttributes: Decodable {
     }
 
     var reasoningTokens: Int? {
-        firstPositive(reasoningOutputTokens, reasoningTokensValue)
+        firstNonNegative(reasoningOutputTokens, reasoningTokensValue)
     }
 }
 
@@ -273,8 +350,8 @@ private func validSpanIdentity(_ value: String?) -> String? {
     return value
 }
 
-private func firstPositive(_ values: Int?...) -> Int? {
-    values.compactMap { $0 }.first { $0 > 0 }
+private func firstNonNegative(_ values: Int?...) -> Int? {
+    values.compactMap { $0 }.first { $0 >= 0 }
 }
 
 private extension KeyedDecodingContainer {

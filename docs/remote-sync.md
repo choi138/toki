@@ -248,13 +248,20 @@ systemctl --user status toki-agent
 In addition to `ProtectHome=tmpfs`, the supplied user service mounts an empty
 read-only temporary filesystem over `%h`, so a nonstandard home outside `/home`
 is hidden as well. It then grants write access only to the default Toki Agent XDG
-directories. It exposes only the supported log roots and individual SQLite
-database/WAL/SHM files as optional read-only mounts; it does not expose an entire
-home directory. At least one source must exist and be readable. A source that is
-not installed may remain absent, while a present but unreadable or wrong-type
-source makes `doctor` fail visibly. `ExecStartPre` runs that redacted check
-inside the service namespace. `toki-agent status` likewise reports spool
-corruption instead of showing it as zero pending uploads.
+directories. When Senpi's `.omo/senpi-task` parent already exists, a pre-start
+helper outside that namespace verifies the parent components are real directories
+owned by the Agent user, then creates only its delegated `children` and `sessions`
+roots without following symbolic links. This lets their narrow read-only bind
+mounts exist before Senpi creates a delegated task. The helper does not create
+the parent on source-free installations, and an unsafe existing path fails startup.
+The service exposes only the supported log roots and individual SQLite
+database/WAL/SHM files as optional read-only mounts; it does not expose an
+entire home directory. At least one source must exist and be readable. A source
+that is not installed may remain absent, while a present but unreadable or
+wrong-type source makes `doctor` fail visibly.
+`ExecStartPre` runs that redacted check inside the service namespace.
+`toki-agent status` likewise reports spool corruption instead of showing it as
+zero pending uploads.
 
 Optional mounts that do not exist at service startup do not become visible
 automatically if a tool creates them later. After installing a new source, or

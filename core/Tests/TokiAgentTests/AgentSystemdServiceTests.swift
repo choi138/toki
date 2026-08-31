@@ -20,7 +20,12 @@ final class AgentSystemdServiceTests: XCTestCase {
         XCTAssertFalse(service.contains("ProtectKernelLogs="))
         XCTAssertFalse(service.contains("ProtectKernelModules="))
         XCTAssertFalse(service.contains("ProtectKernelTunables="))
-        XCTAssertTrue(service.contains("ExecStartPre=/usr/local/bin/toki-agent doctor"))
+        let prepareSenpiMounts = try XCTUnwrap(service.range(
+            of: "ExecStartPre=+/usr/local/bin/toki-agent prepare-senpi-mounts"))
+        let doctor = try XCTUnwrap(service.range(
+            of: "ExecStartPre=/usr/local/bin/toki-agent doctor"))
+        XCTAssertLessThan(prepareSenpiMounts.lowerBound, doctor.lowerBound)
+        XCTAssertFalse(service.contains("/usr/bin/mkdir"))
         let expectedReadOnlyPaths = [
             "%h/.claude/projects",
             "%h/.codex/state_5.sqlite",
@@ -36,6 +41,14 @@ final class AgentSystemdServiceTests: XCTestCase {
             "%h/.config/Cursor/User/globalStorage/state.vscdb-shm",
             "%h/.gemini/tmp",
             "%h/.gjc/agent/sessions",
+            "%h/.omo/agent/sessions",
+            "%h/.senpi/agent/sessions",
+            "%h/.omo/senpi-task/children",
+            "%h/.omo/senpi-task/sessions",
+            "%h/.pi/agent/sessions",
+            "%h/.omp/agent/sessions",
+            "%h/.config/kimchi/harness/sessions",
+            "%h/.copilot/otel",
             "%h/.local/share/opencode/opencode.db",
             "%h/.local/share/opencode/opencode.db-wal",
             "%h/.local/share/opencode/opencode.db-shm",
@@ -65,6 +78,7 @@ final class AgentSystemdServiceTests: XCTestCase {
         XCTAssertFalse(readOnlyPaths.contains("%h/.hermes"))
         XCTAssertFalse(readOnlyPaths.contains("%h/.config/Cursor"))
         XCTAssertFalse(readOnlyPaths.contains("%h/.local/share/opencode"))
+        XCTAssertFalse(readOnlyPaths.contains("%h/.omo/senpi-task"))
         XCTAssertFalse(readOnlyPaths.contains("%h/.kimi"))
         XCTAssertFalse(readOnlyPaths.contains("%h/.kimi/config.toml"))
         XCTAssertFalse(readOnlyPaths.contains("%h/.kimi/config.json"))

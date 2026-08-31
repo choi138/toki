@@ -36,7 +36,7 @@ final class CopilotCLIReaderTests: XCTestCase {
             to: Date(timeIntervalSince1970: 1_765_756_900))
 
         XCTAssertEqual(usage.inputTokens, 100)
-        XCTAssertEqual(usage.outputTokens, 30)
+        XCTAssertEqual(usage.outputTokens, 23)
         XCTAssertEqual(usage.cacheReadTokens, 20)
         XCTAssertEqual(usage.cacheWriteTokens, 5)
         XCTAssertEqual(usage.reasoningTokens, 7)
@@ -44,7 +44,6 @@ final class CopilotCLIReaderTests: XCTestCase {
         XCTAssertEqual(usage.tokenEvents.first?.source, "GitHub Copilot CLI")
         XCTAssertEqual(usage.tokenEvents.first?.model, "claude-sonnet-4.6")
         XCTAssertEqual(usage.tokenEvents.first?.provider, "github")
-        XCTAssertEqual(usage.tokenEvents.first?.costIsKnown, false)
         XCTAssertEqual(usage.tokenEvents.first?.attribution?.sessionID, "conversation-1")
         XCTAssertEqual(usage.tokenEvents.first?.attribution?.quality, .unknown)
     }
@@ -76,7 +75,7 @@ final class CopilotCLIReaderTests: XCTestCase {
             to: Date(timeIntervalSince1970: 1_765_756_900))
 
         XCTAssertEqual(usage.inputTokens, 50)
-        XCTAssertEqual(usage.outputTokens, 11)
+        XCTAssertEqual(usage.outputTokens, 9)
         XCTAssertEqual(usage.cacheReadTokens, 40)
         XCTAssertEqual(usage.cacheWriteTokens, 3)
         XCTAssertEqual(usage.reasoningTokens, 2)
@@ -163,31 +162,66 @@ final class CopilotCLIReaderTests: XCTestCase {
         XCTAssertEqual(usage.outputTokens, 4)
         XCTAssertEqual(usage.tokenEvents.count, 1)
     }
-}
 
-extension CopilotCLIReaderTests {
-    func test_distinctResponseIDsWithinOneTraceRemainIndependent() {
-        let first = copilotSpan(
-            traceID: "shared-trace",
-            spanID: "first-span",
+    func test_lowerPriorityRecordPreservesComplementaryTokenBuckets() {
+        let span = copilotSpan(
+            traceID: "trace-complementary",
+            spanID: "span-complementary",
             timestamp: 1_765_756_800,
             attributes: """
-            "gen_ai.response.id":"first-response",
-            "gen_ai.usage.input_tokens":10
+            "gen_ai.response.id":"response-complementary",
+            "gen_ai.usage.input_tokens":10,
+            "gen_ai.usage.output_tokens":4
             """)
-        let second = """
+        let inference = """
         {
           "type":"log",
-          "traceId":"shared-trace",
-          "spanId":"second-span",
-          "timeUnixNano":"1765756801000000000",
+          "traceId":"trace-complementary",
+          "spanId":"log-complementary",
+          "timeUnixNano":"1765756800000000000",
           "attributes":{
             "event.name":"gen_ai.client.inference.operation.details",
-            "gen_ai.response.id":"second-response",
-            "gen_ai.usage.input_tokens":20
+            "gen_ai.response.id":"response-complementary",
+            "gen_ai.usage.cache_read.input_tokens":3,
+            "gen_ai.usage.reasoning.output_tokens":2
           }
         }
         """
+
+        let usage = CopilotCLIReader.usage(
+            fromJSONLLines: [span, inference],
+            streamID: "fixture.jsonl",
+            from: Date(timeIntervalSince1970: 1_765_756_700),
+            to: Date(timeIntervalSince1970: 1_765_756_900))
+
+        XCTAssertEqual(usage.inputTokens, 10)
+        XCTAssertEqual(usage.outputTokens, 4)
+        XCTAssertEqual(usage.cacheReadTokens, 3)
+        XCTAssertEqual(usage.reasoningTokens, 2)
+        XCTAssertEqual(usage.tokenEvents.count, 1)
+    }
+}
+
+extension CopilotCLIReaderTests {
+    func test_conflictingDuplicateRevisionsKeepOneCoherentCounterSet() {
+        let first = copilotSpan(
+            traceID: "trace-revision",
+            spanID: "span-revision",
+            timestamp: 1_765_756_800,
+            attributes: """
+            "gen_ai.response.id":"response-revision",
+            "gen_ai.usage.input_tokens":10,
+            "gen_ai.usage.output_tokens":20
+            """)
+        let second = copilotSpan(
+            traceID: "trace-revision",
+            spanID: "span-revision",
+            timestamp: 1_765_756_801,
+            attributes: """
+            "gen_ai.response.id":"response-revision",
+            "gen_ai.usage.input_tokens":20,
+            "gen_ai.usage.output_tokens":5
+            """)
 
         let usage = CopilotCLIReader.usage(
             fromJSONLLines: [first, second],
@@ -195,30 +229,115 @@ extension CopilotCLIReaderTests {
             from: Date(timeIntervalSince1970: 1_765_756_700),
             to: Date(timeIntervalSince1970: 1_765_756_900))
 
+        XCTAssertEqual(usage.inputTokens, 10)
+        XCTAssertEqual(usage.outputTokens, 20)
+        XCTAssertEqual(usage.tokenEvents.count, 1)
+    }
+
+    func test_distinctResponsesSharingTraceAreBothCounted() {
+        let chat = copilotSpan(
+            traceID: "trace-multi-response",
+            spanID: "span-chat",
+            timestamp: 1_765_756_800,
+            attributes: """
+            "gen_ai.response.id":"response-chat",
+            "gen_ai.usage.input_tokens":10,
+            "gen_ai.usage.output_tokens":4
+            """)
+        let inference = """
+        {
+          "type":"log",
+          "traceId":"trace-multi-response",
+          "spanId":"span-inference",
+          "timeUnixNano":"1765756801000000000",
+          "attributes":{
+            "event.name":"gen_ai.client.inference.operation.details",
+            "gen_ai.response.id":"response-inference",
+            "gen_ai.usage.input_tokens":20,
+            "gen_ai.usage.output_tokens":8
+          }
+        }
+        """
+
+        let usage = CopilotCLIReader.usage(
+            fromJSONLLines: [chat, inference],
+            streamID: "fixture.jsonl",
+            from: Date(timeIntervalSince1970: 1_765_756_700),
+            to: Date(timeIntervalSince1970: 1_765_756_900))
+
         XCTAssertEqual(usage.inputTokens, 30)
+        XCTAssertEqual(usage.outputTokens, 12)
         XCTAssertEqual(usage.tokenEvents.count, 2)
     }
 
-    func test_responseLessSummaryDoesNotDuplicateMultipleResponsesInOneTrace() {
+    func test_reasoningIsExcludedFromInclusiveOutput() {
+        let usage = CopilotCLIReader.usage(
+            fromJSONLLines: [
+                copilotSpan(
+                    traceID: "trace-reasoning",
+                    spanID: "span-reasoning",
+                    timestamp: 1_765_756_800,
+                    attributes: """
+                    "gen_ai.usage.output_tokens":30,
+                    "gen_ai.usage.reasoning.output_tokens":7
+                    """),
+            ],
+            streamID: "fixture.jsonl",
+            from: Date(timeIntervalSince1970: 1_765_756_700),
+            to: Date(timeIntervalSince1970: 1_765_756_900))
+
+        XCTAssertEqual(usage.outputTokens, 23)
+        XCTAssertEqual(usage.reasoningTokens, 7)
+        XCTAssertEqual(usage.totalTokens, 30)
+    }
+
+    func test_responseAddedToLaterSpanRevisionDoesNotDoubleCount() {
         let first = copilotSpan(
-            traceID: "multi-response-trace",
-            spanID: "first-span",
+            traceID: "trace-added-response",
+            spanID: "span-added-response",
             timestamp: 1_765_756_800,
-            attributes: #""gen_ai.response.id":"first-response","gen_ai.usage.input_tokens":10"#)
+            attributes: #""gen_ai.usage.input_tokens":10"#)
         let second = copilotSpan(
-            traceID: "multi-response-trace",
-            spanID: "second-span",
+            traceID: "trace-added-response",
+            spanID: "span-added-response",
             timestamp: 1_765_756_801,
-            attributes: #""gen_ai.response.id":"second-response","gen_ai.usage.input_tokens":20"#)
-        let summary = copilotSpan(
-            operation: "invoke_agent",
-            traceID: "multi-response-trace",
-            spanID: "summary-span",
-            timestamp: 1_765_756_802,
-            attributes: #""gen_ai.usage.input_tokens":30"#)
+            attributes: """
+            "gen_ai.response.id":"response-added-later",
+            "gen_ai.usage.input_tokens":20
+            """)
 
         let usage = CopilotCLIReader.usage(
-            fromJSONLLines: [first, second, summary],
+            fromJSONLLines: [first, second],
+            streamID: "fixture.jsonl",
+            from: Date(timeIntervalSince1970: 1_765_756_700),
+            to: Date(timeIntervalSince1970: 1_765_756_900))
+
+        XCTAssertEqual(usage.inputTokens, 20)
+        XCTAssertEqual(usage.tokenEvents.count, 1)
+    }
+
+    func test_missingResponseIDDoesNotCollapseDistinctTraceUsage() {
+        let chat = copilotSpan(
+            traceID: "trace-partial-response",
+            spanID: "span-chat-partial-response",
+            timestamp: 1_765_756_800,
+            attributes: #""gen_ai.usage.input_tokens":10"#)
+        let inference = """
+        {
+          "type":"log",
+          "traceId":"trace-partial-response",
+          "spanId":"span-inference-partial-response",
+          "timeUnixNano":"1765756801000000000",
+          "attributes":{
+            "event.name":"gen_ai.client.inference.operation.details",
+            "gen_ai.response.id":"response-inference",
+            "gen_ai.usage.input_tokens":20
+          }
+        }
+        """
+
+        let usage = CopilotCLIReader.usage(
+            fromJSONLLines: [chat, inference],
             streamID: "fixture.jsonl",
             from: Date(timeIntervalSince1970: 1_765_756_700),
             to: Date(timeIntervalSince1970: 1_765_756_900))
@@ -227,142 +346,32 @@ extension CopilotCLIReaderTests {
         XCTAssertEqual(usage.tokenEvents.count, 2)
     }
 
-    func test_complementaryRepresentationsMergeBeforePrioritySelection() {
-        let span = copilotSpan(
-            traceID: "merge-trace",
-            spanID: "chat-span",
+    func test_explicitZeroCacheRevisionDoesNotRestoreOlderValue() {
+        let first = copilotSpan(
+            traceID: "trace-zero-cache",
+            spanID: "span-zero-cache",
             timestamp: 1_765_756_800,
             attributes: """
-            "gen_ai.response.id":"merge-response",
             "gen_ai.usage.input_tokens":10,
-            "gen_ai.usage.output_tokens":4
+            "gen_ai.usage.cache_read.input_tokens":5
             """)
-        let inference = """
-        {
-          "type":"log",
-          "traceId":"merge-trace",
-          "spanId":"inference-log",
-          "timeUnixNano":"1765756800000000000",
-          "attributes":{
-            "event.name":"gen_ai.client.inference.operation.details",
-            "gen_ai.response.id":"merge-response",
-            "gen_ai.usage.cache_read_input_tokens":3,
-            "gen_ai.usage.reasoning_tokens":2
-          }
-        }
-        """
+        let second = copilotSpan(
+            traceID: "trace-zero-cache",
+            spanID: "span-zero-cache",
+            timestamp: 1_765_756_801,
+            attributes: """
+            "gen_ai.usage.input_tokens":20,
+            "gen_ai.usage.cache_read.input_tokens":0
+            """)
 
         let usage = CopilotCLIReader.usage(
-            fromJSONLLines: [span, inference],
+            fromJSONLLines: [first, second],
             streamID: "fixture.jsonl",
             from: Date(timeIntervalSince1970: 1_765_756_700),
             to: Date(timeIntervalSince1970: 1_765_756_900))
 
-        XCTAssertEqual(usage.inputTokens, 10)
-        XCTAssertEqual(usage.outputTokens, 4)
-        XCTAssertEqual(usage.cacheReadTokens, 3)
-        XCTAssertEqual(usage.reasoningTokens, 2)
-        XCTAssertEqual(usage.tokenEvents.count, 1)
-    }
-
-    func test_traceReconciliationPreservesFieldsFromResponseLessInferenceLog() {
-        let span = copilotSpan(
-            traceID: "response-less-trace",
-            spanID: "chat-span",
-            timestamp: 1_765_756_800,
-            attributes: """
-            "gen_ai.response.id":"response-less-response",
-            "gen_ai.usage.input_tokens":10,
-            "gen_ai.usage.output_tokens":4
-            """)
-        let inference = """
-        {
-          "type":"log",
-          "traceId":"response-less-trace",
-          "spanId":"inference-log",
-          "timeUnixNano":"1765756800000000000",
-          "attributes":{
-            "event.name":"gen_ai.client.inference.operation.details",
-            "gen_ai.usage.cache_read_input_tokens":3,
-            "gen_ai.usage.reasoning_tokens":2
-          }
-        }
-        """
-
-        let usage = CopilotCLIReader.usage(
-            fromJSONLLines: [span, inference],
-            streamID: "fixture.jsonl",
-            from: Date(timeIntervalSince1970: 1_765_756_700),
-            to: Date(timeIntervalSince1970: 1_765_756_900))
-
-        XCTAssertEqual(usage.inputTokens, 10)
-        XCTAssertEqual(usage.outputTokens, 4)
-        XCTAssertEqual(usage.cacheReadTokens, 3)
-        XCTAssertEqual(usage.reasoningTokens, 2)
-        XCTAssertEqual(usage.tokenEvents.count, 1)
-    }
-
-    func test_traceReconciliationKeepsResponseTimestampAcrossRangeBoundary() {
-        let response = copilotSpan(
-            traceID: "boundary-trace",
-            spanID: "response-span",
-            timestamp: 1_765_756_800,
-            attributes: #""gen_ai.response.id":"boundary-response","gen_ai.usage.input_tokens":10"#)
-        let summary = copilotSpan(
-            operation: "invoke_agent",
-            traceID: "boundary-trace",
-            spanID: "summary-span",
-            timestamp: 1_765_756_799,
-            attributes: #""gen_ai.usage.output_tokens":4"#)
-
-        let usage = CopilotCLIReader.usage(
-            fromJSONLLines: [summary, response],
-            streamID: "fixture.jsonl",
-            from: Date(timeIntervalSince1970: 1_765_756_800),
-            to: Date(timeIntervalSince1970: 1_765_756_900))
-
-        XCTAssertEqual(usage.inputTokens, 10)
-        XCTAssertEqual(usage.outputTokens, 4)
-        XCTAssertEqual(usage.tokenEvents.count, 1)
-        XCTAssertEqual(
-            usage.tokenEvents.first?.timestamp,
-            Date(timeIntervalSince1970: 1_765_756_800))
-    }
-
-    func test_preferredNormalizedInputIsNotCombinedWithConflictingReplicaInput() {
-        let span = copilotSpan(
-            traceID: "normalized-trace",
-            spanID: "chat-span",
-            timestamp: 1_765_756_800,
-            attributes: """
-            "gen_ai.response.id":"normalized-response",
-            "gen_ai.usage.input_tokens":10,
-            "gen_ai.usage.cache_read.input_tokens":3
-            """)
-        let inference = """
-        {
-          "type":"log",
-          "traceId":"normalized-trace",
-          "spanId":"inference-log",
-          "timeUnixNano":"1765756800000000000",
-          "attributes":{
-            "event.name":"gen_ai.client.inference.operation.details",
-            "gen_ai.response.id":"normalized-response",
-            "gen_ai.usage.input_tokens":10
-          }
-        }
-        """
-
-        let usage = CopilotCLIReader.usage(
-            fromJSONLLines: [span, inference],
-            streamID: "fixture.jsonl",
-            from: Date(timeIntervalSince1970: 1_765_756_700),
-            to: Date(timeIntervalSince1970: 1_765_756_900))
-
-        XCTAssertEqual(usage.inputTokens, 7)
-        XCTAssertEqual(usage.cacheReadTokens, 3)
-        XCTAssertEqual(usage.totalTokens, 10)
-        XCTAssertEqual(usage.tokenEvents.count, 1)
+        XCTAssertEqual(usage.inputTokens, 20)
+        XCTAssertEqual(usage.cacheReadTokens, 0)
     }
 }
 
@@ -445,6 +454,26 @@ final class CopilotCLIReaderRobustnessTests: XCTestCase {
 
         XCTAssertEqual(usage.totalTokens, 0)
         XCTAssertTrue(usage.tokenEvents.isEmpty)
+    }
+
+    func test_outOfRangeFloatingTokenValueIsIgnored() {
+        let usage = CopilotCLIReader.usage(
+            fromJSONLLines: [
+                copilotSpan(
+                    traceID: "trace-large-double",
+                    spanID: "span-large-double",
+                    timestamp: 1_765_756_800,
+                    attributes: """
+                    "gen_ai.usage.input_tokens":1e300,
+                    "gen_ai.usage.output_tokens":7
+                    """),
+            ],
+            streamID: "fixture.jsonl",
+            from: Date(timeIntervalSince1970: 1_765_756_700),
+            to: Date(timeIntervalSince1970: 1_765_756_900))
+
+        XCTAssertEqual(usage.inputTokens, 0)
+        XCTAssertEqual(usage.outputTokens, 7)
     }
 }
 

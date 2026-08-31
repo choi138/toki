@@ -1,25 +1,36 @@
 import Foundation
 import TokiUsageCore
 
-struct PiCompatibleReader {
-    let source: PiCompatibleSource
-    let sessionRoots: [URL]
-    let readLimits: PiCompatibleReadLimits
-    let agentKindForFile: (URL) -> WorkTimeAgentKind
+public struct SenpiReader: TokenReader {
+    public static let sourceName = "Senpi"
 
-    init(
-        source: PiCompatibleSource,
-        sessionRoots: [URL],
-        readLimits: PiCompatibleReadLimits = .default,
-        agentKindForFile: @escaping (URL) -> WorkTimeAgentKind = { _ in .main }) {
-        self.source = source
-        self.sessionRoots = sessionRoots
-        self.readLimits = readLimits
-        self.agentKindForFile = agentKindForFile
+    public let name = Self.sourceName
+    private let sessionRootsOverride: [URL]?
+    private let readLimits: PiCompatibleReadLimits
+
+    public init(sessionRootsOverride: [URL]? = nil) {
+        self.sessionRootsOverride = sessionRootsOverride
+        readLimits = .default
     }
 
-    func readUsage(from startDate: Date, to endDate: Date) throws -> RawTokenUsage {
-        let files = discoveredFiles()
+    init(
+        sessionRootsOverride: [URL]?,
+        readLimits: PiCompatibleReadLimits) {
+        self.sessionRootsOverride = sessionRootsOverride
+        self.readLimits = readLimits
+    }
+
+    public func readUsage(from startDate: Date, to endDate: Date) async throws -> RawTokenUsage {
+        let roots = sessionRootsOverride
+            ?? LocalUsageReaderPaths().senpiSessionDirectories
+        let files = try Set(roots.flatMap { root in
+            try findFiles(
+                in: root,
+                withExtension: "jsonl",
+                cancellationCheck: { try Task.checkCancellation() })
+                .map { $0.resolvingSymlinksInPath().standardizedFileURL }
+        })
+        .sorted { $0.path < $1.path }
         guard files.count <= readLimits.maximumFileCount else {
             throw PiCompatibleReaderError.tooManyFiles(files.count)
         }
@@ -28,8 +39,7 @@ struct PiCompatibleReader {
         for file in files {
             var parser = PiCompatibleSessionParser(
                 streamID: file.path,
-                source: source,
-                agentKind: agentKindForFile(file))
+                agentKind: Self.agentKind(for: file))
             try forEachBoundedJSONLLine(at: file, limits: readLimits) { line, lineIndex in
                 guard let record = parser.record(fromJSONLLine: line, lineIndex: lineIndex) else {
                     return
@@ -46,7 +56,6 @@ struct PiCompatibleReader {
         }
         return Self.usage(
             from: recordsByKey.values,
-            source: source,
             from: startDate,
             to: endDate)
     }
@@ -54,37 +63,20 @@ struct PiCompatibleReader {
     static func usage(
         fromJSONLLines lines: [String],
         streamID: String,
-        source: PiCompatibleSource,
         from startDate: Date,
         to endDate: Date) -> RawTokenUsage {
         let records = PiCompatibleSessionParser.records(
             fromJSONLLines: lines,
             streamID: streamID,
-            source: source,
             agentKind: .main)
         return usage(
             from: records,
-            source: source,
             from: startDate,
             to: endDate)
     }
 
-    private func discoveredFiles() -> [URL] {
-        var physicalPaths: Set<String> = []
-        var files: [URL] = []
-        for root in sessionRoots {
-            for file in findFiles(in: root, withExtension: "jsonl") {
-                let resolved = file.resolvingSymlinksInPath().standardizedFileURL
-                guard physicalPaths.insert(resolved.path).inserted else { continue }
-                files.append(resolved)
-            }
-        }
-        return files.sorted { $0.path < $1.path }
-    }
-
     private static func usage(
         from records: some Sequence<PiCompatibleUsageRecord>,
-        source: PiCompatibleSource,
         from startDate: Date,
         to endDate: Date) -> RawTokenUsage {
         var recordsByKey: [PiCompatibleDeduplicationKey: PiCompatibleUsageRecord] = [:]
@@ -105,12 +97,12 @@ struct PiCompatibleReader {
             result.cost += record.cost
             result.accumulatePerModelUsage(
                 model: record.model,
-                source: source.sourceName,
+                source: sourceName,
                 totalTokens: record.totalTokens,
                 cost: record.cost)
             result.recordTokenEvent(
                 timestamp: record.timestamp,
-                source: source.sourceName,
+                source: sourceName,
                 model: record.model,
                 provider: record.provider,
                 inputTokens: record.inputTokens,
@@ -122,16 +114,22 @@ struct PiCompatibleReader {
                 costIsKnown: record.costIsKnown,
                 attribution: record.attribution)
             activityEvents.append(ActivityTimeEvent(
-                streamID: record.attribution.sessionID ?? record.model ?? source.sourceName,
+                streamID: record.attribution.sessionID ?? record.model ?? sourceName,
                 timestamp: record.timestamp,
                 key: UsageModelGrouping.groupingKey(for: record.model),
                 agentKind: record.agentKind))
         }
         result.mergeActivityEvents(
             activityEvents,
-            source: source.sourceName,
+            source: sourceName,
             clippingEndDate: endDate)
         return result
+    }
+
+    private static func agentKind(for file: URL) -> WorkTimeAgentKind {
+        let path = file.standardizedFileURL.path
+        return path.contains("/.omo/senpi-task/children/")
+            || path.contains("/.omo/senpi-task/sessions/") ? .subagent : .main
     }
 
     private static func recordSort(

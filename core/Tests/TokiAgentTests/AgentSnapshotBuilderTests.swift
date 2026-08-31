@@ -56,6 +56,27 @@ final class AgentSnapshotBuilderTests: XCTestCase {
         XCTAssertFalse(encodedSnapshot.contains("/tmp/hermes"))
     }
 
+    func test_agentRegistryContainsEveryLocalTokiReaderAndNoRemoteReader() {
+        let names = LocalUsageReaderRegistry.agentDescriptors().map(\.name)
+
+        XCTAssertEqual(
+            names,
+            [
+                "Claude Code",
+                "Codex",
+                "Hermes",
+                "Cursor",
+                "Gemini CLI",
+                "GJC", "Factory Droid", "Amp", "Senpi",
+                "Pi", "Oh My Pi", "Kimchi",
+                "OpenCode",
+                "OpenClaw",
+                "GitHub Copilot CLI",
+                "Kimi CLI", "Kimi Code", "Qwen CLI",
+            ])
+        XCTAssertFalse(names.contains("Remote Devices"))
+    }
+
     func test_snapshotPreservesTokenSourcesAndNamespacesActivityStreamsByReader() async throws {
         let now = Date(timeIntervalSince1970: 1_784_200_000)
         let eventDate = now.addingTimeInterval(-60)
@@ -575,7 +596,4 @@ struct FixedTokenReader: TokenReader {
     }
 }
 
-private enum AgentSnapshotFixtureError: Error {
-    case date
-    case sqlite
-}
+private enum AgentSnapshotFixtureError: Error { case date, sqlite }

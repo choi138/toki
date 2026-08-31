@@ -12,7 +12,7 @@ public struct GJCReader: TokenReader {
     }
 
     public func readUsage(from startDate: Date, to endDate: Date) async throws -> RawTokenUsage {
-        PiCompatibleReader(source: .gjc, sessionRoots: [sessionsURL])
+        try PiCompatibleReader(source: .gjc, sessionRoots: [sessionsURL])
             .readUsage(from: startDate, to: endDate)
     }
 

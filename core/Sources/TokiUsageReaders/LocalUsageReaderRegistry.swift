@@ -48,8 +48,12 @@ public struct LocalUsageReaderPaths: Equatable {
     public let xdgConfigDirectory: URL
     public let xdgDataDirectory: URL
     public let xdgStateDirectory: URL
+    public let senpiSessions: [URL]
+    public let senpiSessionDirectories: [URL]
+    public let piSessions: URL
+    public let ompSessions: URL
+    public let kimchiSessions: URL
     public let copilotOTELExporterFile: URL?
-    private let senpiSessionsOverride: URL?
     private let kimiCLIHomeOverride: URL?
     private let kimiCodeHomeOverride: URL?
     private let qwenHomeOverride: URL?
@@ -71,9 +75,48 @@ public struct LocalUsageReaderPaths: Equatable {
             key: "XDG_STATE_HOME",
             environment: environment)
             ?? homeDirectory.appendingPathComponent(".local/state")
-        senpiSessionsOverride = Self.absoluteEnvironmentDirectory(
+        let senpiSessionOverride = Self.absoluteEnvironmentDirectory(
             key: "SENPI_CODING_AGENT_SESSION_DIR",
             environment: environment)
+        senpiSessions = senpiSessionOverride.map { [$0] } ?? [
+            homeDirectory.appendingPathComponent(".omo/agent/sessions"),
+            homeDirectory.appendingPathComponent(".senpi/agent/sessions"),
+        ]
+        var senpiDirectories = [
+            homeDirectory.appendingPathComponent(".omo/agent/sessions"),
+            homeDirectory.appendingPathComponent(".senpi/agent/sessions"),
+            homeDirectory.appendingPathComponent(".omo/senpi-task/children"),
+            homeDirectory.appendingPathComponent(".omo/senpi-task/sessions"),
+        ]
+        if let agentDirectory = Self.absoluteEnvironmentDirectory(
+            key: "SENPI_CODING_AGENT_DIR",
+            environment: environment) {
+            senpiDirectories.append(agentDirectory.appendingPathComponent("sessions"))
+        }
+        if let sessionDirectory = senpiSessionOverride {
+            senpiDirectories.append(sessionDirectory)
+        }
+        if let projectDirectory = Self.absoluteEnvironmentDirectory(
+            key: "PWD",
+            environment: environment) {
+            senpiDirectories.append(projectDirectory.appendingPathComponent(".omo/senpi-task/children"))
+            senpiDirectories.append(projectDirectory.appendingPathComponent(".omo/senpi-task/sessions"))
+        }
+        senpiSessionDirectories = Self.uniqueDirectories(senpiDirectories)
+        piSessions = Self.absoluteEnvironmentDirectory(
+            key: "PI_CODING_AGENT_SESSION_DIR",
+            environment: environment)
+            ?? Self.absoluteEnvironmentDirectory(
+                key: "PI_CODING_AGENT_DIR",
+                environment: environment)
+            .map { $0.appendingPathComponent("sessions") }
+            ?? homeDirectory.appendingPathComponent(".pi/agent/sessions")
+        ompSessions = homeDirectory.appendingPathComponent(".omp/agent/sessions")
+        kimchiSessions = xdgConfigDirectory.appendingPathComponent("kimchi/harness/sessions")
+        copilotOTELExporterFile = Self.absoluteEnvironmentDirectory(
+            key: "COPILOT_OTEL_FILE_EXPORTER_PATH",
+            environment: environment)
+            .flatMap { $0.pathExtension.lowercased() == "jsonl" ? $0 : nil }
         kimiCLIHomeOverride = Self.absoluteEnvironmentDirectory(
             key: "KIMI_SHARE_DIR",
             environment: environment)
@@ -86,10 +129,6 @@ public struct LocalUsageReaderPaths: Equatable {
         qwenRuntimeOverride = Self.absoluteEnvironmentDirectory(
             key: "QWEN_RUNTIME_DIR",
             environment: environment)
-        copilotOTELExporterFile = Self.absoluteEnvironmentDirectory(
-            key: "COPILOT_OTEL_FILE_EXPORTER_PATH",
-            environment: environment)
-            .flatMap { $0.pathExtension.lowercased() == "jsonl" ? $0 : nil }
     }
 
     public var claudeProjects: URL {
@@ -135,28 +174,6 @@ public struct LocalUsageReaderPaths: Equatable {
 
     public var ampThreads: URL {
         xdgDataDirectory.appendingPathComponent("amp/threads")
-    }
-
-    public var senpiSessions: [URL] {
-        if let senpiSessionsOverride {
-            return [senpiSessionsOverride]
-        }
-        return [
-            homeDirectory.appendingPathComponent(".omo/agent/sessions"),
-            homeDirectory.appendingPathComponent(".senpi/agent/sessions"),
-        ]
-    }
-
-    public var piSessions: URL {
-        homeDirectory.appendingPathComponent(".pi/agent/sessions")
-    }
-
-    public var ompSessions: URL {
-        homeDirectory.appendingPathComponent(".omp/agent/sessions")
-    }
-
-    public var kimchiSessions: URL {
-        homeDirectory.appendingPathComponent(".config/kimchi/harness/sessions")
     }
 
     public var openCodeDatabase: URL {
@@ -270,18 +287,6 @@ public enum LocalUsageReaderRegistry {
             ?? HermesUsageLedger(
                 fileURL: hermesUsageLedgerURL(paths: paths, scope: cacheScope),
                 automaticallyMigrateLegacy: automaticallyMigrateLegacyHermesLedger)
-        return configuredDescriptors(
-            paths: paths,
-            codexRolloutUsageCache: resolvedCodexRolloutUsageCache,
-            claudeUsageCache: resolvedClaudeUsageCache,
-            hermesUsageLedger: resolvedHermesUsageLedger)
-    }
-
-    private static func configuredDescriptors(
-        paths: LocalUsageReaderPaths,
-        codexRolloutUsageCache: CodexRolloutUsageCache,
-        claudeUsageCache: ClaudeUsageCache,
-        hermesUsageLedger: HermesUsageLedger) -> [LocalUsageReaderDescriptor] {
         let copilotSourceLocations: [LocalUsageSourceLocation] =
             [.directory(paths.copilotOTELDirectory, extensions: ["jsonl"])]
                 + (paths.copilotOTELExporterFile.map {
@@ -291,12 +296,12 @@ public enum LocalUsageReaderRegistry {
             LocalUsageReaderDescriptor(
                 reader: ClaudeCodeReader(
                     projectsURLOverride: paths.claudeProjects,
-                    usageCache: claudeUsageCache),
+                    usageCache: resolvedClaudeUsageCache),
                 sourceLocations: [.directory(paths.claudeProjects, extensions: ["jsonl"])]),
             LocalUsageReaderDescriptor(
                 reader: CodexReader(
                     dbPath: paths.codexDatabase.path,
-                    rolloutUsageCache: codexRolloutUsageCache),
+                    rolloutUsageCache: resolvedCodexRolloutUsageCache),
                 sourceLocations: [
                     .file(paths.codexDatabase, includesSQLiteSidecars: true),
                     .directory(paths.codexSessions, extensions: ["jsonl"]),
@@ -306,7 +311,7 @@ public enum LocalUsageReaderRegistry {
             LocalUsageReaderDescriptor(
                 reader: HermesReader(
                     dbPathOverride: paths.hermesDatabase.path,
-                    usageLedger: hermesUsageLedger),
+                    usageLedger: resolvedHermesUsageLedger),
                 sourceLocations: [.file(paths.hermesDatabase, includesSQLiteSidecars: true)]),
             LocalUsageReaderDescriptor(
                 reader: CursorReader(dbPathOverride: paths.cursorDatabase.path),
@@ -324,17 +329,20 @@ public enum LocalUsageReaderRegistry {
                 reader: AmpReader(threadsURLOverride: paths.ampThreads),
                 sourceLocations: [.directory(paths.ampThreads, extensions: ["json"])]),
             LocalUsageReaderDescriptor(
-                reader: SenpiReader(sessionRootsOverride: paths.senpiSessions),
-                sourceLocations: paths.senpiSessions.map { .directory($0, extensions: ["jsonl"]) }),
-            LocalUsageReaderDescriptor(
-                reader: PiReader(sessionsURLOverride: paths.piSessions),
-                sourceLocations: [.directory(paths.piSessions, extensions: ["jsonl"])]),
-            LocalUsageReaderDescriptor(
-                reader: OMPReader(sessionsURLOverride: paths.ompSessions),
-                sourceLocations: [.directory(paths.ompSessions, extensions: ["jsonl"])]),
-            LocalUsageReaderDescriptor(
-                reader: KimchiReader(sessionsURLOverride: paths.kimchiSessions),
-                sourceLocations: [.directory(paths.kimchiSessions, extensions: ["jsonl"])]),
+                reader: SenpiReader(sessionRootsOverride: paths.senpiSessionDirectories),
+                sourceLocations: paths.senpiSessionDirectories.map {
+                    .directory($0, extensions: ["jsonl"])
+                },
+                sourceSignatureStrategy: .allFiles),
+        ] + piFamilyDescriptors(paths: paths) + additionalDescriptors(
+            paths: paths,
+            copilotSourceLocations: copilotSourceLocations)
+    }
+
+    private static func additionalDescriptors(
+        paths: LocalUsageReaderPaths,
+        copilotSourceLocations: [LocalUsageSourceLocation]) -> [LocalUsageReaderDescriptor] {
+        [
             LocalUsageReaderDescriptor(
                 reader: OpenCodeReader(dbPathOverride: paths.openCodeDatabase.path),
                 sourceLocations: [.file(paths.openCodeDatabase, includesSQLiteSidecars: true)]),
@@ -345,7 +353,8 @@ public enum LocalUsageReaderRegistry {
                 reader: CopilotCLIReader(
                     otelDirectoryURLOverride: paths.copilotOTELDirectory,
                     exporterFileURLOverride: paths.copilotOTELExporterFile),
-                sourceLocations: copilotSourceLocations),
+                sourceLocations: copilotSourceLocations,
+                sourceSignatureStrategy: .allFiles),
             LocalUsageReaderDescriptor(
                 reader: KimiCLIReader(sessionRoots: paths.kimiCLISessions),
                 sourceLocations: paths.kimiCLISessions.map { .directory($0, extensions: ["jsonl"]) },
@@ -357,6 +366,24 @@ public enum LocalUsageReaderRegistry {
             LocalUsageReaderDescriptor(
                 reader: QwenCLIReader(projectRoots: paths.qwenProjects),
                 sourceLocations: paths.qwenProjects.map { .directory($0, extensions: ["jsonl"]) },
+                sourceSignatureStrategy: .allFiles),
+        ]
+    }
+
+    private static func piFamilyDescriptors(
+        paths: LocalUsageReaderPaths) -> [LocalUsageReaderDescriptor] {
+        [
+            LocalUsageReaderDescriptor(
+                reader: PiReader(sessionsURLOverride: paths.piSessions),
+                sourceLocations: [.directory(paths.piSessions, extensions: ["jsonl"])],
+                sourceSignatureStrategy: .allFiles),
+            LocalUsageReaderDescriptor(
+                reader: OMPReader(sessionsURLOverride: paths.ompSessions),
+                sourceLocations: [.directory(paths.ompSessions, extensions: ["jsonl"])],
+                sourceSignatureStrategy: .allFiles),
+            LocalUsageReaderDescriptor(
+                reader: KimchiReader(sessionsURLOverride: paths.kimchiSessions),
+                sourceLocations: [.directory(paths.kimchiSessions, extensions: ["jsonl"])],
                 sourceSignatureStrategy: .allFiles),
         ]
     }

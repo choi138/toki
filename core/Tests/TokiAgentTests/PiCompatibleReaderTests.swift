@@ -31,11 +31,11 @@ final class PiCompatibleReaderTests: XCTestCase {
         ]
 
         XCTAssertEqual(usages.map(\.inputTokens), [11, 11, 11, 11])
-        XCTAssertEqual(usages.map(\.outputTokens), [7, 7, 7, 7])
+        XCTAssertEqual(usages.map(\.outputTokens), [5, 7, 7, 7])
         XCTAssertEqual(usages.map(\.cacheReadTokens), [5, 5, 5, 5])
         XCTAssertEqual(usages.map(\.cacheWriteTokens), [3, 3, 3, 3])
-        XCTAssertEqual(usages.map(\.reasoningTokens), [2, 2, 2, 2])
-        XCTAssertEqual(usages.map(\.totalTokens), [28, 28, 28, 28])
+        XCTAssertEqual(usages.map(\.reasoningTokens), [2, 0, 0, 0])
+        XCTAssertEqual(usages.map(\.totalTokens), [26, 26, 26, 26])
         XCTAssertEqual(usages.map(\.cost), [0.25, 0.25, 0.25, 0.25])
         XCTAssertEqual(usages.compactMap { $0.tokenEvents.first?.costIsKnown }, [true, true, true, true])
         XCTAssertEqual(
@@ -80,14 +80,14 @@ final class PiCompatibleReaderTests: XCTestCase {
             to: end)
 
         XCTAssertEqual(usage.inputTokens, 0)
-        XCTAssertEqual(usage.outputTokens, 9)
+        XCTAssertEqual(usage.outputTokens, 5)
         XCTAssertEqual(usage.cacheReadTokens, 0)
         XCTAssertEqual(usage.cacheWriteTokens, 0)
         XCTAssertEqual(usage.reasoningTokens, 4)
-        XCTAssertEqual(usage.totalTokens, 13)
+        XCTAssertEqual(usage.totalTokens, 9)
     }
 
-    func test_oversizedTokenTotalsAreDroppedWithoutOverflowing() {
+    func test_oversizedTokenBucketsAreClampedWithoutOverflowing() {
         let message = [
             #"{"type":"message","id":"oversized","timestamp":"2026-08-01T12:00:00Z","message":"#,
             #"{"role":"assistant","model":"gpt-5","usage":"#,
@@ -100,8 +100,8 @@ final class PiCompatibleReaderTests: XCTestCase {
             from: start,
             to: end)
 
-        XCTAssertEqual(usage.totalTokens, 0)
-        XCTAssertTrue(usage.tokenEvents.isEmpty)
+        XCTAssertEqual(usage.totalTokens, 2_000_000_000)
+        XCTAssertEqual(usage.tokenEvents.count, 1)
     }
 
     func test_malformedMiddleAndTruncatedTrailingLinesKeepValidMessages() {

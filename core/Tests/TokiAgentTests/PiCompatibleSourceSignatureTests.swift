@@ -42,7 +42,7 @@ final class PiCompatibleSourceSignatureTests: XCTestCase {
         XCTAssertNotEqual(modified, deleted)
     }
 
-    func test_senpiOverrideDoesNotRedirectPiOrOMP() {
+    func test_senpiAndPiOverridesRemainIndependent() {
         let paths = LocalUsageReaderPaths(
             homeDirectory: URL(fileURLWithPath: "/tmp/toki-home"),
             environment: [
@@ -51,7 +51,7 @@ final class PiCompatibleSourceSignatureTests: XCTestCase {
             ])
 
         XCTAssertEqual(paths.senpiSessions.map(\.path), ["/tmp/senpi-override"])
-        XCTAssertEqual(paths.piSessions.path, "/tmp/toki-home/.pi/agent/sessions")
+        XCTAssertEqual(paths.piSessions.path, "/tmp/shared-legacy-agent/sessions")
         XCTAssertEqual(paths.ompSessions.path, "/tmp/toki-home/.omp/agent/sessions")
     }
 
