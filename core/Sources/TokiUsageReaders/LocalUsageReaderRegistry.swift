@@ -53,6 +53,10 @@ public struct LocalUsageReaderPaths: Equatable {
     public let ompSessions: URL
     public let kimchiSessions: URL
     public let copilotOTELExporterFile: URL?
+    private let kimiCLIHomeOverride: URL?
+    private let kimiCodeHomeOverride: URL?
+    private let qwenHomeOverride: URL?
+    private let qwenRuntimeOverride: URL?
 
     public init(
         homeDirectory: URL = homeDir(),
@@ -107,6 +111,18 @@ public struct LocalUsageReaderPaths: Equatable {
             key: "COPILOT_OTEL_FILE_EXPORTER_PATH",
             environment: environment)
             .flatMap { $0.pathExtension.lowercased() == "jsonl" ? $0 : nil }
+        kimiCLIHomeOverride = Self.absoluteEnvironmentDirectory(
+            key: "KIMI_SHARE_DIR",
+            environment: environment)
+        kimiCodeHomeOverride = Self.absoluteEnvironmentDirectory(
+            key: "KIMI_CODE_HOME",
+            environment: environment)
+        qwenHomeOverride = Self.absoluteEnvironmentDirectory(
+            key: "QWEN_HOME",
+            environment: environment)
+        qwenRuntimeOverride = Self.absoluteEnvironmentDirectory(
+            key: "QWEN_RUNTIME_DIR",
+            environment: environment)
     }
 
     public var claudeProjects: URL {
@@ -158,6 +174,24 @@ public struct LocalUsageReaderPaths: Equatable {
         homeDirectory.appendingPathComponent(".copilot/otel")
     }
 
+    public var kimiCLISessions: [URL] {
+        kimiCLIHomes.map { $0.appendingPathComponent("sessions") }
+    }
+
+    public var kimiCodeSessions: [URL] {
+        Self.uniqueDirectories(
+            [homeDirectory.appendingPathComponent(".kimi-code")]
+                + [kimiCodeHomeOverride].compactMap { $0 })
+            .map { $0.appendingPathComponent("sessions") }
+    }
+
+    public var qwenProjects: [URL] {
+        Self.uniqueDirectories(
+            [homeDirectory.appendingPathComponent(".qwen")]
+                + [qwenHomeOverride, qwenRuntimeOverride].compactMap { $0 })
+            .map { $0.appendingPathComponent("projects") }
+    }
+
     public var agentCacheDirectory: URL {
         xdgStateDirectory.appendingPathComponent("toki-agent")
     }
@@ -182,6 +216,12 @@ public struct LocalUsageReaderPaths: Equatable {
         }
     }
 
+    private var kimiCLIHomes: [URL] {
+        Self.uniqueDirectories(
+            [homeDirectory.appendingPathComponent(".kimi")]
+                + [kimiCLIHomeOverride].compactMap { $0 })
+    }
+
     private static func absoluteEnvironmentDirectory(
         key: String,
         environment: [String: String]) -> URL? {
@@ -193,11 +233,10 @@ public struct LocalUsageReaderPaths: Equatable {
     }
 
     private static func uniqueDirectories(_ directories: [URL]) -> [URL] {
-        var paths: Set<String> = []
+        var seen = Set<String>()
         return directories.compactMap { directory in
             let standardized = directory.standardizedFileURL
-            guard paths.insert(standardized.path).inserted else { return nil }
-            return standardized
+            return seen.insert(standardized.path).inserted ? standardized : nil
         }
     }
 }
@@ -275,7 +314,15 @@ public enum LocalUsageReaderRegistry {
                     .directory($0, extensions: ["jsonl"])
                 },
                 sourceSignatureStrategy: .allFiles),
-        ] + piFamilyDescriptors(paths: paths) + [
+        ] + piFamilyDescriptors(paths: paths) + additionalDescriptors(
+            paths: paths,
+            copilotSourceLocations: copilotSourceLocations)
+    }
+
+    private static func additionalDescriptors(
+        paths: LocalUsageReaderPaths,
+        copilotSourceLocations: [LocalUsageSourceLocation]) -> [LocalUsageReaderDescriptor] {
+        [
             LocalUsageReaderDescriptor(
                 reader: OpenCodeReader(dbPathOverride: paths.openCodeDatabase.path),
                 sourceLocations: [.file(paths.openCodeDatabase, includesSQLiteSidecars: true)]),
@@ -287,6 +334,18 @@ public enum LocalUsageReaderRegistry {
                     otelDirectoryURLOverride: paths.copilotOTELDirectory,
                     exporterFileURLOverride: paths.copilotOTELExporterFile),
                 sourceLocations: copilotSourceLocations,
+                sourceSignatureStrategy: .allFiles),
+            LocalUsageReaderDescriptor(
+                reader: KimiCLIReader(sessionRoots: paths.kimiCLISessions),
+                sourceLocations: paths.kimiCLISessions.map { .directory($0, extensions: ["jsonl"]) },
+                sourceSignatureStrategy: .allFiles),
+            LocalUsageReaderDescriptor(
+                reader: KimiCodeReader(sessionRoots: paths.kimiCodeSessions),
+                sourceLocations: paths.kimiCodeSessions.map { .directory($0, extensions: ["jsonl"]) },
+                sourceSignatureStrategy: .allFiles),
+            LocalUsageReaderDescriptor(
+                reader: QwenCLIReader(projectRoots: paths.qwenProjects),
+                sourceLocations: paths.qwenProjects.map { .directory($0, extensions: ["jsonl"]) },
                 sourceSignatureStrategy: .allFiles),
         ]
     }

@@ -20,6 +20,9 @@ final class UsagePanelSettings: ObservableObject {
         "OpenCode",
         "OpenClaw",
         "GitHub Copilot CLI",
+        "Kimi CLI",
+        "Kimi Code",
+        "Qwen CLI",
         "Remote Devices",
     ]
 

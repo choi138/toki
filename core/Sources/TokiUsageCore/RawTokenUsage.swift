@@ -131,6 +131,7 @@ public struct TokenUsageEvent: Equatable, Codable {
     public let cacheWriteTokens: Int
     public let reasoningTokens: Int
     public let cost: Double
+    public let costIsKnown: Bool?
     public let attribution: UsageAttribution?
 
     public init(
@@ -144,6 +145,7 @@ public struct TokenUsageEvent: Equatable, Codable {
         cacheWriteTokens: Int,
         reasoningTokens: Int,
         cost: Double,
+        costIsKnown: Bool? = nil,
         attribution: UsageAttribution? = nil) {
         self.timestamp = timestamp
         self.source = source
@@ -155,6 +157,7 @@ public struct TokenUsageEvent: Equatable, Codable {
         self.cacheWriteTokens = cacheWriteTokens
         self.reasoningTokens = reasoningTokens
         self.cost = cost
+        self.costIsKnown = costIsKnown
         self.attribution = attribution
     }
 
@@ -346,6 +349,7 @@ public struct RawTokenUsage {
         cacheWriteTokens: Int = 0,
         reasoningTokens: Int = 0,
         cost: Double = 0,
+        costIsKnown: Bool? = nil,
         attribution: UsageAttribution? = nil) {
         let event = TokenUsageEvent(
             timestamp: timestamp,
@@ -358,6 +362,7 @@ public struct RawTokenUsage {
             cacheWriteTokens: cacheWriteTokens,
             reasoningTokens: reasoningTokens,
             cost: cost,
+            costIsKnown: costIsKnown,
             attribution: attribution)
         guard event.totalTokens > 0 || event.cost > 0 else { return }
         tokenEvents.append(event)

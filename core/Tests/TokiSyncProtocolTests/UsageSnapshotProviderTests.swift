@@ -8,8 +8,8 @@ final class UsageSnapshotProviderTests: XCTestCase {
             """
             {
               "timestamp":1765756800000,
-              "source":"GitHub Copilot CLI",
-              "model":"gpt-5.4",
+              "source":"Kimi CLI",
+              "model":"kimi-k2.5",
               "inputTokens":1,
               "outputTokens":2,
               "cacheReadTokens":0,
@@ -27,9 +27,9 @@ final class UsageSnapshotProviderTests: XCTestCase {
     func test_remoteTokenEventRoundTripsRecordedProvider() throws {
         let event = RemoteTokenEvent(
             timestamp: Date(timeIntervalSince1970: 1_765_756_800),
-            source: "GitHub Copilot CLI",
-            model: "claude-sonnet-4.6",
-            provider: "github",
+            source: "Kimi CLI",
+            model: "moonshotai/kimi-k2.5",
+            provider: "openrouter",
             inputTokens: 1,
             outputTokens: 2,
             cacheReadTokens: 3,
@@ -41,6 +41,94 @@ final class UsageSnapshotProviderTests: XCTestCase {
             from: TokiSyncCoding.makeEncoder().encode(event))
 
         XCTAssertEqual(decoded, event)
-        XCTAssertEqual(decoded.provider, "github")
+        XCTAssertEqual(decoded.provider, "openrouter")
+    }
+
+    func test_snapshotValidationRequiresCostWhenPriceIsKnown() throws {
+        let now = Date(timeIntervalSince1970: 1_765_756_800)
+        let knownZero = RemoteTokenEvent(
+            timestamp: now,
+            source: "Kimi CLI",
+            model: "kimi-k2.5",
+            provider: "moonshot",
+            inputTokens: 1,
+            outputTokens: 0,
+            cacheReadTokens: 0,
+            cacheWriteTokens: 0,
+            reasoningTokens: 0,
+            cost: 0,
+            costIsKnown: true)
+        let missingKnownCost = RemoteTokenEvent(
+            timestamp: now,
+            source: "Kimi CLI",
+            model: "kimi-k2.5",
+            provider: "moonshot",
+            inputTokens: 1,
+            outputTokens: 0,
+            cacheReadTokens: 0,
+            cacheWriteTokens: 0,
+            reasoningTokens: 0,
+            costIsKnown: true)
+        let unknownZero = RemoteTokenEvent(
+            timestamp: now,
+            source: "Kimi CLI",
+            model: "kimi-k2.5",
+            provider: "moonshot",
+            inputTokens: 1,
+            outputTokens: 0,
+            cacheReadTokens: 0,
+            cacheWriteTokens: 0,
+            reasoningTokens: 0,
+            cost: 0,
+            costIsKnown: false)
+        let missingUnknownCost = RemoteTokenEvent(
+            timestamp: now,
+            source: "Kimi CLI",
+            model: "kimi-k2.5",
+            provider: "moonshot",
+            inputTokens: 1,
+            outputTokens: 0,
+            cacheReadTokens: 0,
+            cacheWriteTokens: 0,
+            reasoningTokens: 0,
+            costIsKnown: false)
+        let positiveUnknownCost = RemoteTokenEvent(
+            timestamp: now,
+            source: "Kimi CLI",
+            model: "kimi-k2.5",
+            provider: "moonshot",
+            inputTokens: 1,
+            outputTokens: 0,
+            cacheReadTokens: 0,
+            cacheWriteTokens: 0,
+            reasoningTokens: 0,
+            cost: 1,
+            costIsKnown: false)
+
+        XCTAssertNoThrow(try RemoteUsageSnapshotValidator.validate(
+            snapshot(event: knownZero, now: now),
+            now: now))
+        XCTAssertThrowsError(try RemoteUsageSnapshotValidator.validate(
+            snapshot(event: missingKnownCost, now: now),
+            now: now))
+        XCTAssertNoThrow(try RemoteUsageSnapshotValidator.validate(
+            snapshot(event: unknownZero, now: now),
+            now: now))
+        XCTAssertNoThrow(try RemoteUsageSnapshotValidator.validate(
+            snapshot(event: missingUnknownCost, now: now),
+            now: now))
+        XCTAssertThrowsError(try RemoteUsageSnapshotValidator.validate(
+            snapshot(event: positiveUnknownCost, now: now),
+            now: now))
+    }
+
+    private func snapshot(event: RemoteTokenEvent, now: Date) -> RemoteUsageSnapshot {
+        RemoteUsageSnapshot(
+            device: RemoteDeviceDescriptor(id: "device", name: "Mac", platform: "macos"),
+            generatedAt: now,
+            coveredFrom: now.addingTimeInterval(-60),
+            coveredTo: now.addingTimeInterval(60),
+            tokenEvents: [event],
+            activityEvents: [])
     }
 }

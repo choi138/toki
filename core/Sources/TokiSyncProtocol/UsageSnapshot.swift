@@ -32,6 +32,7 @@ public struct RemoteTokenEvent: Codable, Equatable, Sendable {
     public let cacheWriteTokens: Int
     public let reasoningTokens: Int
     public let cost: Double?
+    public let costIsKnown: Bool?
 
     public init(
         timestamp: Date,
@@ -43,7 +44,8 @@ public struct RemoteTokenEvent: Codable, Equatable, Sendable {
         cacheReadTokens: Int,
         cacheWriteTokens: Int,
         reasoningTokens: Int,
-        cost: Double? = nil) {
+        cost: Double? = nil,
+        costIsKnown: Bool? = nil) {
         self.timestamp = timestamp
         self.source = source
         self.model = model
@@ -54,6 +56,7 @@ public struct RemoteTokenEvent: Codable, Equatable, Sendable {
         self.cacheWriteTokens = max(0, cacheWriteTokens)
         self.reasoningTokens = max(0, reasoningTokens)
         self.cost = cost
+        self.costIsKnown = costIsKnown
     }
 
     public var totalTokens: Int {

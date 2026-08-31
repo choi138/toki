@@ -9,26 +9,39 @@ import { SupportedAgents } from '@/widgets/supported-agents';
 import { WorkTimeShowcase } from '@/widgets/work-time-showcase';
 import { SectionShell } from '@/shared/ui';
 
+import { getLandingCopy, type LandingLocale } from '../model/landing-copy';
+
 type LandingPageProps = Readonly<{
   latestRelease: TokiRelease;
+  locale: LandingLocale;
 }>;
 
-export function LandingPage({ latestRelease }: LandingPageProps) {
+export function LandingPage({ latestRelease, locale }: LandingPageProps) {
+  const copy = getLandingCopy(locale);
+
   return (
-    <div className="luminous flex min-h-dvh flex-col">
-      <SiteHeader />
+    <div
+      className="luminous flex min-h-dvh flex-col"
+      data-locale={locale}
+      lang={locale}
+    >
+      <SiteHeader copy={copy.header} locale={locale} />
       <main className="flex-1">
-        <Hero3D latestRelease={latestRelease} />
+        <Hero3D
+          copy={copy.hero}
+          latestRelease={latestRelease}
+          locale={locale}
+        />
         <SectionShell>
           <div className="h-px bg-toki-line" />
         </SectionShell>
-        <WorkTimeShowcase />
-        <ScreenshotStrip />
-        <SupportedAgents />
-        <PrivacyPanel />
-        <DownloadCta latestRelease={latestRelease} />
+        <WorkTimeShowcase copy={copy.workTime} />
+        <ScreenshotStrip copy={copy.screenshots} />
+        <SupportedAgents copy={copy.agents} />
+        <PrivacyPanel copy={copy.privacy} />
+        <DownloadCta copy={copy.download} latestRelease={latestRelease} />
       </main>
-      <SiteFooter />
+      <SiteFooter copy={copy.footer} />
     </div>
   );
 }

@@ -182,13 +182,9 @@ struct AgentSnapshotBuilder: AgentSnapshotBuilding {
         let sources = try readerDescriptors.map { descriptor in
             let records: [String] = switch descriptor.sourceSignatureStrategy {
             case .standard:
-                try standardSourceRecords(
-                    locations: descriptor.sourceLocations,
-                    modifiedOnOrAfter: window.start)
+                try sourceRecords(locations: descriptor.sourceLocations, modifiedOnOrAfter: window.start)
             case .allFiles:
-                try standardSourceRecords(
-                    locations: descriptor.sourceLocations,
-                    modifiedOnOrAfter: .distantPast)
+                try sourceRecords(locations: descriptor.sourceLocations, modifiedOnOrAfter: nil)
             case .codexRollouts:
                 try codexSourceRecords(window: window)
             }
@@ -245,9 +241,8 @@ private extension AgentSnapshotBuilder {
         return DateInterval(start: coveredFrom, end: coveredTo)
     }
 
-    private func standardSourceRecords(
-        locations: [LocalUsageSourceLocation],
-        modifiedOnOrAfter minimumDate: Date) throws -> [String] {
+    private func sourceRecords(
+        locations: [LocalUsageSourceLocation], modifiedOnOrAfter minimumDate: Date?) throws -> [String] {
         var records: [String] = []
         for location in locations {
             switch location {
@@ -312,9 +307,7 @@ private extension AgentSnapshotBuilder {
     }
 
     private func retainedFiles(
-        in directory: URL,
-        extensions: Set<String>,
-        modifiedOnOrAfter minimumDate: Date) throws -> Set<URL> {
+        in directory: URL, extensions: Set<String>, modifiedOnOrAfter minimumDate: Date?) throws -> Set<URL> {
         guard FileManager.default.fileExists(atPath: directory.path) else { return [] }
 
         var inspectionFailed = false
@@ -353,9 +346,12 @@ private extension AgentSnapshotBuilder {
                 }
                 continue
             }
+            let isRecentEnough = minimumDate.map { minimumDate in
+                values.contentModificationDate.map { $0 >= minimumDate } == true
+            } ?? true
             guard values.isRegularFile == true,
                   extensions.contains(fileURL.pathExtension),
-                  values.contentModificationDate.map({ $0 >= minimumDate }) == true else {
+                  isRecentEnough else {
                 continue
             }
             files.insert(fileURL.standardizedFileURL)
@@ -441,13 +437,17 @@ private extension AgentSnapshotBuilder {
         if lhs.timestamp != rhs.timestamp { return lhs.timestamp < rhs.timestamp }
         if lhs.source != rhs.source { return lhs.source < rhs.source }
         if lhs.model != rhs.model { return (lhs.model ?? "") < (rhs.model ?? "") }
-        if lhs.provider != rhs.provider { return (lhs.provider ?? "") < (rhs.provider ?? "") }
         if lhs.inputTokens != rhs.inputTokens { return lhs.inputTokens < rhs.inputTokens }
         if lhs.outputTokens != rhs.outputTokens { return lhs.outputTokens < rhs.outputTokens }
         if lhs.cacheReadTokens != rhs.cacheReadTokens { return lhs.cacheReadTokens < rhs.cacheReadTokens }
         if lhs.cacheWriteTokens != rhs.cacheWriteTokens { return lhs.cacheWriteTokens < rhs.cacheWriteTokens }
         if lhs.reasoningTokens != rhs.reasoningTokens { return lhs.reasoningTokens < rhs.reasoningTokens }
-        return (lhs.cost ?? -1) < (rhs.cost ?? -1)
+        if lhs.cost != rhs.cost { return (lhs.cost ?? -1) < (rhs.cost ?? -1) }
+        let lhsProvider = (lhs.provider == nil ? 0 : 1, lhs.provider ?? "")
+        let rhsProvider = (rhs.provider == nil ? 0 : 1, rhs.provider ?? "")
+        if lhsProvider != rhsProvider { return lhsProvider < rhsProvider }
+        return (lhs.costIsKnown.map { $0 ? 2 : 1 } ?? 0)
+            < (rhs.costIsKnown.map { $0 ? 2 : 1 } ?? 0)
     }
 
     private func costEventSort(_ lhs: RemoteCostEvent, _ rhs: RemoteCostEvent) -> Bool {
@@ -502,7 +502,10 @@ private extension AgentSnapshotBuilder {
             cacheReadTokens: event.cacheReadTokens,
             cacheWriteTokens: event.cacheWriteTokens,
             reasoningTokens: event.reasoningTokens,
-            cost: event.cost > 0 ? event.cost : nil)
+            cost: event.costIsKnown == false
+                ? 0
+                : (event.costIsKnown == true ? event.cost : event.cost > 0 ? event.cost : nil),
+            costIsKnown: event.costIsKnown)
     }
 
     private func remoteProvider(_ provider: String?) -> String? {
@@ -529,6 +532,7 @@ private extension AgentSnapshotBuilder {
         guard counts.allSatisfy({ $0 == 0 }),
               event.cost.isFinite,
               event.cost > 0,
+              event.costIsKnown != false,
               validCostRange.contains(event.cost) else {
             return nil
         }

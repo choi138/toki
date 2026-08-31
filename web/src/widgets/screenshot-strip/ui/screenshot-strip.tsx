@@ -9,48 +9,46 @@ import {
   SectionShell,
 } from '@/shared/ui';
 
-type Shot = Readonly<{
-  alt: string;
-  caption: string;
-  src: string;
+const SHOTS = [
+  { id: 'time', src: '/screenshots/screenshot_time.png' },
+  { id: 'projects', src: '/screenshots/screenshot_projects.png' },
+  { id: 'models', src: '/screenshots/screenshot_models.png' },
+] as const;
+
+type ScreenshotCopy = Readonly<{
+  aside: Readonly<{ first: string; second: string }>;
+  pill: string;
+  shots: Readonly<
+    Record<
+      (typeof SHOTS)[number]['id'],
+      Readonly<{ alt: string; caption: string }>
+    >
+  >;
+  title: string;
 }>;
 
-const SHOTS: readonly Shot[] = [
-  {
-    alt: 'Toki Time view',
-    caption: 'TIME — DIRECT, DELEGATED, OVERLAP',
-    src: '/screenshots/screenshot_time.png',
-  },
-  {
-    alt: 'Toki Projects view',
-    caption: 'PROJECTS — ATTRIBUTION IN CONTEXT',
-    src: '/screenshots/screenshot_projects.png',
-  },
-  {
-    alt: 'Toki Models view',
-    caption: 'MODELS — USAGE AND COST',
-    src: '/screenshots/screenshot_models.png',
-  },
-];
+type ScreenshotStripProps = Readonly<{
+  copy: ScreenshotCopy;
+}>;
 
-export function ScreenshotStrip() {
+export function ScreenshotStrip({ copy }: ScreenshotStripProps) {
   return (
     <section aria-labelledby="screens-title">
       <SectionShell className="py-[6.375rem] lg:py-[8.5rem]">
         <Reveal className="mb-[1.875rem] gap-5 sm:flex sm:items-end sm:justify-between lg:mb-[2.875rem]">
           <div>
-            <Pill>Live in the popover</Pill>
+            <Pill>{copy.pill}</Pill>
             <h2
               className="mt-5 max-w-[31.875rem] text-[clamp(2.4375rem,4.6vw,3.8125rem)] leading-[1.01] font-semibold tracking-[-0.057em] text-balance"
               id="screens-title"
             >
-              The context stays close.
+              {copy.title}
             </h2>
           </div>
           <p className="mt-3.5 max-w-[16.25rem] font-mono text-[11px] leading-[1.6] text-[#8d9693] sm:mt-0 sm:text-right">
-            SIX FOCUSED VIEWS
+            {copy.aside.first}
             <br />
-            ONE MENU-BAR HOME
+            {copy.aside.second}
           </p>
         </Reveal>
         <RevealGroup className="grid items-end gap-3 md:grid-cols-[0.95fr_0.78fr_0.78fr] md:gap-[1.125rem]">
@@ -63,7 +61,7 @@ export function ScreenshotStrip() {
               >
                 <figure className="m-0">
                   <Image
-                    alt={shot.alt}
+                    alt={copy.shots[shot.id].alt}
                     className="w-full rounded-[11px]"
                     height={840}
                     sizes="(max-width: 767px) 92vw, 30vw"
@@ -71,7 +69,7 @@ export function ScreenshotStrip() {
                     width={640}
                   />
                   <figcaption className="px-1 pt-3 pb-[3px] font-mono text-[10px] tracking-[0.045em] text-[#99a29f]">
-                    {shot.caption}
+                    {copy.shots[shot.id].caption}
                   </figcaption>
                 </figure>
               </GlassCard>

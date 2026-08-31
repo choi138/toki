@@ -25,6 +25,9 @@ final class LocalUsageReaderRegistryTests: XCTestCase {
                 "OpenCode",
                 "OpenClaw",
                 "GitHub Copilot CLI",
+                "Kimi CLI",
+                "Kimi Code",
+                "Qwen CLI",
             ])
     }
 
