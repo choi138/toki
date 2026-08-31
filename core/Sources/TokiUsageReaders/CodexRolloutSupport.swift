@@ -80,10 +80,11 @@ public actor CodexRolloutUsageCache {
         dailyActivityTimestamps: [String: [TimeInterval]],
         dailyTokenUsageEvents: [String: [CodexCachedTokenUsageEvent]] = [:],
         processingState: CodexRolloutProcessingState? = nil,
+        fileSignature: CodexFileSignature? = nil,
         for url: URL) {
         loadIfNeeded()
 
-        guard let fileSignature = codexFileSignature(for: url) else { return }
+        guard let fileSignature = fileSignature ?? codexFileSignature(for: url) else { return }
 
         let entry = CodexRolloutUsageCacheEntry(
             fileSize: fileSignature.fileSize,
@@ -238,6 +239,8 @@ extension CodexRolloutUsageCache {
            !includingDerivedData || cached.hasCompleteDerivedData,
            cached.fileSize == signature.fileSize,
            cached.modifiedAt == signature.modifiedAt,
+           cached.processingState?.processedByteCount == cached.fileSize,
+           cached.processingState?.fileIdentifier == signature.fileIdentifier,
            cached.timeZoneIdentifier == codexCacheTimeZoneIdentifier() {
             touch(url.path)
             return cached.summary
@@ -250,27 +253,33 @@ extension CodexRolloutUsageCache {
                 signature: signature,
                 cachedEntry: cached,
                 includingDerivedData: preserveDerivedData) {
+                guard !Task.isCancelled else { return cached.summary }
                 store(
                     dailyUsage: updated.summary.dailyUsage,
                     dailyActivityTimestamps: updated.summary.dailyActivityTimestamps,
                     dailyTokenUsageEvents: updated.summary.dailyTokenUsageEvents,
                     processingState: updated.processingState,
+                    fileSignature: signature,
                     for: url)
                 return updated.summary
             }
         }
 
+        let rebuildIncludingDerivedData = includingDerivedData || entries[url.path] == nil
         let rebuilt = codexRolloutDailySummaryWithState(
             fromRolloutAt: url,
             signature: signature,
-            includingDerivedData: includingDerivedData)
-        guard !Task.isCancelled, rebuilt.didReadToEnd else { return CodexRolloutDailySummary() }
+            includingDerivedData: rebuildIncludingDerivedData)
+        guard !Task.isCancelled, rebuilt.didReadToEnd else {
+            return entries[url.path]?.summary ?? CodexRolloutDailySummary()
+        }
 
         store(
             dailyUsage: rebuilt.summary.dailyUsage,
             dailyActivityTimestamps: rebuilt.summary.dailyActivityTimestamps,
             dailyTokenUsageEvents: rebuilt.summary.dailyTokenUsageEvents,
             processingState: rebuilt.processingState,
+            fileSignature: signature,
             for: url)
         return rebuilt.summary
     }
@@ -427,6 +436,7 @@ struct CodexCachedTokenUsageEvent: Codable {
 struct CodexFileSignature {
     let fileSize: Int
     let modifiedAt: TimeInterval
+    let fileIdentifier: UInt64?
 }
 
 func codexFileSignature(for url: URL) -> CodexFileSignature? {
@@ -438,7 +448,8 @@ func codexFileSignature(for url: URL) -> CodexFileSignature? {
 
     return CodexFileSignature(
         fileSize: fileSize,
-        modifiedAt: modifiedAt.timeIntervalSince1970)
+        modifiedAt: modifiedAt.timeIntervalSince1970,
+        fileIdentifier: (attributes[.systemFileNumber] as? NSNumber)?.uint64Value)
 }
 
 public func codexRolloutUsageCacheURL(

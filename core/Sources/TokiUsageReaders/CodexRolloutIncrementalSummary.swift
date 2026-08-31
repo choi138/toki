@@ -6,6 +6,7 @@ struct CodexRolloutProcessingState: Codable {
     let processedLineCount: Int
     let fileEndedWithNewline: Bool
     let prefixFingerprint: UInt64
+    let fileIdentifier: UInt64?
     let selectorState: CodexRolloutSnapshotSelectorState
     let previousSnapshot: CodexUsageSnapshot?
     let lastSnapshotTimestamp: TimeInterval?
@@ -16,6 +17,11 @@ struct CodexRolloutProcessedSummary {
     let summary: CodexRolloutDailySummary
     let processingState: CodexRolloutProcessingState
     let didReadToEnd: Bool
+}
+
+struct CodexSnapshotAccumulation {
+    let previousSnapshot: CodexUsageSnapshot?
+    let didComplete: Bool
 }
 
 func codexRolloutDailySummaryWithState(
@@ -33,9 +39,7 @@ func codexRolloutDailySummaryWithState(
         initialLineIndex: 0,
         maximumBufferedLineByteCount: 1024 * 1024,
         shouldKeepOversizedLine: { data in
-            codexDataShouldProcessRolloutLine(
-                data,
-                includeForkMarkers: selector.state.waitingForForkTurnContext)
+            codexDataShouldKeepOversizedRolloutLine(data)
         },
         shouldProcessLineData: { data in
             codexDataShouldProcessRolloutLine(
@@ -51,7 +55,7 @@ func codexRolloutDailySummaryWithState(
 
     snapshots.sort(by: codexSnapshotOrder)
     var summary = CodexRolloutDailySummary()
-    let previousSnapshot = accumulateCodexSnapshots(
+    let accumulation = accumulateCodexSnapshots(
         snapshots,
         into: &summary,
         previousSnapshot: nil,
@@ -67,11 +71,12 @@ func codexRolloutDailySummaryWithState(
             processedLineCount: lineCount,
             fileEndedWithNewline: codexFileEndedWithNewline(url, byteCount: signature.fileSize),
             prefixFingerprint: codexPrefixFingerprint(url, byteCount: signature.fileSize) ?? 0,
+            fileIdentifier: signature.fileIdentifier,
             selectorState: selector.state,
-            previousSnapshot: previousSnapshot,
+            previousSnapshot: accumulation.previousSnapshot,
             lastSnapshotTimestamp: snapshots.last?.date.timeIntervalSince1970,
             lastSnapshotFileOrder: snapshots.last?.fileOrder),
-        didReadToEnd: didReadToEnd)
+        didReadToEnd: didReadToEnd && accumulation.didComplete)
 }
 
 func codexRolloutDailySummaryByAppending(
@@ -85,6 +90,7 @@ func codexRolloutDailySummaryByAppending(
           let state = cachedEntry.processingState,
           state.processedByteCount == cachedEntry.fileSize,
           signature.fileSize > state.processedByteCount,
+          state.fileIdentifier == signature.fileIdentifier,
           state.fileEndedWithNewline,
           let existingFingerprint = codexPrefixFingerprint(url, byteCount: state.processedByteCount),
           existingFingerprint == state.prefixFingerprint else {
@@ -102,9 +108,7 @@ func codexRolloutDailySummaryByAppending(
         initialLineIndex: state.processedLineCount,
         maximumBufferedLineByteCount: 1024 * 1024,
         shouldKeepOversizedLine: { data in
-            codexDataShouldProcessRolloutLine(
-                data,
-                includeForkMarkers: selector.state.waitingForForkTurnContext)
+            codexDataShouldKeepOversizedRolloutLine(data)
         },
         shouldProcessLineData: { data in
             codexDataShouldProcessRolloutLine(
@@ -129,11 +133,12 @@ func codexRolloutDailySummaryByAppending(
     }
 
     var summary = cachedEntry.summary
-    let previousSnapshot = accumulateCodexSnapshots(
+    let accumulation = accumulateCodexSnapshots(
         appendedSnapshots,
         into: &summary,
         previousSnapshot: state.previousSnapshot,
         includingDerivedData: includingDerivedData)
+    guard accumulation.didComplete else { return nil }
     if includingDerivedData {
         recomputeCodexActiveSeconds(in: &summary)
     }
@@ -145,8 +150,9 @@ func codexRolloutDailySummaryByAppending(
             processedLineCount: lineCount,
             fileEndedWithNewline: codexFileEndedWithNewline(url, byteCount: signature.fileSize),
             prefixFingerprint: codexPrefixFingerprint(url, byteCount: signature.fileSize) ?? 0,
+            fileIdentifier: signature.fileIdentifier,
             selectorState: selector.state,
-            previousSnapshot: previousSnapshot,
+            previousSnapshot: accumulation.previousSnapshot,
             lastSnapshotTimestamp: appendedSnapshots.last?.date.timeIntervalSince1970
                 ?? state.lastSnapshotTimestamp,
             lastSnapshotFileOrder: appendedSnapshots.last?.fileOrder ?? state.lastSnapshotFileOrder),
@@ -157,11 +163,13 @@ func accumulateCodexSnapshots(
     _ snapshots: [CodexTimedSnapshot],
     into summary: inout CodexRolloutDailySummary,
     previousSnapshot initialPreviousSnapshot: CodexUsageSnapshot?,
-    includingDerivedData: Bool = true) -> CodexUsageSnapshot? {
+    includingDerivedData: Bool = true) -> CodexSnapshotAccumulation {
     var previousSnapshot = initialPreviousSnapshot
 
     for entry in snapshots {
-        guard !Task.isCancelled else { return previousSnapshot }
+        guard !Task.isCancelled else {
+            return CodexSnapshotAccumulation(previousSnapshot: previousSnapshot, didComplete: false)
+        }
 
         let usage = entry.usage(since: previousSnapshot)
         previousSnapshot = entry.tokenCount.nextBaseline(after: previousSnapshot)
@@ -177,7 +185,7 @@ func accumulateCodexSnapshots(
         }
     }
 
-    return previousSnapshot
+    return CodexSnapshotAccumulation(previousSnapshot: previousSnapshot, didComplete: true)
 }
 
 func recomputeCodexActiveSeconds(in summary: inout CodexRolloutDailySummary) {

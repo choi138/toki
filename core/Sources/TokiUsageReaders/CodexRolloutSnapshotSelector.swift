@@ -7,6 +7,7 @@ private let codexTurnContextMarker = Array("\"turn_context\"".utf8)
 private let codexTaskStartedMarker = Array("\"task_started\"".utf8)
 private let codexTypeKey = Array("type".utf8)
 private let codexCompactedType = Array("compacted".utf8)
+private let codexResponseItemType = Array("response_item".utf8)
 private let codexTokenCountMarkerData = Data(codexTokenCountMarker)
 private let codexSessionMetaMarkerData = Data(codexSessionMetaMarker)
 private let codexTurnContextMarkerData = Data(codexTurnContextMarker)
@@ -267,7 +268,16 @@ func codexDataShouldProcessRolloutLine(
         && codexDataContainsRelevantMarker(data, includeForkMarkers: includeForkMarkers)
 }
 
+func codexDataShouldKeepOversizedRolloutLine(_ data: Data) -> Bool {
+    !codexDataHasTopLevelType(data, matching: codexCompactedType)
+        && !codexDataHasTopLevelType(data, matching: codexResponseItemType)
+}
+
 func codexDataIsCompactedRolloutEntry(_ data: Data) -> Bool {
+    codexDataHasTopLevelType(data, matching: codexCompactedType)
+}
+
+private func codexDataHasTopLevelType(_ data: Data, matching expectedType: [UInt8]) -> Bool {
     data.withUnsafeBytes { rawBuffer in
         let buffer = rawBuffer.bindMemory(to: UInt8.self)
         var offset = 0
@@ -318,7 +328,7 @@ func codexDataIsCompactedRolloutEntry(_ data: Data) -> Bool {
                 }
                 return codexBuffer(
                     buffer,
-                    exactlyMatches: codexCompactedType,
+                    exactlyMatches: expectedType,
                     from: offset + 1,
                     to: valueEnd)
             default:
