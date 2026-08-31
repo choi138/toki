@@ -26,4 +26,31 @@ final class SenpiReaderCancellationTests: XCTestCase {
             XCTFail("Expected CancellationError, received \(error)")
         }
     }
+
+    func test_discoveryChecksCancellationAfterTraversalBegins() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("toki-senpi-cancellation-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        for index in 0..<3 {
+            try Data("{}\n".utf8).write(
+                to: root.appendingPathComponent("session-\(index).jsonl"))
+        }
+        var checkpointCount = 0
+
+        XCTAssertThrowsError(try findFiles(
+            in: root,
+            withExtension: "jsonl",
+            cancellationCheck: {
+                checkpointCount += 1
+                if checkpointCount == 2 {
+                    throw CancellationError()
+                }
+            })) { error in
+                guard error is CancellationError else {
+                    return XCTFail("Expected CancellationError, received \(error)")
+                }
+            }
+        XCTAssertEqual(checkpointCount, 2)
+    }
 }
