@@ -263,7 +263,7 @@ extension SenpiReaderTests {
             output: 5)
         try fixture.writeSession(
             to: child,
-            sessionID: "copied-session",
+            sessionID: "child-session",
             messageID: "copied-message",
             input: 10,
             output: 5)
@@ -292,7 +292,7 @@ extension SenpiReaderTests {
             output: 20)
         try fixture.writeSession(
             to: child,
-            sessionID: "revised-session",
+            sessionID: "child-revised-session",
             messageID: "revised-message",
             input: 20,
             output: 5)

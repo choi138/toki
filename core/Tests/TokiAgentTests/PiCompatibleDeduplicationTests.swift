@@ -2,6 +2,24 @@ import XCTest
 @testable import TokiUsageReaders
 
 final class PiCompatibleDeduplicationTests: XCTestCase {
+    func test_messageIDsRemainIndependentAcrossMainSessions() {
+        let lines = [
+            sessionLine(id: "session-a"),
+            messageLine(id: "shared-message", timestamp: "2026-08-01T12:00:00Z", input: 3),
+            sessionLine(id: "session-b"),
+            messageLine(id: "shared-message", timestamp: "2026-08-01T12:01:00Z", input: 7),
+        ]
+
+        let usage = PiReader.usage(
+            fromJSONLLines: lines,
+            streamID: "message-scope",
+            from: deduplicationDate("2026-08-01T00:00:00Z"),
+            to: deduplicationDate("2026-08-02T00:00:00Z"))
+
+        XCTAssertEqual(usage.inputTokens, 10)
+        XCTAssertEqual(usage.tokenEvents.count, 2)
+    }
+
     func test_idlessResponseIDsRemainScopedToSessionAndProvider() {
         let lines = [
             sessionLine(id: "session-a"),
@@ -39,6 +57,13 @@ final class PiCompatibleDeduplicationTests: XCTestCase {
 
     private func sessionLine(id: String) -> String {
         #"{"type":"session","id":"\#(id)","timestamp":"2026-08-01T08:00:00Z"}"#
+    }
+
+    private func messageLine(id: String, timestamp: String, input: Int) -> String {
+        [
+            #"{"type":"message","id":"\#(id)","timestamp":"\#(timestamp)","message":{"#,
+            #""role":"assistant","model":"gpt-5","usage":{"input":\#(input),"output":1}}}"#,
+        ].joined()
     }
 
     private func responseLine(

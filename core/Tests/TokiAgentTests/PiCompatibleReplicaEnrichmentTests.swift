@@ -22,7 +22,7 @@ final class PiCompatibleReplicaEnrichmentTests: XCTestCase {
         XCTAssertEqual(usage.tokenEvents.first?.costIsKnown, true)
     }
 
-    func test_idlessResponseReconcilesProviderAcrossFiles() throws {
+    func test_idlessResponsePrefersUniqueExplicitProviderAcrossFiles() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("toki-pi-provider-enrichment-\(UUID().uuidString)", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: root) }
@@ -33,7 +33,7 @@ final class PiCompatibleReplicaEnrichmentTests: XCTestCase {
             output: 5)
         try writeResponseSession(
             to: root.appendingPathComponent("child/session.jsonl"),
-            provider: "custom-provider",
+            provider: "azure",
             input: 4,
             output: 3)
 
@@ -51,7 +51,7 @@ final class PiCompatibleReplicaEnrichmentTests: XCTestCase {
 
         XCTAssertEqual(usage.totalTokens, 12)
         XCTAssertEqual(usage.tokenEvents.count, 1)
-        XCTAssertEqual(usage.tokenEvents.first?.provider, "custom-provider")
+        XCTAssertEqual(usage.tokenEvents.first?.provider, "azure")
     }
 
     private func writeSession(to url: URL, input: Int, output: Int, cost: Double?) throws {
@@ -85,7 +85,7 @@ final class PiCompatibleReplicaEnrichmentTests: XCTestCase {
             withIntermediateDirectories: true)
         var messageFields = [
             #""role":"assistant""#,
-            #""model":"custom-model""#,
+            #""model":"gpt-5""#,
             #""responseId":"shared-response""#,
             #""usage":{"input":\#(input),"output":\#(output)}"#,
         ]

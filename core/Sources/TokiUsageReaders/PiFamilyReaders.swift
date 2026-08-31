@@ -47,8 +47,19 @@ public struct OMPReader: TokenReader {
 
     public func readUsage(from startDate: Date, to endDate: Date) async throws -> RawTokenUsage {
         let sessionsURL = sessionsURLOverride ?? LocalUsageReaderPaths().ompSessions
-        return try PiCompatibleReader(source: .ohMyPi, sessionRoots: [sessionsURL])
+        return try PiCompatibleReader(
+            source: .ohMyPi,
+            sessionRoots: [sessionsURL],
+            agentKindForFile: Self.agentKind)
             .readUsage(from: startDate, to: endDate)
+    }
+
+    private static func agentKind(for file: URL) -> WorkTimeAgentKind {
+        let parentDirectory = file.deletingLastPathComponent()
+        let parentSession = parentDirectory.deletingLastPathComponent()
+            .appendingPathComponent(parentDirectory.lastPathComponent)
+            .appendingPathExtension("jsonl")
+        return FileManager.default.fileExists(atPath: parentSession.path) ? .subagent : .main
     }
 
     static func usage(
