@@ -2,6 +2,19 @@ import Foundation
 import TokiUsageCore
 
 func findFiles(in directory: URL, withExtension ext: String, modifiedAfter: Date? = nil) -> [URL] {
+    (try? findFiles(
+        in: directory,
+        withExtension: ext,
+        modifiedAfter: modifiedAfter,
+        cancellationCheck: {})) ?? []
+}
+
+func findFiles(
+    in directory: URL,
+    withExtension ext: String,
+    modifiedAfter: Date? = nil,
+    cancellationCheck: () throws -> Void) throws -> [URL] {
+    try cancellationCheck()
     let keys: [URLResourceKey] = modifiedAfter != nil
         ? [.isDirectoryKey, .isRegularFileKey, .isSymbolicLinkKey, .contentModificationDateKey]
         : [.isDirectoryKey, .isRegularFileKey, .isSymbolicLinkKey]
@@ -16,6 +29,7 @@ func findFiles(in directory: URL, withExtension ext: String, modifiedAfter: Date
 
     var files: [URL] = []
     for case let url as URL in enumerator {
+        try cancellationCheck()
         guard let values = try? url.resourceValues(forKeys: Set(keys)) else { continue }
         if values.isSymbolicLink == true {
             if values.isDirectory == true {

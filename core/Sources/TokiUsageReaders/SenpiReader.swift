@@ -23,8 +23,11 @@ public struct SenpiReader: TokenReader {
     public func readUsage(from startDate: Date, to endDate: Date) async throws -> RawTokenUsage {
         let roots = sessionRootsOverride
             ?? LocalUsageReaderPaths().senpiSessionDirectories
-        let files = Set(roots.flatMap { root in
-            findFiles(in: root, withExtension: "jsonl")
+        let files = try Set(roots.flatMap { root in
+            try findFiles(
+                in: root,
+                withExtension: "jsonl",
+                cancellationCheck: { try Task.checkCancellation() })
                 .map { $0.resolvingSymlinksInPath().standardizedFileURL }
         })
         .sorted { $0.path < $1.path }
