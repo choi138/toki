@@ -48,14 +48,16 @@ enum JSONLLineSource {
     case lines([String])
     case file(URL)
 
-    func consume(_ body: (String) -> Void) {
+    func consume(_ body: (String) -> Void) throws {
+        try Task.checkCancellation()
         switch self {
         case let .lines(lines):
             for line in lines {
+                try Task.checkCancellation()
                 body(line)
             }
         case let .file(url):
-            forEachJSONLLine(at: url) { line, _ in body(line) }
+            try forEachJSONLLineThrowing(at: url) { line, _ in body(line) }
         }
     }
 }

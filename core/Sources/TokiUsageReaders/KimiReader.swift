@@ -19,15 +19,15 @@ public struct KimiCLIReader: TokenReader {
                     lineSource: .file(file))
             }
         }
-        return Self.usage(from: sessions, from: startDate, to: endDate)
+        return try Self.usage(from: sessions, from: startDate, to: endDate)
     }
 
     static func usage(
         fromJSONLLines lines: [String],
         streamID: String,
         from startDate: Date,
-        to endDate: Date) -> RawTokenUsage {
-        usage(
+        to endDate: Date) throws -> RawTokenUsage {
+        try usage(
             from: [
                 KimiCLISession(
                     streamID: streamID,
@@ -40,13 +40,16 @@ public struct KimiCLIReader: TokenReader {
     private static func usage(
         from sessions: [KimiCLISession],
         from startDate: Date,
-        to endDate: Date) -> RawTokenUsage {
+        to endDate: Date) throws -> RawTokenUsage {
+        try Task.checkCancellation()
         let decoder = JSONDecoder()
         var snapshots: [String: KimiUsageEvent] = [:]
+        var observedActivityEvents: [String: ActivityTimeEvent<String>] = [:]
 
         for session in sessions {
             let identity = kimiCLIIdentity(from: session.streamID)
-            session.lineSource.consume { line in
+            var fallbackTurns = KimiCLIFallbackTurnTracker()
+            try session.lineSource.consume { line in
                 guard let data = line.data(using: .utf8),
                       let wire = try? decoder.decode(KimiCLIWireLine.self, from: data),
                       wire.message?.type == "StatusUpdate",
@@ -58,10 +61,12 @@ public struct KimiCLIReader: TokenReader {
                     return
                 }
 
-                let messageKey = if let messageID = nonemptyKimiValue(payload.messageID) {
-                    "message:\(messageID)"
+                let messageKey: String
+                if let messageID = nonemptyKimiValue(payload.messageID) {
+                    fallbackTurns.finishSequence()
+                    messageKey = "message:\(messageID)"
                 } else {
-                    "stream"
+                    messageKey = "fallback:\(fallbackTurns.turnIndex(for: tokens))"
                 }
                 let event = KimiUsageEvent(
                     timestamp: timestamp,
@@ -75,6 +80,15 @@ public struct KimiCLIReader: TokenReader {
                     tokens: tokens,
                     totalTokens: totalTokens,
                     dedupKey: "\(identity.dedupScope):\(messageKey)")
+                let activityKey = [
+                    event.dedupKey,
+                    String(timestamp.timeIntervalSince1970.bitPattern),
+                ].joined(separator: "|")
+                observedActivityEvents[activityKey] = ActivityTimeEvent(
+                    streamID: event.streamID,
+                    timestamp: timestamp,
+                    key: event.model,
+                    agentKind: event.agentKind)
                 if let existing = snapshots[event.dedupKey],
                    !event.shouldReplace(existing) {
                     return
@@ -83,10 +97,14 @@ public struct KimiCLIReader: TokenReader {
             }
         }
 
+        try Task.checkCancellation()
         return kimiRawUsage(
             events: snapshots.values
                 .filter { $0.timestamp >= startDate && $0.timestamp < endDate }
                 .sorted(by: kimiEventSort),
+            observedActivityEvents: observedActivityEvents.values
+                .filter { $0.timestamp >= startDate && $0.timestamp < endDate }
+                .sorted(by: kimiActivityEventSort),
             source: sourceName,
             clippingEndDate: endDate)
     }
@@ -110,15 +128,15 @@ public struct KimiCodeReader: TokenReader {
                     lineSource: .file(file))
             }
         }
-        return Self.usage(from: sessions, from: startDate, to: endDate)
+        return try Self.usage(from: sessions, from: startDate, to: endDate)
     }
 
     static func usage(
         fromJSONLLines lines: [String],
         streamID: String,
         from startDate: Date,
-        to endDate: Date) -> RawTokenUsage {
-        usage(
+        to endDate: Date) throws -> RawTokenUsage {
+        try usage(
             from: [
                 KimiCodeSession(
                     streamID: streamID,
@@ -131,7 +149,8 @@ public struct KimiCodeReader: TokenReader {
     private static func usage(
         from sessions: [KimiCodeSession],
         from startDate: Date,
-        to endDate: Date) -> RawTokenUsage {
+        to endDate: Date) throws -> RawTokenUsage {
+        try Task.checkCancellation()
         let decoder = JSONDecoder()
         var eventsByKey: [String: KimiUsageEvent] = [:]
 
@@ -140,7 +159,7 @@ public struct KimiCodeReader: TokenReader {
             var latestConcreteModel: String?
             var contentOccurrences: [String: Int] = [:]
 
-            session.lineSource.consume { line in
+            try session.lineSource.consume { line in
                 guard let data = line.data(using: .utf8),
                       let wire = try? decoder.decode(KimiCodeWireLine.self, from: data) else {
                     return
@@ -198,6 +217,7 @@ public struct KimiCodeReader: TokenReader {
             }
         }
 
+        try Task.checkCancellation()
         return kimiRawUsage(
             events: eventsByKey.values.sorted(by: kimiEventSort),
             source: sourceName,
@@ -288,6 +308,34 @@ private struct KimiTokenCounts {
     var total: Int? {
         checkedTokenTotal(input, output, cacheRead, cacheWrite)
     }
+
+    func isCumulativeSuccessor(of previous: KimiTokenCounts) -> Bool {
+        input >= previous.input
+            && output >= previous.output
+            && cacheRead >= previous.cacheRead
+            && cacheWrite >= previous.cacheWrite
+    }
+}
+
+private struct KimiCLIFallbackTurnTracker {
+    private var nextTurnIndex = 0
+    private var currentTurnIndex: Int?
+    private var previousTokens: KimiTokenCounts?
+
+    mutating func turnIndex(for tokens: KimiTokenCounts) -> Int {
+        if currentTurnIndex == nil
+            || previousTokens.map({ !tokens.isCumulativeSuccessor(of: $0) }) == true {
+            currentTurnIndex = nextTurnIndex
+            nextTurnIndex += 1
+        }
+        previousTokens = tokens
+        return currentTurnIndex ?? 0
+    }
+
+    mutating func finishSequence() {
+        currentTurnIndex = nil
+        previousTokens = nil
+    }
 }
 
 private struct KimiUsageEvent {
@@ -319,6 +367,7 @@ private struct KimiUsageEvent {
 
 private func kimiRawUsage(
     events: [KimiUsageEvent],
+    observedActivityEvents: [ActivityTimeEvent<String>]? = nil,
     source: String,
     clippingEndDate: Date) -> RawTokenUsage {
     var result = RawTokenUsage()
@@ -367,10 +416,17 @@ private func kimiRawUsage(
     }
 
     result.mergeActivityEvents(
-        activityEvents,
+        observedActivityEvents ?? activityEvents,
         source: source,
         clippingEndDate: clippingEndDate)
     return result
+}
+
+private func kimiActivityEventSort(
+    _ lhs: ActivityTimeEvent<String>,
+    _ rhs: ActivityTimeEvent<String>) -> Bool {
+    if lhs.timestamp != rhs.timestamp { return lhs.timestamp < rhs.timestamp }
+    return lhs.streamID < rhs.streamID
 }
 
 private func kimiWireFiles(in root: URL) -> [URL] {

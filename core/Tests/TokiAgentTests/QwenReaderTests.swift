@@ -7,7 +7,7 @@ final class QwenReaderTests: XCTestCase {
     private let startDate = Date(timeIntervalSince1970: 1_770_000_000)
     private let endDate = Date(timeIntervalSince1970: 1_780_000_000)
 
-    func test_qwenMapsAssistantUsageMetadataWithoutInventingCost() {
+    func test_qwenMapsAssistantUsageMetadataWithoutInventingCost() throws {
         let lines = [
             #"{"uuid":"message-1","type":"assistant","model":"qwen3.5-plus","# +
                 #""timestamp":"2026-02-23T14:24:56.857Z","sessionId":"session-qwen","# +
@@ -18,7 +18,7 @@ final class QwenReaderTests: XCTestCase {
                 #""candidatesTokenCount":999,"thoughtsTokenCount":999,"cachedContentTokenCount":999}}"#,
         ]
 
-        let usage = QwenCLIReader.usage(
+        let usage = try QwenCLIReader.usage(
             fromJSONLLines: lines,
             streamID: "/tmp/.qwen/projects/workspace-qwen/chats/session.jsonl",
             from: startDate,
@@ -45,8 +45,8 @@ final class QwenReaderTests: XCTestCase {
         XCTAssertEqual(usage.activityEvents.count, 1)
     }
 
-    func test_qwenDeduplicatesDivergentReplicasByRecordUUID() {
-        let usage = QwenCLIReader.usage(
+    func test_qwenDeduplicatesDivergentReplicasByRecordUUID() throws {
+        let usage = try QwenCLIReader.usage(
             fromJSONLSessions: [
                 (
                     streamID: "/tmp/default/projects/workspace/chats/one.jsonl",
@@ -76,12 +76,12 @@ final class QwenReaderTests: XCTestCase {
         XCTAssertEqual(usage.tokenEvents.count, 3)
     }
 
-    func test_qwenDeduplicatesUUIDAcrossDifferentReplicaMetadata() {
+    func test_qwenDeduplicatesUUIDAcrossDifferentReplicaMetadata() throws {
         let replicated =
             #"{"uuid":"same-message","type":"assistant","model":"qwen3-coder","# +
             #""timestamp":"2026-02-23T14:24:56.857Z","usageMetadata":{"promptTokenCount":10,"# +
             #""candidatesTokenCount":2}}"#
-        let usage = QwenCLIReader.usage(
+        let usage = try QwenCLIReader.usage(
             fromJSONLSessions: [
                 (
                     streamID: "/tmp/default/projects/-tmp-workspace/chats/original.jsonl",
@@ -101,8 +101,8 @@ final class QwenReaderTests: XCTestCase {
         XCTAssertEqual(usage.tokenEvents.count, 1)
     }
 
-    func test_qwenSkipsMalformedAndTruncatedRecords() {
-        let usage = QwenCLIReader.usage(
+    func test_qwenSkipsMalformedAndTruncatedRecords() throws {
+        let usage = try QwenCLIReader.usage(
             fromJSONLLines: [
                 #"{"type":"assistant","model":"qwen3","timestamp":"2026-02-23T14:24:56.857Z","# +
                     #""usageMetadata":{"promptTokenCount":10,"candidatesTokenCount":2}}"#,
@@ -118,7 +118,7 @@ final class QwenReaderTests: XCTestCase {
         XCTAssertEqual(usage.tokenEvents.first?.attribution?.sessionLabel, "fallback-session")
     }
 
-    func test_qwenSkipsOverflowingTokenRecords() {
+    func test_qwenSkipsOverflowingTokenRecords() throws {
         let overflowing =
             #"{"uuid":"overflow","type":"assistant","model":"qwen3","# +
             #""timestamp":"2026-02-23T14:24:56.857Z","usageMetadata":{"promptTokenCount":"# +
@@ -129,7 +129,7 @@ final class QwenReaderTests: XCTestCase {
             #""timestamp":"2026-02-23T14:25:56.857Z","usageMetadata":{"promptTokenCount":10,"# +
             #""candidatesTokenCount":2}}"#
 
-        let usage = QwenCLIReader.usage(
+        let usage = try QwenCLIReader.usage(
             fromJSONLLines: [overflowing, valid],
             streamID: "/tmp/.qwen/projects/workspace/chats/fallback-session.jsonl",
             from: startDate,
@@ -158,7 +158,7 @@ final class QwenReaderTests: XCTestCase {
 }
 
 extension QwenReaderTests {
-    func test_qwenDeduplicatesUUIDlessDivergentReplicasByContent() {
+    func test_qwenDeduplicatesUUIDlessDivergentReplicasByContent() throws {
         func line(timestamp: String, tokens: Int) -> String {
             #"{"type":"assistant","model":"qwen3","timestamp":""# + timestamp +
                 #"","sessionId":"session","cwd":"/tmp/workspace","# +
@@ -169,7 +169,7 @@ extension QwenReaderTests {
         let eventB = line(timestamp: "2026-02-23T14:25:56.857Z", tokens: 20)
         let eventC = line(timestamp: "2026-02-23T14:26:56.857Z", tokens: 30)
 
-        let usage = QwenCLIReader.usage(
+        let usage = try QwenCLIReader.usage(
             fromJSONLSessions: [
                 (streamID: "/tmp/a/projects/workspace/chats/a.jsonl", lines: [eventA, eventB]),
                 (streamID: "/tmp/b/projects/workspace/chats/b.jsonl", lines: [eventB, eventC]),
@@ -181,7 +181,86 @@ extension QwenReaderTests {
         XCTAssertEqual(usage.tokenEvents.count, 3)
     }
 
-    func test_qwenResolvesConflictingUUIDReplicasDeterministically() {
+    func test_qwenDeduplicatesUUIDlessReplicaWhenOnlyOneHasCWD() throws {
+        let replicated =
+            #"{"type":"assistant","model":"qwen3","timestamp":"2026-02-23T14:24:56.857Z","# +
+            #""sessionId":"session","usageMetadata":{"promptTokenCount":10,"# +
+            #""candidatesTokenCount":2}}"#
+        let withCWD = replicated.replacingOccurrences(
+            of: #""usageMetadata""#,
+            with: #""cwd":"/tmp/workspace","usageMetadata""#)
+
+        let usage = try QwenCLIReader.usage(
+            fromJSONLSessions: [
+                (
+                    streamID: "/tmp/default/projects/workspace/chats/original.jsonl",
+                    lines: [withCWD]),
+                (
+                    streamID: "/tmp/override/projects/workspace/chats/replica.jsonl",
+                    lines: [replicated]),
+            ],
+            from: startDate,
+            to: endDate)
+
+        XCTAssertEqual(usage.totalTokens, 12)
+        XCTAssertEqual(usage.tokenEvents.count, 1)
+        XCTAssertEqual(usage.tokenEvents.first?.attribution?.projectPath, "/tmp/workspace")
+    }
+
+    func test_qwenKeepsUUIDlessContentAcrossDifferentExactProjects() throws {
+        func line(cwd: String) -> String {
+            #"{"type":"assistant","model":"qwen3","timestamp":"2026-02-23T14:24:56.857Z","# +
+                #""sessionId":"session","cwd":""# + cwd +
+                #"","usageMetadata":{"promptTokenCount":10,"candidatesTokenCount":2}}"#
+        }
+
+        let usage = try QwenCLIReader.usage(
+            fromJSONLSessions: [
+                (
+                    streamID: "/tmp/default/projects/shared/chats/first.jsonl",
+                    lines: [line(cwd: "/tmp/first")]),
+                (
+                    streamID: "/tmp/override/projects/shared/chats/second.jsonl",
+                    lines: [line(cwd: "/tmp/second")]),
+            ],
+            from: startDate,
+            to: endDate)
+
+        XCTAssertEqual(usage.totalTokens, 24)
+        XCTAssertEqual(usage.tokenEvents.count, 2)
+        XCTAssertEqual(
+            Set(usage.tokenEvents.compactMap(\.attribution?.projectPath)),
+            ["/tmp/first", "/tmp/second"])
+    }
+
+    func test_chineseCLIReadersPropagateCancellation() async {
+        let readers: [any TokenReader] = [
+            KimiCLIReader(sessionRoots: []),
+            KimiCodeReader(sessionRoots: []),
+            QwenCLIReader(projectRoots: []),
+        ]
+
+        for reader in readers {
+            let task = Task {
+                while !Task.isCancelled {
+                    await Task.yield()
+                }
+                return try await reader.readUsage(from: startDate, to: endDate)
+            }
+            task.cancel()
+
+            do {
+                _ = try await task.value
+                XCTFail("Expected cancellation from \(reader.name)")
+            } catch is CancellationError {
+                // Expected.
+            } catch {
+                XCTFail("Unexpected error from \(reader.name): \(error)")
+            }
+        }
+    }
+
+    func test_qwenResolvesConflictingUUIDReplicasDeterministically() throws {
         let smaller =
             #"{"uuid":"same","type":"assistant","model":"qwen3","# +
             #""timestamp":"2026-02-23T14:24:56.857Z","sessionId":"session","# +
@@ -195,11 +274,11 @@ extension QwenReaderTests {
             (streamID: "/tmp/b/projects/workspace/chats/b.jsonl", lines: [larger]),
         ]
 
-        let forward = QwenCLIReader.usage(
+        let forward = try QwenCLIReader.usage(
             fromJSONLSessions: sessions,
             from: startDate,
             to: endDate)
-        let reversed = QwenCLIReader.usage(
+        let reversed = try QwenCLIReader.usage(
             fromJSONLSessions: Array(sessions.reversed()),
             from: startDate,
             to: endDate)
@@ -209,7 +288,7 @@ extension QwenReaderTests {
         XCTAssertEqual(forward.tokenEvents, reversed.tokenEvents)
     }
 
-    func test_qwenKeepsSameUUIDAcrossDifferentProjects() {
+    func test_qwenKeepsSameUUIDAcrossDifferentProjects() throws {
         let first =
             #"{"uuid":"same","type":"assistant","model":"qwen3","# +
             #""timestamp":"2026-02-23T14:24:56.857Z","sessionId":"session","# +
@@ -219,7 +298,7 @@ extension QwenReaderTests {
             #""timestamp":"2026-02-23T14:25:56.857Z","sessionId":"session","# +
             #""usageMetadata":{"promptTokenCount":20,"candidatesTokenCount":0}}"#
 
-        let usage = QwenCLIReader.usage(
+        let usage = try QwenCLIReader.usage(
             fromJSONLSessions: [
                 (streamID: "/tmp/root/projects/first/chats/a.jsonl", lines: [first]),
                 (streamID: "/tmp/root/projects/second/chats/b.jsonl", lines: [second]),
@@ -234,7 +313,7 @@ extension QwenReaderTests {
         XCTAssertEqual(usage.resolvedWorkTime.activeStreamCount, 2)
     }
 
-    func test_qwenPrefersCWDWhenRootsShareProjectLayout() {
+    func test_qwenPrefersCWDWhenRootsShareProjectLayout() throws {
         let first =
             #"{"uuid":"same","type":"assistant","model":"qwen3","# +
             #""timestamp":"2026-02-23T14:24:56.857Z","sessionId":"session","# +
@@ -246,7 +325,7 @@ extension QwenReaderTests {
             #""cwd":"/tmp/second-project","usageMetadata":{"promptTokenCount":20,"# +
             #""candidatesTokenCount":0}}"#
 
-        let usage = QwenCLIReader.usage(
+        let usage = try QwenCLIReader.usage(
             fromJSONLSessions: [
                 (streamID: "/tmp/default/projects/shared/chats/session.jsonl", lines: [first]),
                 (streamID: "/tmp/override/projects/shared/chats/session.jsonl", lines: [second]),
@@ -325,5 +404,13 @@ extension QwenReaderTests {
         forEachJSONLLine(at: file) { line, _ in lines.append(line) }
 
         XCTAssertEqual(lines, [longLine, "second", "third"])
+    }
+
+    func test_jsonlLineSourcePropagatesOpenFailure() {
+        let missingFile = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)
+
+        XCTAssertThrowsError(
+            try JSONLLineSource.file(missingFile).consume { _ in })
     }
 }

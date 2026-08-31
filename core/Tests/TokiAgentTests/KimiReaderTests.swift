@@ -7,7 +7,7 @@ final class KimiReaderTests: XCTestCase {
     private let startDate = Date(timeIntervalSince1970: 1_770_000_000)
     private let endDate = Date(timeIntervalSince1970: 1_780_000_000)
 
-    func test_kimiCLIMapsStatusUsageAndKeepsLargestMessageSnapshot() {
+    func test_kimiCLIMapsStatusUsageAndKeepsLargestMessageSnapshot() throws {
         let lines = [
             #"{"type":"metadata","protocol_version":"1.3"}"#,
             #"{"timestamp":1770983410.0,"message":{"type":"StatusUpdate","payload":{"token_usage":{"# +
@@ -21,7 +21,7 @@ final class KimiReaderTests: XCTestCase {
                 #""message_id":"message-2"}}}"#,
         ]
 
-        let usage = KimiCLIReader.usage(
+        let usage = try KimiCLIReader.usage(
             fromJSONLLines: lines,
             streamID: "/tmp/.kimi/sessions/workspace-a/session-cli/wire.jsonl",
             from: startDate,
@@ -44,10 +44,52 @@ final class KimiReaderTests: XCTestCase {
         XCTAssertEqual(
             usage.tokenEvents.map(\.attribution?.projectName),
             ["workspace-a", "workspace-a"])
-        XCTAssertEqual(usage.activityEvents.count, 2)
+        XCTAssertEqual(usage.activityEvents.count, 3)
     }
 
-    func test_kimiCLIDeduplicatesSnapshotsBeforeDateFiltering() {
+    func test_kimiCLISeparatesIDlessMonotonicTurns() throws {
+        let lines = [
+            #"{"timestamp":1770983410.0,"message":{"type":"StatusUpdate","payload":{"# +
+                #""token_usage":{"input_other":10,"output":0}}}}"#,
+            #"{"timestamp":1770983420.0,"message":{"type":"StatusUpdate","payload":{"# +
+                #""token_usage":{"input_other":20,"output":0}}}}"#,
+            #"{"timestamp":1770983430.0,"message":{"type":"StatusUpdate","payload":{"# +
+                #""token_usage":{"input_other":5,"output":0}}}}"#,
+            #"{"timestamp":1770983440.0,"message":{"type":"StatusUpdate","payload":{"# +
+                #""token_usage":{"input_other":15,"output":0}}}}"#,
+        ]
+
+        let usage = try KimiCLIReader.usage(
+            fromJSONLLines: lines,
+            streamID: "/tmp/.kimi/sessions/workspace/session/wire.jsonl",
+            from: startDate,
+            to: endDate)
+
+        XCTAssertEqual(usage.totalTokens, 35)
+        XCTAssertEqual(usage.tokenEvents.count, 2)
+    }
+
+    func test_kimiCLIPreservesCumulativeSnapshotTimestampsForActivity() throws {
+        let lines = [
+            #"{"timestamp":1770983410.0,"message":{"type":"StatusUpdate","payload":{"# +
+                #""token_usage":{"input_other":10,"output":0},"message_id":"message"}}}"#,
+            #"{"timestamp":1770983470.0,"message":{"type":"StatusUpdate","payload":{"# +
+                #""token_usage":{"input_other":20,"output":0},"message_id":"message"}}}"#,
+        ]
+
+        let usage = try KimiCLIReader.usage(
+            fromJSONLLines: lines,
+            streamID: "/tmp/.kimi/sessions/workspace/session/wire.jsonl",
+            from: startDate,
+            to: endDate)
+
+        XCTAssertEqual(usage.totalTokens, 20)
+        XCTAssertEqual(usage.tokenEvents.count, 1)
+        XCTAssertEqual(usage.activityEvents.count, 2)
+        XCTAssertEqual(usage.resolvedWorkTime.agentSeconds, 90)
+    }
+
+    func test_kimiCLIDeduplicatesSnapshotsBeforeDateFiltering() throws {
         let boundary = startDate.addingTimeInterval(60)
         let lines = [
             #"{"timestamp":"# + String(boundary.timeIntervalSince1970 - 1) +
@@ -58,12 +100,12 @@ final class KimiReaderTests: XCTestCase {
                 #""input_other":150,"output":0},"message_id":"spanning-message"}}}"#,
         ]
 
-        let beforeBoundary = KimiCLIReader.usage(
+        let beforeBoundary = try KimiCLIReader.usage(
             fromJSONLLines: lines,
             streamID: "/tmp/.kimi/sessions/workspace/session/wire.jsonl",
             from: startDate,
             to: boundary)
-        let afterBoundary = KimiCLIReader.usage(
+        let afterBoundary = try KimiCLIReader.usage(
             fromJSONLLines: lines,
             streamID: "/tmp/.kimi/sessions/workspace/session/wire.jsonl",
             from: boundary,
@@ -110,7 +152,7 @@ final class KimiReaderTests: XCTestCase {
         XCTAssertEqual(firstUsage.tokenEvents.first?.provider, "moonshot")
     }
 
-    func test_kimiCodeCountsOnlyTurnUsageRecordsAndUsesConcreteRequestModel() {
+    func test_kimiCodeCountsOnlyTurnUsageRecordsAndUsesConcreteRequestModel() throws {
         let lines = [
             #"{"type":"llm.request","model":"moonshot/kimi-k2.6"}"#,
             #"{"type":"usage.record","model":"__kimi_env_model__","usage":{"inputOther":200,"# +
@@ -123,7 +165,7 @@ final class KimiReaderTests: XCTestCase {
                 #""output":999},"usageScope":"session","time":1770983420000}"#,
         ]
 
-        let usage = KimiCodeReader.usage(
+        let usage = try KimiCodeReader.usage(
             fromJSONLLines: lines,
             streamID: "/tmp/.kimi-code/sessions/workspace-b/session-code/agents/main/wire.jsonl",
             from: startDate,
@@ -145,8 +187,8 @@ final class KimiReaderTests: XCTestCase {
         XCTAssertEqual(usage.activityEvents.count, 1)
     }
 
-    func test_kimiCodeClassifiesNonMainAgentActivityAsSubagent() {
-        let usage = KimiCodeReader.usage(
+    func test_kimiCodeClassifiesNonMainAgentActivityAsSubagent() throws {
+        let usage = try KimiCodeReader.usage(
             fromJSONLLines: [
                 #"{"type":"usage.record","model":"kimi-k2","usage":{"inputOther":12,"# +
                     #""output":3},"usageScope":"turn","time":1770983410000}"#,
@@ -160,8 +202,8 @@ final class KimiReaderTests: XCTestCase {
         XCTAssertEqual(usage.resolvedWorkTime.subagentSeconds, 30)
     }
 
-    func test_kimiReadersSkipMalformedAndTruncatedRecords() {
-        let cliUsage = KimiCLIReader.usage(
+    func test_kimiReadersSkipMalformedAndTruncatedRecords() throws {
+        let cliUsage = try KimiCLIReader.usage(
             fromJSONLLines: [
                 #"{"timestamp":1770983410.0,"message":{"type":"StatusUpdate","payload":{"# +
                     #""token_usage":{"input_other":10,"output":2},"message_id":"valid"}}}"#,
@@ -171,7 +213,7 @@ final class KimiReaderTests: XCTestCase {
             streamID: "/tmp/.kimi/sessions/workspace/session/wire.jsonl",
             from: startDate,
             to: endDate)
-        let codeUsage = KimiCodeReader.usage(
+        let codeUsage = try KimiCodeReader.usage(
             fromJSONLLines: [
                 #"{"type":"usage.record","model":"kimi-k2","usage":{"inputOther":12,"output":3},"# +
                     #""usageScope":"turn","time":1770983410000}"#,
@@ -255,9 +297,11 @@ extension KimiReaderTests {
 
         XCTAssertEqual(usage.totalTokens, 20)
         XCTAssertEqual(usage.tokenEvents.count, 1)
+        XCTAssertEqual(usage.activityEvents.count, 2)
+        XCTAssertEqual(usage.resolvedWorkTime.agentSeconds, 40)
     }
 
-    func test_kimiReadersSkipOverflowingTokenRecords() {
+    func test_kimiReadersSkipOverflowingTokenRecords() throws {
         let overflowingCLI =
             #"{"timestamp":1770983410.0,"message":{"type":"StatusUpdate","payload":{"token_usage":{"input_other":"# +
             String(Int.max) +
@@ -273,12 +317,12 @@ extension KimiReaderTests {
             #"{"type":"usage.record","model":"kimi-k2","usage":{"inputOther":12,"output":3},"# +
             #""usageScope":"turn","time":1770983420000}"#
 
-        let cliUsage = KimiCLIReader.usage(
+        let cliUsage = try KimiCLIReader.usage(
             fromJSONLLines: [overflowingCLI, validCLI],
             streamID: "/tmp/.kimi/sessions/workspace/session/wire.jsonl",
             from: startDate,
             to: endDate)
-        let codeUsage = KimiCodeReader.usage(
+        let codeUsage = try KimiCodeReader.usage(
             fromJSONLLines: [overflowingCode, validCode],
             streamID: "/tmp/.kimi-code/sessions/workspace/session/agents/main/wire.jsonl",
             from: startDate,

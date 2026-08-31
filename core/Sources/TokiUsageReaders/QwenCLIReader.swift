@@ -21,15 +21,15 @@ public struct QwenCLIReader: TokenReader {
                         lineSource: .file(file))
                 }
         }
-        return Self.usage(from: sessions, from: startDate, to: endDate)
+        return try Self.usage(from: sessions, from: startDate, to: endDate)
     }
 
     static func usage(
         fromJSONLLines lines: [String],
         streamID: String,
         from startDate: Date,
-        to endDate: Date) -> RawTokenUsage {
-        usage(
+        to endDate: Date) throws -> RawTokenUsage {
+        try usage(
             from: [QwenSession(streamID: streamID, lineSource: .lines(lines))],
             from: startDate,
             to: endDate)
@@ -38,8 +38,8 @@ public struct QwenCLIReader: TokenReader {
     static func usage(
         fromJSONLSessions sessions: [(streamID: String, lines: [String])],
         from startDate: Date,
-        to endDate: Date) -> RawTokenUsage {
-        usage(
+        to endDate: Date) throws -> RawTokenUsage {
+        try usage(
             from: sessions.map {
                 QwenSession(streamID: $0.streamID, lineSource: .lines($0.lines))
             },
@@ -50,16 +50,17 @@ public struct QwenCLIReader: TokenReader {
     private static func usage(
         from sessions: [QwenSession],
         from startDate: Date,
-        to endDate: Date) -> RawTokenUsage {
+        to endDate: Date) throws -> RawTokenUsage {
+        try Task.checkCancellation()
         let decoder = JSONDecoder()
         var eventsByKey: [String: QwenUsageEvent] = [:]
-        var uuidReplicaBuckets: [String: [String: QwenUsageEvent]] = [:]
+        var replicaBuckets: [String: [String: QwenUsageEvent]] = [:]
 
         for session in sessions {
             let pathIdentity = qwenPathIdentity(from: session.streamID)
             var contentOccurrences: [String: Int] = [:]
 
-            session.lineSource.consume { line in
+            try session.lineSource.consume { line in
                 guard let data = line.data(using: .utf8),
                       let entry = try? decoder.decode(QwenLine.self, from: data),
                       entry.type == "assistant",
@@ -81,18 +82,16 @@ public struct QwenCLIReader: TokenReader {
                     project: projectIdentity,
                     sessionLabel: sessionLabel)
                 let recordIdentity: String
-                let uuidBucketKey: String?, uuidReplicaKey: String?
+                let replicaBucketKey: String
                 if let uuid = nonemptyQwenValue(entry.uuid) {
                     recordIdentity = "uuid:\(uuid)"
-                    uuidBucketKey = qwenUUIDBucketKey(
+                    replicaBucketKey = qwenUUIDBucketKey(
                         uuid: uuid,
                         fallbackProject: pathIdentity.project)
-                    uuidReplicaKey = qwenUUIDReplicaKey(projectPath: projectPath)
                 } else {
                     let contentIdentity = [
                         String(timestamp.timeIntervalSince1970.bitPattern),
                         "\(model?.utf8.count ?? 0):\(model ?? "")",
-                        "\(projectPath?.utf8.count ?? 0):\(projectPath ?? pathIdentity.project ?? "")",
                         String(tokens.input),
                         String(tokens.output),
                         String(tokens.cacheRead),
@@ -101,8 +100,11 @@ public struct QwenCLIReader: TokenReader {
                     let occurrence = contentOccurrences[contentIdentity, default: 0]
                     contentOccurrences[contentIdentity] = occurrence + 1
                     recordIdentity = "content:\(contentIdentity)|occurrence:\(occurrence)"
-                    uuidBucketKey = nil
-                    uuidReplicaKey = nil
+                    replicaBucketKey = qwenContentBucketKey(
+                        contentIdentity: contentIdentity,
+                        occurrence: occurrence,
+                        fallbackProject: pathIdentity.project,
+                        sessionLabel: sessionLabel)
                 }
                 let key = if recordIdentity.hasPrefix("uuid:"),
                              let projectIdentity {
@@ -120,19 +122,16 @@ public struct QwenCLIReader: TokenReader {
                     tokens: tokens,
                     totalTokens: totalTokens,
                     dedupKey: key)
-                if let uuidBucketKey, let uuidReplicaKey {
-                    storeQwenUUIDReplica(
-                        event,
-                        bucketKey: uuidBucketKey,
-                        replicaKey: uuidReplicaKey,
-                        in: &uuidReplicaBuckets)
-                } else {
-                    storeQwenEvent(event, in: &eventsByKey)
-                }
+                storeQwenReplica(
+                    event,
+                    bucketKey: replicaBucketKey,
+                    replicaKey: qwenReplicaKey(projectPath: projectPath),
+                    in: &replicaBuckets)
             }
         }
 
-        resolveQwenUUIDReplicas(uuidReplicaBuckets, into: &eventsByKey)
+        try Task.checkCancellation()
+        resolveQwenReplicas(replicaBuckets, into: &eventsByKey)
 
         return qwenRawUsage(
             events: eventsByKey.values.sorted(by: qwenEventSort),
@@ -319,7 +318,20 @@ private func qwenUUIDBucketKey(uuid: String, fallbackProject: String?) -> String
     ].joined(separator: "|")
 }
 
-private func qwenUUIDReplicaKey(projectPath: String?) -> String {
+private func qwenContentBucketKey(
+    contentIdentity: String,
+    occurrence: Int,
+    fallbackProject: String?,
+    sessionLabel: String) -> String {
+    [
+        "\(fallbackProject?.utf8.count ?? 0):\(fallbackProject ?? "")",
+        "\(sessionLabel.utf8.count):\(sessionLabel)",
+        "\(contentIdentity.utf8.count):\(contentIdentity)",
+        "occurrence:\(occurrence)",
+    ].joined(separator: "|")
+}
+
+private func qwenReplicaKey(projectPath: String?) -> String {
     guard let projectPath else { return "fallback" }
     return "cwd:\(projectPath.utf8.count):\(projectPath)"
 }
@@ -333,7 +345,7 @@ private func storeQwenEvent(
     eventsByKey[event.dedupKey] = event
 }
 
-private func storeQwenUUIDReplica(
+private func storeQwenReplica(
     _ event: QwenUsageEvent,
     bucketKey: String,
     replicaKey: String,
@@ -346,7 +358,7 @@ private func storeQwenUUIDReplica(
     buckets[bucketKey] = replicas
 }
 
-private func resolveQwenUUIDReplicas(
+private func resolveQwenReplicas(
     _ buckets: [String: [String: QwenUsageEvent]],
     into eventsByKey: inout [String: QwenUsageEvent]) {
     for replicas in buckets.values {
