@@ -6,14 +6,26 @@ public struct PiReader: TokenReader {
 
     public let name = Self.sourceName
     private let sessionsURLOverride: URL?
+    private let readLimits: PiCompatibleReadLimits
 
     public init(sessionsURLOverride: URL? = nil) {
         self.sessionsURLOverride = sessionsURLOverride
+        readLimits = .default
+    }
+
+    init(
+        sessionsURLOverride: URL?,
+        readLimits: PiCompatibleReadLimits) {
+        self.sessionsURLOverride = sessionsURLOverride
+        self.readLimits = readLimits
     }
 
     public func readUsage(from startDate: Date, to endDate: Date) async throws -> RawTokenUsage {
         let sessionsURL = sessionsURLOverride ?? LocalUsageReaderPaths().piSessions
-        return try PiCompatibleReader(source: .pi, sessionRoots: [sessionsURL])
+        return try PiCompatibleReader(
+            source: .pi,
+            sessionRoots: [sessionsURL],
+            readLimits: readLimits)
             .readUsage(from: startDate, to: endDate)
     }
 

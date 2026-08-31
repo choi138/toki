@@ -125,6 +125,75 @@ func findFilesThrowing(
     return files
 }
 
+func findUsageFiles(
+    in directory: URL,
+    withExtension ext: String,
+    maximumFileCount: Int? = nil) throws -> [URL] {
+    try Task.checkCancellation()
+    let normalizedDirectory = directory.standardizedFileURL
+    let rootValues: URLResourceValues
+    do {
+        rootValues = try normalizedDirectory.resourceValues(forKeys: [.isDirectoryKey])
+    } catch {
+        let nsError = error as NSError
+        if nsError.domain == NSCocoaErrorDomain,
+           nsError.code == NSFileNoSuchFileError || nsError.code == NSFileReadNoSuchFileError {
+            return []
+        }
+        throw PiCompatibleReaderError.unreadableFile(normalizedDirectory)
+    }
+    guard rootValues.isDirectory == true else {
+        throw PiCompatibleReaderError.unreadableFile(normalizedDirectory)
+    }
+
+    let keys: Set<URLResourceKey> = [
+        .isDirectoryKey,
+        .isRegularFileKey,
+        .isSymbolicLinkKey,
+    ]
+    var failedURL: URL?
+    guard let enumerator = FileManager.default.enumerator(
+        at: normalizedDirectory,
+        includingPropertiesForKeys: Array(keys),
+        options: [.skipsHiddenFiles],
+        errorHandler: { url, _ in
+            failedURL = url
+            return false
+        }) else {
+        throw PiCompatibleReaderError.unreadableFile(normalizedDirectory)
+    }
+
+    var files: [URL] = []
+    for case let url as URL in enumerator {
+        try Task.checkCancellation()
+        let values: URLResourceValues
+        do {
+            values = try url.resourceValues(forKeys: keys)
+        } catch {
+            throw PiCompatibleReaderError.unreadableFile(url.standardizedFileURL)
+        }
+        if values.isSymbolicLink == true {
+            if values.isDirectory == true {
+                enumerator.skipDescendants()
+            }
+            continue
+        }
+        guard values.isRegularFile == true,
+              url.pathExtension == ext else {
+            continue
+        }
+        files.append(url)
+        if let maximumFileCount, files.count >= maximumFileCount {
+            return files
+        }
+    }
+    if let failedURL {
+        throw PiCompatibleReaderError.unreadableFile(failedURL.standardizedFileURL)
+    }
+    try Task.checkCancellation()
+    return files
+}
+
 func readJSONLLines(at url: URL) -> [String] {
     guard let content = try? String(contentsOf: url, encoding: .utf8) else { return [] }
     return content

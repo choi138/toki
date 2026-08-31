@@ -201,6 +201,61 @@ final class RemoteUsageReaderTests: XCTestCase {
 }
 
 extension RemoteUsageReaderTests {
+    func test_remoteMappingPreservesCostKnownStateAndLegacyPricingFallback() throws {
+        let fixture = try makeFixture()
+        let original = try SnapshotCipher.open(fixture.envelope, key: fixture.encryptionKey)
+        let snapshot = RemoteUsageSnapshot(
+            device: original.device,
+            generatedAt: original.generatedAt,
+            coveredFrom: original.coveredFrom,
+            coveredTo: original.coveredTo,
+            tokenEvents: [
+                RemoteTokenEvent(
+                    timestamp: fixture.start.addingTimeInterval(60),
+                    source: "Pi",
+                    model: "gpt-5",
+                    inputTokens: 1,
+                    outputTokens: 1,
+                    cacheReadTokens: 0,
+                    cacheWriteTokens: 0,
+                    reasoningTokens: 0,
+                    costIsKnown: nil),
+                RemoteTokenEvent(
+                    timestamp: fixture.start.addingTimeInterval(90),
+                    source: "Pi",
+                    model: "gpt-5",
+                    inputTokens: 1,
+                    outputTokens: 1,
+                    cacheReadTokens: 0,
+                    cacheWriteTokens: 0,
+                    reasoningTokens: 0,
+                    cost: 0,
+                    costIsKnown: false),
+                RemoteTokenEvent(
+                    timestamp: fixture.start.addingTimeInterval(120),
+                    source: "Pi",
+                    model: "gpt-5",
+                    inputTokens: 1,
+                    outputTokens: 1,
+                    cacheReadTokens: 0,
+                    cacheWriteTokens: 0,
+                    reasoningTokens: 0,
+                    cost: 0,
+                    costIsKnown: true),
+            ],
+            activityEvents: [])
+
+        let slice = try XCTUnwrap(RemoteUsageMapper().usageSlice(
+            from: snapshot,
+            startDate: fixture.start,
+            endDate: fixture.end))
+
+        XCTAssertEqual(slice.usage.tokenEvents.map(\.costIsKnown), [nil, false, true])
+        XCTAssertGreaterThan(slice.usage.tokenEvents[0].cost, 0)
+        XCTAssertEqual(slice.usage.tokenEvents[1].cost, 0)
+        XCTAssertEqual(slice.usage.tokenEvents[2].cost, 0)
+    }
+
     func test_remoteReaderReturnsOneOriginSlicePerStableDeviceID() async throws {
         let fixture = try makeFixture()
         let secondKey = SnapshotCipher.generateKey()

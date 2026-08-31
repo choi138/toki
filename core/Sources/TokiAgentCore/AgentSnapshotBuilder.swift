@@ -31,6 +31,7 @@ struct AgentSnapshotBuilder: AgentSnapshotBuilding {
     private let claudeUsageCache: ClaudeUsageCache
     private let readerDescriptors: [LocalUsageReaderDescriptor]
     private let eventLimits: AgentSnapshotEventLimits
+    private let snapshotLimits: AgentSnapshotBuildLimits
     private let deferredEventRecheck: AgentDeferredEventRecheck
     private let retentionTimeZone: TimeZone
     private let agentHermesLedgerURL: URL
@@ -43,6 +44,7 @@ struct AgentSnapshotBuilder: AgentSnapshotBuilding {
         claudeUsageCache: ClaudeUsageCache? = nil,
         readerDescriptors: [LocalUsageReaderDescriptor]? = nil,
         eventLimits: AgentSnapshotEventLimits = .protocolMaximum,
+        snapshotLimits: AgentSnapshotBuildLimits = .default,
         deferredEventRecheck: AgentDeferredEventRecheck = AgentDeferredEventRecheck(),
         retentionTimeZone: TimeZone = TimeZone(secondsFromGMT: 0) ?? .current,
         sourceMountInfoProvider: @escaping AgentSourceMountMonitor.MountInfoProvider =
@@ -60,6 +62,7 @@ struct AgentSnapshotBuilder: AgentSnapshotBuilding {
         self.environment = environment
         self.rolloutUsageCache = resolvedRolloutUsageCache
         self.claudeUsageCache = resolvedClaudeUsageCache
+        self.snapshotLimits = snapshotLimits
         self.retentionTimeZone = retentionTimeZone
         agentHermesLedgerURL = agentLedgerURL
         let resolvedReaderDescriptors: [LocalUsageReaderDescriptor] = if let readerDescriptors {
@@ -97,39 +100,15 @@ struct AgentSnapshotBuilder: AgentSnapshotBuilding {
         let coveredFrom = window.start
         let coveredTo = window.end
         let readerUsages = try await readUsages(from: coveredFrom, to: coveredTo)
-        let identifierHasher = try SnapshotCipher.makeOpaqueIdentifierHasher(
-            key: configuration.encryptionKey)
-        let tokenReplacementCoverages = readerUsages.flatMap(\.usage.tokenReplacementCoverages)
-
-        let usageEvents = readerUsages
-            .flatMap(\.usage.tokenEvents)
-            .filter { event in
-                event.timestamp >= coveredFrom
-                    && event.timestamp < coveredTo
-                    && !tokenReplacementCoverages.contains { $0.replaces(event) }
-            }
-        let allTokenEvents = usageEvents
-            .compactMap(remoteTokenEvent)
-            .sorted(by: tokenEventSort)
-        let allCostEvents = usageEvents
-            .compactMap(remoteCostEvent)
-            .sorted(by: costEventSort)
-
-        let allActivityEvents = readerUsages
-            .flatMap { readerUsage in
-                readerUsage.usage.activityEvents
-                    .filter { $0.timestamp >= coveredFrom && $0.timestamp < coveredTo }
-                    .map { event in
-                        RemoteActivityEvent(
-                            timestamp: event.timestamp,
-                            source: readerUsage.name,
-                            model: remoteModel(event.key),
-                            streamID: identifierHasher.identifier(
-                                for: "\(readerUsage.name)\u{0}\(event.streamID)"),
-                            agentKind: event.agentKind == .subagent ? .subagent : .main)
-                    }
-            }
-            .sorted(by: activityEventSort)
+        let assembledSnapshot = try AgentSnapshotAssembler(limits: snapshotLimits).snapshot(
+            from: readerUsages,
+            configuration: configuration,
+            generatedAt: now,
+            coveredFrom: coveredFrom,
+            coveredTo: coveredTo)
+        let allTokenEvents = assembledSnapshot.tokenEvents
+        let allCostEvents = assembledSnapshot.costEvents ?? []
+        let allActivityEvents = assembledSnapshot.activityEvents
         let earliestDeferredTimestamp = [
             allTokenEvents.first { $0.timestamp > now }?.timestamp,
             allCostEvents.first { $0.timestamp > now }?.timestamp,
@@ -142,10 +121,7 @@ struct AgentSnapshotBuilder: AgentSnapshotBuilding {
         let activityEvents = allActivityEvents.filter { $0.timestamp <= now }
 
         let snapshot = try AgentSnapshotEventBounder(limits: eventLimits).snapshot(
-            device: RemoteDeviceDescriptor(
-                id: configuration.deviceID,
-                name: configuration.deviceName,
-                platform: platformName),
+            device: assembledSnapshot.device,
             generatedAt: now,
             coveredFrom: coveredFrom,
             coveredTo: coveredTo,
@@ -554,7 +530,7 @@ private extension AgentSnapshotBuilder {
     }
 }
 
-private struct AgentReaderUsage {
+struct AgentReaderUsage {
     let index: Int
     let name: String
     let usage: RawTokenUsage
@@ -564,6 +540,7 @@ enum AgentSnapshotBuilderError: LocalizedError {
     case cacheResetFailed
     case invalidDateRange
     case readerFailed(String)
+    case snapshotLimitExceeded
     case sourceMountRefreshRequired
     case sourceInspectionFailed
 
@@ -584,6 +561,8 @@ enum AgentSnapshotBuilderError: LocalizedError {
             "Could not construct the configured retention window."
         case let .readerFailed(name):
             "The \(name) usage reader failed. The previous remote snapshot was preserved."
+        case .snapshotLimitExceeded:
+            "The local usage snapshot exceeds the safe synchronization limit."
         case .sourceMountRefreshRequired:
             "A sandboxed usage source was replaced. Restarting the Agent to refresh its read-only mounts."
         case .sourceInspectionFailed:

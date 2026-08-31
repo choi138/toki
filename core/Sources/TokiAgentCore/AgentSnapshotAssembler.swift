@@ -1,0 +1,251 @@
+import Foundation
+import TokiSyncProtocol
+import TokiUsageCore
+
+struct AgentSnapshotBuildLimits: Equatable {
+    static let `default` = AgentSnapshotBuildLimits(
+        maximumTokenEventCount: RemoteUsageSnapshotValidator.maximumTokenEventCount,
+        maximumCostEventCount: RemoteUsageSnapshotValidator.maximumCostEventCount,
+        maximumActivityEventCount: RemoteUsageSnapshotValidator.maximumActivityEventCount,
+        maximumEncodedBytes: TokiSyncLimits.maximumEnvelopeBytes * 4)
+
+    let maximumTokenEventCount: Int
+    let maximumCostEventCount: Int
+    let maximumActivityEventCount: Int
+    let maximumEncodedBytes: Int
+}
+
+struct AgentSnapshotAssembler {
+    let limits: AgentSnapshotBuildLimits
+
+    func snapshot(
+        from readerUsages: [AgentReaderUsage],
+        configuration: AgentConfiguration,
+        generatedAt: Date,
+        coveredFrom: Date,
+        coveredTo: Date) throws -> RemoteUsageSnapshot {
+        try Task.checkCancellation()
+        let identifierHasher = try SnapshotCipher.makeOpaqueIdentifierHasher(
+            key: configuration.encryptionKey)
+        let tokenReplacementCoverages = readerUsages.flatMap(\.usage.tokenReplacementCoverages)
+        let device = RemoteDeviceDescriptor(
+            id: configuration.deviceID,
+            name: configuration.deviceName,
+            platform: platformName)
+        let emptySnapshot = RemoteUsageSnapshot(
+            device: device,
+            generatedAt: generatedAt,
+            coveredFrom: coveredFrom,
+            coveredTo: coveredTo,
+            tokenEvents: [],
+            activityEvents: [])
+        var encodedBytes = try TokiSyncCoding.makeEncoder().encode(emptySnapshot).count
+        guard encodedBytes <= limits.maximumEncodedBytes else {
+            throw AgentSnapshotBuilderError.snapshotLimitExceeded
+        }
+
+        var tokenEvents: [RemoteTokenEvent] = []
+        var costEvents: [RemoteCostEvent] = []
+        var activityEvents: [RemoteActivityEvent] = []
+        for readerUsage in readerUsages {
+            try Task.checkCancellation()
+            for event in readerUsage.usage.tokenEvents {
+                try Task.checkCancellation()
+                guard event.timestamp >= coveredFrom,
+                      event.timestamp < coveredTo,
+                      !tokenReplacementCoverages.contains(where: { $0.replaces(event) }) else {
+                    continue
+                }
+                if let tokenEvent = remoteTokenEvent(event) {
+                    guard tokenEvents.count < limits.maximumTokenEventCount else {
+                        throw AgentSnapshotBuilderError.snapshotLimitExceeded
+                    }
+                    try reserveSnapshotBytes(for: tokenEvent, used: &encodedBytes)
+                    tokenEvents.append(tokenEvent)
+                }
+                if let costEvent = remoteCostEvent(event) {
+                    guard costEvents.count < limits.maximumCostEventCount else {
+                        throw AgentSnapshotBuilderError.snapshotLimitExceeded
+                    }
+                    try reserveSnapshotBytes(for: costEvent, used: &encodedBytes)
+                    costEvents.append(costEvent)
+                }
+            }
+            for event in readerUsage.usage.activityEvents
+                where event.timestamp >= coveredFrom && event.timestamp < coveredTo {
+                try Task.checkCancellation()
+                guard activityEvents.count < limits.maximumActivityEventCount else {
+                    throw AgentSnapshotBuilderError.snapshotLimitExceeded
+                }
+                let activityEvent = RemoteActivityEvent(
+                    timestamp: event.timestamp,
+                    source: readerUsage.name,
+                    model: remoteModel(event.key),
+                    streamID: identifierHasher.identifier(
+                        for: "\(readerUsage.name)\u{0}\(event.streamID)"),
+                    agentKind: event.agentKind == .subagent ? .subagent : .main)
+                try reserveSnapshotBytes(for: activityEvent, used: &encodedBytes)
+                activityEvents.append(activityEvent)
+            }
+        }
+
+        let snapshot = RemoteUsageSnapshot(
+            device: device,
+            generatedAt: generatedAt,
+            coveredFrom: coveredFrom,
+            coveredTo: coveredTo,
+            tokenEvents: tokenEvents.sorted(by: tokenEventSort),
+            costEvents: costEvents.isEmpty ? nil : costEvents.sorted(by: costEventSort),
+            activityEvents: activityEvents.sorted(by: activityEventSort))
+        guard try TokiSyncCoding.makeEncoder().encode(snapshot).count <= limits.maximumEncodedBytes else {
+            throw AgentSnapshotBuilderError.snapshotLimitExceeded
+        }
+        return snapshot
+    }
+}
+
+private extension AgentSnapshotAssembler {
+    private func reserveSnapshotBytes(
+        for event: some Encodable,
+        used: inout Int) throws {
+        let eventBytes = try TokiSyncCoding.makeEncoder().encode(event).count
+        let (reservedBytes, separatorOverflow) = eventBytes.addingReportingOverflow(1)
+        let (next, totalOverflow) = used.addingReportingOverflow(reservedBytes)
+        guard !separatorOverflow,
+              !totalOverflow,
+              next <= limits.maximumEncodedBytes else {
+            throw AgentSnapshotBuilderError.snapshotLimitExceeded
+        }
+        used = next
+    }
+
+    private func tokenEventSort(_ lhs: RemoteTokenEvent, _ rhs: RemoteTokenEvent) -> Bool {
+        if lhs.timestamp != rhs.timestamp { return lhs.timestamp < rhs.timestamp }
+        if lhs.source != rhs.source { return lhs.source < rhs.source }
+        if lhs.model != rhs.model { return (lhs.model ?? "") < (rhs.model ?? "") }
+        if lhs.provider != rhs.provider { return (lhs.provider ?? "") < (rhs.provider ?? "") }
+        if lhs.inputTokens != rhs.inputTokens { return lhs.inputTokens < rhs.inputTokens }
+        if lhs.outputTokens != rhs.outputTokens { return lhs.outputTokens < rhs.outputTokens }
+        if lhs.cacheReadTokens != rhs.cacheReadTokens { return lhs.cacheReadTokens < rhs.cacheReadTokens }
+        if lhs.cacheWriteTokens != rhs.cacheWriteTokens { return lhs.cacheWriteTokens < rhs.cacheWriteTokens }
+        if lhs.reasoningTokens != rhs.reasoningTokens { return lhs.reasoningTokens < rhs.reasoningTokens }
+        if lhs.cost != rhs.cost { return (lhs.cost ?? -1) < (rhs.cost ?? -1) }
+        return costKnownSortRank(lhs.costIsKnown) < costKnownSortRank(rhs.costIsKnown)
+    }
+
+    private func costEventSort(_ lhs: RemoteCostEvent, _ rhs: RemoteCostEvent) -> Bool {
+        if lhs.timestamp != rhs.timestamp { return lhs.timestamp < rhs.timestamp }
+        if lhs.source != rhs.source { return lhs.source < rhs.source }
+        if lhs.model != rhs.model { return (lhs.model ?? "") < (rhs.model ?? "") }
+        return lhs.cost < rhs.cost
+    }
+
+    private func activityEventSort(_ lhs: RemoteActivityEvent, _ rhs: RemoteActivityEvent) -> Bool {
+        if lhs.timestamp != rhs.timestamp { return lhs.timestamp < rhs.timestamp }
+        if lhs.source != rhs.source { return lhs.source < rhs.source }
+        if lhs.model != rhs.model { return (lhs.model ?? "") < (rhs.model ?? "") }
+        if lhs.streamID != rhs.streamID { return lhs.streamID < rhs.streamID }
+        return lhs.agentKind.rawValue < rhs.agentKind.rawValue
+    }
+
+    private func remoteModel(_ model: String?) -> String? {
+        guard let model,
+              model != UsageModelGrouping.mixedOrUnattributedKey,
+              TokiSyncValidation.isSafeDisplayText(
+                  model,
+                  maximumLength: RemoteUsageSnapshotValidator.maximumModelLength) else {
+            return nil
+        }
+        return model
+    }
+
+    private func remoteTokenEvent(_ event: TokenUsageEvent) -> RemoteTokenEvent? {
+        let counts = [
+            event.inputTokens,
+            event.outputTokens,
+            event.cacheReadTokens,
+            event.cacheWriteTokens,
+            event.reasoningTokens,
+        ]
+        let validRange = 0...RemoteUsageSnapshotValidator.maximumTokenCountPerBucket
+        let validCostRange = 0...RemoteUsageSnapshotValidator.maximumCostPerEvent
+        guard counts.allSatisfy(validRange.contains),
+              event.cost.isFinite,
+              validCostRange.contains(event.cost),
+              counts.contains(where: { $0 > 0 }) else {
+            return nil
+        }
+        let reportedCost: Double? = switch event.costIsKnown {
+        case true:
+            event.cost
+        case false:
+            0
+        case nil:
+            event.cost > 0 ? event.cost : nil
+        }
+        return RemoteTokenEvent(
+            timestamp: event.timestamp,
+            source: event.source,
+            model: remoteModel(event.model),
+            provider: remoteProvider(event.provider),
+            inputTokens: event.inputTokens,
+            outputTokens: event.outputTokens,
+            cacheReadTokens: event.cacheReadTokens,
+            cacheWriteTokens: event.cacheWriteTokens,
+            reasoningTokens: event.reasoningTokens,
+            cost: reportedCost,
+            costIsKnown: event.costIsKnown)
+    }
+
+    private func remoteProvider(_ provider: String?) -> String? {
+        let normalized = provider?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return normalized.flatMap { Self.remoteProviderIdentifiers.contains($0) ? $0 : nil }
+    }
+
+    private static let remoteProviderIdentifiers = Set([
+        "anthropic", "aws-bedrock", "azure", "bedrock", "cerebras",
+        "deepseek", "fireworks", "github", "google", "groq",
+        "mistral", "moonshot", "ollama", "openai", "openrouter",
+        "qwen", "together", "vertex-ai", "xai", "zai",
+    ])
+
+    private func remoteCostEvent(_ event: TokenUsageEvent) -> RemoteCostEvent? {
+        let counts = [
+            event.inputTokens,
+            event.outputTokens,
+            event.cacheReadTokens,
+            event.cacheWriteTokens,
+            event.reasoningTokens,
+        ]
+        let validCostRange = 0...RemoteUsageSnapshotValidator.maximumCostPerEvent
+        guard counts.allSatisfy({ $0 == 0 }),
+              event.cost.isFinite,
+              event.cost > 0,
+              validCostRange.contains(event.cost) else {
+            return nil
+        }
+        return RemoteCostEvent(
+            timestamp: event.timestamp,
+            source: event.source,
+            model: remoteModel(event.model),
+            cost: event.cost)
+    }
+
+    private func costKnownSortRank(_ value: Bool?) -> Int {
+        switch value {
+        case nil: 0
+        case false: 1
+        case true: 2
+        }
+    }
+
+    private var platformName: String {
+        #if os(Linux)
+            "linux"
+        #elseif os(macOS)
+            "macos"
+        #else
+            "unknown"
+        #endif
+    }
+}

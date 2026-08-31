@@ -48,9 +48,7 @@ public enum RemoteUsageSnapshotValidator {
                   validTokenCount(event.cacheReadTokens),
                   validTokenCount(event.cacheWriteTokens),
                   validTokenCount(event.reasoningTokens),
-                  event.cost.map(validCost) ?? true,
-                  event.costIsKnown != true || event.cost != nil,
-                  event.costIsKnown != false || event.cost == nil || event.cost == 0,
+                  validCostState(event),
                   event.totalTokens > 0 else {
                 throw RemoteUsageSnapshotValidationError.invalidTokenEvent
             }
@@ -84,6 +82,17 @@ public enum RemoteUsageSnapshotValidator {
 
     private static func validCost(_ value: Double) -> Bool {
         value.isFinite && (0...maximumCostPerEvent).contains(value)
+    }
+
+    private static func validCostState(_ event: RemoteTokenEvent) -> Bool {
+        switch event.costIsKnown {
+        case true:
+            event.cost.map(validCost) == true
+        case false:
+            event.cost == 0
+        case nil:
+            event.cost.map(validCost) ?? true
+        }
     }
 
     private static func isFinite(_ date: Date) -> Bool {

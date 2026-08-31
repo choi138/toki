@@ -44,17 +44,6 @@ func forEachBoundedJSONLLine(
     at url: URL,
     limits: PiCompatibleReadLimits,
     _ body: (String, Int) throws -> Void) throws {
-    let attributes: [FileAttributeKey: Any]
-    do {
-        attributes = try FileManager.default.attributesOfItem(atPath: url.path)
-    } catch {
-        throw PiCompatibleReaderError.unreadableFile(url)
-    }
-    let fileSize = (attributes[.size] as? NSNumber)?.intValue ?? 0
-    guard fileSize <= limits.maximumFileBytes else {
-        throw PiCompatibleReaderError.fileTooLarge(url)
-    }
-
     let handle: FileHandle
     do {
         handle = try FileHandle(forReadingFrom: url)
@@ -62,9 +51,21 @@ func forEachBoundedJSONLLine(
         throw PiCompatibleReaderError.unreadableFile(url)
     }
     defer { try? handle.close() }
+    do {
+        let fileSize = try handle.seekToEnd()
+        guard fileSize <= UInt64(limits.maximumFileBytes) else {
+            throw PiCompatibleReaderError.fileTooLarge(url)
+        }
+        try handle.seek(toOffset: 0)
+    } catch let error as PiCompatibleReaderError {
+        throw error
+    } catch {
+        throw PiCompatibleReaderError.unreadableFile(url)
+    }
 
     var lineIndex = 0
     var pending = Data()
+    var consumedBytes = 0
 
     while true {
         try Task.checkCancellation()
@@ -79,6 +80,11 @@ func forEachBoundedJSONLLine(
             throw PiCompatibleReaderError.unreadableFile(url)
         }
 
+        let (nextConsumedBytes, overflow) = consumedBytes.addingReportingOverflow(chunk.count)
+        guard !overflow, nextConsumedBytes <= limits.maximumFileBytes else {
+            throw PiCompatibleReaderError.fileTooLarge(url)
+        }
+        consumedBytes = nextConsumedBytes
         pending.append(chunk)
         while let newlineIndex = pending.firstIndex(of: 0x0A) {
             let lineData = pending.subdata(in: pending.startIndex..<newlineIndex)
@@ -94,6 +100,16 @@ func forEachBoundedJSONLLine(
         guard pending.count <= limits.maximumLineBytes else {
             throw PiCompatibleReaderError.lineTooLong(url)
         }
+    }
+
+    do {
+        guard try handle.seekToEnd() <= UInt64(limits.maximumFileBytes) else {
+            throw PiCompatibleReaderError.fileTooLarge(url)
+        }
+    } catch let error as PiCompatibleReaderError {
+        throw error
+    } catch {
+        throw PiCompatibleReaderError.unreadableFile(url)
     }
 
     if !pending.isEmpty {
@@ -137,4 +153,9 @@ func boundedUsageTokenCount(_ value: Int?) -> Int {
 func boundedUsageCost(_ value: Double?) -> Double {
     guard let value, value.isFinite else { return 0 }
     return min(max(0, value), RemoteUsageSnapshotValidator.maximumCostPerEvent)
+}
+
+func boundedRecordedUsageCost(_ value: Double?) -> Double? {
+    guard let value, value.isFinite, value >= 0 else { return nil }
+    return min(value, RemoteUsageSnapshotValidator.maximumCostPerEvent)
 }

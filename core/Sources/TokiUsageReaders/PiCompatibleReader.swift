@@ -19,12 +19,13 @@ struct PiCompatibleReader {
     }
 
     func readUsage(from startDate: Date, to endDate: Date) throws -> RawTokenUsage {
-        let files = discoveredFiles()
+        let files = try discoveredFiles()
         guard files.count <= readLimits.maximumFileCount else {
             throw PiCompatibleReaderError.tooManyFiles(files.count)
         }
 
         var recordsByKey: [PiCompatibleDeduplicationKey: PiCompatibleUsageRecord] = [:]
+        var acceptedRecordCount = 0
         for file in files {
             var parser = PiCompatibleSessionParser(
                 streamID: file.path,
@@ -37,11 +38,13 @@ struct PiCompatibleReader {
                 guard record.timestamp >= startDate, record.timestamp < endDate else {
                     return
                 }
+                let (nextCount, overflow) = acceptedRecordCount.addingReportingOverflow(1)
+                guard !overflow, nextCount <= readLimits.maximumEventCount else {
+                    throw PiCompatibleReaderError.tooManyEvents(overflow ? Int.max : nextCount)
+                }
+                acceptedRecordCount = nextCount
                 recordsByKey[record.deduplicationKey] = recordsByKey[record.deduplicationKey]
                     .map { $0.merged(with: record) } ?? record
-                guard recordsByKey.count <= readLimits.maximumEventCount else {
-                    throw PiCompatibleReaderError.tooManyEvents(recordsByKey.count)
-                }
             }
         }
         return Self.usage(
@@ -69,16 +72,27 @@ struct PiCompatibleReader {
             to: endDate)
     }
 
-    private func discoveredFiles() -> [URL] {
+    private func discoveredFiles() throws -> [URL] {
         var physicalPaths: Set<String> = []
         var files: [URL] = []
+        let discoveryLimit = readLimits.maximumFileCount == .max
+            ? Int.max
+            : readLimits.maximumFileCount + 1
         for root in sessionRoots {
-            for file in findFiles(in: root, withExtension: "jsonl") {
+            try Task.checkCancellation()
+            for file in try findUsageFiles(
+                in: root,
+                withExtension: "jsonl",
+                maximumFileCount: discoveryLimit) {
                 let resolved = file.resolvingSymlinksInPath().standardizedFileURL
                 guard physicalPaths.insert(resolved.path).inserted else { continue }
                 files.append(resolved)
+                if files.count >= discoveryLimit {
+                    return files.sorted { $0.path < $1.path }
+                }
             }
         }
+        try Task.checkCancellation()
         return files.sorted { $0.path < $1.path }
     }
 
@@ -93,9 +107,21 @@ struct PiCompatibleReader {
                 .map { $0.merged(with: record) } ?? record
         }
 
+        var copiedResponses: [PiCompatibleResponseCopyKey: PiCompatibleUsageRecord] = [:]
+        var uniqueRecords: [PiCompatibleUsageRecord] = []
+        for record in recordsByKey.values {
+            guard let copyKey = record.responseCopyKey else {
+                uniqueRecords.append(record)
+                continue
+            }
+            copiedResponses[copyKey] = copiedResponses[copyKey]
+                .map { $0.merged(with: record) } ?? record
+        }
+        uniqueRecords.append(contentsOf: copiedResponses.values)
+
         var result = RawTokenUsage()
         var activityEvents: [ActivityTimeEvent<String>] = []
-        for record in recordsByKey.values.sorted(by: recordSort)
+        for record in uniqueRecords.sorted(by: recordSort)
             where record.timestamp >= startDate && record.timestamp < endDate {
             result.inputTokens += record.inputTokens
             result.outputTokens += record.outputTokens
@@ -119,6 +145,7 @@ struct PiCompatibleReader {
                 cacheWriteTokens: record.cacheWriteTokens,
                 reasoningTokens: record.reasoningTokens,
                 cost: record.cost,
+                costIsKnown: record.costIsKnown,
                 attribution: record.attribution)
             activityEvents.append(ActivityTimeEvent(
                 streamID: record.attribution.sessionID ?? record.model,

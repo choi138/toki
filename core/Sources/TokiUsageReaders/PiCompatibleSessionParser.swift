@@ -32,6 +32,7 @@ struct PiCompatibleUsageRecord {
     let cacheWriteTokens: Int
     let reasoningTokens: Int
     let cost: Double
+    let costIsKnown: Bool
     let attribution: UsageAttribution
     let agentKind: WorkTimeAgentKind
 
@@ -40,40 +41,86 @@ struct PiCompatibleUsageRecord {
     }
 
     func merged(with other: Self) -> Self {
-        let prefersSelf = totalTokens > other.totalTokens
-            || (totalTokens == other.totalTokens && cost >= other.cost)
-        let preferred = prefersSelf ? self : other
-        let supplemental = prefersSelf ? other : self
+        let selfIsPreferred = isPreferred(over: other)
+        let preferred = selfIsPreferred ? self : other
+        let fallback = selfIsPreferred ? other : self
+        let costRecord = preferred.costIsKnown || !fallback.costIsKnown
+            ? preferred
+            : fallback
         return PiCompatibleUsageRecord(
             deduplicationKey: deduplicationKey,
             timestamp: preferred.timestamp,
             model: preferred.model,
-            provider: preferred.provider ?? supplemental.provider,
+            provider: preferred.provider ?? fallback.provider,
             inputTokens: preferred.inputTokens,
             outputTokens: preferred.outputTokens,
             cacheReadTokens: preferred.cacheReadTokens,
             cacheWriteTokens: preferred.cacheWriteTokens,
             reasoningTokens: preferred.reasoningTokens,
-            cost: preferred.cost,
-            attribution: bestUsageAttribution(attribution, other.attribution) ?? attribution,
+            cost: costRecord.cost,
+            costIsKnown: costRecord.costIsKnown,
+            attribution: bestUsageAttribution(preferred.attribution, fallback.attribution)
+                ?? preferred.attribution,
             agentKind: agentKind == .subagent || other.agentKind == .subagent ? .subagent : .main)
+    }
+
+    private func isPreferred(over other: Self) -> Bool {
+        if totalTokens != other.totalTokens {
+            return totalTokens > other.totalTokens
+        }
+        let buckets = [inputTokens, outputTokens, cacheReadTokens, cacheWriteTokens, reasoningTokens]
+        let otherBuckets = [
+            other.inputTokens,
+            other.outputTokens,
+            other.cacheReadTokens,
+            other.cacheWriteTokens,
+            other.reasoningTokens,
+        ]
+        if buckets != otherBuckets {
+            return otherBuckets.lexicographicallyPrecedes(buckets)
+        }
+        if costIsKnown != other.costIsKnown {
+            return costIsKnown
+        }
+        if cost != other.cost {
+            return cost > other.cost
+        }
+        if timestamp != other.timestamp {
+            return timestamp > other.timestamp
+        }
+        if model != other.model {
+            return model < other.model
+        }
+        return (provider ?? "") <= (other.provider ?? "")
     }
 }
 
 enum PiCompatibleDeduplicationKey: Hashable {
     case message(String)
-    case response(String)
+    case sessionMessage(sessionID: String, messageID: String)
+    case sessionResponse(sessionID: String, responseID: String, model: String)
     case record(
+        sessionID: String,
         timestamp: Date,
-        provider: String?,
-        model: String,
-        inputTokens: Int,
-        outputTokens: Int,
-        cacheReadTokens: Int,
-        cacheWriteTokens: Int,
-        reasoningTokens: Int,
-        cost: Double,
-        location: String)
+        model: String)
+}
+
+struct PiCompatibleResponseCopyKey: Hashable {
+    let responseID: String
+    let timestamp: Date
+    let model: String
+}
+
+extension PiCompatibleUsageRecord {
+    var responseCopyKey: PiCompatibleResponseCopyKey? {
+        guard case let .sessionResponse(_, responseID, model) = deduplicationKey else {
+            return nil
+        }
+        return PiCompatibleResponseCopyKey(
+            responseID: responseID,
+            timestamp: timestamp,
+            model: model)
+    }
 }
 
 struct PiCompatibleSessionParser {
@@ -162,24 +209,14 @@ struct PiCompatibleSessionParser {
         let outputTokens = outputIncludingReasoning - reasoning
         let cacheReadTokens = boundedUsageTokenCount(usage.cacheRead)
         let cacheWriteTokens = boundedUsageTokenCount(usage.cacheWrite)
-        let cost = boundedUsageCost(usage.cost?.total)
-        let deduplicationKey: PiCompatibleDeduplicationKey = if let messageID {
-            .message(messageID)
-        } else if let responseID {
-            .response(responseID)
-        } else {
-            .record(
-                timestamp: timestamp,
-                provider: provider,
-                model: model,
-                inputTokens: inputTokens,
-                outputTokens: outputTokens,
-                cacheReadTokens: cacheReadTokens,
-                cacheWriteTokens: cacheWriteTokens,
-                reasoningTokens: reasoning,
-                cost: cost,
-                location: "\(streamID)#\(lineIndex)")
-        }
+        let recordedCost = boundedRecordedUsageCost(usage.cost?.total)
+        let cost = recordedCost ?? 0
+        let deduplicationKey = deduplicationKey(
+            sessionID: sessionContext.id,
+            messageID: messageID,
+            responseID: responseID,
+            timestamp: timestamp,
+            model: model)
         return PiCompatibleUsageRecord(
             deduplicationKey: deduplicationKey,
             timestamp: timestamp,
@@ -191,11 +228,36 @@ struct PiCompatibleSessionParser {
             cacheWriteTokens: cacheWriteTokens,
             reasoningTokens: reasoning,
             cost: cost,
+            costIsKnown: recordedCost != nil,
             attribution: UsageAttribution(
                 projectPath: sessionContext.cwd,
                 sessionID: sessionContext.id,
                 quality: sessionContext.cwd == nil ? .unknown : .exact),
             agentKind: agentKind)
+    }
+
+    private func deduplicationKey(
+        sessionID: String,
+        messageID: String?,
+        responseID: String?,
+        timestamp: Date,
+        model: String) -> PiCompatibleDeduplicationKey {
+        if let messageID {
+            if source != .pi || isGloballyUniquePiMessageID(messageID) {
+                return .message(messageID)
+            }
+            return .sessionMessage(sessionID: sessionID, messageID: messageID)
+        }
+        if let responseID {
+            return .sessionResponse(
+                sessionID: sessionID,
+                responseID: responseID,
+                model: model)
+        }
+        return .record(
+            sessionID: sessionID,
+            timestamp: timestamp,
+            model: model)
     }
 }
 
@@ -245,6 +307,10 @@ private func nonEmptyPiValue(_ value: String?) -> String? {
         return nil
     }
     return trimmed
+}
+
+private func isGloballyUniquePiMessageID(_ value: String) -> Bool {
+    UUID(uuidString: value) != nil
 }
 
 private func strictPiSubagentName(from value: String?) -> String? {

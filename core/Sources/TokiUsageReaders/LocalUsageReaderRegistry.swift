@@ -105,7 +105,10 @@ public struct LocalUsageReaderPaths: Equatable {
                 environment: environment)
             .map { $0.appendingPathComponent("sessions") }
             ?? homeDirectory.appendingPathComponent(".pi/agent/sessions")
-        ompSessions = homeDirectory.appendingPathComponent(".omp/agent/sessions")
+        ompSessions = Self.ompSessionsDirectory(
+            homeDirectory: homeDirectory,
+            xdgDataDirectory: xdgDataDirectory,
+            environment: environment)
         kimchiSessions = xdgConfigDirectory.appendingPathComponent("kimchi/harness/sessions")
         copilotOTELExporterFile = Self.absoluteEnvironmentDirectory(
             key: "COPILOT_OTEL_FILE_EXPORTER_PATH",
@@ -239,6 +242,60 @@ public struct LocalUsageReaderPaths: Equatable {
             return seen.insert(standardized.path).inserted ? standardized : nil
         }
     }
+
+    private static func ompSessionsDirectory(
+        homeDirectory: URL,
+        xdgDataDirectory: URL,
+        environment: [String: String]) -> URL {
+        let profileValue = environment.keys.contains("OMP_PROFILE")
+            ? environment["OMP_PROFILE"]
+            : environment["PI_PROFILE"]
+        let profile = normalizedOMPProfile(profileValue)
+        let configuredDirectory = environment["PI_CONFIG_DIR"]?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let configDirectory = configuredDirectory.flatMap { $0.isEmpty ? nil : $0 } ?? ".omp"
+        let configRoot = homeDirectory.appendingPathComponent(configDirectory)
+
+        if let profile {
+            let xdgProfile = xdgDataDirectory
+                .appendingPathComponent("omp/profiles")
+                .appendingPathComponent(profile)
+            if FileManager.default.fileExists(atPath: xdgProfile.path) {
+                return xdgProfile.appendingPathComponent("sessions")
+            }
+            return configRoot
+                .appendingPathComponent("profiles")
+                .appendingPathComponent(profile)
+                .appendingPathComponent("agent/sessions")
+        }
+
+        if let agentDirectory = absoluteEnvironmentDirectory(
+            key: "PI_CODING_AGENT_DIR",
+            environment: environment) {
+            return agentDirectory.appendingPathComponent("sessions")
+        }
+        let xdgRoot = xdgDataDirectory.appendingPathComponent("omp")
+        if FileManager.default.fileExists(atPath: xdgRoot.path) {
+            return xdgRoot.appendingPathComponent("sessions")
+        }
+        return configRoot.appendingPathComponent("agent/sessions")
+    }
+
+    private static func normalizedOMPProfile(_ value: String?) -> String? {
+        guard let profile = value?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !profile.isEmpty,
+              profile != "default",
+              profile != ".",
+              profile != "..",
+              !profile.hasSuffix("."),
+              profile.utf8.count <= 64,
+              let first = profile.first,
+              first.isLowercase || first.isNumber,
+              profile.allSatisfy({ $0.isLowercase || $0.isNumber || "._-".contains($0) }) else {
+            return nil
+        }
+        return profile
+    }
 }
 
 public enum LocalUsageReaderRegistry {
@@ -352,20 +409,24 @@ public enum LocalUsageReaderRegistry {
 
     private static func piFamilyDescriptors(
         paths: LocalUsageReaderPaths) -> [LocalUsageReaderDescriptor] {
-        [
-            LocalUsageReaderDescriptor(
+        let sharesSessionDirectory =
+            paths.ompSessions.standardizedFileURL == paths.piSessions.standardizedFileURL
+        var descriptors: [LocalUsageReaderDescriptor] = []
+        if !sharesSessionDirectory {
+            descriptors.append(LocalUsageReaderDescriptor(
                 reader: PiReader(sessionsURLOverride: paths.piSessions),
                 sourceLocations: [.directory(paths.piSessions, extensions: ["jsonl"])],
-                sourceSignatureStrategy: .allFiles),
-            LocalUsageReaderDescriptor(
-                reader: OMPReader(sessionsURLOverride: paths.ompSessions),
-                sourceLocations: [.directory(paths.ompSessions, extensions: ["jsonl"])],
-                sourceSignatureStrategy: .allFiles),
-            LocalUsageReaderDescriptor(
-                reader: KimchiReader(sessionsURLOverride: paths.kimchiSessions),
-                sourceLocations: [.directory(paths.kimchiSessions, extensions: ["jsonl"])],
-                sourceSignatureStrategy: .allFiles),
-        ]
+                sourceSignatureStrategy: .allFiles))
+        }
+        descriptors.append(LocalUsageReaderDescriptor(
+            reader: OMPReader(sessionsURLOverride: paths.ompSessions),
+            sourceLocations: [.directory(paths.ompSessions, extensions: ["jsonl"])],
+            sourceSignatureStrategy: .allFiles))
+        descriptors.append(LocalUsageReaderDescriptor(
+            reader: KimchiReader(sessionsURLOverride: paths.kimchiSessions),
+            sourceLocations: [.directory(paths.kimchiSessions, extensions: ["jsonl"])],
+            sourceSignatureStrategy: .allFiles))
+        return descriptors
     }
 
     public static func readers(
