@@ -234,6 +234,36 @@ extension QwenReaderTests {
         XCTAssertEqual(usage.resolvedWorkTime.activeStreamCount, 2)
     }
 
+    func test_qwenPrefersCWDWhenRootsShareProjectLayout() {
+        let first =
+            #"{"uuid":"same","type":"assistant","model":"qwen3","# +
+            #""timestamp":"2026-02-23T14:24:56.857Z","sessionId":"session","# +
+            #""cwd":"/tmp/first-project","usageMetadata":{"promptTokenCount":10,"# +
+            #""candidatesTokenCount":0}}"#
+        let second =
+            #"{"uuid":"same","type":"assistant","model":"qwen3","# +
+            #""timestamp":"2026-02-23T14:24:56.857Z","sessionId":"session","# +
+            #""cwd":"/tmp/second-project","usageMetadata":{"promptTokenCount":20,"# +
+            #""candidatesTokenCount":0}}"#
+
+        let usage = QwenCLIReader.usage(
+            fromJSONLSessions: [
+                (streamID: "/tmp/default/projects/shared/chats/session.jsonl", lines: [first]),
+                (streamID: "/tmp/override/projects/shared/chats/session.jsonl", lines: [second]),
+            ],
+            from: startDate,
+            to: endDate)
+
+        XCTAssertEqual(usage.totalTokens, 30)
+        XCTAssertEqual(usage.tokenEvents.count, 2)
+        XCTAssertEqual(
+            Set(usage.tokenEvents.compactMap(\.attribution?.projectPath)),
+            ["/tmp/first-project", "/tmp/second-project"])
+        XCTAssertEqual(Set(usage.tokenEvents.compactMap(\.attribution?.sessionID)).count, 2)
+        XCTAssertEqual(Set(usage.tokenEvents.compactMap(\.attribution?.sessionLabel)), ["session"])
+        XCTAssertEqual(usage.resolvedWorkTime.activeStreamCount, 2)
+    }
+
     func test_qwenReadsInRangeRecordFromFileWithOldModificationDate() async throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)

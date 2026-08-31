@@ -53,6 +53,7 @@ public struct QwenCLIReader: TokenReader {
         to endDate: Date) -> RawTokenUsage {
         let decoder = JSONDecoder()
         var eventsByKey: [String: QwenUsageEvent] = [:]
+        var uuidReplicaBuckets: [String: [String: QwenUsageEvent]] = [:]
 
         for session in sessions {
             let pathIdentity = qwenPathIdentity(from: session.streamID)
@@ -74,14 +75,19 @@ public struct QwenCLIReader: TokenReader {
 
                 let model = normalizedModelID(entry.model)
                 let projectPath = nonemptyQwenValue(entry.cwd)
-                let projectIdentity = pathIdentity.project ?? projectPath
+                let projectIdentity = projectPath ?? pathIdentity.project
                 let sessionLabel = nonemptyQwenValue(entry.sessionID) ?? pathIdentity.sessionLabel
                 let sessionID = qwenSessionScope(
                     project: projectIdentity,
                     sessionLabel: sessionLabel)
                 let recordIdentity: String
+                let uuidBucketKey: String?, uuidReplicaKey: String?
                 if let uuid = nonemptyQwenValue(entry.uuid) {
                     recordIdentity = "uuid:\(uuid)"
+                    uuidBucketKey = qwenUUIDBucketKey(
+                        uuid: uuid,
+                        fallbackProject: pathIdentity.project)
+                    uuidReplicaKey = qwenUUIDReplicaKey(projectPath: projectPath)
                 } else {
                     let contentIdentity = [
                         String(timestamp.timeIntervalSince1970.bitPattern),
@@ -95,6 +101,8 @@ public struct QwenCLIReader: TokenReader {
                     let occurrence = contentOccurrences[contentIdentity, default: 0]
                     contentOccurrences[contentIdentity] = occurrence + 1
                     recordIdentity = "content:\(contentIdentity)|occurrence:\(occurrence)"
+                    uuidBucketKey = nil
+                    uuidReplicaKey = nil
                 }
                 let key = if recordIdentity.hasPrefix("uuid:"),
                              let projectIdentity {
@@ -112,12 +120,19 @@ public struct QwenCLIReader: TokenReader {
                     tokens: tokens,
                     totalTokens: totalTokens,
                     dedupKey: key)
-                if let existing = eventsByKey[key], !event.shouldReplace(existing) {
-                    return
+                if let uuidBucketKey, let uuidReplicaKey {
+                    storeQwenUUIDReplica(
+                        event,
+                        bucketKey: uuidBucketKey,
+                        replicaKey: uuidReplicaKey,
+                        in: &uuidReplicaBuckets)
+                } else {
+                    storeQwenEvent(event, in: &eventsByKey)
                 }
-                eventsByKey[key] = event
             }
         }
+
+        resolveQwenUUIDReplicas(uuidReplicaBuckets, into: &eventsByKey)
 
         return qwenRawUsage(
             events: eventsByKey.values.sorted(by: qwenEventSort),
@@ -191,6 +206,19 @@ private struct QwenUsageEvent {
             return timestamp > existing.timestamp
         }
         return conflictRank > existing.conflictRank
+    }
+
+    func usingAttribution(from event: QwenUsageEvent) -> QwenUsageEvent {
+        QwenUsageEvent(
+            timestamp: timestamp,
+            model: model,
+            sessionID: event.sessionID,
+            sessionLabel: event.sessionLabel,
+            projectPath: event.projectPath,
+            fallbackProjectName: event.fallbackProjectName,
+            tokens: tokens,
+            totalTokens: totalTokens,
+            dedupKey: event.dedupKey)
     }
 
     private var conflictRank: String {
@@ -282,6 +310,66 @@ private func qwenSessionScope(project: String?, sessionLabel: String) -> String 
         "\(project?.utf8.count ?? 0):\(project ?? "")",
         "\(sessionLabel.utf8.count):\(sessionLabel)",
     ].joined(separator: "|")
+}
+
+private func qwenUUIDBucketKey(uuid: String, fallbackProject: String?) -> String {
+    [
+        "\(fallbackProject?.utf8.count ?? 0):\(fallbackProject ?? "")",
+        "\(uuid.utf8.count):\(uuid)",
+    ].joined(separator: "|")
+}
+
+private func qwenUUIDReplicaKey(projectPath: String?) -> String {
+    guard let projectPath else { return "fallback" }
+    return "cwd:\(projectPath.utf8.count):\(projectPath)"
+}
+
+private func storeQwenEvent(
+    _ event: QwenUsageEvent,
+    in eventsByKey: inout [String: QwenUsageEvent]) {
+    if let existing = eventsByKey[event.dedupKey], !event.shouldReplace(existing) {
+        return
+    }
+    eventsByKey[event.dedupKey] = event
+}
+
+private func storeQwenUUIDReplica(
+    _ event: QwenUsageEvent,
+    bucketKey: String,
+    replicaKey: String,
+    in buckets: inout [String: [String: QwenUsageEvent]]) {
+    var replicas = buckets[bucketKey, default: [:]]
+    if let existing = replicas[replicaKey], !event.shouldReplace(existing) {
+        return
+    }
+    replicas[replicaKey] = event
+    buckets[bucketKey] = replicas
+}
+
+private func resolveQwenUUIDReplicas(
+    _ buckets: [String: [String: QwenUsageEvent]],
+    into eventsByKey: inout [String: QwenUsageEvent]) {
+    for replicas in buckets.values {
+        let exactReplicas = replicas.values.filter { $0.projectPath != nil }
+        let fallbackReplica = replicas.values.first { $0.projectPath == nil }
+        if exactReplicas.isEmpty {
+            if let fallbackReplica {
+                storeQwenEvent(fallbackReplica, in: &eventsByKey)
+            }
+        } else if exactReplicas.count == 1, let exactReplica = exactReplicas.first {
+            let event = if let fallbackReplica, fallbackReplica.shouldReplace(exactReplica) {
+                fallbackReplica.usingAttribution(from: exactReplica)
+            } else {
+                exactReplica
+            }
+            storeQwenEvent(event, in: &eventsByKey)
+        } else {
+            // A cwd-less replica is ambiguous once the same layout maps to multiple projects.
+            for event in exactReplicas {
+                storeQwenEvent(event, in: &eventsByKey)
+            }
+        }
+    }
 }
 
 private func qwenEventSort(_ lhs: QwenUsageEvent, _ rhs: QwenUsageEvent) -> Bool {

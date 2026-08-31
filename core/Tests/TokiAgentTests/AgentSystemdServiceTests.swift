@@ -44,17 +44,30 @@ final class AgentSystemdServiceTests: XCTestCase {
             "%h/.kimi-code/sessions",
             "%h/.qwen/projects",
         ]
+        let readOnlyPaths = service
+            .split(whereSeparator: \.isNewline)
+            .filter { $0.hasPrefix("BindReadOnlyPaths=") }
+            .flatMap { line in
+                line.dropFirst("BindReadOnlyPaths=".count)
+                    .split(whereSeparator: \.isWhitespace)
+                    .map { token -> String in
+                        let unprefixed = token.first == "-" ? token.dropFirst() : token[...]
+                        return String(
+                            unprefixed.split(separator: ":", maxSplits: 1).first ?? unprefixed)
+                    }
+            }
         for path in expectedReadOnlyPaths {
-            XCTAssertTrue(service.contains("BindReadOnlyPaths=-\(path)"), path)
+            XCTAssertTrue(readOnlyPaths.contains(path), path)
         }
         XCTAssertTrue(service.contains("BindPaths=%h/.config/toki-agent"))
         XCTAssertTrue(service.contains("BindPaths=%h/.local/state/toki-agent"))
         XCTAssertTrue(service.contains("BindPaths=%h/.local/share/toki-agent"))
-        XCTAssertFalse(service.contains("BindReadOnlyPaths=-%h/.hermes\n"))
-        XCTAssertFalse(service.contains("BindReadOnlyPaths=-%h/.config/Cursor\n"))
-        XCTAssertFalse(service.contains("BindReadOnlyPaths=-%h/.local/share/opencode\n"))
-        XCTAssertFalse(service.contains("BindReadOnlyPaths=-%h/.kimi/config.toml"))
-        XCTAssertFalse(service.contains("BindReadOnlyPaths=-%h/.kimi/config.json"))
+        XCTAssertFalse(readOnlyPaths.contains("%h/.hermes"))
+        XCTAssertFalse(readOnlyPaths.contains("%h/.config/Cursor"))
+        XCTAssertFalse(readOnlyPaths.contains("%h/.local/share/opencode"))
+        XCTAssertFalse(readOnlyPaths.contains("%h/.kimi"))
+        XCTAssertFalse(readOnlyPaths.contains("%h/.kimi/config.toml"))
+        XCTAssertFalse(readOnlyPaths.contains("%h/.kimi/config.json"))
     }
 
     func test_restartPolicyRateLimitsRepeatedFailures() throws {
