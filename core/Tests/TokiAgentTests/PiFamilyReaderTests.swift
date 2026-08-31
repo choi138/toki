@@ -376,6 +376,66 @@ extension PiFamilyReaderTests {
         XCTAssertEqual(usage.tokenEvents.count, 2)
     }
 
+    func test_ompKeepsMatchingIDsFromIndependentSessionTrees() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("toki-omp-independent-trees-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let main = root.appendingPathComponent("project/main.jsonl")
+        let otherParent = root.appendingPathComponent("project/other.jsonl")
+        let child = root.appendingPathComponent("project/other/Child.jsonl")
+        try writePiFamilySession(
+            to: main,
+            sessionID: "main",
+            messageID: "shared",
+            input: 3,
+            output: 2)
+        try writePiFamilySessionHeader(to: otherParent, sessionID: "other")
+        try writePiFamilySession(
+            to: child,
+            sessionID: "child",
+            messageID: "shared",
+            input: 7,
+            output: 5)
+
+        let usage = try await OMPReader(sessionsURLOverride: root)
+            .readUsage(
+                from: piFamilyDate("2026-08-20T00:00:00Z"),
+                to: piFamilyDate("2026-08-21T00:00:00Z"))
+
+        XCTAssertEqual(usage.inputTokens, 10)
+        XCTAssertEqual(usage.outputTokens, 7)
+        XCTAssertEqual(usage.tokenEvents.count, 2)
+    }
+
+    func test_ompKeepsDifferentUsageWithinParentChildTree() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("toki-omp-different-usage-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let parent = root.appendingPathComponent("project/parent.jsonl")
+        let child = root.appendingPathComponent("project/parent/Child.jsonl")
+        try writePiFamilySession(
+            to: parent,
+            sessionID: "parent",
+            messageID: "shared",
+            input: 3,
+            output: 2)
+        try writePiFamilySession(
+            to: child,
+            sessionID: "child",
+            messageID: "shared",
+            input: 7,
+            output: 5)
+
+        let usage = try await OMPReader(sessionsURLOverride: root)
+            .readUsage(
+                from: piFamilyDate("2026-08-20T00:00:00Z"),
+                to: piFamilyDate("2026-08-21T00:00:00Z"))
+
+        XCTAssertEqual(usage.inputTokens, 10)
+        XCTAssertEqual(usage.outputTokens, 7)
+        XCTAssertEqual(usage.tokenEvents.count, 2)
+    }
+
     func test_kimchiPreservesRecordedProviderAndModel() {
         let usage = KimchiReader.usage(
             fromJSONLLines: [
@@ -464,4 +524,11 @@ private func writePiFamilyIdlessSession(
         """,
     ].joined(separator: "\n")
     try Data(content.utf8).write(to: url)
+}
+
+private func writePiFamilySessionHeader(to url: URL, sessionID: String) throws {
+    try FileManager.default.createDirectory(
+        at: url.deletingLastPathComponent(),
+        withIntermediateDirectories: true)
+    try Data(#"{"type":"session","id":"\#(sessionID)"}"#.utf8).write(to: url)
 }

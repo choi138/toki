@@ -43,6 +43,7 @@ struct PiCompatibleUsageRecord {
     let attribution: UsageAttribution
     let agentName: String?
     let agentKind: WorkTimeAgentKind
+    let replicaScope: String?
     private let revisionIdentity: PiCompatibleRevisionIdentity
     private let providerRevisionIdentity: PiCompatibleRevisionIdentity?
     private let costRevisionIdentity: PiCompatibleRevisionIdentity
@@ -65,6 +66,7 @@ struct PiCompatibleUsageRecord {
         attribution: UsageAttribution,
         agentName: String? = nil,
         agentKind: WorkTimeAgentKind,
+        replicaScope: String? = nil,
         revisionIdentity: PiCompatibleRevisionIdentity? = nil) {
         let explicitProvider = providerIsExplicit ?? (provider != nil)
         let identity = revisionIdentity ?? PiCompatibleRevisionIdentity.derived(
@@ -97,6 +99,7 @@ struct PiCompatibleUsageRecord {
             attribution: attribution,
             agentName: agentName,
             agentKind: agentKind,
+            replicaScope: replicaScope,
             revisionIdentity: identity,
             providerRevisionIdentity: provider == nil ? nil : identity,
             costRevisionIdentity: identity)
@@ -120,6 +123,7 @@ struct PiCompatibleUsageRecord {
         attribution: UsageAttribution,
         agentName: String?,
         agentKind: WorkTimeAgentKind,
+        replicaScope: String?,
         revisionIdentity: PiCompatibleRevisionIdentity,
         providerRevisionIdentity: PiCompatibleRevisionIdentity?,
         costRevisionIdentity: PiCompatibleRevisionIdentity) {
@@ -140,6 +144,7 @@ struct PiCompatibleUsageRecord {
         self.attribution = attribution
         self.agentName = agentName
         self.agentKind = agentKind
+        self.replicaScope = replicaScope
         self.revisionIdentity = revisionIdentity
         self.providerRevisionIdentity = providerRevisionIdentity
         self.costRevisionIdentity = costRevisionIdentity
@@ -183,6 +188,7 @@ extension PiCompatibleUsageRecord {
                 preferred: preferred,
                 supplemental: supplemental),
             agentKind: agentKind == .subagent && other.agentKind == .subagent ? .subagent : .main,
+            replicaScope: replicaScope == other.replicaScope ? replicaScope : nil,
             revisionIdentity: preferred.revisionIdentity,
             providerRevisionIdentity: selectedProvider.identity,
             costRevisionIdentity: selectedCost.identity)
@@ -211,6 +217,7 @@ extension PiCompatibleUsageRecord {
             attribution: bestUsageAttribution(attribution, other.attribution) ?? attribution,
             agentName: preferred.agentName ?? fallback.agentName,
             agentKind: agentKind == .subagent && other.agentKind == .subagent ? .subagent : .main,
+            replicaScope: replicaScope == other.replicaScope ? replicaScope : nil,
             revisionIdentity: preferred.revisionIdentity,
             providerRevisionIdentity: providerRecord.providerRevisionIdentity,
             costRevisionIdentity: preferred.costRevisionIdentity)
@@ -235,6 +242,7 @@ extension PiCompatibleUsageRecord {
             attribution: attribution,
             agentName: agentName,
             agentKind: agentKind,
+            replicaScope: replicaScope,
             revisionIdentity: revisionIdentity,
             providerRevisionIdentity: providerRevisionIdentity,
             costRevisionIdentity: costRevisionIdentity)

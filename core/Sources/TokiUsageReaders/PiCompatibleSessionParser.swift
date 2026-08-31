@@ -50,6 +50,7 @@ struct PiCompatibleSessionParser {
     private let decoder = JSONDecoder()
     private let streamID: String
     private let source: PiCompatibleSource
+    private let replicaScope: String?
     private var agentKind: WorkTimeAgentKind
     private var agentName: String?
     private var sessionContext: PiCompatibleSessionContext?
@@ -59,9 +60,11 @@ struct PiCompatibleSessionParser {
     init(
         streamID: String,
         source: PiCompatibleSource = .senpi,
-        agentKind: WorkTimeAgentKind) {
+        agentKind: WorkTimeAgentKind,
+        replicaScope: String? = nil) {
         self.streamID = streamID
         self.source = source
+        self.replicaScope = replicaScope
         self.agentKind = agentKind
         agentName = nil
         sessionContext = source == .gjc
@@ -231,6 +234,7 @@ private extension PiCompatibleSessionParser {
                 quality: sessionContext.cwd == nil ? .unknown : .exact),
             agentName: agentName,
             agentKind: agentKind,
+            replicaScope: replicaScope,
             revisionIdentity: revisionDigest.map {
                 PiCompatibleRevisionIdentity(timestamp: timestamp, payloadDigest: $0)
             })

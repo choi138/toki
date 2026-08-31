@@ -69,16 +69,25 @@ public struct OMPReader: TokenReader {
         return try PiCompatibleReader(
             source: .ohMyPi,
             sessionRoots: sessionRoots,
-            agentKindForFile: Self.agentKind)
+            agentKindForFile: Self.agentKind,
+            replicaScopeForFile: Self.replicaScope)
             .readUsage(from: startDate, to: endDate)
     }
 
     private static func agentKind(for file: URL) -> WorkTimeAgentKind {
+        parentSession(for: file) == nil ? .main : .subagent
+    }
+
+    private static func replicaScope(for file: URL) -> String? {
+        (parentSession(for: file) ?? file).standardizedFileURL.path
+    }
+
+    private static func parentSession(for file: URL) -> URL? {
         let parentDirectory = file.deletingLastPathComponent()
         let parentSession = parentDirectory.deletingLastPathComponent()
             .appendingPathComponent(parentDirectory.lastPathComponent)
             .appendingPathExtension("jsonl")
-        return FileManager.default.fileExists(atPath: parentSession.path) ? .subagent : .main
+        return FileManager.default.fileExists(atPath: parentSession.path) ? parentSession : nil
     }
 
     static func usage(

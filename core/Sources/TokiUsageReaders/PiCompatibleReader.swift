@@ -6,16 +6,19 @@ struct PiCompatibleReader {
     let sessionRoots: [URL]
     let readLimits: PiCompatibleReadLimits
     let agentKindForFile: (URL) -> WorkTimeAgentKind
+    let replicaScopeForFile: (URL) -> String?
 
     init(
         source: PiCompatibleSource,
         sessionRoots: [URL],
         readLimits: PiCompatibleReadLimits = .default,
-        agentKindForFile: @escaping (URL) -> WorkTimeAgentKind = { _ in .main }) {
+        agentKindForFile: @escaping (URL) -> WorkTimeAgentKind = { _ in .main },
+        replicaScopeForFile: @escaping (URL) -> String? = { _ in nil }) {
         self.source = source
         self.sessionRoots = sessionRoots
         self.readLimits = readLimits
         self.agentKindForFile = agentKindForFile
+        self.replicaScopeForFile = replicaScopeForFile
     }
 
     func readUsage(from startDate: Date, to endDate: Date) throws -> RawTokenUsage {
@@ -31,7 +34,8 @@ struct PiCompatibleReader {
             var parser = PiCompatibleSessionParser(
                 streamID: file.path,
                 source: source,
-                agentKind: agentKindForFile(file))
+                agentKind: agentKindForFile(file),
+                replicaScope: replicaScopeForFile(file))
             try forEachBoundedJSONLLine(at: file, limits: readLimits) { line, lineIndex in
                 guard let record = parser.record(fromJSONLLine: line, lineIndex: lineIndex) else {
                     return
@@ -200,8 +204,8 @@ struct PiCompatibleReader {
 }
 
 private enum PiCompatibleReplicaIdentity: Hashable {
-    case message(String)
-    case response(String)
+    case message(scope: String, id: String)
+    case response(scope: String, id: String)
 }
 
 private func enrichUniqueResponseProviders(
@@ -248,7 +252,7 @@ private func reconcileDelegatedReplicas(
     }
     var indicesByIdentity: [PiCompatibleReplicaIdentity: [Int]] = [:]
     for (index, record) in reconciled.enumerated() {
-        guard let identity = replicaIdentity(for: record.deduplicationKey) else { continue }
+        guard let identity = replicaIdentity(for: record) else { continue }
         indicesByIdentity[identity, default: []].append(index)
     }
 
@@ -277,14 +281,15 @@ private func reconcileDelegatedReplicas(
 }
 
 private func replicaIdentity(
-    for key: PiCompatibleDeduplicationKey) -> PiCompatibleReplicaIdentity? {
-    switch key {
+    for record: PiCompatibleUsageRecord) -> PiCompatibleReplicaIdentity? {
+    guard let scope = record.replicaScope else { return nil }
+    switch record.deduplicationKey {
     case let .message(messageID), let .sessionMessage(_, messageID):
-        .message(messageID)
+        return .message(scope: scope, id: messageID)
     case let .sessionResponse(_, _, responseID), let .legacySessionResponse(_, responseID):
-        .response(responseID)
+        return .response(scope: scope, id: responseID)
     case .legacyRecord, .record:
-        nil
+        return nil
     }
 }
 
@@ -292,7 +297,12 @@ private func copiedRecordsMatch(
     _ mainRecord: PiCompatibleUsageRecord,
     _ subagentRecord: PiCompatibleUsageRecord) -> Bool {
     guard mainRecord.timestamp == subagentRecord.timestamp,
-          mainRecord.model == subagentRecord.model else {
+          mainRecord.model == subagentRecord.model,
+          mainRecord.inputTokens == subagentRecord.inputTokens,
+          mainRecord.outputTokens == subagentRecord.outputTokens,
+          mainRecord.cacheReadTokens == subagentRecord.cacheReadTokens,
+          mainRecord.cacheWriteTokens == subagentRecord.cacheWriteTokens,
+          mainRecord.reasoningTokens == subagentRecord.reasoningTokens else {
         return false
     }
     if let mainProjectPath = mainRecord.attribution.projectPath,
