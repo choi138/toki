@@ -158,6 +158,7 @@ final class UsageSnapshotProviderTests: XCTestCase {
     func test_validatorAcceptsSupportedCostStates() {
         let fixtures: [(cost: Double?, costIsKnown: Bool?)] = [
             (nil, nil),
+            (nil, false),
             (0, nil),
             (0, false),
             (0, true),
@@ -178,7 +179,6 @@ final class UsageSnapshotProviderTests: XCTestCase {
     func test_validatorRejectsInconsistentCostStates() {
         let fixtures: [(cost: Double?, costIsKnown: Bool?)] = [
             (nil, true),
-            (nil, false),
             (0.01, false),
             (-0.01, nil),
             (.nan, true),

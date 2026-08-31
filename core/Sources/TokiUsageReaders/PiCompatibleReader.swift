@@ -75,6 +75,7 @@ struct PiCompatibleReader {
     private func discoveredFiles() throws -> [URL] {
         var physicalPaths: Set<String> = []
         var files: [URL] = []
+        var visitedEntryCount = 0
         let discoveryLimit = readLimits.maximumFileCount == .max
             ? Int.max
             : readLimits.maximumFileCount + 1
@@ -83,7 +84,9 @@ struct PiCompatibleReader {
             for file in try findUsageFiles(
                 in: root,
                 withExtension: "jsonl",
-                maximumFileCount: discoveryLimit) {
+                maximumFileCount: discoveryLimit,
+                maximumEntryCount: readLimits.maximumEntryCount,
+                visitedEntryCount: &visitedEntryCount) {
                 let resolved = file.resolvingSymlinksInPath().standardizedFileURL
                 guard physicalPaths.insert(resolved.path).inserted else { continue }
                 files.append(resolved)

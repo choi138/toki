@@ -73,6 +73,22 @@ public struct OMPReader: TokenReader {
     }
 }
 
+struct SharedPiOMPReader: TokenReader {
+    static let sourceName = "Pi / Oh My Pi"
+
+    let name = Self.sourceName
+    private let sessionsURL: URL
+
+    init(sessionsURL: URL) {
+        self.sessionsURL = sessionsURL
+    }
+
+    func readUsage(from startDate: Date, to endDate: Date) async throws -> RawTokenUsage {
+        try PiCompatibleReader(source: .piAndOhMyPi, sessionRoots: [sessionsURL])
+            .readUsage(from: startDate, to: endDate)
+    }
+}
+
 public struct KimchiReader: TokenReader {
     public static let sourceName = "Kimchi"
 

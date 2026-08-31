@@ -168,11 +168,12 @@ struct AgentSnapshotBuilder: AgentSnapshotBuilding {
                 try standardSourceRecords(
                     locations: descriptor.sourceLocations,
                     modifiedOnOrAfter: .distantPast)
-            case let .boundedAllFiles(maximumFileCount):
+            case let .boundedAllFiles(maximumFileCount, maximumEntryCount):
                 try standardSourceRecords(
                     locations: descriptor.sourceLocations,
                     modifiedOnOrAfter: .distantPast,
-                    maximumFileCount: maximumFileCount)
+                    maximumFileCount: maximumFileCount,
+                    maximumEntryCount: maximumEntryCount)
             case .codexRollouts:
                 try codexSourceRecords(window: window)
             }
@@ -233,12 +234,15 @@ private extension AgentSnapshotBuilder {
     private func standardSourceRecords(
         locations: [LocalUsageSourceLocation],
         modifiedOnOrAfter minimumDate: Date,
-        maximumFileCount: Int? = nil) throws -> [String] {
-        guard maximumFileCount.map({ $0 >= 0 }) ?? true else {
+        maximumFileCount: Int? = nil,
+        maximumEntryCount: Int? = nil) throws -> [String] {
+        guard maximumFileCount.map({ $0 >= 0 }) ?? true,
+              maximumEntryCount.map({ $0 >= 0 }) ?? true else {
             throw AgentSnapshotBuilderError.sourceInspectionFailed
         }
         var records: [String] = []
         var discoveredFileCount = 0
+        var visitedEntryCount = 0
         for location in locations {
             try Task.checkCancellation()
             switch location {
@@ -255,7 +259,9 @@ private extension AgentSnapshotBuilder {
                     extensions: extensions,
                     modifiedOnOrAfter: minimumDate,
                     discoveredFileCount: &discoveredFileCount,
-                    maximumFileCount: maximumFileCount)
+                    maximumFileCount: maximumFileCount,
+                    visitedEntryCount: &visitedEntryCount,
+                    maximumEntryCount: maximumEntryCount)
                     .map(fileSignatureRecord))
             }
         }
@@ -310,7 +316,9 @@ private extension AgentSnapshotBuilder {
         extensions: Set<String>,
         modifiedOnOrAfter minimumDate: Date,
         discoveredFileCount: inout Int,
-        maximumFileCount: Int?) throws -> Set<URL> {
+        maximumFileCount: Int?,
+        visitedEntryCount: inout Int,
+        maximumEntryCount: Int?) throws -> Set<URL> {
         try Task.checkCancellation()
         guard FileManager.default.fileExists(atPath: directory.path) else { return [] }
 
@@ -334,6 +342,12 @@ private extension AgentSnapshotBuilder {
         var files: Set<URL> = []
         for case let fileURL as URL in enumerator {
             try Task.checkCancellation()
+            let (nextEntryCount, entryCountOverflow) = visitedEntryCount.addingReportingOverflow(1)
+            guard !entryCountOverflow,
+                  maximumEntryCount.map({ nextEntryCount <= $0 }) ?? true else {
+                throw AgentSnapshotBuilderError.sourceInspectionFailed
+            }
+            visitedEntryCount = nextEntryCount
             let values: URLResourceValues
             do {
                 values = try fileURL.resourceValues(forKeys: [

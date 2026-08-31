@@ -89,7 +89,7 @@ public enum RemoteUsageSnapshotValidator {
         case true:
             event.cost.map(validCost) == true
         case false:
-            event.cost == 0
+            event.cost.map { $0 == 0 } ?? true
         case nil:
             event.cost.map(validCost) ?? true
         }

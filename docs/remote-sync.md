@@ -292,6 +292,9 @@ source paths to those existing absolute directories before starting it. If a
 tool records data outside the standard roots, add only the narrowest required
 path with `BindReadOnlyPaths`, run `systemctl --user daemon-reload`, and restart
 the unit. Relative XDG paths are ignored in favor of the default directories.
+The supplied unit mounts only the default Oh My Pi session directories. When
+using a named OMP profile, add that active profile's exact `sessions` directory
+to a systemd override rather than exposing the complete `profiles` tree.
 
 The Kimi and Qwen readers also support `KIMI_SHARE_DIR`, `KIMI_CODE_HOME`,
 `QWEN_HOME`, and `QWEN_RUNTIME_DIR`. `ProtectHome=tmpfs` hides override

@@ -6,12 +6,33 @@ struct PiCompatibleReadLimits: Equatable {
         maximumFileCount: 50000,
         maximumFileBytes: 256 * 1024 * 1024,
         maximumLineBytes: 4 * 1024 * 1024,
-        maximumEventCount: RemoteUsageSnapshotValidator.maximumTokenEventCount)
+        maximumEventCount: RemoteUsageSnapshotValidator.maximumTokenEventCount,
+        maximumEntryCount: 500_000)
 
     let maximumFileCount: Int
     let maximumFileBytes: Int
     let maximumLineBytes: Int
     let maximumEventCount: Int
+    let maximumEntryCount: Int
+
+    init(
+        maximumFileCount: Int,
+        maximumFileBytes: Int,
+        maximumLineBytes: Int,
+        maximumEventCount: Int,
+        maximumEntryCount: Int? = nil) {
+        self.maximumFileCount = maximumFileCount
+        self.maximumFileBytes = maximumFileBytes
+        self.maximumLineBytes = maximumLineBytes
+        self.maximumEventCount = maximumEventCount
+        self.maximumEntryCount = maximumEntryCount
+            ?? Self.defaultEntryCount(for: maximumFileCount)
+    }
+
+    private static func defaultEntryCount(for maximumFileCount: Int) -> Int {
+        let (scaled, overflow) = maximumFileCount.multipliedReportingOverflow(by: 10)
+        return overflow ? Int.max : max(maximumFileCount, scaled)
+    }
 }
 
 enum PiCompatibleReaderError: LocalizedError, Equatable {
@@ -21,6 +42,7 @@ enum PiCompatibleReaderError: LocalizedError, Equatable {
     case invalidUTF8(URL, line: Int)
     case unreadableFile(URL)
     case tooManyEvents(Int)
+    case tooManyEntries(Int)
 
     var errorDescription: String? {
         switch self {
@@ -36,6 +58,8 @@ enum PiCompatibleReaderError: LocalizedError, Equatable {
             "The session file \(url.lastPathComponent) could not be read."
         case let .tooManyEvents(count):
             "The session source contains too many usage events (\(count))."
+        case let .tooManyEntries(count):
+            "The session source contains too many filesystem entries (\(count))."
         }
     }
 }

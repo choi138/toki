@@ -13,6 +13,34 @@ struct AgentSnapshotBuildLimits: Equatable {
     let maximumCostEventCount: Int
     let maximumActivityEventCount: Int
     let maximumEncodedBytes: Int
+    let maximumExaminedTokenEventCount: Int
+    let maximumExaminedActivityEventCount: Int
+    let maximumReplacementCoverageCount: Int
+
+    init(
+        maximumTokenEventCount: Int,
+        maximumCostEventCount: Int,
+        maximumActivityEventCount: Int,
+        maximumEncodedBytes: Int,
+        maximumExaminedTokenEventCount: Int? = nil,
+        maximumExaminedActivityEventCount: Int? = nil,
+        maximumReplacementCoverageCount: Int? = nil) {
+        self.maximumTokenEventCount = maximumTokenEventCount
+        self.maximumCostEventCount = maximumCostEventCount
+        self.maximumActivityEventCount = maximumActivityEventCount
+        self.maximumEncodedBytes = maximumEncodedBytes
+        self.maximumExaminedTokenEventCount = maximumExaminedTokenEventCount
+            ?? Self.saturatingSum(maximumTokenEventCount, maximumCostEventCount)
+        self.maximumExaminedActivityEventCount = maximumExaminedActivityEventCount
+            ?? maximumActivityEventCount
+        self.maximumReplacementCoverageCount = maximumReplacementCoverageCount
+            ?? maximumTokenEventCount
+    }
+
+    private static func saturatingSum(_ lhs: Int, _ rhs: Int) -> Int {
+        let (sum, overflow) = lhs.addingReportingOverflow(rhs)
+        return overflow ? Int.max : sum
+    }
 }
 
 struct AgentSnapshotAssembler {
@@ -27,30 +55,29 @@ struct AgentSnapshotAssembler {
         try Task.checkCancellation()
         let identifierHasher = try SnapshotCipher.makeOpaqueIdentifierHasher(
             key: configuration.encryptionKey)
-        let tokenReplacementCoverages = readerUsages.flatMap(\.usage.tokenReplacementCoverages)
+        let tokenReplacementCoverages = try boundedReplacementCoverages(from: readerUsages)
         let device = RemoteDeviceDescriptor(
             id: configuration.deviceID,
             name: configuration.deviceName,
             platform: platformName)
-        let emptySnapshot = RemoteUsageSnapshot(
+        var encodedBytes = try initialEncodedByteCount(
             device: device,
             generatedAt: generatedAt,
             coveredFrom: coveredFrom,
-            coveredTo: coveredTo,
-            tokenEvents: [],
-            activityEvents: [])
-        var encodedBytes = try TokiSyncCoding.makeEncoder().encode(emptySnapshot).count
-        guard encodedBytes <= limits.maximumEncodedBytes else {
-            throw AgentSnapshotBuilderError.snapshotLimitExceeded
-        }
+            coveredTo: coveredTo)
 
         var tokenEvents: [RemoteTokenEvent] = []
         var costEvents: [RemoteCostEvent] = []
         var activityEvents: [RemoteActivityEvent] = []
+        var examinedTokenEventCount = 0
+        var examinedActivityEventCount = 0
         for readerUsage in readerUsages {
             try Task.checkCancellation()
             for event in readerUsage.usage.tokenEvents {
                 try Task.checkCancellation()
+                try consumeBudget(
+                    &examinedTokenEventCount,
+                    maximum: limits.maximumExaminedTokenEventCount)
                 guard event.timestamp >= coveredFrom,
                       event.timestamp < coveredTo,
                       !tokenReplacementCoverages.contains(where: { $0.replaces(event) }) else {
@@ -71,9 +98,14 @@ struct AgentSnapshotAssembler {
                     costEvents.append(costEvent)
                 }
             }
-            for event in readerUsage.usage.activityEvents
-                where event.timestamp >= coveredFrom && event.timestamp < coveredTo {
+            for event in readerUsage.usage.activityEvents {
                 try Task.checkCancellation()
+                try consumeBudget(
+                    &examinedActivityEventCount,
+                    maximum: limits.maximumExaminedActivityEventCount)
+                guard event.timestamp >= coveredFrom, event.timestamp < coveredTo else {
+                    continue
+                }
                 guard activityEvents.count < limits.maximumActivityEventCount else {
                     throw AgentSnapshotBuilderError.snapshotLimitExceeded
                 }
@@ -105,6 +137,48 @@ struct AgentSnapshotAssembler {
 }
 
 private extension AgentSnapshotAssembler {
+    private func initialEncodedByteCount(
+        device: RemoteDeviceDescriptor,
+        generatedAt: Date,
+        coveredFrom: Date,
+        coveredTo: Date) throws -> Int {
+        let emptySnapshot = RemoteUsageSnapshot(
+            device: device,
+            generatedAt: generatedAt,
+            coveredFrom: coveredFrom,
+            coveredTo: coveredTo,
+            tokenEvents: [],
+            activityEvents: [])
+        let count = try TokiSyncCoding.makeEncoder().encode(emptySnapshot).count
+        guard count <= limits.maximumEncodedBytes else {
+            throw AgentSnapshotBuilderError.snapshotLimitExceeded
+        }
+        return count
+    }
+
+    private func boundedReplacementCoverages(
+        from readerUsages: [AgentReaderUsage]) throws -> [TokenReplacementCoverage] {
+        var coverages: [TokenReplacementCoverage] = []
+        for readerUsage in readerUsages {
+            for coverage in readerUsage.usage.tokenReplacementCoverages {
+                try Task.checkCancellation()
+                guard coverages.count < limits.maximumReplacementCoverageCount else {
+                    throw AgentSnapshotBuilderError.snapshotLimitExceeded
+                }
+                coverages.append(coverage)
+            }
+        }
+        return coverages
+    }
+
+    private func consumeBudget(_ count: inout Int, maximum: Int) throws {
+        let (next, overflow) = count.addingReportingOverflow(1)
+        guard !overflow, next <= maximum else {
+            throw AgentSnapshotBuilderError.snapshotLimitExceeded
+        }
+        count = next
+    }
+
     private func reserveSnapshotBytes(
         for event: some Encodable,
         used: inout Int) throws {
@@ -179,7 +253,7 @@ private extension AgentSnapshotAssembler {
         case true:
             event.cost
         case false:
-            0
+            nil
         case nil:
             event.cost > 0 ? event.cost : nil
         }
@@ -219,6 +293,7 @@ private extension AgentSnapshotAssembler {
         ]
         let validCostRange = 0...RemoteUsageSnapshotValidator.maximumCostPerEvent
         guard counts.allSatisfy({ $0 == 0 }),
+              event.costIsKnown != false,
               event.cost.isFinite,
               event.cost > 0,
               validCostRange.contains(event.cost) else {

@@ -48,15 +48,107 @@ final class PiFamilyFollowUpTests: XCTestCase {
             "/tmp/toki-home/.omp/agent/sessions")
     }
 
-    func test_sharedPiAndOMPDirectoryRegistersOnlyOMPReader() {
+    func test_sharedPiAndOMPDirectoryRegistersNeutralReader() {
         let readers = LocalUsageReaderRegistry.readers(
             home: URL(fileURLWithPath: "/tmp/toki-home"),
             environment: ["PI_CODING_AGENT_DIR": "/tmp/shared-agent"])
         let familyNames = readers.map(\.name).filter {
-            [PiReader.sourceName, OMPReader.sourceName, KimchiReader.sourceName].contains($0)
+            [
+                PiReader.sourceName,
+                OMPReader.sourceName,
+                SharedPiOMPReader.sourceName,
+                KimchiReader.sourceName,
+            ].contains($0)
         }
 
-        XCTAssertEqual(familyNames, [OMPReader.sourceName, KimchiReader.sourceName])
+        XCTAssertEqual(familyNames, [SharedPiOMPReader.sourceName, KimchiReader.sourceName])
+    }
+
+    func test_ompAutoDetectionRequiresSessionsAndExplicitConfigWins() throws {
+        let root = temporaryRoot("toki-omp-paths")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let home = root.appendingPathComponent("home")
+        let xdgData = root.appendingPathComponent("data")
+        try FileManager.default.createDirectory(
+            at: xdgData.appendingPathComponent("omp"),
+            withIntermediateDirectories: true)
+
+        let legacy = LocalUsageReaderPaths(
+            homeDirectory: home,
+            environment: ["XDG_DATA_HOME": xdgData.path])
+        XCTAssertEqual(legacy.ompSessions.path, home.appendingPathComponent(".omp/agent/sessions").path)
+
+        let xdgSessions = xdgData.appendingPathComponent("omp/sessions")
+        try FileManager.default.createDirectory(at: xdgSessions, withIntermediateDirectories: true)
+        let xdg = LocalUsageReaderPaths(
+            homeDirectory: home,
+            environment: ["XDG_DATA_HOME": xdgData.path])
+        XCTAssertEqual(xdg.ompSessions.path, xdgSessions.path)
+
+        let configured = LocalUsageReaderPaths(
+            homeDirectory: home,
+            environment: [
+                "XDG_DATA_HOME": xdgData.path,
+                "PI_CONFIG_DIR": ".custom-omp",
+            ])
+        XCTAssertEqual(
+            configured.ompSessions.path,
+            home.appendingPathComponent(".custom-omp/agent/sessions").path)
+    }
+
+    func test_ompNamedProfileRequiresSessionsAndExplicitConfigWins() throws {
+        let root = temporaryRoot("toki-omp-profile-paths")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let home = root.appendingPathComponent("home")
+        let xdgData = root.appendingPathComponent("data")
+        let xdgProfile = xdgData.appendingPathComponent("omp/profiles/work")
+        try FileManager.default.createDirectory(at: xdgProfile, withIntermediateDirectories: true)
+
+        let legacy = LocalUsageReaderPaths(
+            homeDirectory: home,
+            environment: [
+                "XDG_DATA_HOME": xdgData.path,
+                "OMP_PROFILE": "work",
+            ])
+        XCTAssertEqual(
+            legacy.ompSessions.path,
+            home.appendingPathComponent(".omp/profiles/work/agent/sessions").path)
+
+        let xdgSessions = xdgProfile.appendingPathComponent("sessions")
+        try FileManager.default.createDirectory(at: xdgSessions, withIntermediateDirectories: true)
+        let configured = LocalUsageReaderPaths(
+            homeDirectory: home,
+            environment: [
+                "XDG_DATA_HOME": xdgData.path,
+                "OMP_PROFILE": "work",
+                "PI_CONFIG_DIR": ".custom-omp",
+            ])
+        XCTAssertEqual(
+            configured.ompSessions.path,
+            home.appendingPathComponent(".custom-omp/profiles/work/agent/sessions").path)
+    }
+
+    func test_symlinkedPiAndOMPDirectoriesRegisterOneNeutralReader() throws {
+        let home = temporaryRoot("toki-pi-omp-alias")
+        defer { try? FileManager.default.removeItem(at: home) }
+        let shared = home.appendingPathComponent("shared-sessions")
+        let piSessions = home.appendingPathComponent(".pi/agent/sessions")
+        let ompSessions = home.appendingPathComponent(".omp/agent/sessions")
+        try FileManager.default.createDirectory(at: shared, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(
+            at: piSessions.deletingLastPathComponent(),
+            withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(
+            at: ompSessions.deletingLastPathComponent(),
+            withIntermediateDirectories: true)
+        try FileManager.default.createSymbolicLink(at: piSessions, withDestinationURL: shared)
+        try FileManager.default.createSymbolicLink(at: ompSessions, withDestinationURL: shared)
+
+        let names = LocalUsageReaderRegistry.readers(home: home, environment: [:]).map(\.name)
+
+        XCTAssertTrue(names.contains(SharedPiOMPReader.sourceName))
+        XCTAssertFalse(names.contains(PiReader.sourceName))
+        XCTAssertFalse(names.contains(OMPReader.sourceName))
     }
 
     func test_recordedZeroAndInvalidNegativeCostRemainDistinct() {
@@ -102,6 +194,30 @@ final class PiFamilyFollowUpTests: XCTestCase {
             XCTAssertTrue(merged.costIsKnown)
         }
     }
+}
+
+extension PiFamilyFollowUpTests {
+    func test_revisionMergeIsDeterministicAcrossAllOrders() {
+        let records = [
+            usageRecord(inputTokens: 100, provider: nil, cost: 0, costIsKnown: false),
+            usageRecord(inputTokens: 90, provider: "openai", cost: 0.25, costIsKnown: true),
+            usageRecord(inputTokens: 80, provider: "azure", cost: 0.30, costIsKnown: true),
+        ]
+        let orders = [
+            [0, 1, 2], [0, 2, 1], [1, 0, 2],
+            [1, 2, 0], [2, 0, 1], [2, 1, 0],
+        ]
+
+        for order in orders {
+            let merged = order.dropFirst().reduce(records[order[0]]) {
+                $0.merged(with: records[$1])
+            }
+            XCTAssertEqual(merged.inputTokens, 100)
+            XCTAssertEqual(merged.provider, "azure")
+            XCTAssertEqual(merged.cost, 0.30, accuracy: 0.000001)
+            XCTAssertTrue(merged.costIsKnown)
+        }
+    }
 
     func test_idlessRevisionMetadataEnrichmentMergesOneResponse() {
         let usage = PiReader.usage(
@@ -127,9 +243,55 @@ final class PiFamilyFollowUpTests: XCTestCase {
         XCTAssertEqual(usage.tokenEvents.count, 1)
         XCTAssertEqual(usage.tokenEvents.first?.provider, "azure")
     }
+
+    func test_idlessRowsAtSameTimestampRemainDistinct() {
+        let usage = PiReader.usage(
+            fromJSONLLines: [
+                #"{"type":"session","id":"same-time"}"#,
+                idlessPayload(timestamp: "2026-08-20T12:00:00Z", input: 3, output: 2),
+                idlessPayload(timestamp: "2026-08-20T12:00:00Z", input: 7, output: 4),
+            ],
+            streamID: "/tmp/same-time.jsonl",
+            from: date("2026-08-20T00:00:00Z"),
+            to: date("2026-08-21T00:00:00Z"))
+
+        XCTAssertEqual(usage.totalTokens, 16)
+        XCTAssertEqual(usage.tokenEvents.count, 2)
+    }
 }
 
 final class PiFamilyReaderLimitTests: XCTestCase {
+    func test_sharedPiAndOMPReaderPreservesSessionLocalMessageIDs() async throws {
+        let root = temporaryRoot("toki-pi-omp-shared")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let agentRoot = root.appendingPathComponent("shared-agent")
+        let sessions = agentRoot.appendingPathComponent("sessions")
+        try writeSession(
+            to: sessions.appendingPathComponent("a.jsonl"),
+            sessionID: "session-a",
+            messageID: "message-0001",
+            input: 1,
+            output: 1)
+        try writeSession(
+            to: sessions.appendingPathComponent("b.jsonl"),
+            sessionID: "session-b",
+            messageID: "message-0001",
+            input: 9,
+            output: 9)
+        let reader = try XCTUnwrap(LocalUsageReaderRegistry.readers(
+            home: root,
+            environment: ["PI_CODING_AGENT_DIR": agentRoot.path])
+            .first { $0.name == SharedPiOMPReader.sourceName })
+
+        let usage = try await reader.readUsage(
+            from: date("2026-08-20T00:00:00Z"),
+            to: date("2026-08-21T00:00:00Z"))
+
+        XCTAssertEqual(usage.totalTokens, 20)
+        XCTAssertEqual(usage.tokenEvents.count, 2)
+        XCTAssertEqual(Set(usage.tokenEvents.map(\.source)), [SharedPiOMPReader.sourceName])
+    }
+
     func test_nonUUIDMessageIDsRemainSessionLocal() async throws {
         let root = temporaryRoot("toki-pi-local-id")
         defer { try? FileManager.default.removeItem(at: root) }
@@ -211,6 +373,33 @@ final class PiFamilyReaderLimitTests: XCTestCase {
         }
     }
 
+    func test_piEntryLimitCountsNonUsageFiles() async throws {
+        let root = temporaryRoot("toki-pi-entry-limit")
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        try Data().write(to: root.appendingPathComponent("first.txt"))
+        try Data().write(to: root.appendingPathComponent("second.txt"))
+        let reader = PiReader(
+            sessionsURLOverride: root,
+            readLimits: PiCompatibleReadLimits(
+                maximumFileCount: 10,
+                maximumFileBytes: 10000,
+                maximumLineBytes: 1000,
+                maximumEventCount: 10,
+                maximumEntryCount: 1))
+
+        do {
+            _ = try await reader.readUsage(
+                from: date("2026-08-20T00:00:00Z"),
+                to: date("2026-08-21T00:00:00Z"))
+            XCTFail("Expected the second filesystem entry to exceed the limit")
+        } catch {
+            XCTAssertEqual(error as? PiCompatibleReaderError, .tooManyEntries(2))
+        }
+    }
+}
+
+extension PiFamilyReaderLimitTests {
     func test_idlessExactCopiesDeduplicateButReusedResponsesRemainDistinct() async throws {
         let root = temporaryRoot("toki-pi-idless")
         defer { try? FileManager.default.removeItem(at: root) }
@@ -235,6 +424,68 @@ final class PiFamilyReaderLimitTests: XCTestCase {
                     output: 4),
             ],
             to: root.appendingPathComponent("c.jsonl"))
+
+        let usage = try await PiReader(sessionsURLOverride: root).readUsage(
+            from: date("2026-08-20T00:00:00Z"),
+            to: date("2026-08-21T00:00:00Z"))
+
+        XCTAssertEqual(usage.totalTokens, 16)
+        XCTAssertEqual(usage.tokenEvents.count, 2)
+    }
+
+    func test_copiedResponseKeepsOriginalIdentityAfterEnrichment() async throws {
+        let root = temporaryRoot("toki-pi-copy-enrichment")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let original = idlessMessage(
+            responseID: "response-copy",
+            timestamp: "2026-08-20T12:00:00Z",
+            input: 3,
+            output: 2)
+        let enriched = """
+        {"type":"message","timestamp":"2026-08-20T12:00:01Z","message":\
+        {"role":"assistant","responseId":"response-copy","model":"gpt-5",\
+        "provider":"azure","usage":{"input":3,"output":2,"cost":{"total":0.25}}}}
+        """
+        try writeLines(
+            [#"{"type":"session","id":"session-a"}"#, original],
+            to: root.appendingPathComponent("a.jsonl"))
+        try writeLines(
+            [#"{"type":"session","id":"session-b"}"#, original, enriched],
+            to: root.appendingPathComponent("b.jsonl"))
+
+        let usage = try await PiReader(sessionsURLOverride: root).readUsage(
+            from: date("2026-08-20T00:00:00Z"),
+            to: date("2026-08-21T00:00:00Z"))
+
+        XCTAssertEqual(usage.totalTokens, 5)
+        XCTAssertEqual(usage.tokenEvents.count, 1)
+        XCTAssertEqual(usage.cost, 0.25, accuracy: 0.000001)
+        XCTAssertEqual(usage.tokenEvents.first?.provider, "azure")
+    }
+
+    func test_sameResponseIdentityWithDifferentPayloadsRemainsDistinct() async throws {
+        let root = temporaryRoot("toki-pi-copy-payload")
+        defer { try? FileManager.default.removeItem(at: root) }
+        try writeLines(
+            [
+                #"{"type":"session","id":"session-a"}"#,
+                idlessMessage(
+                    responseID: "response-reused",
+                    timestamp: "2026-08-20T12:00:00Z",
+                    input: 3,
+                    output: 2),
+            ],
+            to: root.appendingPathComponent("a.jsonl"))
+        try writeLines(
+            [
+                #"{"type":"session","id":"session-b"}"#,
+                idlessMessage(
+                    responseID: "response-reused",
+                    timestamp: "2026-08-20T12:00:00Z",
+                    input: 7,
+                    output: 4),
+            ],
+            to: root.appendingPathComponent("b.jsonl"))
 
         let usage = try await PiReader(sessionsURLOverride: root).readUsage(
             from: date("2026-08-20T00:00:00Z"),
@@ -279,6 +530,14 @@ private func idlessMessage(
     {"type":"message","timestamp":"\(timestamp)","message":\
     {"role":"assistant","responseId":"\(responseID)","model":"gpt-5",\
     "provider":"openai","usage":{"input":\(input),"output":\(output)}}}
+    """
+}
+
+private func idlessPayload(timestamp: String, input: Int, output: Int) -> String {
+    """
+    {"type":"message","timestamp":"\(timestamp)","message":\
+    {"role":"assistant","model":"gpt-5","provider":"openai",\
+    "usage":{"input":\(input),"output":\(output)}}}
     """
 }
 

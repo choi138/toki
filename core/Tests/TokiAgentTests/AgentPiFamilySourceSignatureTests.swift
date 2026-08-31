@@ -54,12 +54,42 @@ final class AgentPiFamilySourceSignatureTests: XCTestCase {
         }
     }
 
+    func test_boundedAllFilesCountsNonUsageEntries() async throws {
+        let fixture = try AgentSnapshotFixture()
+        defer { fixture.remove() }
+        let sessions = fixture.root.appendingPathComponent("pi-sessions")
+        try FileManager.default.createDirectory(at: sessions, withIntermediateDirectories: true)
+        try Data().write(to: sessions.appendingPathComponent("first.txt"))
+        try Data().write(to: sessions.appendingPathComponent("second.txt"))
+        let builder = AgentSnapshotBuilder(
+            home: fixture.root,
+            environment: [:],
+            readerDescriptors: [descriptor(
+                sessions: sessions,
+                maximumFileCount: 10,
+                maximumEntryCount: 1)])
+
+        do {
+            _ = try await builder.sourceSignature(
+                configuration: fixture.configuration,
+                now: fixture.now)
+            XCTFail("Expected the second source entry to exceed the signature limit")
+        } catch {
+            guard case .sourceInspectionFailed? = error as? AgentSnapshotBuilderError else {
+                return XCTFail("Expected sourceInspectionFailed, got \(error)")
+            }
+        }
+    }
+
     private func descriptor(
         sessions: URL,
-        maximumFileCount: Int) -> LocalUsageReaderDescriptor {
+        maximumFileCount: Int,
+        maximumEntryCount: Int? = nil) -> LocalUsageReaderDescriptor {
         LocalUsageReaderDescriptor(
             reader: FixedTokenReader(name: PiReader.sourceName, usage: RawTokenUsage()),
             sourceLocations: [.directory(sessions, extensions: ["jsonl"])],
-            sourceSignatureStrategy: .boundedAllFiles(maximumFileCount: maximumFileCount))
+            sourceSignatureStrategy: .boundedAllFiles(
+                maximumFileCount: maximumFileCount,
+                maximumEntryCount: maximumEntryCount ?? maximumFileCount * 10))
     }
 }

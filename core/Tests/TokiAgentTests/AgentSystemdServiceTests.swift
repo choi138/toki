@@ -47,8 +47,7 @@ final class AgentSystemdServiceTests: XCTestCase {
             "%h/.omo/senpi-task/sessions",
             "%h/.pi/agent/sessions",
             "%h/.omp/agent/sessions",
-            "%h/.omp/profiles",
-            "%h/.local/share/omp",
+            "%h/.local/share/omp/sessions",
             "%h/.config/kimchi/harness/sessions",
             "%h/.copilot/otel",
             "%h/.local/share/opencode/opencode.db",
@@ -81,6 +80,8 @@ final class AgentSystemdServiceTests: XCTestCase {
         XCTAssertFalse(readOnlyPaths.contains("%h/.config/Cursor"))
         XCTAssertFalse(readOnlyPaths.contains("%h/.local/share/opencode"))
         XCTAssertFalse(readOnlyPaths.contains("%h/.omo/senpi-task"))
+        XCTAssertFalse(readOnlyPaths.contains("%h/.omp/profiles"))
+        XCTAssertFalse(readOnlyPaths.contains("%h/.local/share/omp"))
         XCTAssertFalse(readOnlyPaths.contains("%h/.kimi"))
         XCTAssertFalse(readOnlyPaths.contains("%h/.kimi/config.toml"))
         XCTAssertFalse(readOnlyPaths.contains("%h/.kimi/config.json"))

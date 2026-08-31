@@ -128,7 +128,9 @@ func findFilesThrowing(
 func findUsageFiles(
     in directory: URL,
     withExtension ext: String,
-    maximumFileCount: Int? = nil) throws -> [URL] {
+    maximumFileCount: Int? = nil,
+    maximumEntryCount: Int? = nil,
+    visitedEntryCount: inout Int) throws -> [URL] {
     try Task.checkCancellation()
     let normalizedDirectory = directory.standardizedFileURL
     let rootValues: URLResourceValues
@@ -166,6 +168,12 @@ func findUsageFiles(
     var files: [URL] = []
     for case let url as URL in enumerator {
         try Task.checkCancellation()
+        let (nextEntryCount, entryCountOverflow) = visitedEntryCount.addingReportingOverflow(1)
+        guard !entryCountOverflow,
+              maximumEntryCount.map({ nextEntryCount <= $0 }) ?? true else {
+            throw PiCompatibleReaderError.tooManyEntries(entryCountOverflow ? Int.max : nextEntryCount)
+        }
+        visitedEntryCount = nextEntryCount
         let values: URLResourceValues
         do {
             values = try url.resourceValues(forKeys: keys)

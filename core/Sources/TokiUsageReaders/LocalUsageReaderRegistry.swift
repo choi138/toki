@@ -16,7 +16,7 @@ package enum LocalUsageSourceLocation: Equatable {
 package enum LocalUsageSourceSignatureStrategy {
     case standard
     case allFiles
-    case boundedAllFiles(maximumFileCount: Int)
+    case boundedAllFiles(maximumFileCount: Int, maximumEntryCount: Int)
     case codexRollouts
 }
 
@@ -252,22 +252,25 @@ public struct LocalUsageReaderPaths: Equatable {
             ? environment["OMP_PROFILE"]
             : environment["PI_PROFILE"]
         let profile = normalizedOMPProfile(profileValue)
-        let configuredDirectory = environment["PI_CONFIG_DIR"]?
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        let configDirectory = configuredDirectory.flatMap { $0.isEmpty ? nil : $0 } ?? ".omp"
-        let configRoot = homeDirectory.appendingPathComponent(configDirectory)
+        let explicitConfigDirectory = normalizedConfigDirectory(environment["PI_CONFIG_DIR"])
+        let configRoot = homeDirectory.appendingPathComponent(explicitConfigDirectory ?? ".omp")
 
         if let profile {
-            let xdgProfile = xdgDataDirectory
-                .appendingPathComponent("omp/profiles")
-                .appendingPathComponent(profile)
-            if FileManager.default.fileExists(atPath: xdgProfile.path) {
-                return xdgProfile.appendingPathComponent("sessions")
-            }
-            return configRoot
+            let configuredSessions = configRoot
                 .appendingPathComponent("profiles")
                 .appendingPathComponent(profile)
                 .appendingPathComponent("agent/sessions")
+            if explicitConfigDirectory != nil {
+                return configuredSessions
+            }
+            let xdgSessions = xdgDataDirectory
+                .appendingPathComponent("omp/profiles")
+                .appendingPathComponent(profile)
+                .appendingPathComponent("sessions")
+            if isExistingDirectory(xdgSessions) {
+                return xdgSessions
+            }
+            return configuredSessions
         }
 
         if let agentDirectory = absoluteEnvironmentDirectory(
@@ -275,11 +278,15 @@ public struct LocalUsageReaderPaths: Equatable {
             environment: environment) {
             return agentDirectory.appendingPathComponent("sessions")
         }
-        let xdgRoot = xdgDataDirectory.appendingPathComponent("omp")
-        if FileManager.default.fileExists(atPath: xdgRoot.path) {
-            return xdgRoot.appendingPathComponent("sessions")
+        let configuredSessions = configRoot.appendingPathComponent("agent/sessions")
+        if explicitConfigDirectory != nil {
+            return configuredSessions
         }
-        return configRoot.appendingPathComponent("agent/sessions")
+        let xdgSessions = xdgDataDirectory.appendingPathComponent("omp/sessions")
+        if isExistingDirectory(xdgSessions) {
+            return xdgSessions
+        }
+        return configuredSessions
     }
 
     private static func normalizedOMPProfile(_ value: String?) -> String? {
@@ -410,27 +417,61 @@ public enum LocalUsageReaderRegistry {
 
     private static func piFamilyDescriptors(
         paths: LocalUsageReaderPaths) -> [LocalUsageReaderDescriptor] {
-        let sharesSessionDirectory =
-            paths.ompSessions.standardizedFileURL == paths.piSessions.standardizedFileURL
+        let sharesSessionDirectory = directoriesShareStorage(paths.piSessions, paths.ompSessions)
         var descriptors: [LocalUsageReaderDescriptor] = []
-        if !sharesSessionDirectory {
+        if sharesSessionDirectory {
+            descriptors.append(LocalUsageReaderDescriptor(
+                reader: SharedPiOMPReader(sessionsURL: paths.piSessions),
+                sourceLocations: [.directory(paths.piSessions, extensions: ["jsonl"])],
+                sourceSignatureStrategy: .boundedAllFiles(
+                    maximumFileCount: PiCompatibleReadLimits.default.maximumFileCount,
+                    maximumEntryCount: PiCompatibleReadLimits.default.maximumEntryCount)))
+        } else {
             descriptors.append(LocalUsageReaderDescriptor(
                 reader: PiReader(sessionsURLOverride: paths.piSessions),
                 sourceLocations: [.directory(paths.piSessions, extensions: ["jsonl"])],
                 sourceSignatureStrategy: .boundedAllFiles(
-                    maximumFileCount: PiCompatibleReadLimits.default.maximumFileCount)))
+                    maximumFileCount: PiCompatibleReadLimits.default.maximumFileCount,
+                    maximumEntryCount: PiCompatibleReadLimits.default.maximumEntryCount)))
+            descriptors.append(LocalUsageReaderDescriptor(
+                reader: OMPReader(sessionsURLOverride: paths.ompSessions),
+                sourceLocations: [.directory(paths.ompSessions, extensions: ["jsonl"])],
+                sourceSignatureStrategy: .boundedAllFiles(
+                    maximumFileCount: PiCompatibleReadLimits.default.maximumFileCount,
+                    maximumEntryCount: PiCompatibleReadLimits.default.maximumEntryCount)))
         }
-        descriptors.append(LocalUsageReaderDescriptor(
-            reader: OMPReader(sessionsURLOverride: paths.ompSessions),
-            sourceLocations: [.directory(paths.ompSessions, extensions: ["jsonl"])],
-            sourceSignatureStrategy: .boundedAllFiles(
-                maximumFileCount: PiCompatibleReadLimits.default.maximumFileCount)))
         descriptors.append(LocalUsageReaderDescriptor(
             reader: KimchiReader(sessionsURLOverride: paths.kimchiSessions),
             sourceLocations: [.directory(paths.kimchiSessions, extensions: ["jsonl"])],
             sourceSignatureStrategy: .boundedAllFiles(
-                maximumFileCount: PiCompatibleReadLimits.default.maximumFileCount)))
+                maximumFileCount: PiCompatibleReadLimits.default.maximumFileCount,
+                maximumEntryCount: PiCompatibleReadLimits.default.maximumEntryCount)))
         return descriptors
+    }
+
+    private static func directoriesShareStorage(_ lhs: URL, _ rhs: URL) -> Bool {
+        let resolvedLHS = lhs.resolvingSymlinksInPath().standardizedFileURL
+        let resolvedRHS = rhs.resolvingSymlinksInPath().standardizedFileURL
+        if resolvedLHS.path == resolvedRHS.path {
+            return true
+        }
+        guard let lhsIdentity = directoryIdentity(resolvedLHS),
+              let rhsIdentity = directoryIdentity(resolvedRHS) else {
+            return false
+        }
+        return lhsIdentity == rhsIdentity
+    }
+
+    private static func directoryIdentity(_ url: URL) -> LocalUsageDirectoryIdentity? {
+        var isDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory),
+              isDirectory.boolValue,
+              let attributes = try? FileManager.default.attributesOfItem(atPath: url.path),
+              let systemNumber = (attributes[.systemNumber] as? NSNumber)?.uint64Value,
+              let fileNumber = (attributes[.systemFileNumber] as? NSNumber)?.uint64Value else {
+            return nil
+        }
+        return LocalUsageDirectoryIdentity(systemNumber: systemNumber, fileNumber: fileNumber)
     }
 
     public static func readers(
@@ -453,4 +494,20 @@ public enum LocalUsageReaderRegistry {
             claudeUsageCache: claudeUsageCache,
             hermesUsageLedger: hermesUsageLedger)
     }
+}
+
+private func isExistingDirectory(_ url: URL) -> Bool {
+    var isDirectory: ObjCBool = false
+    return FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory)
+        && isDirectory.boolValue
+}
+
+private func normalizedConfigDirectory(_ value: String?) -> String? {
+    let configured = value?.trimmingCharacters(in: .whitespacesAndNewlines)
+    return configured.flatMap { $0.isEmpty ? nil : $0 }
+}
+
+private struct LocalUsageDirectoryIdentity: Equatable {
+    let systemNumber: UInt64
+    let fileNumber: UInt64
 }
