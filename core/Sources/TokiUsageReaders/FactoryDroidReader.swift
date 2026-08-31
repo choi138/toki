@@ -246,6 +246,28 @@ private struct FactoryDroidTokenUsage: Decodable {
         cacheReadTokens = try? container.decodeIfPresent(Int.self, forKey: .cacheReadTokens)
         thinkingTokens = try? container.decodeIfPresent(Int.self, forKey: .thinkingTokens)
     }
+
+    func fillingMissingValues(from fallback: Self) -> Self {
+        Self(
+            inputTokens: inputTokens ?? fallback.inputTokens,
+            outputTokens: outputTokens ?? fallback.outputTokens,
+            cacheCreationTokens: cacheCreationTokens ?? fallback.cacheCreationTokens,
+            cacheReadTokens: cacheReadTokens ?? fallback.cacheReadTokens,
+            thinkingTokens: thinkingTokens ?? fallback.thinkingTokens)
+    }
+
+    private init(
+        inputTokens: Int?,
+        outputTokens: Int?,
+        cacheCreationTokens: Int?,
+        cacheReadTokens: Int?,
+        thinkingTokens: Int?) {
+        self.inputTokens = inputTokens
+        self.outputTokens = outputTokens
+        self.cacheCreationTokens = cacheCreationTokens
+        self.cacheReadTokens = cacheReadTokens
+        self.thinkingTokens = thinkingTokens
+    }
 }
 
 private struct FactoryDroidTokenCounts {
@@ -339,7 +361,15 @@ private func mergingFactoryDroidTranscripts(
     var tokenUsageRecordsByID = Dictionary(
         uniqueKeysWithValues: fallback.tokenUsageRecords.map { ($0.id, $0) })
     for record in preferred.tokenUsageRecords {
-        tokenUsageRecordsByID[record.id] = record
+        if let existing = tokenUsageRecordsByID[record.id] {
+            tokenUsageRecordsByID[record.id] = FactoryDroidTokenUsageRecord(
+                id: record.id,
+                timestamp: record.timestamp,
+                tokenUsage: record.tokenUsage.fillingMissingValues(
+                    from: existing.tokenUsage))
+        } else {
+            tokenUsageRecordsByID[record.id] = record
+        }
     }
 
     return FactoryDroidTranscript(

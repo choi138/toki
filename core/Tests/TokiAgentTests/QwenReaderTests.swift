@@ -45,6 +45,22 @@ final class QwenReaderTests: XCTestCase {
         XCTAssertEqual(usage.activityEvents.count, 1)
     }
 
+    func test_qwenRejectsOversizedCountersBeforeUpdatingTotals() throws {
+        let usage = try QwenCLIReader.usage(
+            fromJSONLLines: [
+                #"{"uuid":"oversized","type":"assistant","model":"qwen3.5-plus","# +
+                    #""timestamp":"2026-02-23T14:24:56.857Z","sessionId":"session-qwen","# +
+                    #""usageMetadata":{"promptTokenCount":1000000001,"candidatesTokenCount":2}}"#,
+            ],
+            streamID: "/tmp/.qwen/projects/workspace/chats/session.jsonl",
+            from: startDate,
+            to: endDate)
+
+        XCTAssertEqual(usage.totalTokens, 0)
+        XCTAssertTrue(usage.perModel.isEmpty)
+        XCTAssertTrue(usage.tokenEvents.isEmpty)
+    }
+
     func test_qwenDeduplicatesDivergentReplicasByRecordUUID() throws {
         let usage = try QwenCLIReader.usage(
             fromJSONLSessions: [

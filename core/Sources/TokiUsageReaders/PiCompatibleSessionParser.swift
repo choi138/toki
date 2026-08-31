@@ -50,6 +50,15 @@ struct PiCompatibleUsageRecord {
                 && costIsKnown == true && other.costIsKnown != true)
         let preferred = prefersSelf ? self : other
         let supplemental = prefersSelf ? other : self
+        let costSource: Self = if costIsKnown == true, other.costIsKnown != true {
+            self
+        } else if other.costIsKnown == true, costIsKnown != true {
+            other
+        } else if cost >= other.cost {
+            self
+        } else {
+            other
+        }
         return PiCompatibleUsageRecord(
             deduplicationKey: deduplicationKey,
             timestamp: preferred.timestamp,
@@ -60,8 +69,10 @@ struct PiCompatibleUsageRecord {
             cacheReadTokens: preferred.cacheReadTokens,
             cacheWriteTokens: preferred.cacheWriteTokens,
             reasoningTokens: preferred.reasoningTokens,
-            cost: preferred.cost,
-            costIsKnown: preferred.costIsKnown ?? supplemental.costIsKnown,
+            cost: costSource.cost,
+            costIsKnown: costIsKnown == true || other.costIsKnown == true
+                ? true
+                : (preferred.costIsKnown ?? supplemental.costIsKnown),
             attribution: bestUsageAttribution(attribution, other.attribution) ?? attribution,
             agentName: preferred.agentName ?? supplemental.agentName,
             agentKind: agentKind == .subagent || other.agentKind == .subagent ? .subagent : .main)
@@ -69,8 +80,8 @@ struct PiCompatibleUsageRecord {
 }
 
 enum PiCompatibleDeduplicationKey: Hashable {
-    case message(String)
-    case response(String)
+    case message(sessionID: String, id: String)
+    case response(sessionID: String, provider: String?, id: String)
     case record(
         timestamp: Date,
         provider: String?,
@@ -91,6 +102,7 @@ struct PiCompatibleSessionParser {
     private var agentKind: WorkTimeAgentKind
     private var agentName: String?
     private var sessionContext: PiCompatibleSessionContext?
+    private var responseProviders: [PiCompatibleResponseScope: String] = [:]
     private var rejectedPreHeader = false
 
     init(
@@ -178,7 +190,7 @@ struct PiCompatibleSessionParser {
             lineIndex: lineIndex)
     }
 
-    private func makeRecord(
+    private mutating func makeRecord(
         entry: PiCompatibleEntry,
         message: PiCompatibleMessage,
         usage: PiCompatibleUsage,
@@ -194,7 +206,15 @@ struct PiCompatibleSessionParser {
         let reasoning = source.reportsReasoningSeparately ? recordedReasoning : 0
         let messageID = nonEmptyPiValue(entry.id)
         let responseID = nonEmptyPiValue(message.responseID)
-        let provider = nonEmptyPiValue(message.provider) ?? inferredUsageProvider(from: model)
+        let responseScope = responseID.map {
+            PiCompatibleResponseScope(sessionID: sessionContext.id, responseID: $0)
+        }
+        let provider = nonEmptyPiValue(message.provider)
+            ?? responseScope.flatMap { responseProviders[$0] }
+            ?? inferredUsageProvider(from: model)
+        if let responseScope, let provider {
+            responseProviders[responseScope] = provider
+        }
         let inputTokens = boundedUsageTokenCount(usage.input)
         let outputTokens = outputIncludingReasoning - reasoning
         let cacheReadTokens = boundedUsageTokenCount(usage.cacheRead)
@@ -208,9 +228,12 @@ struct PiCompatibleSessionParser {
             false
         }
         let deduplicationKey: PiCompatibleDeduplicationKey = if let messageID {
-            .message(messageID)
+            .message(sessionID: sessionContext.id, id: messageID)
         } else if let responseID {
-            .response(responseID)
+            .response(
+                sessionID: sessionContext.id,
+                provider: provider,
+                id: responseID)
         } else {
             .record(
                 timestamp: timestamp,
@@ -290,6 +313,11 @@ extension PiCompatibleSessionParser {
 private struct PiCompatibleSessionContext {
     let id: String
     let cwd: String?
+}
+
+private struct PiCompatibleResponseScope: Hashable {
+    let sessionID: String
+    let responseID: String
 }
 
 private struct PiCompatibleEntry: Decodable {

@@ -9,8 +9,8 @@ final class PiCompatibleReplicaEnrichmentTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: root) }
         let parent = root.appendingPathComponent("parent/session.jsonl")
         let child = root.appendingPathComponent("child/session.jsonl")
-        try writeSession(to: parent, cost: nil)
-        try writeSession(to: child, cost: 0.25)
+        try writeSession(to: parent, input: 7, output: 5, cost: nil)
+        try writeSession(to: child, input: 4, output: 3, cost: 0.25)
 
         let usage = try await PiReader(sessionsURLOverride: root).readUsage(
             from: replicaDate("2026-08-01T00:00:00Z"),
@@ -22,11 +22,11 @@ final class PiCompatibleReplicaEnrichmentTests: XCTestCase {
         XCTAssertEqual(usage.tokenEvents.first?.costIsKnown, true)
     }
 
-    private func writeSession(to url: URL, cost: Double?) throws {
+    private func writeSession(to url: URL, input: Int, output: Int, cost: Double?) throws {
         try FileManager.default.createDirectory(
             at: url.deletingLastPathComponent(),
             withIntermediateDirectories: true)
-        var usage = #"{"input":7,"output":5"#
+        var usage = #"{"input":\#(input),"output":\#(output)"#
         if let cost {
             usage += #", "cost":{"total":\#(cost)}"#
         }

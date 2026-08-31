@@ -307,7 +307,7 @@ extension FactoryDroidReaderTests {
                 #"{"type":"message","id":"assistant-1","timestamp":"2026-08-20T10:00:00Z","# +
                     #""message":{"role":"assistant","usage":{"inputTokens":10}}}"#,
                 #"{"type":"message","id":"assistant-2","timestamp":"2026-08-20T11:00:00Z","# +
-                    #""message":{"role":"assistant","usage":{"inputTokens":20}}}"#,
+                    #""message":{"role":"assistant","usage":{"inputTokens":20,"outputTokens":5}}}"#,
             ])
         try fixture.setModificationDate("2026-08-20T11:01:00Z", for: original)
 
@@ -331,6 +331,7 @@ extension FactoryDroidReaderTests {
             to: fixture.date("2026-08-21T00:00:00Z"))
 
         XCTAssertEqual(usage.inputTokens, 30)
+        XCTAssertEqual(usage.outputTokens, 5)
         XCTAssertEqual(usage.tokenEvents.count, 2)
         XCTAssertEqual(Set(usage.tokenEvents.compactMap(\.model)), ["gpt-5.5"])
         XCTAssertEqual(Set(usage.tokenEvents.compactMap(\.provider)), ["azure"])

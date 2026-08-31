@@ -265,15 +265,7 @@ private func qwenRawUsage(
             checkedTokenTotal(accumulatedTotal, event.totalTokens) != nil else {
             continue
         }
-        result.inputTokens += event.tokens.input
-        result.outputTokens += event.tokens.output
-        result.cacheReadTokens += event.tokens.cacheRead
-        result.reasoningTokens += event.tokens.reasoning
-        result.accumulatePerModelUsage(
-            model: event.model,
-            source: QwenCLIReader.sourceName,
-            totalTokens: event.totalTokens)
-        result.recordTokenEvent(
+        guard result.recordTokenEvent(
             timestamp: event.timestamp,
             source: QwenCLIReader.sourceName,
             model: event.model,
@@ -290,7 +282,17 @@ private func qwenRawUsage(
                 sessionLabel: event.sessionLabel,
                 quality: event.projectPath != nil
                     ? .exact
-                    : (event.fallbackProjectName == nil ? .unknown : .inferred)))
+                    : (event.fallbackProjectName == nil ? .unknown : .inferred))) else {
+            continue
+        }
+        result.inputTokens += event.tokens.input
+        result.outputTokens += event.tokens.output
+        result.cacheReadTokens += event.tokens.cacheRead
+        result.reasoningTokens += event.tokens.reasoning
+        result.accumulatePerModelUsage(
+            model: event.model,
+            source: QwenCLIReader.sourceName,
+            totalTokens: event.totalTokens)
         activityEvents.append(
             ActivityTimeEvent(
                 streamID: event.sessionID,

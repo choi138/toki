@@ -253,7 +253,7 @@ extension PiFamilyReaderTests {
         let child = root.appendingPathComponent("project/parent/Child.jsonl")
         let advisor = root.appendingPathComponent("project/parent/__advisor.review.jsonl")
         try writePiFamilySession(to: parent, sessionID: "parent", messageID: "copied", input: 3, output: 2)
-        try writePiFamilySession(to: child, sessionID: "child", messageID: "copied", input: 3, output: 2)
+        try writePiFamilySession(to: child, sessionID: "parent", messageID: "copied", input: 3, output: 2)
         try writePiFamilySession(to: advisor, sessionID: "advisor", messageID: "advisor", input: 5, output: 4)
 
         let usage = try await OMPReader(sessionsURLOverride: root)

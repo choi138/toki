@@ -255,8 +255,18 @@ extension SenpiReaderTests {
         let childDirectory = fixture.root.appendingPathComponent(".omo/senpi-task/children/task")
         try FileManager.default.createDirectory(at: childDirectory, withIntermediateDirectories: true)
         let child = childDirectory.appendingPathComponent("child.jsonl")
-        try fixture.writeSession(to: parent, messageID: "copied-message", input: 10, output: 5)
-        try fixture.writeSession(to: child, messageID: "copied-message", input: 10, output: 5)
+        try fixture.writeSession(
+            to: parent,
+            sessionID: "copied-session",
+            messageID: "copied-message",
+            input: 10,
+            output: 5)
+        try fixture.writeSession(
+            to: child,
+            sessionID: "copied-session",
+            messageID: "copied-message",
+            input: 10,
+            output: 5)
         let reader = SenpiReader(sessionRootsOverride: [fixture.root, childDirectory])
 
         let usage = try await reader.readUsage(
@@ -274,8 +284,18 @@ extension SenpiReaderTests {
         let childDirectory = fixture.root.appendingPathComponent(".omo/senpi-task/children/task")
         try FileManager.default.createDirectory(at: childDirectory, withIntermediateDirectories: true)
         let child = childDirectory.appendingPathComponent("child.jsonl")
-        try fixture.writeSession(to: parent, messageID: "revised-message", input: 10, output: 20)
-        try fixture.writeSession(to: child, messageID: "revised-message", input: 20, output: 5)
+        try fixture.writeSession(
+            to: parent,
+            sessionID: "revised-session",
+            messageID: "revised-message",
+            input: 10,
+            output: 20)
+        try fixture.writeSession(
+            to: child,
+            sessionID: "revised-session",
+            messageID: "revised-message",
+            input: 20,
+            output: 5)
         let reader = SenpiReader(sessionRootsOverride: [fixture.root, childDirectory])
 
         let usage = try await reader.readUsage(
@@ -490,9 +510,16 @@ private struct SenpiReaderFixture {
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
     }
 
-    func writeSession(to url: URL, messageID: String, input: Int, output: Int) throws {
+    func writeSession(
+        to url: URL,
+        sessionID: String? = nil,
+        messageID: String,
+        input: Int,
+        output: Int) throws {
         let content = [
-            sessionLine(id: url.deletingPathExtension().lastPathComponent, cwd: "/tmp/project"),
+            sessionLine(
+                id: sessionID ?? url.deletingPathExtension().lastPathComponent,
+                cwd: "/tmp/project"),
             assistantLine(
                 id: messageID,
                 timestamp: "2026-08-20T12:00:00Z",
