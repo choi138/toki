@@ -8,9 +8,16 @@ public struct AmpReader: TokenReader {
 
     public let name = Self.sourceName
     private let threadsURLOverride: URL?
+    private let readLimits: PiCompatibleReadLimits
 
     public init(threadsURLOverride: URL? = nil) {
         self.threadsURLOverride = threadsURLOverride
+        readLimits = .default
+    }
+
+    init(threadsURLOverride: URL?, readLimits: PiCompatibleReadLimits) {
+        self.threadsURLOverride = threadsURLOverride
+        self.readLimits = readLimits
     }
 
     private var threadsURL: URL {
@@ -19,7 +26,11 @@ public struct AmpReader: TokenReader {
     }
 
     public func readUsage(from startDate: Date, to endDate: Date) async throws -> RawTokenUsage {
-        let files = findFiles(in: threadsURL, withExtension: "json")
+        let files = try findFilesThrowing(
+            in: threadsURL,
+            withExtension: "json",
+            maximumFileCount: readLimits.maximumFileCount,
+            maximumEntryCount: readLimits.maximumEntryCount)
         let decoder = JSONDecoder()
         var canonicalPaths = Set<String>()
         var recordsByThread: [String: AmpThreadRecordGroup] = [:]
@@ -27,17 +38,24 @@ public struct AmpReader: TokenReader {
         var activityEvents: [ActivityTimeEvent<String>] = []
         var decodedThreadCount = 0
         var hadThreadDecodeFailure = false
+        var examinedEventCount = 0
 
         for file in files.sorted(by: { $0.path < $1.path }) {
+            try Task.checkCancellation()
             let canonicalPath = file.resolvingSymlinksInPath().standardizedFileURL.path
             guard canonicalPaths.insert(canonicalPath).inserted else {
                 continue
             }
-            guard let data = try? Data(contentsOf: file),
-                  let thread = try? decoder.decode(AmpThread.self, from: data) else {
+            let data = try boundedUsageFileData(at: file, maximumBytes: readLimits.maximumFileBytes)
+            guard let thread = try? decoder.decode(AmpThread.self, from: data) else {
                 hadThreadDecodeFailure = true
                 continue
             }
+            try recordUsageEvents(
+                (thread.usageLedger?.events?.elements.count ?? 0)
+                    + (thread.messages?.elements.count ?? 0),
+                total: &examinedEventCount,
+                maximum: readLimits.maximumEventCount)
             decodedThreadCount += 1
 
             let fileDate = (try? file.resourceValues(
@@ -63,7 +81,7 @@ public struct AmpReader: TokenReader {
             recordsByThread[threadID] = group
         }
 
-        appendAmpRecords(
+        try appendAmpRecords(
             recordsByThread,
             from: startDate,
             to: endDate,
@@ -84,8 +102,9 @@ private func appendAmpRecords(
     from startDate: Date,
     to endDate: Date,
     usage: inout RawTokenUsage,
-    activityEvents: inout [ActivityTimeEvent<String>]) {
+    activityEvents: inout [ActivityTimeEvent<String>]) throws {
     for threadID in recordsByThread.keys.sorted() {
+        try Task.checkCancellation()
         guard let group = recordsByThread[threadID] else { continue }
         let attribution = UsageAttribution(
             projectPath: group.projectPath,
@@ -96,6 +115,7 @@ private func appendAmpRecords(
             messageRecords: group.messageRecords)
 
         for record in records {
+            try Task.checkCancellation()
             guard record.timestamp >= startDate,
                   record.timestamp < endDate else {
                 continue
@@ -136,25 +156,6 @@ private func appendAmpRecords(
             }
         }
     }
-}
-
-private func finalizedAmpUsage(
-    _ usage: RawTokenUsage,
-    activityEvents: [ActivityTimeEvent<String>],
-    clippingEndDate: Date,
-    decodedThreadCount: Int,
-    hadThreadDecodeFailure: Bool) throws -> RawTokenUsage {
-    var usage = usage
-    usage.mergeActivityEvents(
-        activityEvents,
-        source: AmpReader.sourceName,
-        clippingEndDate: clippingEndDate)
-    if decodedThreadCount == 0, hadThreadDecodeFailure {
-        throw LocalUsageReaderDiagnosticError.decodeFailed(
-            source: AmpReader.sourceName,
-            stage: "thread")
-    }
-    return usage
 }
 
 private struct AmpThread: Decodable {
@@ -340,7 +341,6 @@ private struct AmpUsageRecord {
     let contentFingerprint: String
     let contentID: String
     let messageID: Int64?
-    let sequenceIndex: Int
     let timestamp: Date
     let hasExplicitTimestamp: Bool
     let model: String?
@@ -451,7 +451,7 @@ private func ampLedgerRecords(
     fallbackDate: Date?) -> [AmpUsageRecord] {
     var occurrences: [String: Int] = [:]
     var records: [AmpUsageRecord] = []
-    for (sequenceIndex, event) in events.enumerated() {
+    for event in events {
         let model = normalizedModelID(event.model)
         let explicitDate = event.timestamp.flatMap(DateParser.parse)
         guard let timestamp = explicitDate ?? fallbackDate else { continue }
@@ -471,7 +471,6 @@ private func ampLedgerRecords(
             contentFingerprint: fingerprint,
             contentID: contentID,
             messageID: messageID,
-            sequenceIndex: sequenceIndex,
             timestamp: timestamp,
             hasExplicitTimestamp: explicitDate != nil,
             model: model,
@@ -487,7 +486,7 @@ private func ampMessageRecords(
     fallbackDate: Date?) -> [AmpUsageRecord] {
     var occurrences: [String: Int] = [:]
     var records: [AmpUsageRecord] = []
-    for (sequenceIndex, message) in messages.enumerated() {
+    for message in messages {
         guard message.role == "assistant",
               let usage = message.usage else {
             continue
@@ -512,7 +511,6 @@ private func ampMessageRecords(
             contentFingerprint: fingerprint,
             contentID: contentID,
             messageID: messageID,
-            sequenceIndex: sequenceIndex,
             timestamp: timestamp,
             hasExplicitTimestamp: explicitDate != nil,
             model: model,
@@ -566,9 +564,7 @@ private func coalescedAmpRecords(_ records: [AmpUsageRecord]) -> [AmpUsageRecord
     return result
 }
 
-private func sameKindAmpRecordsMatch(
-    _ lhs: AmpUsageRecord,
-    _ rhs: AmpUsageRecord) -> Bool {
+private func sameKindAmpRecordsMatch(_ lhs: AmpUsageRecord, _ rhs: AmpUsageRecord) -> Bool {
     if let lhsMessageID = lhs.messageID,
        let rhsMessageID = rhs.messageID {
         return lhsMessageID == rhsMessageID
@@ -595,7 +591,6 @@ private func mergeAmpRecord(
         contentFingerprint: ledger.contentFingerprint,
         contentID: ledger.contentID,
         messageID: messageID,
-        sequenceIndex: ledger.sequenceIndex,
         timestamp: ledger.hasExplicitTimestamp ? ledger.timestamp : message.timestamp,
         hasExplicitTimestamp: ledger.hasExplicitTimestamp || message.hasExplicitTimestamp,
         model: ledger.model ?? message.model,
@@ -604,9 +599,7 @@ private func mergeAmpRecord(
 }
 
 private func ampContentFingerprint(
-    model: String?,
-    timestamp: Date,
-    hasExplicitTimestamp: Bool) -> String {
+    model: String?, timestamp: Date, hasExplicitTimestamp: Bool) -> String {
     [
         "content",
         model ?? "unknown",
@@ -614,9 +607,7 @@ private func ampContentFingerprint(
     ].joined(separator: ":")
 }
 
-private func ampRecordsAreCompatible(
-    _ lhs: AmpUsageRecord,
-    _ rhs: AmpUsageRecord) -> Bool {
+private func ampRecordsAreCompatible(_ lhs: AmpUsageRecord, _ rhs: AmpUsageRecord) -> Bool {
     let hasMatchingMessageID = lhs.messageID != nil && lhs.messageID == rhs.messageID
     return (lhs.model == nil || rhs.model == nil || lhs.model == rhs.model)
         && lhs.tokens.isCompatible(with: rhs.tokens)

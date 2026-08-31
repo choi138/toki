@@ -31,6 +31,7 @@ struct AgentSnapshotBuilder: AgentSnapshotBuilding {
     private let claudeUsageCache: ClaudeUsageCache
     private let readerDescriptors: [LocalUsageReaderDescriptor]
     private let eventLimits: AgentSnapshotEventLimits
+    private let snapshotLimits: AgentSnapshotBuildLimits
     private let deferredEventRecheck: AgentDeferredEventRecheck
     private let retentionTimeZone: TimeZone
     private let agentHermesLedgerURL: URL
@@ -43,6 +44,7 @@ struct AgentSnapshotBuilder: AgentSnapshotBuilding {
         claudeUsageCache: ClaudeUsageCache? = nil,
         readerDescriptors: [LocalUsageReaderDescriptor]? = nil,
         eventLimits: AgentSnapshotEventLimits = .protocolMaximum,
+        snapshotLimits: AgentSnapshotBuildLimits = .default,
         deferredEventRecheck: AgentDeferredEventRecheck = AgentDeferredEventRecheck(),
         retentionTimeZone: TimeZone = TimeZone(secondsFromGMT: 0) ?? .current,
         sourceMountInfoProvider: @escaping AgentSourceMountMonitor.MountInfoProvider =
@@ -60,6 +62,7 @@ struct AgentSnapshotBuilder: AgentSnapshotBuilding {
         self.environment = environment
         self.rolloutUsageCache = resolvedRolloutUsageCache
         self.claudeUsageCache = resolvedClaudeUsageCache
+        self.snapshotLimits = snapshotLimits
         self.retentionTimeZone = retentionTimeZone
         agentHermesLedgerURL = agentLedgerURL
         let resolvedReaderDescriptors: [LocalUsageReaderDescriptor] = if let readerDescriptors {
@@ -97,63 +100,30 @@ struct AgentSnapshotBuilder: AgentSnapshotBuilding {
         let coveredFrom = window.start
         let coveredTo = window.end
         let readerUsages = try await readUsages(from: coveredFrom, to: coveredTo)
-        let identifierHasher = try SnapshotCipher.makeOpaqueIdentifierHasher(
-            key: configuration.encryptionKey)
-        let tokenReplacementCoverages = readerUsages.flatMap(\.usage.tokenReplacementCoverages)
-
-        let usageEvents = readerUsages
-            .flatMap(\.usage.tokenEvents)
-            .filter { event in
-                event.timestamp >= coveredFrom
-                    && event.timestamp < coveredTo
-                    && !tokenReplacementCoverages.contains { $0.replaces(event) }
-            }
-        let allTokenEvents = usageEvents
-            .compactMap(remoteTokenEvent)
-            .sorted(by: tokenEventSort)
-        let allCostEvents = usageEvents
-            .compactMap(remoteCostEvent)
-            .sorted(by: costEventSort)
-
-        let allActivityEvents = readerUsages
-            .flatMap { readerUsage in
-                readerUsage.usage.activityEvents
-                    .filter { $0.timestamp >= coveredFrom && $0.timestamp < coveredTo }
-                    .map { event in
-                        RemoteActivityEvent(
-                            timestamp: event.timestamp,
-                            source: readerUsage.name,
-                            model: remoteModel(event.key),
-                            streamID: identifierHasher.identifier(
-                                for: "\(readerUsage.name)\u{0}\(event.streamID)"),
-                            agentKind: event.agentKind == .subagent ? .subagent : .main)
-                    }
-            }
-            .sorted(by: activityEventSort)
-        let earliestDeferredTimestamp = [
-            allTokenEvents.first { $0.timestamp > now }?.timestamp,
-            allCostEvents.first { $0.timestamp > now }?.timestamp,
-            allActivityEvents.first { $0.timestamp > now }?.timestamp,
-        ]
-        .compactMap { $0 }
-        .min()
-        let tokenEvents = allTokenEvents.filter { $0.timestamp <= now }
-        let costEvents = allCostEvents.filter { $0.timestamp <= now }
-        let activityEvents = allActivityEvents.filter { $0.timestamp <= now }
-
-        let snapshot = try AgentSnapshotEventBounder(limits: eventLimits).snapshot(
-            device: RemoteDeviceDescriptor(
-                id: configuration.deviceID,
-                name: configuration.deviceName,
-                platform: platformName),
+        let assembly = try AgentSnapshotAssembler(limits: snapshotLimits).snapshot(
+            from: readerUsages,
+            configuration: configuration,
             generatedAt: now,
             coveredFrom: coveredFrom,
+            coveredTo: coveredTo)
+        let assembledSnapshot = assembly.snapshot
+        let allTokenEvents = assembledSnapshot.tokenEvents
+        let allCostEvents = assembledSnapshot.costEvents ?? []
+        let allActivityEvents = assembledSnapshot.activityEvents
+        let tokenEvents = allTokenEvents
+        let costEvents = allCostEvents
+        let activityEvents = allActivityEvents
+
+        let snapshot = try AgentSnapshotEventBounder(limits: eventLimits).snapshot(
+            device: assembledSnapshot.device,
+            generatedAt: now,
+            coveredFrom: assembledSnapshot.coveredFrom,
             coveredTo: coveredTo,
             tokenEvents: tokenEvents,
             costEvents: costEvents,
             activityEvents: activityEvents,
             encryptionKey: configuration.encryptionKey)
-        deferredEventRecheck.replaceEarliestTimestamp(earliestDeferredTimestamp)
+        deferredEventRecheck.replaceEarliestTimestamp(assembly.earliestDeferredTimestamp)
         return snapshot
     }
 
@@ -178,22 +148,36 @@ struct AgentSnapshotBuilder: AgentSnapshotBuilding {
     }
 
     func sourceSignature(configuration: AgentConfiguration, now: Date) async throws -> String? {
+        try Task.checkCancellation()
         let window = try retentionWindow(configuration: configuration, now: now)
-        let sources = try readerDescriptors.map { descriptor in
+        var sources: [AgentSourceSignature.Source] = []
+        for descriptor in readerDescriptors {
+            try Task.checkCancellation()
             let records: [String] = switch descriptor.sourceSignatureStrategy {
             case .standard:
-                try sourceRecords(locations: descriptor.sourceLocations, modifiedOnOrAfter: window.start)
+                try standardSourceRecords(
+                    locations: descriptor.sourceLocations,
+                    modifiedOnOrAfter: window.start)
             case .allFiles:
-                try sourceRecords(locations: descriptor.sourceLocations, modifiedOnOrAfter: nil)
+                try standardSourceRecords(
+                    locations: descriptor.sourceLocations,
+                    modifiedOnOrAfter: .distantPast)
+            case let .boundedAllFiles(maximumFileCount, maximumEntryCount):
+                try standardSourceRecords(
+                    locations: descriptor.sourceLocations,
+                    modifiedOnOrAfter: .distantPast,
+                    maximumFileCount: maximumFileCount,
+                    maximumEntryCount: maximumEntryCount)
             case .codexRollouts:
                 try codexSourceRecords(window: window)
             }
-            return AgentSourceSignature.Source(
+            sources.append(AgentSourceSignature.Source(
                 reader: descriptor.name,
-                records: records.sorted())
+                records: records.sorted()))
         }
-        .sorted { $0.reader < $1.reader }
+        sources.sort { $0.reader < $1.reader }
 
+        try Task.checkCancellation()
         let document = AgentSourceSignature(
             coveredFrom: window.start,
             coveredTo: window.end,
@@ -241,10 +225,20 @@ private extension AgentSnapshotBuilder {
         return DateInterval(start: coveredFrom, end: coveredTo)
     }
 
-    private func sourceRecords(
-        locations: [LocalUsageSourceLocation], modifiedOnOrAfter minimumDate: Date?) throws -> [String] {
+    private func standardSourceRecords(
+        locations: [LocalUsageSourceLocation],
+        modifiedOnOrAfter minimumDate: Date,
+        maximumFileCount: Int? = nil,
+        maximumEntryCount: Int? = nil) throws -> [String] {
+        guard maximumFileCount.map({ $0 >= 0 }) ?? true,
+              maximumEntryCount.map({ $0 >= 0 }) ?? true else {
+            throw AgentSnapshotBuilderError.sourceLimitExceeded
+        }
         var records: [String] = []
+        var discoveredFileCount = 0
+        var visitedEntryCount = 0
         for location in locations {
+            try Task.checkCancellation()
             switch location {
             case let .file(url, includesSQLiteSidecars):
                 try records.append(fileSignatureRecord(url))
@@ -257,10 +251,15 @@ private extension AgentSnapshotBuilder {
                 try records.append(contentsOf: retainedFiles(
                     in: url,
                     extensions: extensions,
-                    modifiedOnOrAfter: minimumDate)
+                    modifiedOnOrAfter: minimumDate,
+                    discoveredFileCount: &discoveredFileCount,
+                    maximumFileCount: maximumFileCount,
+                    visitedEntryCount: &visitedEntryCount,
+                    maximumEntryCount: maximumEntryCount)
                     .map(fileSignatureRecord))
             }
         }
+        try Task.checkCancellation()
         return records
     }
 
@@ -307,7 +306,14 @@ private extension AgentSnapshotBuilder {
     }
 
     private func retainedFiles(
-        in directory: URL, extensions: Set<String>, modifiedOnOrAfter minimumDate: Date?) throws -> Set<URL> {
+        in directory: URL,
+        extensions: Set<String>,
+        modifiedOnOrAfter minimumDate: Date,
+        discoveredFileCount: inout Int,
+        maximumFileCount: Int?,
+        visitedEntryCount: inout Int,
+        maximumEntryCount: Int?) throws -> Set<URL> {
+        try Task.checkCancellation()
         guard FileManager.default.fileExists(atPath: directory.path) else { return [] }
 
         var inspectionFailed = false
@@ -315,11 +321,12 @@ private extension AgentSnapshotBuilder {
             at: directory,
             includingPropertiesForKeys: [
                 .contentModificationDateKey,
+                .isHiddenKey,
                 .isDirectoryKey,
                 .isRegularFileKey,
                 .isSymbolicLinkKey,
             ],
-            options: [.skipsHiddenFiles],
+            options: [],
             errorHandler: { _, _ in
                 inspectionFailed = true
                 return false
@@ -329,10 +336,18 @@ private extension AgentSnapshotBuilder {
 
         var files: Set<URL> = []
         for case let fileURL as URL in enumerator {
+            try Task.checkCancellation()
+            let (nextEntryCount, entryCountOverflow) = visitedEntryCount.addingReportingOverflow(1)
+            guard !entryCountOverflow,
+                  maximumEntryCount.map({ nextEntryCount <= $0 }) ?? true else {
+                throw AgentSnapshotBuilderError.sourceLimitExceeded
+            }
+            visitedEntryCount = nextEntryCount
             let values: URLResourceValues
             do {
                 values = try fileURL.resourceValues(forKeys: [
                     .contentModificationDateKey,
+                    .isHiddenKey,
                     .isDirectoryKey,
                     .isRegularFileKey,
                     .isSymbolicLinkKey,
@@ -340,25 +355,38 @@ private extension AgentSnapshotBuilder {
             } catch {
                 throw AgentSnapshotBuilderError.sourceInspectionFailed
             }
+            if values.isHidden == true || fileURL.lastPathComponent.hasPrefix(".") {
+                if values.isDirectory == true {
+                    enumerator.skipDescendants()
+                }
+                continue
+            }
             if values.isSymbolicLink == true {
                 if values.isDirectory == true {
                     enumerator.skipDescendants()
                 }
                 continue
             }
-            let isRecentEnough = minimumDate.map { minimumDate in
-                values.contentModificationDate.map { $0 >= minimumDate } == true
-            } ?? true
             guard values.isRegularFile == true,
                   extensions.contains(fileURL.pathExtension.lowercased()),
-                  isRecentEnough else {
+                  values.contentModificationDate.map({ $0 >= minimumDate }) == true else {
                 continue
             }
+            if let maximumFileCount,
+               discoveredFileCount >= maximumFileCount {
+                throw AgentSnapshotBuilderError.sourceLimitExceeded
+            }
+            let (nextCount, overflow) = discoveredFileCount.addingReportingOverflow(1)
+            guard !overflow else {
+                throw AgentSnapshotBuilderError.sourceLimitExceeded
+            }
+            discoveredFileCount = nextCount
             files.insert(fileURL.standardizedFileURL)
         }
         guard !inspectionFailed else {
             throw AgentSnapshotBuilderError.sourceInspectionFailed
         }
+        try Task.checkCancellation()
         return files
     }
 
@@ -397,6 +425,7 @@ private extension AgentSnapshotBuilder {
     }
 
     private func directoryPresenceRecord(_ url: URL) throws -> String {
+        try Task.checkCancellation()
         let normalizedURL = url.standardizedFileURL
         let pathDigest = SnapshotCipher.digest(normalizedURL.path)
         guard FileManager.default.fileExists(atPath: normalizedURL.path) else {
@@ -415,6 +444,7 @@ private extension AgentSnapshotBuilder {
     }
 
     private func fileSignatureRecord(_ url: URL) throws -> String {
+        try Task.checkCancellation()
         let normalizedURL = url.standardizedFileURL
         let pathDigest = SnapshotCipher.digest(normalizedURL.path)
         guard FileManager.default.fileExists(atPath: normalizedURL.path) else {
@@ -516,7 +546,7 @@ private extension AgentSnapshotBuilder {
 
     private static let remoteProviderIdentifiers = Set([
         "anthropic", "aws-bedrock", "azure", "bedrock", "cerebras",
-        "deepseek", "fireworks", "github", "google", "groq",
+        "deepseek", "fireworks", "github", "google", "groq", "kimchi-dev",
         "mistral", "moonshot", "ollama", "openai", "openrouter",
         "qwen", "together", "vertex-ai", "xai", "zai",
     ])
@@ -555,38 +585,8 @@ private extension AgentSnapshotBuilder {
     }
 }
 
-private struct AgentReaderUsage {
+struct AgentReaderUsage {
     let index: Int
     let name: String
     let usage: RawTokenUsage
-}
-
-enum AgentSnapshotBuilderError: LocalizedError {
-    case cacheResetFailed, invalidDateRange
-    case readerFailed(String)
-    case sourceMountRefreshRequired, sourceInspectionFailed
-
-    var requiresProcessRestart: Bool {
-        switch self {
-        case .sourceMountRefreshRequired, .sourceInspectionFailed:
-            true
-        default:
-            false
-        }
-    }
-
-    var errorDescription: String? {
-        switch self {
-        case .cacheResetFailed:
-            "Could not safely reset the local usage parse caches."
-        case .invalidDateRange:
-            "Could not construct the configured retention window."
-        case let .readerFailed(name):
-            "The \(name) usage reader failed. The previous remote snapshot was preserved."
-        case .sourceMountRefreshRequired:
-            "A sandboxed usage source was replaced. Restarting the Agent to refresh its read-only mounts."
-        case .sourceInspectionFailed:
-            "Could not inspect local usage source metadata. Run `toki-agent doctor`."
-        }
-    }
 }

@@ -26,39 +26,6 @@ final class AgentSystemdServiceTests: XCTestCase {
             of: "ExecStartPre=/usr/local/bin/toki-agent doctor"))
         XCTAssertLessThan(prepareSenpiMounts.lowerBound, doctor.lowerBound)
         XCTAssertFalse(service.contains("/usr/bin/mkdir"))
-        let expectedReadOnlyPaths = [
-            "%h/.claude/projects",
-            "%h/.codex/state_5.sqlite",
-            "%h/.codex/state_5.sqlite-wal",
-            "%h/.codex/state_5.sqlite-shm",
-            "%h/.codex/sessions",
-            "%h/.codex/archived_sessions",
-            "%h/.hermes/state.db",
-            "%h/.hermes/state.db-wal",
-            "%h/.hermes/state.db-shm",
-            "%h/.config/Cursor/User/globalStorage/state.vscdb",
-            "%h/.config/Cursor/User/globalStorage/state.vscdb-wal",
-            "%h/.config/Cursor/User/globalStorage/state.vscdb-shm",
-            "%h/.gemini/tmp",
-            "%h/.gjc/agent/sessions",
-            "%h/.factory/sessions",
-            "%h/.local/share/amp/threads",
-            "%h/.omo/agent/sessions",
-            "%h/.senpi/agent/sessions",
-            "%h/.omo/senpi-task/children",
-            "%h/.omo/senpi-task/sessions",
-            "%h/.pi/agent/sessions",
-            "%h/.omp/agent/sessions",
-            "%h/.config/kimchi/harness/sessions",
-            "%h/.copilot/otel",
-            "%h/.local/share/opencode/opencode.db",
-            "%h/.local/share/opencode/opencode.db-wal",
-            "%h/.local/share/opencode/opencode.db-shm",
-            "%h/.openclaw/agents",
-            "%h/.kimi/sessions",
-            "%h/.kimi-code/sessions",
-            "%h/.qwen/projects",
-        ]
         let readOnlyPaths = service
             .split(whereSeparator: \.isNewline)
             .filter { $0.hasPrefix("BindReadOnlyPaths=") }
@@ -71,7 +38,7 @@ final class AgentSystemdServiceTests: XCTestCase {
                             unprefixed.split(separator: ":", maxSplits: 1).first ?? unprefixed)
                     }
             }
-        for path in expectedReadOnlyPaths {
+        for path in Self.expectedReadOnlyPaths {
             XCTAssertTrue(readOnlyPaths.contains(path), path)
         }
         XCTAssertTrue(service.contains("BindPaths=%h/.config/toki-agent"))
@@ -81,10 +48,47 @@ final class AgentSystemdServiceTests: XCTestCase {
         XCTAssertFalse(readOnlyPaths.contains("%h/.config/Cursor"))
         XCTAssertFalse(readOnlyPaths.contains("%h/.local/share/opencode"))
         XCTAssertFalse(readOnlyPaths.contains("%h/.omo/senpi-task"))
+        XCTAssertFalse(readOnlyPaths.contains("%h/.omp/profiles"))
+        XCTAssertFalse(readOnlyPaths.contains("%h/.local/share/omp"))
         XCTAssertFalse(readOnlyPaths.contains("%h/.kimi"))
         XCTAssertFalse(readOnlyPaths.contains("%h/.kimi/config.toml"))
         XCTAssertFalse(readOnlyPaths.contains("%h/.kimi/config.json"))
     }
+
+    private static let expectedReadOnlyPaths = [
+        "%h/.claude/projects",
+        "%h/.codex/state_5.sqlite",
+        "%h/.codex/state_5.sqlite-wal",
+        "%h/.codex/state_5.sqlite-shm",
+        "%h/.codex/sessions",
+        "%h/.codex/archived_sessions",
+        "%h/.hermes/state.db",
+        "%h/.hermes/state.db-wal",
+        "%h/.hermes/state.db-shm",
+        "%h/.config/Cursor/User/globalStorage/state.vscdb",
+        "%h/.config/Cursor/User/globalStorage/state.vscdb-wal",
+        "%h/.config/Cursor/User/globalStorage/state.vscdb-shm",
+        "%h/.gemini/tmp",
+        "%h/.gjc/agent/sessions",
+        "%h/.omo/agent/sessions",
+        "%h/.senpi/agent/sessions",
+        "%h/.omo/senpi-task/children",
+        "%h/.omo/senpi-task/sessions",
+        "%h/.pi/agent/sessions",
+        "%h/.omp/agent/sessions",
+        "%h/.local/share/omp/sessions",
+        "%h/.config/kimchi/harness/sessions",
+        "%h/.copilot/otel",
+        "%h/.local/share/opencode/opencode.db",
+        "%h/.local/share/opencode/opencode.db-wal",
+        "%h/.local/share/opencode/opencode.db-shm",
+        "%h/.openclaw/agents",
+        "%h/.kimi/sessions",
+        "%h/.kimi-code/sessions",
+        "%h/.qwen/projects",
+        "%h/.factory/sessions",
+        "%h/.local/share/amp/threads",
+    ]
 
     func test_restartPolicyRateLimitsRepeatedFailures() throws {
         let repositoryRoot = URL(fileURLWithPath: #filePath)

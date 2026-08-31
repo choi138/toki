@@ -98,7 +98,7 @@ final class PiFamilyReaderTests: XCTestCase {
 }
 
 extension PiFamilyReaderTests {
-    func test_piAndSenpiApplyEventLimitAfterDateSelection() async throws {
+    func test_piCountsOutOfRangeEventsAgainstParseLimit() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("toki-pi-window-limit-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: root) }
@@ -124,25 +124,16 @@ extension PiFamilyReaderTests {
             maximumLineBytes: 2 * 1024,
             maximumEventCount: 1)
 
-        let piUsage = try PiCompatibleReader(
+        XCTAssertThrowsError(try PiCompatibleReader(
             source: .pi,
             sessionRoots: [root],
             readLimits: limits)
             .readUsage(
                 from: piFamilyDate("2026-08-20T00:00:00Z"),
-                to: piFamilyDate("2026-08-21T00:00:00Z"))
-        let senpiUsage = try await SenpiReader(
-            sessionRootsOverride: [root],
-            readLimits: limits)
-            .readUsage(
-                from: piFamilyDate("2026-08-20T00:00:00Z"),
-                to: piFamilyDate("2026-08-21T00:00:00Z"))
-
-        XCTAssertEqual(piUsage.totalTokens, 13)
-        XCTAssertEqual(senpiUsage.totalTokens, 13)
+                to: piFamilyDate("2026-08-21T00:00:00Z")))
     }
 
-    func test_outOfRangeRevisionDoesNotReplaceSelectedRevision() async throws {
+    func test_revisionSpanningDateBoundaryIsCountedInOnlyOneWindow() async throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("toki-pi-window-revision-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: root) }
@@ -163,7 +154,11 @@ extension PiFamilyReaderTests {
         ].joined(separator: "\n")
         try Data(content.utf8).write(to: session)
 
-        let piUsage = try PiCompatibleReader(source: .pi, sessionRoots: [root])
+        let reader = PiCompatibleReader(source: .pi, sessionRoots: [root])
+        let firstDayUsage = try reader.readUsage(
+            from: piFamilyDate("2026-08-01T00:00:00Z"),
+            to: piFamilyDate("2026-08-02T00:00:00Z"))
+        let piUsage = try reader
             .readUsage(
                 from: piFamilyDate("2026-08-20T00:00:00Z"),
                 to: piFamilyDate("2026-08-21T00:00:00Z"))
@@ -172,8 +167,10 @@ extension PiFamilyReaderTests {
                 from: piFamilyDate("2026-08-20T00:00:00Z"),
                 to: piFamilyDate("2026-08-21T00:00:00Z"))
 
-        XCTAssertEqual(piUsage.totalTokens, 13)
-        XCTAssertEqual(senpiUsage.totalTokens, 13)
+        XCTAssertEqual(firstDayUsage.totalTokens, 150)
+        XCTAssertEqual(piUsage.totalTokens, 0)
+        XCTAssertEqual(senpiUsage.totalTokens, 0)
+        XCTAssertEqual(firstDayUsage.totalTokens + piUsage.totalTokens, 150)
     }
 
     func test_responseIDAndProviderSurviveIdlessRevisionMerge() {
@@ -379,6 +376,66 @@ extension PiFamilyReaderTests {
         XCTAssertEqual(usage.tokenEvents.count, 2)
     }
 
+    func test_ompKeepsMatchingIDsFromIndependentSessionTrees() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("toki-omp-independent-trees-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let main = root.appendingPathComponent("project/main.jsonl")
+        let otherParent = root.appendingPathComponent("project/other.jsonl")
+        let child = root.appendingPathComponent("project/other/Child.jsonl")
+        try writePiFamilySession(
+            to: main,
+            sessionID: "main",
+            messageID: "shared",
+            input: 3,
+            output: 2)
+        try writePiFamilySessionHeader(to: otherParent, sessionID: "other")
+        try writePiFamilySession(
+            to: child,
+            sessionID: "child",
+            messageID: "shared",
+            input: 7,
+            output: 5)
+
+        let usage = try await OMPReader(sessionsURLOverride: root)
+            .readUsage(
+                from: piFamilyDate("2026-08-20T00:00:00Z"),
+                to: piFamilyDate("2026-08-21T00:00:00Z"))
+
+        XCTAssertEqual(usage.inputTokens, 10)
+        XCTAssertEqual(usage.outputTokens, 7)
+        XCTAssertEqual(usage.tokenEvents.count, 2)
+    }
+
+    func test_ompKeepsDifferentUsageWithinParentChildTree() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("toki-omp-different-usage-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let parent = root.appendingPathComponent("project/parent.jsonl")
+        let child = root.appendingPathComponent("project/parent/Child.jsonl")
+        try writePiFamilySession(
+            to: parent,
+            sessionID: "parent",
+            messageID: "shared",
+            input: 3,
+            output: 2)
+        try writePiFamilySession(
+            to: child,
+            sessionID: "child",
+            messageID: "shared",
+            input: 7,
+            output: 5)
+
+        let usage = try await OMPReader(sessionsURLOverride: root)
+            .readUsage(
+                from: piFamilyDate("2026-08-20T00:00:00Z"),
+                to: piFamilyDate("2026-08-21T00:00:00Z"))
+
+        XCTAssertEqual(usage.inputTokens, 10)
+        XCTAssertEqual(usage.outputTokens, 7)
+        XCTAssertEqual(usage.tokenEvents.count, 2)
+    }
+
     func test_kimchiPreservesRecordedProviderAndModel() {
         let usage = KimchiReader.usage(
             fromJSONLLines: [
@@ -467,4 +524,11 @@ private func writePiFamilyIdlessSession(
         """,
     ].joined(separator: "\n")
     try Data(content.utf8).write(to: url)
+}
+
+private func writePiFamilySessionHeader(to url: URL, sessionID: String) throws {
+    try FileManager.default.createDirectory(
+        at: url.deletingLastPathComponent(),
+        withIntermediateDirectories: true)
+    try Data(#"{"type":"session","id":"\#(sessionID)"}"#.utf8).write(to: url)
 }

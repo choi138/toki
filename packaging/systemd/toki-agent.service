@@ -46,6 +46,7 @@ BindReadOnlyPaths=-%h/.omo/senpi-task/children
 BindReadOnlyPaths=-%h/.omo/senpi-task/sessions
 BindReadOnlyPaths=-%h/.pi/agent/sessions
 BindReadOnlyPaths=-%h/.omp/agent/sessions
+BindReadOnlyPaths=-%h/.local/share/omp/sessions
 BindReadOnlyPaths=-%h/.config/kimchi/harness/sessions
 BindReadOnlyPaths=-%h/.copilot/otel
 BindReadOnlyPaths=-%h/.local/share/opencode/opencode.db

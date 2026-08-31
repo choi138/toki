@@ -37,8 +37,9 @@ func forEachJSONLLine(at url: URL, _ body: (String, Int) -> Void) {
 
 func forEachJSONLLineThrowing(
     at url: URL,
+    limits: PiCompatibleReadLimits? = nil,
     _ body: (String, Int) throws -> Void) throws {
-    try forEachJSONLLineUntilThrowing(at: url) { line, index in
+    try forEachJSONLLineUntilThrowing(at: url, limits: limits) { line, index in
         try body(line, index)
         return true
     }
@@ -50,13 +51,22 @@ func forEachJSONLLineUntil(at url: URL, _ body: (String, Int) -> Bool) {
 
 func forEachJSONLLineUntilThrowing(
     at url: URL,
+    limits: PiCompatibleReadLimits? = nil,
     _ body: (String, Int) throws -> Bool) throws {
     try Task.checkCancellation()
     let handle = try FileHandle(forReadingFrom: url)
     defer { try? handle.close() }
+    if let limits {
+        let fileSize = try handle.seekToEnd()
+        guard fileSize <= UInt64(limits.maximumFileBytes) else {
+            throw PiCompatibleReaderError.fileTooLarge(url)
+        }
+        try handle.seek(toOffset: 0)
+    }
 
     var lineIndex = 0
     var pending = Data()
+    var consumedBytes = 0
 
     while true {
         try Task.checkCancellation()
@@ -65,9 +75,21 @@ func forEachJSONLLineUntilThrowing(
             break
         }
 
+        if let limits {
+            let (nextConsumedBytes, overflow) = consumedBytes.addingReportingOverflow(chunk.count)
+            guard !overflow, nextConsumedBytes <= limits.maximumFileBytes else {
+                throw PiCompatibleReaderError.fileTooLarge(url)
+            }
+            consumedBytes = nextConsumedBytes
+        }
+
         pending.append(chunk)
         while let newlineIndex = pending.firstIndex(of: 0x0A) {
             try Task.checkCancellation()
+            if let maximumLineBytes = limits?.maximumLineBytes,
+               pending.distance(from: pending.startIndex, to: newlineIndex) > maximumLineBytes {
+                throw PiCompatibleReaderError.lineTooLong(url)
+            }
 
             let lineData = pending.subdata(in: pending.startIndex..<newlineIndex)
             pending.removeSubrange(pending.startIndex...newlineIndex)
@@ -76,9 +98,18 @@ func forEachJSONLLineUntilThrowing(
                 lineIndex += 1
             }
         }
+        if let maximumLineBytes = limits?.maximumLineBytes,
+           pending.count > maximumLineBytes {
+            throw PiCompatibleReaderError.lineTooLong(url)
+        }
     }
 
     try Task.checkCancellation()
+    if let limits {
+        guard try handle.seekToEnd() <= UInt64(limits.maximumFileBytes) else {
+            throw PiCompatibleReaderError.fileTooLarge(url)
+        }
+    }
     if let line = jsonlLineString(from: pending) {
         _ = try body(line, lineIndex)
     }

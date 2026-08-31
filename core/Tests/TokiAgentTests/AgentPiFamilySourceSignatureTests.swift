@@ -1,0 +1,121 @@
+import Foundation
+import TokiUsageCore
+import XCTest
+@testable import TokiAgentCore
+@testable import TokiUsageReaders
+
+final class AgentPiFamilySourceSignatureTests: XCTestCase {
+    func test_boundedAllFilesRejectsFirstFileBeyondReaderLimit() async throws {
+        let fixture = try AgentSnapshotFixture()
+        defer { fixture.remove() }
+        let sessions = fixture.root.appendingPathComponent("pi-sessions")
+        try FileManager.default.createDirectory(at: sessions, withIntermediateDirectories: true)
+        try Data("{}\n".utf8).write(to: sessions.appendingPathComponent("first.jsonl"))
+        try Data("{}\n".utf8).write(to: sessions.appendingPathComponent("second.jsonl"))
+        let builder = AgentSnapshotBuilder(
+            home: fixture.root,
+            environment: [:],
+            readerDescriptors: [descriptor(sessions: sessions, maximumFileCount: 1)])
+
+        do {
+            _ = try await builder.sourceSignature(
+                configuration: fixture.configuration,
+                now: fixture.now)
+            XCTFail("Expected the second source file to exceed the signature limit")
+        } catch {
+            guard case .sourceLimitExceeded? = error as? AgentSnapshotBuilderError else {
+                return XCTFail("Expected sourceLimitExceeded, got \(error)")
+            }
+        }
+    }
+
+    func test_sourceSignaturePropagatesPreexistingCancellation() async throws {
+        let fixture = try AgentSnapshotFixture()
+        defer { fixture.remove() }
+        let sessions = fixture.root.appendingPathComponent("pi-sessions")
+        let builder = AgentSnapshotBuilder(
+            home: fixture.root,
+            environment: [:],
+            readerDescriptors: [descriptor(sessions: sessions, maximumFileCount: 1)])
+        let task = Task { () throws -> String? in
+            withUnsafeCurrentTask { $0?.cancel() }
+            return try await builder.sourceSignature(
+                configuration: fixture.configuration,
+                now: fixture.now)
+        }
+
+        do {
+            _ = try await task.value
+            XCTFail("Expected cancellation to propagate")
+        } catch is CancellationError {
+            // Expected.
+        } catch {
+            XCTFail("Expected CancellationError, got \(error)")
+        }
+    }
+
+    func test_boundedAllFilesCountsNonUsageEntries() async throws {
+        let fixture = try AgentSnapshotFixture()
+        defer { fixture.remove() }
+        let sessions = fixture.root.appendingPathComponent("pi-sessions")
+        try FileManager.default.createDirectory(at: sessions, withIntermediateDirectories: true)
+        try Data().write(to: sessions.appendingPathComponent("first.txt"))
+        try Data().write(to: sessions.appendingPathComponent("second.txt"))
+        let builder = AgentSnapshotBuilder(
+            home: fixture.root,
+            environment: [:],
+            readerDescriptors: [descriptor(
+                sessions: sessions,
+                maximumFileCount: 10,
+                maximumEntryCount: 1)])
+
+        do {
+            _ = try await builder.sourceSignature(
+                configuration: fixture.configuration,
+                now: fixture.now)
+            XCTFail("Expected the second source entry to exceed the signature limit")
+        } catch {
+            guard case .sourceLimitExceeded? = error as? AgentSnapshotBuilderError else {
+                return XCTFail("Expected sourceLimitExceeded, got \(error)")
+            }
+        }
+    }
+
+    func test_boundedAllFilesCountsHiddenEntries() async throws {
+        let fixture = try AgentSnapshotFixture()
+        defer { fixture.remove() }
+        let sessions = fixture.root.appendingPathComponent("pi-sessions")
+        try FileManager.default.createDirectory(at: sessions, withIntermediateDirectories: true)
+        try Data().write(to: sessions.appendingPathComponent(".hidden"))
+        let builder = AgentSnapshotBuilder(
+            home: fixture.root,
+            environment: [:],
+            readerDescriptors: [descriptor(
+                sessions: sessions,
+                maximumFileCount: 10,
+                maximumEntryCount: 0)])
+
+        do {
+            _ = try await builder.sourceSignature(
+                configuration: fixture.configuration,
+                now: fixture.now)
+            XCTFail("Expected the hidden source entry to exceed the signature limit")
+        } catch {
+            guard case .sourceLimitExceeded? = error as? AgentSnapshotBuilderError else {
+                return XCTFail("Expected sourceLimitExceeded, got \(error)")
+            }
+        }
+    }
+
+    private func descriptor(
+        sessions: URL,
+        maximumFileCount: Int,
+        maximumEntryCount: Int? = nil) -> LocalUsageReaderDescriptor {
+        LocalUsageReaderDescriptor(
+            reader: FixedTokenReader(name: PiReader.sourceName, usage: RawTokenUsage()),
+            sourceLocations: [.directory(sessions, extensions: ["jsonl"])],
+            sourceSignatureStrategy: .boundedAllFiles(
+                maximumFileCount: maximumFileCount,
+                maximumEntryCount: maximumEntryCount ?? maximumFileCount * 10))
+    }
+}

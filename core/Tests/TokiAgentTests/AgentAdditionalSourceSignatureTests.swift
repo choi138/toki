@@ -19,7 +19,7 @@ final class AgentAdditionalSourceSignatureTests: XCTestCase {
             withIntermediateDirectories: true)
         try Data("{}".utf8).write(to: droidSettings)
         try FileManager.default.setAttributes(
-            [.modificationDate: fixture.now],
+            [.modificationDate: fixture.now.addingTimeInterval(-90 * 24 * 60 * 60)],
             ofItemAtPath: droidSettings.path)
         let afterDroid = try await builder.sourceSignature(
             configuration: fixture.configuration,
@@ -32,7 +32,7 @@ final class AgentAdditionalSourceSignatureTests: XCTestCase {
             withIntermediateDirectories: true)
         try Data("{}".utf8).write(to: ampThread)
         try FileManager.default.setAttributes(
-            [.modificationDate: fixture.now],
+            [.modificationDate: fixture.now.addingTimeInterval(-90 * 24 * 60 * 60)],
             ofItemAtPath: ampThread.path)
         let afterAmp = try await builder.sourceSignature(
             configuration: fixture.configuration,

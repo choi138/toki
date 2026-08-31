@@ -1,4 +1,24 @@
 import Foundation
+import TokiUsageCore
+
+func finalizedAmpUsage(
+    _ usage: RawTokenUsage,
+    activityEvents: [ActivityTimeEvent<String>],
+    clippingEndDate: Date,
+    decodedThreadCount: Int,
+    hadThreadDecodeFailure: Bool) throws -> RawTokenUsage {
+    var usage = usage
+    usage.mergeActivityEvents(
+        activityEvents,
+        source: AmpReader.sourceName,
+        clippingEndDate: clippingEndDate)
+    if decodedThreadCount == 0, hadThreadDecodeFailure {
+        throw LocalUsageReaderDiagnosticError.decodeFailed(
+            source: AmpReader.sourceName,
+            stage: "thread")
+    }
+    return usage
+}
 
 struct AmpLedgerTokens: Decodable {
     let input: Int?

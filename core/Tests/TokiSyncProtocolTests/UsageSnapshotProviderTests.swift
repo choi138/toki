@@ -3,6 +3,28 @@ import XCTest
 @testable import TokiSyncProtocol
 
 final class UsageSnapshotProviderTests: XCTestCase {
+    func test_remoteTokenEventRoundTripsEveryCostKnownState() throws {
+        let fixtures: [(cost: Double?, costIsKnown: Bool?)] = [
+            (nil, nil),
+            (nil, false),
+            (0, false),
+            (0, true),
+            (0.25, true),
+        ]
+
+        for fixture in fixtures {
+            let event = tokenEvent(
+                cost: fixture.cost,
+                costIsKnown: fixture.costIsKnown)
+            let decoded = try TokiSyncCoding.makeDecoder().decode(
+                RemoteTokenEvent.self,
+                from: TokiSyncCoding.makeEncoder().encode(event))
+
+            XCTAssertEqual(decoded.cost, fixture.cost)
+            XCTAssertEqual(decoded.costIsKnown, fixture.costIsKnown)
+        }
+    }
+
     func test_remoteTokenEventDecodesOlderPayloadWithoutProvider() throws {
         let data = Data(
             """
@@ -21,6 +43,7 @@ final class UsageSnapshotProviderTests: XCTestCase {
         let event = try TokiSyncCoding.makeDecoder().decode(RemoteTokenEvent.self, from: data)
 
         XCTAssertNil(event.provider)
+        XCTAssertNil(event.costIsKnown)
         XCTAssertEqual(event.totalTokens, 3)
     }
 
@@ -129,6 +152,82 @@ final class UsageSnapshotProviderTests: XCTestCase {
             coveredFrom: now.addingTimeInterval(-60),
             coveredTo: now.addingTimeInterval(60),
             tokenEvents: [event],
+            activityEvents: [])
+    }
+}
+
+extension UsageSnapshotProviderTests {
+    func test_validatorAcceptsSupportedCostStates() {
+        let fixtures: [(cost: Double?, costIsKnown: Bool?)] = [
+            (nil, nil),
+            (nil, false),
+            (0, nil),
+            (0, false),
+            (0, true),
+            (0.25, true),
+        ]
+
+        for fixture in fixtures {
+            let snapshot = snapshot(tokenEvent: tokenEvent(
+                cost: fixture.cost,
+                costIsKnown: fixture.costIsKnown))
+
+            XCTAssertNoThrow(try RemoteUsageSnapshotValidator.validate(
+                snapshot,
+                now: snapshot.generatedAt))
+        }
+    }
+
+    func test_validatorRejectsInconsistentCostStates() {
+        let fixtures: [(cost: Double?, costIsKnown: Bool?)] = [
+            (nil, true),
+            (0.01, false),
+            (-0.01, nil),
+            (.nan, true),
+        ]
+
+        for fixture in fixtures {
+            let event = tokenEvent(
+                cost: fixture.cost,
+                costIsKnown: fixture.costIsKnown)
+            let snapshot = snapshot(tokenEvent: event)
+            XCTAssertThrowsError(try RemoteUsageSnapshotValidator.validate(
+                snapshot,
+                now: snapshot.generatedAt)) { error in
+                    guard case RemoteUsageSnapshotValidationError.invalidTokenEvent = error else {
+                        return XCTFail("Unexpected validation error: \(error)")
+                    }
+                }
+        }
+    }
+
+    private func tokenEvent(
+        cost: Double? = nil,
+        costIsKnown: Bool? = nil) -> RemoteTokenEvent {
+        RemoteTokenEvent(
+            timestamp: Date(timeIntervalSince1970: 1_765_756_800),
+            source: "Pi",
+            model: "gpt-5",
+            provider: "openai",
+            inputTokens: 1,
+            outputTokens: 2,
+            cacheReadTokens: 0,
+            cacheWriteTokens: 0,
+            reasoningTokens: 0,
+            cost: cost,
+            costIsKnown: costIsKnown)
+    }
+
+    private func snapshot(tokenEvent: RemoteTokenEvent) -> RemoteUsageSnapshot {
+        RemoteUsageSnapshot(
+            device: RemoteDeviceDescriptor(
+                id: "device-1",
+                name: "Device",
+                platform: "linux"),
+            generatedAt: tokenEvent.timestamp,
+            coveredFrom: tokenEvent.timestamp.addingTimeInterval(-60),
+            coveredTo: tokenEvent.timestamp.addingTimeInterval(60),
+            tokenEvents: [tokenEvent],
             activityEvents: [])
     }
 }

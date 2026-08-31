@@ -22,6 +22,7 @@ final class AgentSnapshotCostCompatibilityTests: XCTestCase {
             timestamp: now.addingTimeInterval(-30),
             source: CopilotCLIReader.sourceName,
             model: "unknown-cost-model",
+            provider: "kimchi-dev",
             inputTokens: 20,
             outputTokens: 0,
             cost: 0,
@@ -59,5 +60,6 @@ final class AgentSnapshotCostCompatibilityTests: XCTestCase {
         XCTAssertEqual(knownZero.costIsKnown, true)
         XCTAssertEqual(unknown.cost, 0)
         XCTAssertEqual(unknown.costIsKnown, false)
+        XCTAssertEqual(unknown.provider, "kimchi-dev")
     }
 }

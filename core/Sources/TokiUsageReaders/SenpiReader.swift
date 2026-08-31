@@ -36,6 +36,7 @@ public struct SenpiReader: TokenReader {
         }
 
         var recordsByKey: [PiCompatibleDeduplicationKey: PiCompatibleUsageRecord] = [:]
+        var examinedRecordCount = 0
         for file in files {
             var parser = PiCompatibleSessionParser(
                 streamID: file.path,
@@ -44,22 +45,17 @@ public struct SenpiReader: TokenReader {
                 guard let record = parser.record(fromJSONLLine: line, lineIndex: lineIndex) else {
                     return
                 }
-                guard record.timestamp >= startDate, record.timestamp < endDate else {
-                    return
+                let (nextCount, overflow) = examinedRecordCount.addingReportingOverflow(1)
+                guard !overflow, nextCount <= readLimits.maximumEventCount else {
+                    throw PiCompatibleReaderError.tooManyEvents(overflow ? Int.max : nextCount)
                 }
+                examinedRecordCount = nextCount
                 recordsByKey[record.deduplicationKey] = recordsByKey[record.deduplicationKey]
                     .map { $0.merged(with: record) } ?? record
-                guard recordsByKey.count <= readLimits.maximumUnreconciledEventCount else {
-                    throw PiCompatibleReaderError.tooManyEvents(recordsByKey.count)
-                }
             }
         }
-        let reconciledRecords = reconciledPiCompatibleRecords(recordsByKey.values)
-        guard reconciledRecords.count <= readLimits.maximumEventCount else {
-            throw PiCompatibleReaderError.tooManyEvents(reconciledRecords.count)
-        }
         return Self.usage(
-            from: reconciledRecords.values,
+            from: recordsByKey.values,
             from: startDate,
             to: endDate)
     }
@@ -83,11 +79,16 @@ public struct SenpiReader: TokenReader {
         from records: some Sequence<PiCompatibleUsageRecord>,
         from startDate: Date,
         to endDate: Date) -> RawTokenUsage {
-        let recordsByKey = reconciledPiCompatibleRecords(records)
+        var recordsByKey: [PiCompatibleDeduplicationKey: PiCompatibleUsageRecord] = [:]
+        for record in records {
+            recordsByKey[record.deduplicationKey] = recordsByKey[record.deduplicationKey]
+                .map { $0.merged(with: record) } ?? record
+        }
+        let uniqueRecords = mergeAliasedRecords(recordsByKey.values)
 
         var result = RawTokenUsage()
         var activityEvents: [ActivityTimeEvent<String>] = []
-        for record in recordsByKey.values.sorted(by: recordSort)
+        for record in uniqueRecords.sorted(by: recordSort)
             where record.timestamp >= startDate && record.timestamp < endDate {
             result.inputTokens += record.inputTokens
             result.outputTokens += record.outputTokens
@@ -114,7 +115,7 @@ public struct SenpiReader: TokenReader {
                 costIsKnown: record.costIsKnown,
                 attribution: record.attribution)
             activityEvents.append(ActivityTimeEvent(
-                streamID: record.attribution.sessionID ?? record.model ?? sourceName,
+                streamID: record.attribution.sessionID ?? record.model,
                 timestamp: record.timestamp,
                 key: UsageModelGrouping.groupingKey(for: record.model),
                 agentKind: record.agentKind))
@@ -136,7 +137,7 @@ public struct SenpiReader: TokenReader {
         _ lhs: PiCompatibleUsageRecord,
         _ rhs: PiCompatibleUsageRecord) -> Bool {
         if lhs.timestamp != rhs.timestamp { return lhs.timestamp < rhs.timestamp }
-        if lhs.model != rhs.model { return (lhs.model ?? "") < (rhs.model ?? "") }
+        if lhs.model != rhs.model { return lhs.model < rhs.model }
         if lhs.provider != rhs.provider { return (lhs.provider ?? "") < (rhs.provider ?? "") }
         if lhs.inputTokens != rhs.inputTokens { return lhs.inputTokens < rhs.inputTokens }
         return lhs.outputTokens < rhs.outputTokens

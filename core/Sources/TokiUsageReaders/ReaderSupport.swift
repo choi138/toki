@@ -71,12 +71,14 @@ enum UsageFileDiscoveryError: Error {
 func findFilesThrowing(
     in directory: URL,
     withExtension ext: String,
-    modifiedAfter: Date? = nil) throws -> [URL] {
+    modifiedAfter: Date? = nil,
+    maximumFileCount: Int? = nil,
+    maximumEntryCount: Int? = nil) throws -> [URL] {
     try Task.checkCancellation()
 
     let keys: [URLResourceKey] = modifiedAfter != nil
-        ? [.isDirectoryKey, .isRegularFileKey, .isSymbolicLinkKey, .contentModificationDateKey]
-        : [.isDirectoryKey, .isRegularFileKey, .isSymbolicLinkKey]
+        ? [.isHiddenKey, .isDirectoryKey, .isRegularFileKey, .isSymbolicLinkKey, .contentModificationDateKey]
+        : [.isHiddenKey, .isDirectoryKey, .isRegularFileKey, .isSymbolicLinkKey]
     let rootValues: URLResourceValues
     do {
         rootValues = try directory.resourceValues(forKeys: [.isDirectoryKey])
@@ -97,7 +99,7 @@ func findFilesThrowing(
     guard let enumerator = FileManager.default.enumerator(
         at: directory,
         includingPropertiesForKeys: keys,
-        options: [.skipsHiddenFiles],
+        options: [],
         errorHandler: { _, _ in
             traversalFailed = true
             return false
@@ -106,14 +108,22 @@ func findFilesThrowing(
     }
 
     var files: [URL] = []
+    var visitedEntryCount = 0
     while let url = enumerator.nextObject() as? URL {
         try Task.checkCancellation()
+        let (nextEntryCount, entryOverflow) = visitedEntryCount.addingReportingOverflow(1)
+        guard !entryOverflow,
+              maximumEntryCount.map({ nextEntryCount <= $0 }) ?? true else {
+            throw PiCompatibleReaderError.tooManyEntries(entryOverflow ? Int.max : nextEntryCount)
+        }
+        visitedEntryCount = nextEntryCount
         let values: URLResourceValues
         do {
             values = try url.resourceValues(forKeys: Set(keys))
         } catch {
             throw UsageFileDiscoveryError.cannotReadEntryMetadata
         }
+        if skipHiddenEntry(url, values: values, enumerator: enumerator) { continue }
         if values.isSymbolicLink == true {
             if values.isDirectory == true {
                 enumerator.skipDescendants()
@@ -128,11 +138,144 @@ func findFilesThrowing(
                   modifiedDate >= since else { continue }
         }
 
+        let (nextFileCount, fileOverflow) = files.count.addingReportingOverflow(1)
+        guard !fileOverflow,
+              maximumFileCount.map({ nextFileCount <= $0 }) ?? true else {
+            throw PiCompatibleReaderError.tooManyFiles(fileOverflow ? Int.max : nextFileCount)
+        }
         files.append(url)
     }
     if traversalFailed {
         throw UsageFileDiscoveryError.cannotEnumerateRoot
     }
+    return files
+}
+
+private func skipHiddenEntry(
+    _ url: URL,
+    values: URLResourceValues,
+    enumerator: FileManager.DirectoryEnumerator) -> Bool {
+    guard values.isHidden == true || url.lastPathComponent.hasPrefix(".") else { return false }
+    if values.isDirectory == true {
+        enumerator.skipDescendants()
+    }
+    return true
+}
+
+func boundedUsageFileData(at url: URL, maximumBytes: Int) throws -> Data {
+    guard maximumBytes >= 0 else {
+        throw PiCompatibleReaderError.fileTooLarge(url)
+    }
+    let handle: FileHandle
+    do {
+        handle = try FileHandle(forReadingFrom: url)
+    } catch {
+        throw PiCompatibleReaderError.unreadableFile(url)
+    }
+    defer { try? handle.close() }
+    do {
+        let readLimit = maximumBytes == Int.max ? Int.max : maximumBytes + 1
+        let data = try handle.read(upToCount: readLimit) ?? Data()
+        guard data.count <= maximumBytes else {
+            throw PiCompatibleReaderError.fileTooLarge(url)
+        }
+        return data
+    } catch let error as PiCompatibleReaderError {
+        throw error
+    } catch {
+        throw PiCompatibleReaderError.unreadableFile(url)
+    }
+}
+
+func recordUsageEvents(_ count: Int, total: inout Int, maximum: Int) throws {
+    let (nextCount, overflow) = total.addingReportingOverflow(count)
+    guard count >= 0, !overflow, nextCount <= maximum else {
+        throw PiCompatibleReaderError.tooManyEvents(overflow ? Int.max : nextCount)
+    }
+    total = nextCount
+}
+
+func findUsageFiles(
+    in directory: URL,
+    withExtension ext: String,
+    maximumFileCount: Int? = nil,
+    maximumEntryCount: Int? = nil,
+    visitedEntryCount: inout Int) throws -> [URL] {
+    try Task.checkCancellation()
+    let normalizedDirectory = directory.resolvingSymlinksInPath().standardizedFileURL
+    let rootValues: URLResourceValues
+    do {
+        rootValues = try normalizedDirectory.resourceValues(forKeys: [.isDirectoryKey])
+    } catch {
+        let nsError = error as NSError
+        if nsError.domain == NSCocoaErrorDomain,
+           nsError.code == NSFileNoSuchFileError || nsError.code == NSFileReadNoSuchFileError {
+            return []
+        }
+        throw PiCompatibleReaderError.unreadableFile(normalizedDirectory)
+    }
+    guard rootValues.isDirectory == true else {
+        throw PiCompatibleReaderError.unreadableFile(normalizedDirectory)
+    }
+
+    let keys: Set<URLResourceKey> = [
+        .isHiddenKey,
+        .isDirectoryKey,
+        .isRegularFileKey,
+        .isSymbolicLinkKey,
+    ]
+    var failedURL: URL?
+    guard let enumerator = FileManager.default.enumerator(
+        at: normalizedDirectory,
+        includingPropertiesForKeys: Array(keys),
+        options: [],
+        errorHandler: { url, _ in
+            failedURL = url
+            return false
+        }) else {
+        throw PiCompatibleReaderError.unreadableFile(normalizedDirectory)
+    }
+
+    var files: [URL] = []
+    for case let url as URL in enumerator {
+        try Task.checkCancellation()
+        let (nextEntryCount, entryCountOverflow) = visitedEntryCount.addingReportingOverflow(1)
+        guard !entryCountOverflow,
+              maximumEntryCount.map({ nextEntryCount <= $0 }) ?? true else {
+            throw PiCompatibleReaderError.tooManyEntries(entryCountOverflow ? Int.max : nextEntryCount)
+        }
+        visitedEntryCount = nextEntryCount
+        let values: URLResourceValues
+        do {
+            values = try url.resourceValues(forKeys: keys)
+        } catch {
+            throw PiCompatibleReaderError.unreadableFile(url.standardizedFileURL)
+        }
+        if values.isHidden == true || url.lastPathComponent.hasPrefix(".") {
+            if values.isDirectory == true {
+                enumerator.skipDescendants()
+            }
+            continue
+        }
+        if values.isSymbolicLink == true {
+            if values.isDirectory == true {
+                enumerator.skipDescendants()
+            }
+            continue
+        }
+        guard values.isRegularFile == true,
+              url.pathExtension == ext else {
+            continue
+        }
+        files.append(url)
+        if let maximumFileCount, files.count >= maximumFileCount {
+            return files
+        }
+    }
+    if let failedURL {
+        throw PiCompatibleReaderError.unreadableFile(failedURL.standardizedFileURL)
+    }
+    try Task.checkCancellation()
     return files
 }
 

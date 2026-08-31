@@ -8,9 +8,16 @@ public struct FactoryDroidReader: TokenReader {
 
     public let name = Self.sourceName
     private let sessionsURLOverride: URL?
+    private let readLimits: PiCompatibleReadLimits
 
     public init(sessionsURLOverride: URL? = nil) {
         self.sessionsURLOverride = sessionsURLOverride
+        readLimits = .default
+    }
+
+    init(sessionsURLOverride: URL?, readLimits: PiCompatibleReadLimits) {
+        self.sessionsURLOverride = sessionsURLOverride
+        self.readLimits = readLimits
     }
 
     private var sessionsURL: URL {
@@ -18,7 +25,11 @@ public struct FactoryDroidReader: TokenReader {
     }
 
     public func readUsage(from startDate: Date, to endDate: Date) async throws -> RawTokenUsage {
-        let files = findFiles(in: sessionsURL, withExtension: "json")
+        let files = try findFilesThrowing(
+            in: sessionsURL,
+            withExtension: "json",
+            maximumFileCount: readLimits.maximumFileCount,
+            maximumEntryCount: readLimits.maximumEntryCount)
             .filter { $0.lastPathComponent.hasSuffix(".settings.json") }
         var canonicalPaths = Set<String>()
         var summariesBySession: [String: FactoryDroidSummary] = [:]
@@ -27,8 +38,10 @@ public struct FactoryDroidReader: TokenReader {
         var activityEvents: [ActivityTimeEvent<String>] = []
         var decodedSettingsCount = 0
         var hadSettingsDecodeFailure = false
+        var examinedEventCount = 0
 
         for file in files.sorted(by: { $0.path < $1.path }) {
+            try Task.checkCancellation()
             let canonicalPath = file
                 .resolvingSymlinksInPath()
                 .standardizedFileURL
@@ -39,19 +52,21 @@ public struct FactoryDroidReader: TokenReader {
                   .contentModificationDate else {
                 continue
             }
-            guard let data = try? Data(contentsOf: file),
-                  let settings = try? JSONDecoder().decode(FactoryDroidSettings.self, from: data) else {
+            let data = try boundedUsageFileData(at: file, maximumBytes: readLimits.maximumFileBytes)
+            guard let settings = try? JSONDecoder().decode(FactoryDroidSettings.self, from: data) else {
                 hadSettingsDecodeFailure = true
                 continue
             }
             decodedSettingsCount += 1
             let model = normalizedModelID(settings.model)
             let sessionID = factoryDroidSessionID(from: file)
-            let transcript = factoryDroidTranscript(
+            let transcript = try factoryDroidTranscript(
                 settingsURL: file,
                 sessionID: sessionID,
                 from: startDate,
-                to: endDate)
+                to: endDate,
+                readLimits: readLimits,
+                examinedEventCount: &examinedEventCount)
             appendFactoryDroidActivities(
                 transcript,
                 model: model,
@@ -82,7 +97,7 @@ public struct FactoryDroidReader: TokenReader {
             }
         }
 
-        appendFactoryDroidSummaries(
+        try appendFactoryDroidSummaries(
             summariesBySession,
             from: startDate,
             to: endDate,
@@ -109,8 +124,9 @@ private func appendFactoryDroidSummaries(
     _ summariesBySession: [String: FactoryDroidSummary],
     from startDate: Date,
     to endDate: Date,
-    usage: inout RawTokenUsage) {
+    usage: inout RawTokenUsage) throws {
     for sessionID in summariesBySession.keys.sorted() {
+        try Task.checkCancellation()
         guard let summary = summariesBySession[sessionID] else { continue }
         let attribution = UsageAttribution(
             projectPath: summary.transcript.projectPath,
@@ -119,6 +135,7 @@ private func appendFactoryDroidSummaries(
 
         if summary.transcript.hasTokenUsageRecords {
             for record in summary.transcript.tokenUsageRecords {
+                try Task.checkCancellation()
                 appendFactoryDroidTokenUsage(
                     record.tokenUsage,
                     timestamp: record.timestamp,
@@ -400,7 +417,9 @@ private func factoryDroidTranscript(
     settingsURL: URL,
     sessionID: String,
     from startDate: Date,
-    to endDate: Date) -> FactoryDroidTranscript {
+    to endDate: Date,
+    readLimits: PiCompatibleReadLimits,
+    examinedEventCount: inout Int) throws -> FactoryDroidTranscript {
     let transcriptURL = settingsURL
         .deletingPathExtension()
         .deletingPathExtension()
@@ -414,43 +433,50 @@ private func factoryDroidTranscript(
     var tokenUsageIDs = Set<String>()
     var hasTokenUsageRecords = false
 
-    for line in readJSONLLines(at: transcriptURL) {
-        guard let data = line.data(using: .utf8),
-              let entry = try? decoder.decode(FactoryDroidTranscriptEntry.self, from: data) else {
-            continue
-        }
+    if FileManager.default.fileExists(atPath: transcriptURL.path) {
+        try forEachJSONLLineThrowing(at: transcriptURL, limits: readLimits) { line, _ in
+            try Task.checkCancellation()
+            guard let data = line.data(using: .utf8),
+                  let entry = try? decoder.decode(FactoryDroidTranscriptEntry.self, from: data) else {
+                return
+            }
 
-        if entry.type == "session_start" {
-            resolvedSessionID = entry.id?.trimmedNonEmpty ?? resolvedSessionID
-            projectPath = entry.cwd?.trimmedNonEmpty ?? projectPath
-            continue
-        }
+            if entry.type == "session_start" {
+                resolvedSessionID = entry.id?.trimmedNonEmpty ?? resolvedSessionID
+                projectPath = entry.cwd?.trimmedNonEmpty ?? projectPath
+                return
+            }
 
-        guard entry.type == "message",
-              entry.message?.role == "assistant",
-              let timestamp = entry.timestamp.flatMap(DateParser.parse) else {
-            continue
-        }
-        let activityID = entry.id?.trimmedNonEmpty
-            ?? entry.message?.id?.trimmedNonEmpty
-            ?? line
-        if timestamp >= startDate,
-           timestamp < endDate,
-           activityIDs.insert(activityID).inserted {
-            activities.append(FactoryDroidActivity(
-                id: activityID,
-                timestamp: timestamp))
-        }
-        if let tokenUsage = entry.message?.usage,
-           FactoryDroidTokenCounts(tokenUsage).totalTokens > 0 {
-            hasTokenUsageRecords = true
+            guard entry.type == "message",
+                  entry.message?.role == "assistant",
+                  let timestamp = entry.timestamp.flatMap(DateParser.parse) else {
+                return
+            }
+            try recordUsageEvents(
+                1,
+                total: &examinedEventCount,
+                maximum: readLimits.maximumEventCount)
+            let activityID = entry.id?.trimmedNonEmpty
+                ?? entry.message?.id?.trimmedNonEmpty
+                ?? line
             if timestamp >= startDate,
                timestamp < endDate,
-               tokenUsageIDs.insert(activityID).inserted {
-                tokenUsageRecords.append(FactoryDroidTokenUsageRecord(
+               activityIDs.insert(activityID).inserted {
+                activities.append(FactoryDroidActivity(
                     id: activityID,
-                    timestamp: timestamp,
-                    tokenUsage: tokenUsage))
+                    timestamp: timestamp))
+            }
+            if let tokenUsage = entry.message?.usage,
+               FactoryDroidTokenCounts(tokenUsage).totalTokens > 0 {
+                hasTokenUsageRecords = true
+                if timestamp >= startDate,
+                   timestamp < endDate,
+                   tokenUsageIDs.insert(activityID).inserted {
+                    tokenUsageRecords.append(FactoryDroidTokenUsageRecord(
+                        id: activityID,
+                        timestamp: timestamp,
+                        tokenUsage: tokenUsage))
+                }
             }
         }
     }

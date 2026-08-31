@@ -16,6 +16,7 @@ package enum LocalUsageSourceLocation: Equatable {
 package enum LocalUsageSourceSignatureStrategy {
     case standard
     case allFiles
+    case boundedAllFiles(maximumFileCount: Int, maximumEntryCount: Int)
     case codexRollouts
 }
 
@@ -52,6 +53,7 @@ public struct LocalUsageReaderPaths: Equatable {
     public let senpiSessionDirectories: [URL]
     public let piSessions: URL
     public let ompSessions: URL
+    public let ompSessionRoots: [URL]
     public let kimchiSessions: URL
     public let copilotOTELExporterFile: URL?
     private let kimiCLIHomeOverride: URL?
@@ -111,7 +113,11 @@ public struct LocalUsageReaderPaths: Equatable {
                 environment: environment)
             .map { $0.appendingPathComponent("sessions") }
             ?? homeDirectory.appendingPathComponent(".pi/agent/sessions")
-        ompSessions = homeDirectory.appendingPathComponent(".omp/agent/sessions")
+        ompSessionRoots = Self.ompSessionDirectories(
+            homeDirectory: homeDirectory,
+            xdgDataDirectory: xdgDataDirectory,
+            environment: environment)
+        ompSessions = ompSessionRoots[0]
         kimchiSessions = xdgConfigDirectory.appendingPathComponent("kimchi/harness/sessions")
         copilotOTELExporterFile = Self.absoluteEnvironmentDirectory(
             key: "COPILOT_OTEL_FILE_EXPORTER_PATH",
@@ -229,7 +235,9 @@ public struct LocalUsageReaderPaths: Equatable {
             agentCacheDirectory
         }
     }
+}
 
+private extension LocalUsageReaderPaths {
     private var kimiCLIHomes: [URL] {
         Self.uniqueDirectories(
             [homeDirectory.appendingPathComponent(".kimi")]
@@ -252,6 +260,65 @@ public struct LocalUsageReaderPaths: Equatable {
             let standardized = directory.standardizedFileURL
             return seen.insert(standardized.path).inserted ? standardized : nil
         }
+    }
+
+    private static func ompSessionDirectories(
+        homeDirectory: URL,
+        xdgDataDirectory: URL,
+        environment: [String: String]) -> [URL] {
+        let profileValue = environment.keys.contains("OMP_PROFILE")
+            ? environment["OMP_PROFILE"]
+            : environment["PI_PROFILE"]
+        let profile = normalizedOMPProfile(profileValue)
+        let explicitConfigDirectory = normalizedConfigDirectory(environment["PI_CONFIG_DIR"])
+        let configRoot: URL = if let explicitConfigDirectory,
+                                 NSString(string: explicitConfigDirectory).isAbsolutePath {
+            URL(fileURLWithPath: explicitConfigDirectory)
+        } else {
+            homeDirectory.appendingPathComponent(explicitConfigDirectory ?? ".omp")
+        }
+
+        if let profile {
+            let configuredSessions = configRoot
+                .appendingPathComponent("profiles")
+                .appendingPathComponent(profile)
+                .appendingPathComponent("agent/sessions")
+            if explicitConfigDirectory != nil {
+                return [configuredSessions]
+            }
+            let xdgSessions = xdgDataDirectory
+                .appendingPathComponent("omp/profiles")
+                .appendingPathComponent(profile)
+                .appendingPathComponent("sessions")
+            return isExistingDirectory(xdgSessions)
+                ? uniqueDirectories([xdgSessions, configuredSessions])
+                : uniqueDirectories([configuredSessions, xdgSessions])
+        }
+
+        let configuredSessions = configRoot.appendingPathComponent("agent/sessions")
+        if explicitConfigDirectory != nil {
+            return [configuredSessions]
+        }
+        let xdgSessions = xdgDataDirectory.appendingPathComponent("omp/sessions")
+        return isExistingDirectory(xdgSessions)
+            ? uniqueDirectories([xdgSessions, configuredSessions])
+            : uniqueDirectories([configuredSessions, xdgSessions])
+    }
+
+    private static func normalizedOMPProfile(_ value: String?) -> String? {
+        guard let profile = value?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !profile.isEmpty,
+              profile != "default",
+              profile != ".",
+              profile != "..",
+              !profile.hasSuffix("."),
+              profile.utf8.count <= 64,
+              let first = profile.first,
+              first.isLowercase || first.isNumber,
+              profile.allSatisfy({ $0.isLowercase || $0.isNumber || "._-".contains($0) }) else {
+            return nil
+        }
+        return profile
     }
 }
 
@@ -324,10 +391,12 @@ public enum LocalUsageReaderRegistry {
                 sourceLocations: [.directory(paths.gjcSessions, extensions: ["jsonl"])]),
             LocalUsageReaderDescriptor(
                 reader: FactoryDroidReader(sessionsURLOverride: paths.factoryDroidSessions),
-                sourceLocations: [.directory(paths.factoryDroidSessions, extensions: ["json", "jsonl"])]),
+                sourceLocations: [.directory(paths.factoryDroidSessions, extensions: ["json", "jsonl"])],
+                sourceSignatureStrategy: .allFiles),
             LocalUsageReaderDescriptor(
                 reader: AmpReader(threadsURLOverride: paths.ampThreads),
-                sourceLocations: [.directory(paths.ampThreads, extensions: ["json"])]),
+                sourceLocations: [.directory(paths.ampThreads, extensions: ["json"])],
+                sourceSignatureStrategy: .allFiles),
             LocalUsageReaderDescriptor(
                 reader: SenpiReader(sessionRootsOverride: paths.senpiSessionDirectories),
                 sourceLocations: paths.senpiSessionDirectories.map {
@@ -372,20 +441,68 @@ public enum LocalUsageReaderRegistry {
 
     private static func piFamilyDescriptors(
         paths: LocalUsageReaderPaths) -> [LocalUsageReaderDescriptor] {
-        [
-            LocalUsageReaderDescriptor(
+        let sharedOMPRoots = paths.ompSessionRoots.filter {
+            directoriesShareStorage(paths.piSessions, $0)
+        }
+        let independentOMPRoots = paths.ompSessionRoots.filter { root in
+            !sharedOMPRoots.contains { directoriesShareStorage(root, $0) }
+        }
+        var descriptors: [LocalUsageReaderDescriptor] = []
+        if !sharedOMPRoots.isEmpty {
+            descriptors.append(LocalUsageReaderDescriptor(
+                reader: SharedPiOMPReader(sessionsURL: paths.piSessions),
+                sourceLocations: [.directory(paths.piSessions, extensions: ["jsonl"])],
+                sourceSignatureStrategy: .boundedAllFiles(
+                    maximumFileCount: PiCompatibleReadLimits.default.maximumFileCount,
+                    maximumEntryCount: PiCompatibleReadLimits.default.maximumEntryCount)))
+        } else {
+            descriptors.append(LocalUsageReaderDescriptor(
                 reader: PiReader(sessionsURLOverride: paths.piSessions),
                 sourceLocations: [.directory(paths.piSessions, extensions: ["jsonl"])],
-                sourceSignatureStrategy: .allFiles),
-            LocalUsageReaderDescriptor(
-                reader: OMPReader(sessionsURLOverride: paths.ompSessions),
-                sourceLocations: [.directory(paths.ompSessions, extensions: ["jsonl"])],
-                sourceSignatureStrategy: .allFiles),
-            LocalUsageReaderDescriptor(
-                reader: KimchiReader(sessionsURLOverride: paths.kimchiSessions),
-                sourceLocations: [.directory(paths.kimchiSessions, extensions: ["jsonl"])],
-                sourceSignatureStrategy: .allFiles),
-        ]
+                sourceSignatureStrategy: .boundedAllFiles(
+                    maximumFileCount: PiCompatibleReadLimits.default.maximumFileCount,
+                    maximumEntryCount: PiCompatibleReadLimits.default.maximumEntryCount)))
+        }
+        if !independentOMPRoots.isEmpty {
+            descriptors.append(LocalUsageReaderDescriptor(
+                reader: OMPReader(sessionRootsOverride: independentOMPRoots),
+                sourceLocations: independentOMPRoots.map { .directory($0, extensions: ["jsonl"]) },
+                sourceSignatureStrategy: .boundedAllFiles(
+                    maximumFileCount: PiCompatibleReadLimits.default.maximumFileCount,
+                    maximumEntryCount: PiCompatibleReadLimits.default.maximumEntryCount)))
+        }
+        descriptors.append(LocalUsageReaderDescriptor(
+            reader: KimchiReader(sessionsURLOverride: paths.kimchiSessions),
+            sourceLocations: [.directory(paths.kimchiSessions, extensions: ["jsonl"])],
+            sourceSignatureStrategy: .boundedAllFiles(
+                maximumFileCount: PiCompatibleReadLimits.default.maximumFileCount,
+                maximumEntryCount: PiCompatibleReadLimits.default.maximumEntryCount)))
+        return descriptors
+    }
+
+    private static func directoriesShareStorage(_ lhs: URL, _ rhs: URL) -> Bool {
+        let resolvedLHS = lhs.resolvingSymlinksInPath().standardizedFileURL
+        let resolvedRHS = rhs.resolvingSymlinksInPath().standardizedFileURL
+        if resolvedLHS.path == resolvedRHS.path {
+            return true
+        }
+        guard let lhsIdentity = directoryIdentity(resolvedLHS),
+              let rhsIdentity = directoryIdentity(resolvedRHS) else {
+            return false
+        }
+        return lhsIdentity == rhsIdentity
+    }
+
+    private static func directoryIdentity(_ url: URL) -> LocalUsageDirectoryIdentity? {
+        var isDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory),
+              isDirectory.boolValue,
+              let attributes = try? FileManager.default.attributesOfItem(atPath: url.path),
+              let systemNumber = (attributes[.systemNumber] as? NSNumber)?.uint64Value,
+              let fileNumber = (attributes[.systemFileNumber] as? NSNumber)?.uint64Value else {
+            return nil
+        }
+        return LocalUsageDirectoryIdentity(systemNumber: systemNumber, fileNumber: fileNumber)
     }
 
     public static func readers(
@@ -408,4 +525,20 @@ public enum LocalUsageReaderRegistry {
             claudeUsageCache: claudeUsageCache,
             hermesUsageLedger: hermesUsageLedger)
     }
+}
+
+private func isExistingDirectory(_ url: URL) -> Bool {
+    var isDirectory: ObjCBool = false
+    return FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory)
+        && isDirectory.boolValue
+}
+
+private func normalizedConfigDirectory(_ value: String?) -> String? {
+    let configured = value?.trimmingCharacters(in: .whitespacesAndNewlines)
+    return configured.flatMap { $0.isEmpty ? nil : $0 }
+}
+
+private struct LocalUsageDirectoryIdentity: Equatable {
+    let systemNumber: UInt64
+    let fileNumber: UInt64
 }

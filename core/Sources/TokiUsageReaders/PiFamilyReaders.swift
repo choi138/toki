@@ -6,18 +6,33 @@ public struct PiReader: TokenReader {
 
     public let name = Self.sourceName
     private let sessionRootsOverride: [URL]?
+    private let readLimits: PiCompatibleReadLimits
 
     public init(sessionsURLOverride: URL? = nil) {
         sessionRootsOverride = sessionsURLOverride.map { [$0] }
+        readLimits = .default
     }
 
-    init(sessionRootsOverride: [URL]) {
+    init(
+        sessionRootsOverride: [URL],
+        readLimits: PiCompatibleReadLimits = .default) {
         self.sessionRootsOverride = sessionRootsOverride
+        self.readLimits = readLimits
+    }
+
+    init(
+        sessionsURLOverride: URL?,
+        readLimits: PiCompatibleReadLimits) {
+        sessionRootsOverride = sessionsURLOverride.map { [$0] }
+        self.readLimits = readLimits
     }
 
     public func readUsage(from startDate: Date, to endDate: Date) async throws -> RawTokenUsage {
         let sessionRoots = sessionRootsOverride ?? [LocalUsageReaderPaths().piSessions]
-        return try PiCompatibleReader(source: .pi, sessionRoots: sessionRoots)
+        return try PiCompatibleReader(
+            source: .pi,
+            sessionRoots: sessionRoots,
+            readLimits: readLimits)
             .readUsage(from: startDate, to: endDate)
     }
 
@@ -39,27 +54,40 @@ public struct OMPReader: TokenReader {
     public static let sourceName = "Oh My Pi"
 
     public let name = Self.sourceName
-    private let sessionsURLOverride: URL?
+    private let sessionRootsOverride: [URL]?
 
     public init(sessionsURLOverride: URL? = nil) {
-        self.sessionsURLOverride = sessionsURLOverride
+        sessionRootsOverride = sessionsURLOverride.map { [$0] }
+    }
+
+    init(sessionRootsOverride: [URL]) {
+        self.sessionRootsOverride = sessionRootsOverride
     }
 
     public func readUsage(from startDate: Date, to endDate: Date) async throws -> RawTokenUsage {
-        let sessionsURL = sessionsURLOverride ?? LocalUsageReaderPaths().ompSessions
+        let sessionRoots = sessionRootsOverride ?? LocalUsageReaderPaths().ompSessionRoots
         return try PiCompatibleReader(
             source: .ohMyPi,
-            sessionRoots: [sessionsURL],
-            agentKindForFile: Self.agentKind)
+            sessionRoots: sessionRoots,
+            agentKindForFile: Self.agentKind,
+            replicaScopeForFile: Self.replicaScope)
             .readUsage(from: startDate, to: endDate)
     }
 
     private static func agentKind(for file: URL) -> WorkTimeAgentKind {
+        parentSession(for: file) == nil ? .main : .subagent
+    }
+
+    private static func replicaScope(for file: URL) -> String? {
+        (parentSession(for: file) ?? file).standardizedFileURL.path
+    }
+
+    private static func parentSession(for file: URL) -> URL? {
         let parentDirectory = file.deletingLastPathComponent()
         let parentSession = parentDirectory.deletingLastPathComponent()
             .appendingPathComponent(parentDirectory.lastPathComponent)
             .appendingPathExtension("jsonl")
-        return FileManager.default.fileExists(atPath: parentSession.path) ? .subagent : .main
+        return FileManager.default.fileExists(atPath: parentSession.path) ? parentSession : nil
     }
 
     static func usage(
@@ -73,6 +101,22 @@ public struct OMPReader: TokenReader {
             source: .ohMyPi,
             from: startDate,
             to: endDate)
+    }
+}
+
+struct SharedPiOMPReader: TokenReader {
+    static let sourceName = "Pi / Oh My Pi"
+
+    let name = Self.sourceName
+    private let sessionsURL: URL
+
+    init(sessionsURL: URL) {
+        self.sessionsURL = sessionsURL
+    }
+
+    func readUsage(from startDate: Date, to endDate: Date) async throws -> RawTokenUsage {
+        try PiCompatibleReader(source: .piAndOhMyPi, sessionRoots: [sessionsURL])
+            .readUsage(from: startDate, to: endDate)
     }
 }
 

@@ -201,7 +201,7 @@ final class RemoteUsageReaderTests: XCTestCase {
 }
 
 extension RemoteUsageReaderTests {
-    func test_costlessGJCEventUsesRemoteModelPricingFallback() throws {
+    func test_remoteMappingPreservesCostKnownStateAndLegacyPricingFallback() throws {
         let fixture = try makeFixture()
         let original = try SnapshotCipher.open(fixture.envelope, key: fixture.encryptionKey)
         let snapshot = RemoteUsageSnapshot(
@@ -212,6 +212,38 @@ extension RemoteUsageReaderTests {
             tokenEvents: [
                 RemoteTokenEvent(
                     timestamp: fixture.start.addingTimeInterval(60),
+                    source: "Pi",
+                    model: "gpt-5",
+                    inputTokens: 1,
+                    outputTokens: 1,
+                    cacheReadTokens: 0,
+                    cacheWriteTokens: 0,
+                    reasoningTokens: 0,
+                    costIsKnown: nil),
+                RemoteTokenEvent(
+                    timestamp: fixture.start.addingTimeInterval(90),
+                    source: "Pi",
+                    model: "gpt-5",
+                    inputTokens: 1,
+                    outputTokens: 1,
+                    cacheReadTokens: 0,
+                    cacheWriteTokens: 0,
+                    reasoningTokens: 0,
+                    cost: 0,
+                    costIsKnown: false),
+                RemoteTokenEvent(
+                    timestamp: fixture.start.addingTimeInterval(120),
+                    source: "Pi",
+                    model: "gpt-5",
+                    inputTokens: 1,
+                    outputTokens: 1,
+                    cacheReadTokens: 0,
+                    cacheWriteTokens: 0,
+                    reasoningTokens: 0,
+                    cost: 0,
+                    costIsKnown: true),
+                RemoteTokenEvent(
+                    timestamp: fixture.start.addingTimeInterval(150),
                     source: "GJC",
                     model: "gpt-5",
                     inputTokens: 1000,
@@ -229,8 +261,11 @@ extension RemoteUsageReaderTests {
             startDate: fixture.start,
             endDate: fixture.end))
 
+        XCTAssertEqual(slice.usage.tokenEvents.map(\.costIsKnown), [nil, false, true, nil])
+        XCTAssertGreaterThan(slice.usage.tokenEvents[0].cost, 0)
+        XCTAssertEqual(slice.usage.tokenEvents[1].cost, 0)
+        XCTAssertEqual(slice.usage.tokenEvents[2].cost, 0)
         XCTAssertGreaterThan(slice.usage.cost, 0)
-        XCTAssertNil(slice.usage.tokenEvents.first?.costIsKnown)
     }
 
     func test_remoteReaderReturnsOneOriginSlicePerStableDeviceID() async throws {

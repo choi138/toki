@@ -122,18 +122,22 @@ struct RemoteUsageMapper {
     }
 
     private func tokenCost(for event: RemoteTokenEvent, model: String?) -> Double {
-        if let costIsKnown = event.costIsKnown {
-            return costIsKnown ? event.cost ?? 0 : 0
+        switch event.costIsKnown {
+        case true:
+            return event.cost ?? 0
+        case false:
+            return 0
+        case nil:
+            if let cost = event.cost, cost.isFinite, cost >= 0 {
+                return cost
+            }
+            guard let model, let price = modelPrice(for: model, at: event.timestamp) else { return 0 }
+            return price.cost(
+                input: event.inputTokens,
+                output: event.outputTokens + event.reasoningTokens,
+                cacheRead: event.cacheReadTokens,
+                cacheWrite: event.cacheWriteTokens)
         }
-        if let cost = event.cost, cost.isFinite, cost >= 0 {
-            return cost
-        }
-        guard let model, let price = modelPrice(for: model, at: event.timestamp) else { return 0 }
-        return price.cost(
-            input: event.inputTokens,
-            output: event.outputTokens + event.reasoningTokens,
-            cacheRead: event.cacheReadTokens,
-            cacheWrite: event.cacheWriteTokens)
     }
 
     private func appendCostEvent(
@@ -152,7 +156,8 @@ struct RemoteUsageMapper {
             model: model,
             inputTokens: 0,
             outputTokens: 0,
-            cost: event.cost)
+            cost: event.cost,
+            costIsKnown: true)
     }
 
     func mappedActivityEventsBySource(
