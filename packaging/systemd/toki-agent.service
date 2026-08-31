@@ -8,7 +8,8 @@ StartLimitBurst=5
 
 [Service]
 Type=simple
-ExecStartPre=+/usr/bin/mkdir -p -m 0700 "%h/.omo/senpi-task/children" "%h/.omo/senpi-task/sessions"
+# '+' bypasses this unit's filesystem namespace; '-' keeps an absent Senpi task parent optional.
+ExecStartPre=+-/usr/bin/mkdir -m 0700 "%h/.omo/senpi-task/children" "%h/.omo/senpi-task/sessions"
 ExecStartPre=/usr/local/bin/toki-agent doctor
 ExecStart=/usr/local/bin/toki-agent run
 Restart=on-failure
