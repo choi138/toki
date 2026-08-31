@@ -52,6 +52,96 @@ final class ChineseCLIUsageIntegrationTests: XCTestCase {
             Set(sessions.compactMap { $0["source"] as? String }),
             ["Kimi CLI", "Kimi Code", "Qwen CLI"])
     }
+
+    func test_kimiSameNamedSessionsRemainSeparateInReportAndExport() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("toki-kimi-sessions-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let sessionsRoot = root.appendingPathComponent(".kimi/sessions")
+        for (workspace, tokens) in [("workspace-a", 10), ("workspace-b", 20)] {
+            let file = sessionsRoot.appendingPathComponent(
+                "\(workspace)/session/wire.jsonl")
+            try FileManager.default.createDirectory(
+                at: file.deletingLastPathComponent(),
+                withIntermediateDirectories: true)
+            let line =
+                #"{"timestamp":1771855200.0,"message":{"type":"StatusUpdate","payload":{"# +
+                #""token_usage":{"input_other":"# + String(tokens) +
+                #","output":0},"message_id":"same-message"}}}"#
+            try Data((line + "\n").utf8).write(to: file)
+        }
+        let request = try UsageAggregationRequest(
+            start: Self.date("2026-02-23T00:00:00Z"),
+            end: Self.date("2026-02-24T00:00:00Z"),
+            enabledReaderNames: [:],
+            includesEmptySourceRows: false)
+
+        let result = await UsageAggregator(
+            readers: [KimiCLIReader(sessionRoots: [sessionsRoot])])
+            .aggregateUsage(for: request)
+
+        XCTAssertEqual(result.usageData.sessionStats.count, 2)
+        XCTAssertEqual(
+            Set(result.usageData.sessionStats.map(\.projectName)),
+            ["workspace-a", "workspace-b"])
+        XCTAssertEqual(Set(result.usageData.sessionStats.map(\.sessionLabel)), ["session"])
+
+        let data = try XCTUnwrap(
+            UsageExport.jsonString(for: result.usageData).data(using: .utf8))
+        let object = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        let sessions = try XCTUnwrap(object["sessions"] as? [[String: Any]])
+        XCTAssertEqual(sessions.count, 2)
+        XCTAssertEqual(
+            Set(sessions.compactMap { $0["projectName"] as? String }),
+            ["workspace-a", "workspace-b"])
+    }
+
+    func test_qwenSameNamedSessionsRemainSeparateInReportAndExport() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("toki-qwen-sessions-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let projectsRoot = root.appendingPathComponent(".qwen/projects")
+        for (project, tokens) in [("workspace-a", 10), ("workspace-b", 20)] {
+            let file = projectsRoot.appendingPathComponent("\(project)/chats/session.jsonl")
+            try FileManager.default.createDirectory(
+                at: file.deletingLastPathComponent(),
+                withIntermediateDirectories: true)
+            let line =
+                #"{"uuid":"same-message","type":"assistant","model":"qwen3","# +
+                #""timestamp":"2026-02-23T14:00:00Z","sessionId":"session","# +
+                #""usageMetadata":{"promptTokenCount":"# + String(tokens) +
+                #", "candidatesTokenCount":0}}"#
+            try Data((line + "\n").utf8).write(to: file)
+        }
+        let request = try UsageAggregationRequest(
+            start: Self.date("2026-02-23T00:00:00Z"),
+            end: Self.date("2026-02-24T00:00:00Z"),
+            enabledReaderNames: [:],
+            includesEmptySourceRows: false)
+
+        let result = await UsageAggregator(
+            readers: [QwenCLIReader(projectRoots: [projectsRoot])])
+            .aggregateUsage(for: request)
+
+        XCTAssertEqual(result.usageData.sessionStats.count, 2)
+        XCTAssertEqual(
+            Set(result.usageData.sessionStats.map(\.projectName)),
+            ["workspace-a", "workspace-b"])
+        XCTAssertEqual(Set(result.usageData.sessionStats.map(\.sessionLabel)), ["session"])
+
+        let data = try XCTUnwrap(
+            UsageExport.jsonString(for: result.usageData).data(using: .utf8))
+        let object = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        let sessions = try XCTUnwrap(object["sessions"] as? [[String: Any]])
+        XCTAssertEqual(sessions.count, 2)
+        XCTAssertEqual(
+            Set(sessions.compactMap { $0["projectName"] as? String }),
+            ["workspace-a", "workspace-b"])
+    }
+
+    private static func date(_ value: String) throws -> Date {
+        try XCTUnwrap(ISO8601DateFormatter().date(from: value))
+    }
 }
 
 private struct ChineseCLIUsageFixture {

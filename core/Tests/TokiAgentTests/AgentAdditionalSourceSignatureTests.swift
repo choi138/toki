@@ -82,29 +82,6 @@ final class AgentAdditionalSourceSignatureTests: XCTestCase {
         XCTAssertNotEqual(initial, afterDefault)
         XCTAssertNotEqual(afterDefault, afterExporter)
     }
-
-    func test_sourceSignatureTracksKimiCLIModelConfig() async throws {
-        let fixture = try AgentSnapshotFixture()
-        defer { fixture.remove() }
-        let builder = AgentSnapshotBuilder(home: fixture.root)
-        let initial = try await builder.sourceSignature(
-            configuration: fixture.configuration,
-            now: fixture.now)
-        let config = fixture.root.appendingPathComponent(".kimi/config.json")
-        try FileManager.default.createDirectory(
-            at: config.deletingLastPathComponent(),
-            withIntermediateDirectories: true)
-        try Data(#"{"model":"kimi-k2.5"}"#.utf8).write(to: config)
-        try FileManager.default.setAttributes(
-            [.modificationDate: fixture.now],
-            ofItemAtPath: config.path)
-
-        let afterConfig = try await builder.sourceSignature(
-            configuration: fixture.configuration,
-            now: fixture.now)
-
-        XCTAssertNotEqual(initial, afterConfig)
-    }
 }
 
 final class AgentAdditionalRegistryTests: XCTestCase {

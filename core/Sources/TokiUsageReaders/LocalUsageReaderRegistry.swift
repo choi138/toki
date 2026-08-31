@@ -15,6 +15,7 @@ package enum LocalUsageSourceLocation: Equatable {
 
 package enum LocalUsageSourceSignatureStrategy {
     case standard
+    case allFiles
     case codexRollouts
 }
 
@@ -171,10 +172,7 @@ public struct LocalUsageReaderPaths: Equatable {
     }
 
     public var kimiCLISessions: [URL] {
-        Self.uniqueDirectories(
-            [homeDirectory.appendingPathComponent(".kimi")]
-                + [kimiCLIHomeOverride].compactMap { $0 })
-            .map { $0.appendingPathComponent("sessions") }
+        kimiCLIHomes.map { $0.appendingPathComponent("sessions") }
     }
 
     public var kimiCodeSessions: [URL] {
@@ -213,6 +211,12 @@ public struct LocalUsageReaderPaths: Equatable {
         case .agent:
             agentCacheDirectory
         }
+    }
+
+    private var kimiCLIHomes: [URL] {
+        Self.uniqueDirectories(
+            [homeDirectory.appendingPathComponent(".kimi")]
+                + [kimiCLIHomeOverride].compactMap { $0 })
     }
 
     private static func absoluteEnvironmentDirectory(
@@ -344,19 +348,16 @@ public enum LocalUsageReaderRegistry {
                 sourceLocations: copilotSourceLocations),
             LocalUsageReaderDescriptor(
                 reader: KimiCLIReader(sessionRoots: paths.kimiCLISessions),
-                sourceLocations: paths.kimiCLISessions.map {
-                    .directory($0, extensions: ["jsonl"])
-                } + paths.kimiCLISessions.map {
-                    .file(
-                        $0.deletingLastPathComponent().appendingPathComponent("config.json"),
-                        includesSQLiteSidecars: false)
-                }),
+                sourceLocations: paths.kimiCLISessions.map { .directory($0, extensions: ["jsonl"]) },
+                sourceSignatureStrategy: .allFiles),
             LocalUsageReaderDescriptor(
                 reader: KimiCodeReader(sessionRoots: paths.kimiCodeSessions),
-                sourceLocations: paths.kimiCodeSessions.map { .directory($0, extensions: ["jsonl"]) }),
+                sourceLocations: paths.kimiCodeSessions.map { .directory($0, extensions: ["jsonl"]) },
+                sourceSignatureStrategy: .allFiles),
             LocalUsageReaderDescriptor(
                 reader: QwenCLIReader(projectRoots: paths.qwenProjects),
-                sourceLocations: paths.qwenProjects.map { .directory($0, extensions: ["jsonl"]) }),
+                sourceLocations: paths.qwenProjects.map { .directory($0, extensions: ["jsonl"]) },
+                sourceSignatureStrategy: .allFiles),
         ]
     }
 

@@ -17,23 +17,31 @@ const AGENT_TOOLS: readonly string[] = [
   'OpenClaw',
 ];
 
-export function SupportedAgents() {
+type SupportedAgentsProps = Readonly<{
+  copy: Readonly<{
+    description: string;
+    listLabel: string;
+    pill: string;
+    title: string;
+  }>;
+}>;
+
+export function SupportedAgents({ copy }: SupportedAgentsProps) {
   return (
     <section id="agents">
       <SectionShell className="py-[6.375rem] lg:py-[8.5rem]">
         <div className="grid items-start gap-7 lg:grid-cols-[minmax(0,0.8fr)_minmax(0,1.2fr)] lg:gap-[5.25rem]">
           <Reveal>
-            <Pill>Supported agents</Pill>
+            <Pill>{copy.pill}</Pill>
             <h2 className="mt-5 max-w-[43.125rem] text-[clamp(2.3125rem,4.2vw,3.4375rem)] leading-[1.01] font-semibold tracking-[-0.057em] text-balance">
-              The tools already in your terminal.
+              {copy.title}
             </h2>
             <p className="mt-5 max-w-[33.75rem] text-[17px] text-toki-mist">
-              Toki reads the supported local usage stores. It does not ask you
-              to reconstruct a workday from browser tabs and invoices.
+              {copy.description}
             </p>
           </Reveal>
           <RevealList
-            aria-label="Supported agent tools"
+            aria-label={copy.listLabel}
             className="m-0 grid list-none grid-cols-1 border-t border-l border-toki-line p-0 sm:grid-cols-2"
           >
             {AGENT_TOOLS.map((tool) => (

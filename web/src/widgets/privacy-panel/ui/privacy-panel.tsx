@@ -1,6 +1,14 @@
 import { Pill, Reveal, SectionShell } from '@/shared/ui';
 
-export function PrivacyPanel() {
+type PrivacyPanelProps = Readonly<{
+  copy: Readonly<{
+    description: string;
+    pill: string;
+    title: string;
+  }>;
+}>;
+
+export function PrivacyPanel({ copy }: PrivacyPanelProps) {
   return (
     <section
       className="relative overflow-hidden py-[4.875rem] lg:py-[7.4375rem]"
@@ -13,14 +21,12 @@ export function PrivacyPanel() {
       <SectionShell className="relative border-y border-toki-line py-[1.125rem] pb-[2.125rem] lg:py-[2.8125rem]">
         <Reveal className="grid items-center gap-9 lg:grid-cols-[minmax(0,1fr)_minmax(17.5rem,0.78fr)] lg:gap-20">
           <div>
-            <Pill>Private by default</Pill>
+            <Pill>{copy.pill}</Pill>
             <h2 className="mt-5 mb-[1.125rem] max-w-[36.25rem] text-[clamp(2.375rem,4.4vw,3.625rem)] leading-[1.02] font-semibold tracking-[-0.055em] text-balance">
-              Your usage stays yours.
+              {copy.title}
             </h2>
             <p className="max-w-[32.5rem] text-base text-toki-mist lg:text-[17px]">
-              Local collection stays on-device. Toki reads supported local
-              stores to build its view; no hosted account is required for local
-              use.
+              {copy.description}
             </p>
           </div>
           <div

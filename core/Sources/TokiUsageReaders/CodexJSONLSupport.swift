@@ -32,48 +32,55 @@ func codexSnapshotOrder(_ lhs: CodexTimedSnapshot, _ rhs: CodexTimedSnapshot) ->
 }
 
 func forEachJSONLLine(at url: URL, _ body: (String, Int) -> Void) {
-    forEachJSONLLineUntil(at: url) { line, index in
-        body(line, index)
+    try? forEachJSONLLineThrowing(at: url, body)
+}
+
+func forEachJSONLLineThrowing(
+    at url: URL,
+    _ body: (String, Int) throws -> Void) throws {
+    try forEachJSONLLineUntilThrowing(at: url) { line, index in
+        try body(line, index)
         return true
     }
 }
 
 func forEachJSONLLineUntil(at url: URL, _ body: (String, Int) -> Bool) {
-    guard let handle = try? FileHandle(forReadingFrom: url) else { return }
+    try? forEachJSONLLineUntilThrowing(at: url, body)
+}
+
+func forEachJSONLLineUntilThrowing(
+    at url: URL,
+    _ body: (String, Int) throws -> Bool) throws {
+    try Task.checkCancellation()
+    let handle = try FileHandle(forReadingFrom: url)
     defer { try? handle.close() }
 
     var lineIndex = 0
     var pending = Data()
 
     while true {
-        guard !Task.isCancelled else { return }
-
-        let chunk: Data
-        do {
-            guard let data = try handle.read(upToCount: 64 * 1024),
-                  !data.isEmpty else {
-                break
-            }
-            chunk = data
-        } catch {
+        try Task.checkCancellation()
+        guard let chunk = try handle.read(upToCount: 64 * 1024),
+              !chunk.isEmpty else {
             break
         }
 
         pending.append(chunk)
         while let newlineIndex = pending.firstIndex(of: 0x0A) {
-            guard !Task.isCancelled else { return }
+            try Task.checkCancellation()
 
             let lineData = pending.subdata(in: pending.startIndex..<newlineIndex)
             pending.removeSubrange(pending.startIndex...newlineIndex)
             if let line = jsonlLineString(from: lineData) {
-                guard body(line, lineIndex) else { return }
+                guard try body(line, lineIndex) else { return }
                 lineIndex += 1
             }
         }
     }
 
+    try Task.checkCancellation()
     if let line = jsonlLineString(from: pending) {
-        _ = body(line, lineIndex)
+        _ = try body(line, lineIndex)
     }
 }
 

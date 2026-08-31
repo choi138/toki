@@ -3,7 +3,6 @@ import { Geist_Mono, Inter } from 'next/font/google';
 import type { ReactNode } from 'react';
 
 import { AppProviders } from '@/_app/providers';
-import '@/_app/styles/globals.css';
 import { siteConfig } from '@/shared/config';
 
 const inter = Inter({
@@ -18,7 +17,7 @@ const geistMono = Geist_Mono({
   variable: '--font-geist-mono',
 });
 
-export const metadata: Metadata = {
+export const rootMetadata: Metadata = {
   metadataBase: new URL(siteConfig.url),
   title: {
     default: siteConfig.name,
@@ -34,7 +33,7 @@ export const metadata: Metadata = {
   },
 };
 
-export const viewport: Viewport = {
+export const rootViewport: Viewport = {
   colorScheme: 'dark light',
   initialScale: 1,
   themeColor: [
@@ -44,14 +43,15 @@ export const viewport: Viewport = {
   width: 'device-width',
 };
 
-type RootLayoutProps = Readonly<{
+type RootDocumentProps = Readonly<{
   children: ReactNode;
+  lang: 'en' | 'ko';
 }>;
 
-export default function RootLayout({ children }: RootLayoutProps) {
+export function RootDocument({ children, lang }: RootDocumentProps) {
   return (
     <html
-      lang="en"
+      lang={lang}
       suppressHydrationWarning
       data-scroll-behavior="smooth"
       className={`${inter.variable} ${geistMono.variable}`}

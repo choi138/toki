@@ -207,6 +207,37 @@
   }
 }
 
+@layer utilities {
+  /* Utilities are the final cascade layer, so these locale rules can override
+   * the display typography utilities applied directly to each element. */
+  .luminous[lang='ko'] {
+    letter-spacing: 0;
+  }
+
+  .luminous[lang='ko'] :where(h1, h2) {
+    overflow-wrap: anywhere;
+    word-break: keep-all;
+    line-height: 1.2;
+    letter-spacing: 0;
+  }
+
+  .luminous[lang='ko']
+    :where(p, a, button, figcaption, [data-localized-value]) {
+    overflow-wrap: anywhere;
+    word-break: keep-all;
+  }
+
+  .luminous[lang='ko'] p {
+    line-height: 1.7;
+    letter-spacing: 0;
+  }
+
+  .luminous[lang='ko'] [data-localized-value] {
+    line-height: 1.25;
+    letter-spacing: 0;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   html {
     scroll-behavior: auto;

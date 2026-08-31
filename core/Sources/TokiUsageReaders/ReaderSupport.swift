@@ -47,12 +47,105 @@ func findFiles(in directory: URL, withExtension ext: String, modifiedAfter: Date
     return files
 }
 
+enum UsageFileDiscoveryError: Error {
+    case cannotReadRoot
+    case rootIsNotDirectory
+    case cannotEnumerateRoot
+    case cannotReadEntryMetadata
+}
+
+func findFilesThrowing(
+    in directory: URL,
+    withExtension ext: String,
+    modifiedAfter: Date? = nil) throws -> [URL] {
+    try Task.checkCancellation()
+
+    let keys: [URLResourceKey] = modifiedAfter != nil
+        ? [.isDirectoryKey, .isRegularFileKey, .isSymbolicLinkKey, .contentModificationDateKey]
+        : [.isDirectoryKey, .isRegularFileKey, .isSymbolicLinkKey]
+    let rootValues: URLResourceValues
+    do {
+        rootValues = try directory.resourceValues(forKeys: [.isDirectoryKey])
+    } catch {
+        let cocoaError = error as NSError
+        if cocoaError.domain == NSCocoaErrorDomain,
+           cocoaError.code == CocoaError.fileReadNoSuchFile.rawValue
+           || cocoaError.code == CocoaError.fileNoSuchFile.rawValue {
+            return []
+        }
+        throw UsageFileDiscoveryError.cannotReadRoot
+    }
+    guard rootValues.isDirectory == true else {
+        throw UsageFileDiscoveryError.rootIsNotDirectory
+    }
+
+    var traversalFailed = false
+    guard let enumerator = FileManager.default.enumerator(
+        at: directory,
+        includingPropertiesForKeys: keys,
+        options: [.skipsHiddenFiles],
+        errorHandler: { _, _ in
+            traversalFailed = true
+            return false
+        }) else {
+        throw UsageFileDiscoveryError.cannotEnumerateRoot
+    }
+
+    var files: [URL] = []
+    while let url = enumerator.nextObject() as? URL {
+        try Task.checkCancellation()
+        let values: URLResourceValues
+        do {
+            values = try url.resourceValues(forKeys: Set(keys))
+        } catch {
+            throw UsageFileDiscoveryError.cannotReadEntryMetadata
+        }
+        if values.isSymbolicLink == true {
+            if values.isDirectory == true {
+                enumerator.skipDescendants()
+            }
+            continue
+        }
+        guard values.isRegularFile == true,
+              url.pathExtension == ext else { continue }
+
+        if let since = modifiedAfter {
+            guard let modifiedDate = values.contentModificationDate,
+                  modifiedDate >= since else { continue }
+        }
+
+        files.append(url)
+    }
+    if traversalFailed {
+        throw UsageFileDiscoveryError.cannotEnumerateRoot
+    }
+    return files
+}
+
 func readJSONLLines(at url: URL) -> [String] {
     guard let content = try? String(contentsOf: url, encoding: .utf8) else { return [] }
     return content
         .components(separatedBy: .newlines)
         .map { $0.trimmingCharacters(in: .whitespaces) }
         .filter { !$0.isEmpty }
+}
+
+enum JSONLLineSource {
+    case lines([String])
+    case file(URL)
+
+    func consume(_ body: (String) -> Void) throws {
+        try Task.checkCancellation()
+        switch self {
+        case let .lines(lines):
+            for line in lines {
+                try Task.checkCancellation()
+                body(line)
+            }
+        case let .file(url):
+            try forEachJSONLLineThrowing(at: url) { line, _ in body(line) }
+        }
+    }
 }
 
 public func normalizedModelID(_ value: String?) -> String? {

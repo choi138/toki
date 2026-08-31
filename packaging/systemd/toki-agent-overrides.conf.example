@@ -1,0 +1,11 @@
+[Service]
+# Replace each example with the absolute tool home configured for this user.
+# BindReadOnlyPaths does not expand values from Environment.
+Environment="KIMI_SHARE_DIR=/home/USER/.local/share/kimi"
+BindReadOnlyPaths=/home/USER/.local/share/kimi/sessions
+Environment="KIMI_CODE_HOME=/home/USER/.local/share/kimi-code"
+BindReadOnlyPaths=/home/USER/.local/share/kimi-code/sessions
+Environment="QWEN_HOME=/home/USER/.local/share/qwen"
+BindReadOnlyPaths=/home/USER/.local/share/qwen/projects
+Environment="QWEN_RUNTIME_DIR=/home/USER/.cache/qwen"
+BindReadOnlyPaths=/home/USER/.cache/qwen/projects

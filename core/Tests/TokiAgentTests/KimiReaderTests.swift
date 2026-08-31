@@ -7,7 +7,7 @@ final class KimiReaderTests: XCTestCase {
     private let startDate = Date(timeIntervalSince1970: 1_770_000_000)
     private let endDate = Date(timeIntervalSince1970: 1_780_000_000)
 
-    func test_kimiCLIMapsStatusUsageAndKeepsLargestMessageSnapshot() {
+    func test_kimiCLIMapsStatusUsageAndKeepsLargestMessageSnapshot() throws {
         let lines = [
             #"{"type":"metadata","protocol_version":"1.3"}"#,
             #"{"timestamp":1770983410.0,"message":{"type":"StatusUpdate","payload":{"token_usage":{"# +
@@ -21,10 +21,9 @@ final class KimiReaderTests: XCTestCase {
                 #""message_id":"message-2"}}}"#,
         ]
 
-        let usage = KimiCLIReader.usage(
+        let usage = try KimiCLIReader.usage(
             fromJSONLLines: lines,
             streamID: "/tmp/.kimi/sessions/workspace-a/session-cli/wire.jsonl",
-            model: "kimi-k2.5",
             from: startDate,
             to: endDate)
 
@@ -35,19 +34,125 @@ final class KimiReaderTests: XCTestCase {
         XCTAssertEqual(usage.reasoningTokens, 0)
         XCTAssertEqual(usage.cost, 0)
         XCTAssertEqual(usage.tokenEvents.map(\.source), ["Kimi CLI", "Kimi CLI"])
-        XCTAssertEqual(usage.tokenEvents.map(\.model), ["kimi-k2.5", "kimi-k2.5"])
+        XCTAssertEqual(usage.tokenEvents.map(\.model), ["kimi-for-coding", "kimi-for-coding"])
         XCTAssertEqual(usage.tokenEvents.map(\.provider), ["moonshot", "moonshot"])
         XCTAssertTrue(usage.tokenEvents.allSatisfy { $0.costIsKnown == false })
+        XCTAssertEqual(Set(usage.tokenEvents.compactMap(\.attribution?.sessionID)).count, 1)
         XCTAssertEqual(
-            usage.tokenEvents.map(\.attribution?.sessionID),
+            usage.tokenEvents.map(\.attribution?.sessionLabel),
             ["session-cli", "session-cli"])
         XCTAssertEqual(
             usage.tokenEvents.map(\.attribution?.projectName),
             ["workspace-a", "workspace-a"])
-        XCTAssertEqual(usage.activityEvents.count, 2)
+        XCTAssertEqual(usage.activityEvents.count, 3)
     }
 
-    func test_kimiCodeCountsOnlyTurnUsageRecordsAndUsesConcreteRequestModel() {
+    func test_kimiCLISeparatesIDlessMonotonicTurns() throws {
+        let lines = [
+            #"{"timestamp":1770983410.0,"message":{"type":"StatusUpdate","payload":{"# +
+                #""token_usage":{"input_other":10,"output":0}}}}"#,
+            #"{"timestamp":1770983420.0,"message":{"type":"StatusUpdate","payload":{"# +
+                #""token_usage":{"input_other":20,"output":0}}}}"#,
+            #"{"timestamp":1770983430.0,"message":{"type":"StatusUpdate","payload":{"# +
+                #""token_usage":{"input_other":5,"output":0}}}}"#,
+            #"{"timestamp":1770983440.0,"message":{"type":"StatusUpdate","payload":{"# +
+                #""token_usage":{"input_other":15,"output":0}}}}"#,
+        ]
+
+        let usage = try KimiCLIReader.usage(
+            fromJSONLLines: lines,
+            streamID: "/tmp/.kimi/sessions/workspace/session/wire.jsonl",
+            from: startDate,
+            to: endDate)
+
+        XCTAssertEqual(usage.totalTokens, 35)
+        XCTAssertEqual(usage.tokenEvents.count, 2)
+    }
+
+    func test_kimiCLIPreservesCumulativeSnapshotTimestampsForActivity() throws {
+        let lines = [
+            #"{"timestamp":1770983410.0,"message":{"type":"StatusUpdate","payload":{"# +
+                #""token_usage":{"input_other":10,"output":0},"message_id":"message"}}}"#,
+            #"{"timestamp":1770983470.0,"message":{"type":"StatusUpdate","payload":{"# +
+                #""token_usage":{"input_other":20,"output":0},"message_id":"message"}}}"#,
+        ]
+
+        let usage = try KimiCLIReader.usage(
+            fromJSONLLines: lines,
+            streamID: "/tmp/.kimi/sessions/workspace/session/wire.jsonl",
+            from: startDate,
+            to: endDate)
+
+        XCTAssertEqual(usage.totalTokens, 20)
+        XCTAssertEqual(usage.tokenEvents.count, 1)
+        XCTAssertEqual(usage.activityEvents.count, 2)
+        XCTAssertEqual(usage.resolvedWorkTime.agentSeconds, 90)
+    }
+
+    func test_kimiCLIDeduplicatesSnapshotsBeforeDateFiltering() throws {
+        let boundary = startDate.addingTimeInterval(60)
+        let lines = [
+            #"{"timestamp":"# + String(boundary.timeIntervalSince1970 - 1) +
+                #", "message":{"type":"StatusUpdate","payload":{"token_usage":{"# +
+                #""input_other":100,"output":0},"message_id":"spanning-message"}}}"#,
+            #"{"timestamp":"# + String(boundary.timeIntervalSince1970 + 1) +
+                #", "message":{"type":"StatusUpdate","payload":{"token_usage":{"# +
+                #""input_other":150,"output":0},"message_id":"spanning-message"}}}"#,
+        ]
+
+        let beforeBoundary = try KimiCLIReader.usage(
+            fromJSONLLines: lines,
+            streamID: "/tmp/.kimi/sessions/workspace/session/wire.jsonl",
+            from: startDate,
+            to: boundary)
+        let afterBoundary = try KimiCLIReader.usage(
+            fromJSONLLines: lines,
+            streamID: "/tmp/.kimi/sessions/workspace/session/wire.jsonl",
+            from: boundary,
+            to: endDate)
+
+        XCTAssertEqual(beforeBoundary.totalTokens, 0)
+        XCTAssertEqual(afterBoundary.totalTokens, 150)
+        XCTAssertEqual(beforeBoundary.totalTokens + afterBoundary.totalTokens, 150)
+    }
+
+    func test_kimiCLIDoesNotReattributeHistoryWhenCurrentConfigChanges() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+            .appendingPathComponent(".kimi", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let sessions = root.appendingPathComponent("sessions", isDirectory: true)
+        let session = sessions
+            .appendingPathComponent("workspace", isDirectory: true)
+            .appendingPathComponent("session", isDirectory: true)
+        try FileManager.default.createDirectory(at: session, withIntermediateDirectories: true)
+        try #"default_model = "first-model""#.write(
+            to: root.appendingPathComponent("config.toml"),
+            atomically: true,
+            encoding: .utf8)
+        let wire = #"{"timestamp":1770983410.0,"message":{"type":"StatusUpdate","payload":{"# +
+            #""token_usage":{"input_other":10,"output":2},"message_id":"valid"}}}"#
+        try wire.write(
+            to: session.appendingPathComponent("wire.jsonl"),
+            atomically: true,
+            encoding: .utf8)
+
+        let firstUsage = try await KimiCLIReader(sessionRoots: [sessions])
+            .readUsage(from: startDate, to: endDate)
+        try #"default_model = "second-model""#.write(
+            to: root.appendingPathComponent("config.toml"),
+            atomically: true,
+            encoding: .utf8)
+        let secondUsage = try await KimiCLIReader(sessionRoots: [sessions])
+            .readUsage(from: startDate, to: endDate)
+
+        XCTAssertEqual(firstUsage.tokenEvents, secondUsage.tokenEvents)
+        XCTAssertEqual(firstUsage.tokenEvents.first?.model, "kimi-for-coding")
+        XCTAssertEqual(firstUsage.tokenEvents.first?.provider, "moonshot")
+    }
+
+    func test_kimiCodeCountsOnlyTurnUsageRecordsAndUsesConcreteRequestModel() throws {
         let lines = [
             #"{"type":"llm.request","model":"moonshot/kimi-k2.6"}"#,
             #"{"type":"usage.record","model":"__kimi_env_model__","usage":{"inputOther":200,"# +
@@ -60,7 +165,7 @@ final class KimiReaderTests: XCTestCase {
                 #""output":999},"usageScope":"session","time":1770983420000}"#,
         ]
 
-        let usage = KimiCodeReader.usage(
+        let usage = try KimiCodeReader.usage(
             fromJSONLLines: lines,
             streamID: "/tmp/.kimi-code/sessions/workspace-b/session-code/agents/main/wire.jsonl",
             from: startDate,
@@ -76,13 +181,29 @@ final class KimiReaderTests: XCTestCase {
         XCTAssertEqual(usage.tokenEvents.first?.model, "moonshot/kimi-k2.6")
         XCTAssertEqual(usage.tokenEvents.first?.provider, "moonshot")
         XCTAssertEqual(usage.tokenEvents.first?.costIsKnown, false)
-        XCTAssertEqual(usage.tokenEvents.first?.attribution?.sessionID, "session-code")
+        XCTAssertNotEqual(usage.tokenEvents.first?.attribution?.sessionID, "session-code")
+        XCTAssertEqual(usage.tokenEvents.first?.attribution?.sessionLabel, "session-code")
         XCTAssertEqual(usage.tokenEvents.first?.attribution?.projectName, "workspace-b")
         XCTAssertEqual(usage.activityEvents.count, 1)
     }
 
-    func test_kimiReadersSkipMalformedAndTruncatedRecords() {
-        let cliUsage = KimiCLIReader.usage(
+    func test_kimiCodeClassifiesNonMainAgentActivityAsSubagent() throws {
+        let usage = try KimiCodeReader.usage(
+            fromJSONLLines: [
+                #"{"type":"usage.record","model":"kimi-k2","usage":{"inputOther":12,"# +
+                    #""output":3},"usageScope":"turn","time":1770983410000}"#,
+            ],
+            streamID: "/tmp/.kimi-code/sessions/workspace/session/agents/researcher/wire.jsonl",
+            from: startDate,
+            to: endDate)
+
+        XCTAssertEqual(usage.activityEvents.map(\.agentKind), [.subagent])
+        XCTAssertEqual(usage.resolvedWorkTime.mainAgentSeconds, 0)
+        XCTAssertEqual(usage.resolvedWorkTime.subagentSeconds, 30)
+    }
+
+    func test_kimiReadersSkipMalformedAndTruncatedRecords() throws {
+        let cliUsage = try KimiCLIReader.usage(
             fromJSONLLines: [
                 #"{"timestamp":1770983410.0,"message":{"type":"StatusUpdate","payload":{"# +
                     #""token_usage":{"input_other":10,"output":2},"message_id":"valid"}}}"#,
@@ -90,10 +211,9 @@ final class KimiReaderTests: XCTestCase {
                 #"{"timestamp":1770983420.0,"message":{"type":"StatusUpdate""#,
             ],
             streamID: "/tmp/.kimi/sessions/workspace/session/wire.jsonl",
-            model: nil,
             from: startDate,
             to: endDate)
-        let codeUsage = KimiCodeReader.usage(
+        let codeUsage = try KimiCodeReader.usage(
             fromJSONLLines: [
                 #"{"type":"usage.record","model":"kimi-k2","usage":{"inputOther":12,"output":3},"# +
                     #""usageScope":"turn","time":1770983410000}"#,
@@ -105,6 +225,218 @@ final class KimiReaderTests: XCTestCase {
 
         XCTAssertEqual(cliUsage.totalTokens, 12)
         XCTAssertEqual(codeUsage.totalTokens, 15)
+    }
+}
+
+extension KimiReaderTests {
+    func test_kimiCLIKeepsSameNamedSessionsFromDifferentWorkspaces() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let sessions = root.appendingPathComponent("sessions", isDirectory: true)
+        for (workspace, tokens) in [("workspace-a", 10), ("workspace-b", 20)] {
+            let file = sessions
+                .appendingPathComponent(workspace, isDirectory: true)
+                .appendingPathComponent("session", isDirectory: true)
+                .appendingPathComponent("wire.jsonl")
+            try FileManager.default.createDirectory(
+                at: file.deletingLastPathComponent(),
+                withIntermediateDirectories: true)
+            let line =
+                #"{"timestamp":1770983410.0,"message":{"type":"StatusUpdate","payload":{"# +
+                #""token_usage":{"input_other":"# + String(tokens) +
+                #","output":0},"message_id":"same-message"}}}"#
+            try line.write(to: file, atomically: true, encoding: .utf8)
+        }
+
+        let usage = try await KimiCLIReader(sessionRoots: [sessions])
+            .readUsage(from: startDate, to: endDate)
+
+        XCTAssertEqual(usage.totalTokens, 30)
+        XCTAssertEqual(Set(usage.tokenEvents.compactMap(\.attribution?.projectName)), [
+            "workspace-a",
+            "workspace-b",
+        ])
+        XCTAssertEqual(Set(usage.tokenEvents.compactMap(\.attribution?.sessionID)).count, 2)
+        XCTAssertEqual(Set(usage.tokenEvents.compactMap(\.attribution?.sessionLabel)), ["session"])
+        XCTAssertEqual(usage.resolvedWorkTime.activeStreamCount, 2)
+        XCTAssertEqual(usage.resolvedWorkTime.maxConcurrentStreams, 2)
+        XCTAssertEqual(usage.resolvedWorkTime.agentSeconds, 60)
+        XCTAssertEqual(usage.resolvedWorkTime.wallClockSeconds, 30)
+    }
+
+    func test_kimiCLIDeduplicatesMessageWithoutIDAcrossDivergentReplicas() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let defaultRoot = root.appendingPathComponent("default", isDirectory: true)
+        let overrideRoot = root.appendingPathComponent("override", isDirectory: true)
+        let relativePath = "workspace/session/wire.jsonl"
+        let defaultWire = defaultRoot.appendingPathComponent(relativePath)
+        let overrideWire = overrideRoot.appendingPathComponent(relativePath)
+        for file in [defaultWire, overrideWire] {
+            try FileManager.default.createDirectory(
+                at: file.deletingLastPathComponent(),
+                withIntermediateDirectories: true)
+        }
+        let firstSnapshot =
+            #"{"timestamp":1770983410.0,"message":{"type":"StatusUpdate","payload":{"# +
+            #""token_usage":{"input_other":10,"output":0}}}}"#
+        let secondSnapshot =
+            #"{"timestamp":1770983420.0,"message":{"type":"StatusUpdate","payload":{"# +
+            #""token_usage":{"input_other":20,"output":0}}}}"#
+        try [firstSnapshot, secondSnapshot].joined(separator: "\n")
+            .write(to: defaultWire, atomically: true, encoding: .utf8)
+        try [#"{"type":"metadata"}"#, firstSnapshot, secondSnapshot].joined(separator: "\n")
+            .write(to: overrideWire, atomically: true, encoding: .utf8)
+
+        let usage = try await KimiCLIReader(sessionRoots: [defaultRoot, overrideRoot])
+            .readUsage(from: startDate, to: endDate)
+
+        XCTAssertEqual(usage.totalTokens, 20)
+        XCTAssertEqual(usage.tokenEvents.count, 1)
+        XCTAssertEqual(usage.activityEvents.count, 2)
+        XCTAssertEqual(usage.resolvedWorkTime.agentSeconds, 40)
+    }
+
+    func test_kimiReadersSkipOverflowingTokenRecords() throws {
+        let overflowingCLI =
+            #"{"timestamp":1770983410.0,"message":{"type":"StatusUpdate","payload":{"token_usage":{"input_other":"# +
+            String(Int.max) +
+            #","output":1},"message_id":"overflow"}}}"#
+        let validCLI =
+            #"{"timestamp":1770983420.0,"message":{"type":"StatusUpdate","payload":{"# +
+            #""token_usage":{"input_other":10,"output":2},"message_id":"valid"}}}"#
+        let overflowingCode =
+            #"{"type":"usage.record","model":"kimi-k2","usage":{"inputOther":"# +
+            String(Int.max) +
+            #","output":1},"usageScope":"turn","time":1770983410000}"#
+        let validCode =
+            #"{"type":"usage.record","model":"kimi-k2","usage":{"inputOther":12,"output":3},"# +
+            #""usageScope":"turn","time":1770983420000}"#
+
+        let cliUsage = try KimiCLIReader.usage(
+            fromJSONLLines: [overflowingCLI, validCLI],
+            streamID: "/tmp/.kimi/sessions/workspace/session/wire.jsonl",
+            from: startDate,
+            to: endDate)
+        let codeUsage = try KimiCodeReader.usage(
+            fromJSONLLines: [overflowingCode, validCode],
+            streamID: "/tmp/.kimi-code/sessions/workspace/session/agents/main/wire.jsonl",
+            from: startDate,
+            to: endDate)
+
+        XCTAssertEqual(cliUsage.totalTokens, 12)
+        XCTAssertEqual(codeUsage.totalTokens, 15)
+    }
+
+    func test_kimiCodeDeduplicatesDivergentReplicasByStableEventContent() async throws {
+        let temporaryRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: temporaryRoot) }
+
+        let defaultRoot = temporaryRoot.appendingPathComponent("default", isDirectory: true)
+        let overrideRoot = temporaryRoot.appendingPathComponent("override", isDirectory: true)
+        let relativeWirePath = "workspace/session/agents/main/wire.jsonl"
+        let defaultWire = defaultRoot.appendingPathComponent(relativeWirePath)
+        let overrideWire = overrideRoot.appendingPathComponent(relativeWirePath)
+        try FileManager.default.createDirectory(
+            at: defaultWire.deletingLastPathComponent(),
+            withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(
+            at: overrideWire.deletingLastPathComponent(),
+            withIntermediateDirectories: true)
+
+        let eventA =
+            #"{"type":"usage.record","model":"kimi-k2","usage":{"inputOther":10,"output":0},"# +
+            #""usageScope":"turn","time":1770983410000}"#
+        let eventB =
+            #"{"type":"usage.record","model":"kimi-k2","usage":{"inputOther":20,"output":0},"# +
+            #""usageScope":"turn","time":1770983420000}"#
+        let eventC =
+            #"{"type":"usage.record","model":"kimi-k2","usage":{"inputOther":30,"output":0},"# +
+            #""usageScope":"turn","time":1770983430000}"#
+        try [eventA, eventB].joined(separator: "\n")
+            .write(to: defaultWire, atomically: true, encoding: .utf8)
+        try [eventB, eventC].joined(separator: "\n")
+            .write(to: overrideWire, atomically: true, encoding: .utf8)
+
+        let usage = try await KimiCodeReader(sessionRoots: [defaultRoot, overrideRoot])
+            .readUsage(from: startDate, to: endDate)
+
+        XCTAssertEqual(usage.totalTokens, 60)
+        XCTAssertEqual(usage.tokenEvents.count, 3)
+    }
+
+    func test_kimiCodeDeduplicatesReplicasWhenOnlyOneKnowsConcreteModel() async throws {
+        let temporaryRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: temporaryRoot) }
+
+        let defaultRoot = temporaryRoot.appendingPathComponent("default", isDirectory: true)
+        let overrideRoot = temporaryRoot.appendingPathComponent("override", isDirectory: true)
+        let relativeWirePath = "workspace/session/agents/main/wire.jsonl"
+        let defaultWire = defaultRoot.appendingPathComponent(relativeWirePath)
+        let overrideWire = overrideRoot.appendingPathComponent(relativeWirePath)
+        for file in [defaultWire, overrideWire] {
+            try FileManager.default.createDirectory(
+                at: file.deletingLastPathComponent(),
+                withIntermediateDirectories: true)
+        }
+        let usageRecord =
+            #"{"type":"usage.record","model":"__kimi_env_model__","usage":{"inputOther":10,"output":0},"# +
+            #""usageScope":"turn","time":1770983410000}"#
+        try usageRecord.write(to: defaultWire, atomically: true, encoding: .utf8)
+        try [#"{"type":"llm.request","model":"moonshot/kimi-k2.6"}"#, usageRecord]
+            .joined(separator: "\n")
+            .write(to: overrideWire, atomically: true, encoding: .utf8)
+
+        let forward = try await KimiCodeReader(sessionRoots: [defaultRoot, overrideRoot])
+            .readUsage(from: startDate, to: endDate)
+        let reversed = try await KimiCodeReader(sessionRoots: [overrideRoot, defaultRoot])
+            .readUsage(from: startDate, to: endDate)
+
+        XCTAssertEqual(forward.totalTokens, 10)
+        XCTAssertEqual(forward.tokenEvents.count, 1)
+        XCTAssertEqual(forward.tokenEvents.first?.model, "moonshot/kimi-k2.6")
+        XCTAssertEqual(forward.tokenEvents, reversed.tokenEvents)
+    }
+
+    func test_kimiCodeKeepsSameNamedSessionsFromDifferentWorkspaces() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let event =
+            #"{"type":"usage.record","model":"kimi-k2","usage":{"inputOther":10,"output":0},"# +
+            #""usageScope":"turn","time":1770983410000}"#
+        for workspace in ["workspace-a", "workspace-b"] {
+            let file = root
+                .appendingPathComponent(workspace, isDirectory: true)
+                .appendingPathComponent("session/agents/main", isDirectory: true)
+                .appendingPathComponent("wire.jsonl")
+            try FileManager.default.createDirectory(
+                at: file.deletingLastPathComponent(),
+                withIntermediateDirectories: true)
+            try event.write(to: file, atomically: true, encoding: .utf8)
+        }
+
+        let usage = try await KimiCodeReader(sessionRoots: [root])
+            .readUsage(from: startDate, to: endDate)
+
+        XCTAssertEqual(usage.totalTokens, 20)
+        XCTAssertEqual(Set(usage.tokenEvents.compactMap(\.attribution?.projectName)), [
+            "workspace-a",
+            "workspace-b",
+        ])
+        XCTAssertEqual(Set(usage.tokenEvents.compactMap(\.attribution?.sessionID)).count, 2)
+        XCTAssertEqual(Set(usage.tokenEvents.compactMap(\.attribution?.sessionLabel)), ["session"])
+        XCTAssertEqual(usage.resolvedWorkTime.activeStreamCount, 2)
+        XCTAssertEqual(usage.resolvedWorkTime.maxConcurrentStreams, 2)
+        XCTAssertEqual(usage.resolvedWorkTime.agentSeconds, 60)
+        XCTAssertEqual(usage.resolvedWorkTime.wallClockSeconds, 30)
     }
 
     func test_kimiDiscoveryRootsUseAbsoluteOverridesWithoutDuplicatingDefaults() {
@@ -121,97 +453,42 @@ final class KimiReaderTests: XCTestCase {
             ["/tmp/toki-home/.kimi-code/sessions", "/tmp/kimi-code/sessions"])
     }
 
-    func test_kimiCodePartialReplicaDoesNotShiftEventIdentity() async throws {
+    func test_kimiReadersDoNotRedateTimestampLessRecordsWhenFilesGrow() async throws {
         let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("toki-kimi-replica-\(UUID().uuidString)", isDirectory: true)
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
         defer { try? FileManager.default.removeItem(at: root) }
-        let firstRoot = root.appendingPathComponent("first")
-        let secondRoot = root.appendingPathComponent("second")
-        let relativePath = "workspace/session/agents/main/wire.jsonl"
-        let firstFile = firstRoot.appendingPathComponent(relativePath)
-        let secondFile = secondRoot.appendingPathComponent(relativePath)
-        try FileManager.default.createDirectory(
-            at: firstFile.deletingLastPathComponent(),
-            withIntermediateDirectories: true)
-        try FileManager.default.createDirectory(
-            at: secondFile.deletingLastPathComponent(),
-            withIntermediateDirectories: true)
-        let firstEvent = [
-            #"{"type":"usage.record","model":"kimi-k2","usage":{"inputOther":10},"#,
-            #""usageScope":"turn","time":1770983410000}"#,
-        ].joined()
-        let secondEvent = [
-            #"{"type":"usage.record","model":"kimi-k2","usage":{"inputOther":20},"#,
-            #""usageScope":"turn","time":1770983420000}"#,
-        ].joined()
-        try Data([firstEvent, secondEvent].joined(separator: "\n").utf8).write(to: firstFile)
-        try Data(secondEvent.utf8).write(to: secondFile)
 
-        let usage = try await KimiCodeReader(sessionRoots: [firstRoot, secondRoot])
+        let cliRoot = root.appendingPathComponent(".kimi/sessions")
+        let cliFile = cliRoot.appendingPathComponent("workspace/session/wire.jsonl")
+        let codeRoot = root.appendingPathComponent(".kimi-code/sessions")
+        let codeFile = codeRoot.appendingPathComponent(
+            "workspace/session/agents/main/wire.jsonl")
+        try FileManager.default.createDirectory(
+            at: cliFile.deletingLastPathComponent(),
+            withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(
+            at: codeFile.deletingLastPathComponent(),
+            withIntermediateDirectories: true)
+        try Data(
+            #"{"message":{"type":"StatusUpdate","payload":{"token_usage":{"input_other":10,"output":2}}}}"#
+                .utf8)
+            .write(to: cliFile)
+        try Data(
+            #"{"type":"usage.record","model":"kimi-k2","usage":{"inputOther":12,"output":3},"usageScope":"turn"}"#
+                .utf8)
+            .write(to: codeFile)
+        for file in [cliFile, codeFile] {
+            try FileManager.default.setAttributes(
+                [.modificationDate: startDate.addingTimeInterval(1)],
+                ofItemAtPath: file.path)
+        }
+
+        let cliUsage = try await KimiCLIReader(sessionRoots: [cliRoot])
+            .readUsage(from: startDate, to: endDate)
+        let codeUsage = try await KimiCodeReader(sessionRoots: [codeRoot])
             .readUsage(from: startDate, to: endDate)
 
-        XCTAssertEqual(usage.inputTokens, 30)
-        XCTAssertEqual(usage.tokenEvents.count, 2)
-    }
-
-    func test_kimiCLIIdlessPartialReplicaDoesNotShiftEventIdentity() async throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("toki-kimi-cli-replica-\(UUID().uuidString)")
-        defer { try? FileManager.default.removeItem(at: root) }
-        let firstRoot = root.appendingPathComponent("first")
-        let secondRoot = root.appendingPathComponent("second")
-        let relativePath = "workspace/session/wire.jsonl"
-        let firstFile = firstRoot.appendingPathComponent(relativePath)
-        let secondFile = secondRoot.appendingPathComponent(relativePath)
-        try FileManager.default.createDirectory(
-            at: firstFile.deletingLastPathComponent(),
-            withIntermediateDirectories: true)
-        try FileManager.default.createDirectory(
-            at: secondFile.deletingLastPathComponent(),
-            withIntermediateDirectories: true)
-        let firstEvent =
-            #"{"timestamp":1770983410.0,"message":{"type":"StatusUpdate","payload":{"# +
-            #""token_usage":{"input_other":10}}}}"#
-        let secondEvent =
-            #"{"timestamp":1770983420.0,"message":{"type":"StatusUpdate","payload":{"# +
-            #""token_usage":{"input_other":20}}}}"#
-        try Data([firstEvent, secondEvent].joined(separator: "\n").utf8).write(to: firstFile)
-        try Data(secondEvent.utf8).write(to: secondFile)
-
-        let usage = try await KimiCLIReader(sessionRoots: [firstRoot, secondRoot])
-            .readUsage(from: startDate, to: endDate)
-
-        XCTAssertEqual(usage.inputTokens, 30)
-        XCTAssertEqual(usage.tokenEvents.count, 2)
-    }
-
-    func test_kimiCodeSameSessionAcrossWorkspacesRemainsIndependent() async throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("toki-kimi-code-workspaces-\(UUID().uuidString)")
-        defer { try? FileManager.default.removeItem(at: root) }
-        let relativePath = "session/agents/main/wire.jsonl"
-        let firstFile = root.appendingPathComponent("workspace-a/\(relativePath)")
-        let secondFile = root.appendingPathComponent("workspace-b/\(relativePath)")
-        try FileManager.default.createDirectory(
-            at: firstFile.deletingLastPathComponent(),
-            withIntermediateDirectories: true)
-        try FileManager.default.createDirectory(
-            at: secondFile.deletingLastPathComponent(),
-            withIntermediateDirectories: true)
-        let event = [
-            #"{"type":"usage.record","model":"kimi-k2","usage":{"inputOther":10},"#,
-            #""usageScope":"turn","time":1770983410000}"#,
-        ].joined()
-        try Data(event.utf8).write(to: firstFile)
-        try Data(event.utf8).write(to: secondFile)
-
-        let usage = try await KimiCodeReader(sessionRoots: [root])
-            .readUsage(from: startDate, to: endDate)
-
-        XCTAssertEqual(usage.inputTokens, 20)
-        XCTAssertEqual(usage.tokenEvents.count, 2)
-        XCTAssertEqual(
-            Set(usage.tokenEvents.compactMap(\.attribution?.projectName)),
-            ["workspace-a", "workspace-b"])
+        XCTAssertEqual(cliUsage.totalTokens, 0)
+        XCTAssertEqual(codeUsage.totalTokens, 0)
     }
 }

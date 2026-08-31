@@ -286,6 +286,37 @@ tool records data outside the standard roots, add only the narrowest required
 path with `BindReadOnlyPaths`, run `systemctl --user daemon-reload`, and restart
 the unit. Relative XDG paths are ignored in favor of the default directories.
 
+The Kimi and Qwen readers also support `KIMI_SHARE_DIR`, `KIMI_CODE_HOME`,
+`QWEN_HOME`, and `QWEN_RUNTIME_DIR`. `ProtectHome=tmpfs` hides override
+directories under the user's home unless the service explicitly bind-mounts
+them. Start from the supplied drop-in example, replace every `/home/USER/...`
+value with the matching absolute tool home, and create every listed `sessions`
+or `projects` directory before starting the service. Keep those required mounts
+in the drop-in so a missing data directory fails at startup instead of silently
+omitting usage:
+
+```bash
+systemctl --user edit toki-agent
+# Copy the [Service] entries you use from:
+# packaging/systemd/toki-agent-overrides.conf.example
+systemctl --user daemon-reload
+systemctl --user restart toki-agent
+systemctl --user status toki-agent
+```
+
+Do not install the example unchanged. systemd does not expand environment
+variables inside `BindReadOnlyPaths`, so each mount must repeat the configured
+absolute path plus the reader-specific `sessions` or `projects` suffix. Verify
+that each environment value and mount share the same tool-home prefix. Omit an
+entire unused override group, not a mount from a group that remains enabled. If
+a CLI creates its data directory after the Agent starts, add or restore the
+mount and restart the service. Do not mount the entire dedicated Kimi or Qwen
+home. The Kimi configuration files are intentionally not mounted because they
+may contain credentials. Kimi CLI wire history does not record its model or
+provider, so the reader uses the stable `kimi-for-coding` fallback and infers
+the `moonshot` provider instead of applying the current configuration to old
+sessions.
+
 For a headless account that must run after logout, an administrator can enable
 user lingering with `sudo loginctl enable-linger USERNAME`. The Agent opens no
 inbound listener. Configuration, state, and encrypted spool files use XDG paths

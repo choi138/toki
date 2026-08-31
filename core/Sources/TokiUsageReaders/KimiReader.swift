@@ -12,32 +12,28 @@ public struct KimiCLIReader: TokenReader {
     }
 
     public func readUsage(from startDate: Date, to endDate: Date) async throws -> RawTokenUsage {
-        let sessions = sessionRoots.flatMap { root in
-            let model = kimiCLIModel(at: root.deletingLastPathComponent())
-            return kimiWireFiles(in: root).map { file in
+        var sessions: [KimiCLISession] = []
+        for root in sessionRoots {
+            try Task.checkCancellation()
+            try sessions.append(contentsOf: kimiWireFiles(in: root).map { file in
                 KimiCLISession(
                     streamID: file.path,
-                    lines: readJSONLLines(at: file),
-                    model: model,
-                    fallbackDate: fileModificationDate(file))
-            }
+                    lineSource: .file(file))
+            })
         }
-        return Self.usage(from: sessions, from: startDate, to: endDate)
+        return try Self.usage(from: sessions, from: startDate, to: endDate)
     }
 
     static func usage(
         fromJSONLLines lines: [String],
         streamID: String,
-        model: String?,
         from startDate: Date,
-        to endDate: Date) -> RawTokenUsage {
-        usage(
+        to endDate: Date) throws -> RawTokenUsage {
+        try usage(
             from: [
                 KimiCLISession(
                     streamID: streamID,
-                    lines: lines,
-                    model: model,
-                    fallbackDate: nil),
+                    lineSource: .lines(lines)),
             ],
             from: startDate,
             to: endDate)
@@ -46,60 +42,71 @@ public struct KimiCLIReader: TokenReader {
     private static func usage(
         from sessions: [KimiCLISession],
         from startDate: Date,
-        to endDate: Date) -> RawTokenUsage {
+        to endDate: Date) throws -> RawTokenUsage {
+        try Task.checkCancellation()
         let decoder = JSONDecoder()
         var snapshots: [String: KimiUsageEvent] = [:]
+        var observedActivityEvents: [String: ActivityTimeEvent<String>] = [:]
 
         for session in sessions {
             let identity = kimiCLIIdentity(from: session.streamID)
-            let model = normalizedModelID(session.model) ?? "kimi-for-coding"
-            let namespace = [identity.workspace, identity.sessionID]
-                .compactMap { $0 }
-                .joined(separator: ":")
-            var fingerprintOccurrences: [String: Int] = [:]
-            for line in session.lines {
+            var fallbackTurns = KimiCLIFallbackTurnTracker()
+            try session.lineSource.consume { line in
                 guard let data = line.data(using: .utf8),
                       let wire = try? decoder.decode(KimiCLIWireLine.self, from: data),
                       wire.message?.type == "StatusUpdate",
                       let payload = wire.message?.payload,
                       let tokens = payload.tokenUsage?.counts,
-                      tokens.total > 0,
-                      let timestamp = kimiCLITimestamp(wire.timestamp) ?? session.fallbackDate,
-                      timestamp >= startDate,
-                      timestamp < endDate else {
-                    continue
+                      let totalTokens = tokens.total,
+                      totalTokens > 0,
+                      let timestamp = kimiCLITimestamp(wire.timestamp) else {
+                    return
                 }
 
                 let messageKey: String
                 if let messageID = nonemptyKimiValue(payload.messageID) {
+                    fallbackTurns.finishSequence()
                     messageKey = "message:\(messageID)"
                 } else {
-                    let fingerprint = kimiCodeEventFingerprint(
-                        timestamp: timestamp,
-                        model: model,
-                        tokens: tokens)
-                    let occurrence = fingerprintOccurrences[fingerprint, default: 0]
-                    fingerprintOccurrences[fingerprint] = occurrence + 1
-                    messageKey = "content:\(fingerprint):\(occurrence)"
+                    messageKey = "fallback:\(fallbackTurns.turnIndex(for: tokens))"
                 }
                 let event = KimiUsageEvent(
                     timestamp: timestamp,
-                    model: model,
-                    sessionID: identity.sessionID,
+                    model: kimiFallbackModel,
+                    modelIsConcrete: false,
+                    sessionID: identity.dedupScope,
+                    sessionLabel: identity.sessionID,
                     projectName: identity.workspace,
-                    streamID: namespace,
+                    streamID: identity.dedupScope,
+                    agentKind: .main,
                     tokens: tokens,
-                    dedupKey: "\(namespace):\(messageKey)")
+                    totalTokens: totalTokens,
+                    dedupKey: "\(identity.dedupScope):\(messageKey)")
+                let activityKey = [
+                    event.dedupKey,
+                    String(timestamp.timeIntervalSince1970.bitPattern),
+                ].joined(separator: "|")
+                observedActivityEvents[activityKey] = ActivityTimeEvent(
+                    streamID: event.streamID,
+                    timestamp: timestamp,
+                    key: event.model,
+                    agentKind: event.agentKind)
                 if let existing = snapshots[event.dedupKey],
                    !event.shouldReplace(existing) {
-                    continue
+                    return
                 }
                 snapshots[event.dedupKey] = event
             }
         }
 
+        try Task.checkCancellation()
         return kimiRawUsage(
-            events: snapshots.values.sorted(by: kimiEventSort),
+            events: snapshots.values
+                .filter { $0.timestamp >= startDate && $0.timestamp < endDate }
+                .sorted(by: kimiEventSort),
+            observedActivityEvents: observedActivityEvents.values
+                .filter { $0.timestamp >= startDate && $0.timestamp < endDate }
+                .sorted(by: kimiActivityEventSort),
             source: sourceName,
             clippingEndDate: endDate)
     }
@@ -116,28 +123,28 @@ public struct KimiCodeReader: TokenReader {
     }
 
     public func readUsage(from startDate: Date, to endDate: Date) async throws -> RawTokenUsage {
-        let sessions = sessionRoots.flatMap { root in
-            kimiWireFiles(in: root).map { file in
+        var sessions: [KimiCodeSession] = []
+        for root in sessionRoots {
+            try Task.checkCancellation()
+            try sessions.append(contentsOf: kimiWireFiles(in: root).map { file in
                 KimiCodeSession(
                     streamID: file.path,
-                    lines: readJSONLLines(at: file),
-                    fallbackDate: fileModificationDate(file))
-            }
+                    lineSource: .file(file))
+            })
         }
-        return Self.usage(from: sessions, from: startDate, to: endDate)
+        return try Self.usage(from: sessions, from: startDate, to: endDate)
     }
 
     static func usage(
         fromJSONLLines lines: [String],
         streamID: String,
         from startDate: Date,
-        to endDate: Date) -> RawTokenUsage {
-        usage(
+        to endDate: Date) throws -> RawTokenUsage {
+        try usage(
             from: [
                 KimiCodeSession(
                     streamID: streamID,
-                    lines: lines,
-                    fallbackDate: nil),
+                    lineSource: .lines(lines)),
             ],
             from: startDate,
             to: endDate)
@@ -146,60 +153,75 @@ public struct KimiCodeReader: TokenReader {
     private static func usage(
         from sessions: [KimiCodeSession],
         from startDate: Date,
-        to endDate: Date) -> RawTokenUsage {
+        to endDate: Date) throws -> RawTokenUsage {
+        try Task.checkCancellation()
         let decoder = JSONDecoder()
         var eventsByKey: [String: KimiUsageEvent] = [:]
 
         for session in sessions {
             let identity = kimiCodeIdentity(from: session.streamID)
             var latestConcreteModel: String?
-            var fingerprintOccurrences: [String: Int] = [:]
+            var contentOccurrences: [String: Int] = [:]
 
-            for line in session.lines {
+            try session.lineSource.consume { line in
                 guard let data = line.data(using: .utf8),
                       let wire = try? decoder.decode(KimiCodeWireLine.self, from: data) else {
-                    continue
+                    return
                 }
 
                 if wire.type == "llm.request" {
                     latestConcreteModel = concreteKimiCodeModel(wire.model) ?? latestConcreteModel
-                    continue
+                    return
                 }
 
                 guard wire.type == "usage.record",
                       wire.usageScope == "turn",
                       let tokens = wire.usage?.counts,
-                      tokens.total > 0,
-                      let timestamp = kimiCodeTimestamp(wire.time) ?? session.fallbackDate,
+                      let totalTokens = tokens.total,
+                      totalTokens > 0,
+                      let timestamp = kimiCodeTimestamp(wire.time),
                       timestamp >= startDate,
                       timestamp < endDate else {
-                    continue
+                    return
                 }
 
-                let model = concreteKimiCodeModel(wire.model)
-                    ?? latestConcreteModel
-                    ?? "kimi-for-coding"
-                let fingerprint = kimiCodeEventFingerprint(
+                let recordedModel = nonemptyKimiValue(wire.model)
+                let concreteModel = concreteKimiCodeModel(recordedModel) ?? latestConcreteModel
+                let model = concreteModel ?? kimiFallbackModel
+                let contentIdentity = [
+                    "\(identity.workspace?.utf8.count ?? 0):\(identity.workspace ?? "")",
+                    "\(identity.sessionID.utf8.count):\(identity.sessionID)",
+                    "\(identity.agent.utf8.count):\(identity.agent)",
+                    String(timestamp.timeIntervalSince1970.bitPattern),
+                    "\(recordedModel?.utf8.count ?? 0):\(recordedModel ?? "")",
+                    String(tokens.input),
+                    String(tokens.output),
+                    String(tokens.cacheRead),
+                    String(tokens.cacheWrite),
+                ].joined(separator: "|")
+                let occurrence = contentOccurrences[contentIdentity, default: 0]
+                contentOccurrences[contentIdentity] = occurrence + 1
+                let key = "\(contentIdentity)|occurrence:\(occurrence)"
+                let event = KimiUsageEvent(
                     timestamp: timestamp,
                     model: model,
-                    tokens: tokens)
-                let occurrence = fingerprintOccurrences[fingerprint, default: 0]
-                fingerprintOccurrences[fingerprint] = occurrence + 1
-                let namespace = [identity.workspace, identity.sessionID, identity.agent]
-                    .compactMap { $0 }
-                    .joined(separator: ":")
-                let key = "\(namespace):\(fingerprint):\(occurrence)"
-                eventsByKey[key] = KimiUsageEvent(
-                    timestamp: timestamp,
-                    model: model,
-                    sessionID: identity.sessionID,
+                    modelIsConcrete: concreteModel != nil,
+                    sessionID: identity.sessionScope,
+                    sessionLabel: identity.sessionID,
                     projectName: identity.workspace,
-                    streamID: namespace,
+                    streamID: identity.streamID,
+                    agentKind: identity.agentKind,
                     tokens: tokens,
+                    totalTokens: totalTokens,
                     dedupKey: key)
+                if let existing = eventsByKey[key], !event.shouldReplace(existing) {
+                    return
+                }
+                eventsByKey[key] = event
             }
         }
 
+        try Task.checkCancellation()
         return kimiRawUsage(
             events: eventsByKey.values.sorted(by: kimiEventSort),
             source: sourceName,
@@ -209,15 +231,12 @@ public struct KimiCodeReader: TokenReader {
 
 private struct KimiCLISession {
     let streamID: String
-    let lines: [String]
-    let model: String?
-    let fallbackDate: Date?
+    let lineSource: JSONLLineSource
 }
 
 private struct KimiCodeSession {
     let streamID: String
-    let lines: [String]
-    let fallbackDate: Date?
+    let lineSource: JSONLLineSource
 }
 
 private struct KimiCLIWireLine: Decodable {
@@ -290,45 +309,93 @@ private struct KimiTokenCounts {
     let cacheRead: Int
     let cacheWrite: Int
 
-    var total: Int {
-        checkedTokenTotal(input, output, cacheRead, cacheWrite) ?? 0
+    var total: Int? {
+        checkedTokenTotal(input, output, cacheRead, cacheWrite)
+    }
+
+    func isCumulativeSuccessor(of previous: KimiTokenCounts) -> Bool {
+        input >= previous.input
+            && output >= previous.output
+            && cacheRead >= previous.cacheRead
+            && cacheWrite >= previous.cacheWrite
+    }
+}
+
+private struct KimiCLIFallbackTurnTracker {
+    private var nextTurnIndex = 0
+    private var currentTurnIndex: Int?
+    private var previousTokens: KimiTokenCounts?
+
+    mutating func turnIndex(for tokens: KimiTokenCounts) -> Int {
+        if currentTurnIndex == nil
+            || previousTokens.map({ !tokens.isCumulativeSuccessor(of: $0) }) == true {
+            currentTurnIndex = nextTurnIndex
+            nextTurnIndex += 1
+        }
+        previousTokens = tokens
+        return currentTurnIndex ?? 0
+    }
+
+    mutating func finishSequence() {
+        currentTurnIndex = nil
+        previousTokens = nil
     }
 }
 
 private struct KimiUsageEvent {
     let timestamp: Date
     let model: String
+    let modelIsConcrete: Bool
     let sessionID: String
+    let sessionLabel: String
     let projectName: String?
     let streamID: String
+    let agentKind: WorkTimeAgentKind
     let tokens: KimiTokenCounts
+    let totalTokens: Int
     let dedupKey: String
 
     func shouldReplace(_ existing: KimiUsageEvent) -> Bool {
-        tokens.total > existing.tokens.total
-            || (tokens.total == existing.tokens.total && timestamp > existing.timestamp)
+        if totalTokens != existing.totalTokens {
+            return totalTokens > existing.totalTokens
+        }
+        if timestamp != existing.timestamp {
+            return timestamp > existing.timestamp
+        }
+        if modelIsConcrete != existing.modelIsConcrete {
+            return modelIsConcrete
+        }
+        return model > existing.model
     }
 }
 
 private func kimiRawUsage(
     events: [KimiUsageEvent],
+    observedActivityEvents: [ActivityTimeEvent<String>]? = nil,
     source: String,
     clippingEndDate: Date) -> RawTokenUsage {
     var result = RawTokenUsage()
     var activityEvents: [ActivityTimeEvent<String>] = []
 
     for event in events {
-        guard let totalTokens = result.accumulateTokenCounts(
-            input: event.tokens.input,
-            output: event.tokens.output,
-            cacheRead: event.tokens.cacheRead,
-            cacheWrite: event.tokens.cacheWrite) else {
+        guard let accumulatedTotal = checkedTokenTotal(
+            result.inputTokens,
+            result.outputTokens,
+            result.cacheReadTokens,
+            result.cacheWriteTokens,
+            result.reasoningTokens,
+            result.unclassifiedTokens),
+            checkedTokenTotal(accumulatedTotal, event.totalTokens) != nil else {
             continue
         }
+        result.inputTokens += event.tokens.input
+        result.outputTokens += event.tokens.output
+        result.cacheReadTokens += event.tokens.cacheRead
+        result.cacheWriteTokens += event.tokens.cacheWrite
         result.accumulatePerModelUsage(
             model: event.model,
             source: source,
-            totalTokens: totalTokens)
+            totalTokens: event.totalTokens)
         result.recordTokenEvent(
             timestamp: event.timestamp,
             source: source,
@@ -342,37 +409,32 @@ private func kimiRawUsage(
             attribution: UsageAttribution(
                 projectName: event.projectName,
                 sessionID: event.sessionID,
+                sessionLabel: event.sessionLabel,
                 quality: event.projectName == nil ? .unknown : .inferred))
         activityEvents.append(
             ActivityTimeEvent(
                 streamID: event.streamID,
                 timestamp: event.timestamp,
-                key: event.model))
+                key: event.model,
+                agentKind: event.agentKind))
     }
 
     result.mergeActivityEvents(
-        activityEvents,
+        observedActivityEvents ?? activityEvents,
         source: source,
         clippingEndDate: clippingEndDate)
     return result
 }
 
-private func kimiCodeEventFingerprint(
-    timestamp: Date,
-    model: String,
-    tokens: KimiTokenCounts) -> String {
-    [
-        String(timestamp.timeIntervalSince1970),
-        model,
-        String(tokens.input),
-        String(tokens.output),
-        String(tokens.cacheRead),
-        String(tokens.cacheWrite),
-    ].joined(separator: ":")
+private func kimiActivityEventSort(
+    _ lhs: ActivityTimeEvent<String>,
+    _ rhs: ActivityTimeEvent<String>) -> Bool {
+    if lhs.timestamp != rhs.timestamp { return lhs.timestamp < rhs.timestamp }
+    return lhs.streamID < rhs.streamID
 }
 
-private func kimiWireFiles(in root: URL) -> [URL] {
-    findFiles(in: root, withExtension: "jsonl")
+private func kimiWireFiles(in root: URL) throws -> [URL] {
+    try findFilesThrowing(in: root, withExtension: "jsonl")
         .filter { $0.lastPathComponent == "wire.jsonl" }
         .reduce(into: [String: URL]()) { files, file in
             files[file.resolvingSymlinksInPath().standardizedFileURL.path] = file
@@ -381,46 +443,52 @@ private func kimiWireFiles(in root: URL) -> [URL] {
         .sorted { $0.path < $1.path }
 }
 
-private func kimiCLIModel(at root: URL) -> String? {
-    let configURL = root.appendingPathComponent("config.json")
-    guard let data = try? Data(contentsOf: configURL),
-          let config = try? JSONDecoder().decode(KimiCLIConfig.self, from: data) else {
-        return nil
-    }
-    return normalizedModelID(config.model)
-}
-
-private struct KimiCLIConfig: Decodable {
-    let model: String?
-}
-
 private struct KimiCLIIdentity {
     let workspace: String?
     let sessionID: String
+    let dedupScope: String
 }
 
 private func kimiCLIIdentity(from path: String) -> KimiCLIIdentity {
     let session = URL(fileURLWithPath: path).deletingLastPathComponent()
-    let workspace = session.deletingLastPathComponent()
+    let workspace = nonemptyKimiValue(session.deletingLastPathComponent().lastPathComponent)
+    let sessionID = nonemptyKimiValue(session.lastPathComponent) ?? usageSessionID(fromPath: path)
     return KimiCLIIdentity(
-        workspace: nonemptyKimiValue(workspace.lastPathComponent),
-        sessionID: nonemptyKimiValue(session.lastPathComponent) ?? usageSessionID(fromPath: path))
+        workspace: workspace,
+        sessionID: sessionID,
+        dedupScope: "\(workspace?.utf8.count ?? 0):\(workspace ?? "")|\(sessionID.utf8.count):\(sessionID)")
 }
 
 private struct KimiCodeIdentity {
     let workspace: String?
     let sessionID: String
+    let sessionScope: String
     let agent: String
+    let agentKind: WorkTimeAgentKind
+    let streamID: String
 }
 
 private func kimiCodeIdentity(from path: String) -> KimiCodeIdentity {
     let agent = URL(fileURLWithPath: path).deletingLastPathComponent()
     let session = agent.deletingLastPathComponent().deletingLastPathComponent()
     let workspace = session.deletingLastPathComponent()
+    let workspaceName = nonemptyKimiValue(workspace.lastPathComponent)
+    let sessionID = nonemptyKimiValue(session.lastPathComponent) ?? usageSessionID(fromPath: path)
+    let agentName = nonemptyKimiValue(agent.lastPathComponent) ?? "main"
+    let sessionScope = [
+        "\(workspaceName?.utf8.count ?? 0):\(workspaceName ?? "")",
+        "\(sessionID.utf8.count):\(sessionID)",
+    ].joined(separator: "|")
     return KimiCodeIdentity(
-        workspace: nonemptyKimiValue(workspace.lastPathComponent),
-        sessionID: nonemptyKimiValue(session.lastPathComponent) ?? usageSessionID(fromPath: path),
-        agent: nonemptyKimiValue(agent.lastPathComponent) ?? "main")
+        workspace: workspaceName,
+        sessionID: sessionID,
+        sessionScope: sessionScope,
+        agent: agentName,
+        agentKind: agentName == "main" ? .main : .subagent,
+        streamID: [
+            sessionScope,
+            "\(agentName.utf8.count):\(agentName)",
+        ].joined(separator: "|"))
 }
 
 private func concreteKimiCodeModel(_ value: String?) -> String? {
@@ -430,6 +498,8 @@ private func concreteKimiCodeModel(_ value: String?) -> String? {
     }
     return model
 }
+
+private let kimiFallbackModel = "kimi-for-coding"
 
 private func kimiCLITimestamp(_ value: Double?) -> Date? {
     guard let value, value.isFinite, value > 0 else { return nil }
@@ -444,10 +514,6 @@ private func kimiCodeTimestamp(_ value: Int64?) -> Date? {
 private func kimiEventSort(_ lhs: KimiUsageEvent, _ rhs: KimiUsageEvent) -> Bool {
     if lhs.timestamp != rhs.timestamp { return lhs.timestamp < rhs.timestamp }
     return lhs.dedupKey < rhs.dedupKey
-}
-
-private func fileModificationDate(_ url: URL) -> Date? {
-    (try? url.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate
 }
 
 private func nonemptyKimiValue(_ value: String?) -> String? {
