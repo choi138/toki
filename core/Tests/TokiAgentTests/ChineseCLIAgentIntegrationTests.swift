@@ -73,6 +73,43 @@ final class ChineseCLIAgentIntegrationTests: XCTestCase {
         })
     }
 
+    func test_qwenSourceSignatureTracksOldMtimeFiles() async throws {
+        let fixture = try AgentSnapshotFixture()
+        defer { fixture.remove() }
+        let projectsRoot = fixture.root.appendingPathComponent(".qwen/projects")
+        try FileManager.default.createDirectory(
+            at: projectsRoot,
+            withIntermediateDirectories: true)
+        let builder = AgentSnapshotBuilder(home: fixture.root)
+        let initialSignature = try await builder.sourceSignature(
+            configuration: fixture.configuration,
+            now: fixture.now)
+        let historyFile = projectsRoot.appendingPathComponent(
+            "workspace/chats/old-mtime.jsonl")
+        try Self.write(
+            [
+                #"{"type":"assistant","model":"qwen3.5-plus","# +
+                    #""timestamp":"\#(ISO8601DateFormatter().string(from: fixture.latestEventDate))","# +
+                    #""sessionId":"old-mtime","usageMetadata":{"promptTokenCount":40,"# +
+                    #""candidatesTokenCount":9}}"#,
+            ],
+            to: historyFile)
+        try FileManager.default.setAttributes(
+            [.modificationDate: Date(timeIntervalSince1970: 978_307_200)],
+            ofItemAtPath: historyFile.path)
+
+        let addedSignature = try await builder.sourceSignature(
+            configuration: fixture.configuration,
+            now: fixture.now)
+        try FileManager.default.removeItem(at: historyFile)
+        let removedSignature = try await builder.sourceSignature(
+            configuration: fixture.configuration,
+            now: fixture.now)
+
+        XCTAssertNotEqual(initialSignature, addedSignature)
+        XCTAssertEqual(initialSignature, removedSignature)
+    }
+
     private static func write(_ lines: [String], to url: URL) throws {
         try FileManager.default.createDirectory(
             at: url.deletingLastPathComponent(),

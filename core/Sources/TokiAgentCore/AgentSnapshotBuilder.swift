@@ -174,9 +174,9 @@ struct AgentSnapshotBuilder: AgentSnapshotBuilding {
         let sources = try readerDescriptors.map { descriptor in
             let records: [String] = switch descriptor.sourceSignatureStrategy {
             case .standard:
-                try standardSourceRecords(
-                    locations: descriptor.sourceLocations,
-                    modifiedOnOrAfter: window.start)
+                try sourceRecords(locations: descriptor.sourceLocations, modifiedOnOrAfter: window.start)
+            case .allFiles:
+                try sourceRecords(locations: descriptor.sourceLocations, modifiedOnOrAfter: nil)
             case .codexRollouts:
                 try codexSourceRecords(window: window)
             }
@@ -232,9 +232,8 @@ private extension AgentSnapshotBuilder {
         return DateInterval(start: coveredFrom, end: coveredTo)
     }
 
-    private func standardSourceRecords(
-        locations: [LocalUsageSourceLocation],
-        modifiedOnOrAfter minimumDate: Date) throws -> [String] {
+    private func sourceRecords(
+        locations: [LocalUsageSourceLocation], modifiedOnOrAfter minimumDate: Date?) throws -> [String] {
         var records: [String] = []
         for location in locations {
             switch location {
@@ -299,9 +298,7 @@ private extension AgentSnapshotBuilder {
     }
 
     private func retainedFiles(
-        in directory: URL,
-        extensions: Set<String>,
-        modifiedOnOrAfter minimumDate: Date) throws -> Set<URL> {
+        in directory: URL, extensions: Set<String>, modifiedOnOrAfter minimumDate: Date?) throws -> Set<URL> {
         guard FileManager.default.fileExists(atPath: directory.path) else { return [] }
 
         var inspectionFailed = false
@@ -340,9 +337,12 @@ private extension AgentSnapshotBuilder {
                 }
                 continue
             }
+            let isRecentEnough = minimumDate.map { minimumDate in
+                values.contentModificationDate.map { $0 >= minimumDate } == true
+            } ?? true
             guard values.isRegularFile == true,
                   extensions.contains(fileURL.pathExtension),
-                  values.contentModificationDate.map({ $0 >= minimumDate }) == true else {
+                  isRecentEnough else {
                 continue
             }
             files.insert(fileURL.standardizedFileURL)

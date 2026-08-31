@@ -15,6 +15,7 @@ package enum LocalUsageSourceLocation: Equatable {
 
 package enum LocalUsageSourceSignatureStrategy {
     case standard
+    case allFiles
     case codexRollouts
 }
 
@@ -270,7 +271,8 @@ public enum LocalUsageReaderRegistry {
                 sourceLocations: paths.kimiCodeSessions.map { .directory($0, extensions: ["jsonl"]) }),
             LocalUsageReaderDescriptor(
                 reader: QwenCLIReader(projectRoots: paths.qwenProjects),
-                sourceLocations: paths.qwenProjects.map { .directory($0, extensions: ["jsonl"]) }),
+                sourceLocations: paths.qwenProjects.map { .directory($0, extensions: ["jsonl"]) },
+                sourceSignatureStrategy: .allFiles),
         ]
     }
 
