@@ -105,36 +105,30 @@ struct AgentSnapshotBuilder: AgentSnapshotBuilding {
                     && event.timestamp < coveredTo
                     && !tokenReplacementCoverages.contains { $0.replaces(event) }
             }
-        let tokenEvents = boundedMostRecentEvents(
-            usageEvents
-                .compactMap(remoteTokenEvent)
-                .sorted(by: tokenEventSort),
-            maximumCount: eventLimits.maximumTokenEventCount)
-        let costEvents = boundedMostRecentEvents(
-            usageEvents
-                .compactMap(remoteCostEvent)
-                .sorted(by: costEventSort),
-            maximumCount: eventLimits.maximumCostEventCount)
+        let tokenEvents = usageEvents
+            .compactMap(remoteTokenEvent)
+            .sorted(by: tokenEventSort)
+        let costEvents = usageEvents
+            .compactMap(remoteCostEvent)
+            .sorted(by: costEventSort)
 
-        let activityEvents = boundedMostRecentEvents(
-            readerUsages
-                .flatMap { readerUsage in
-                    readerUsage.usage.activityEvents
-                        .filter { $0.timestamp >= coveredFrom && $0.timestamp < coveredTo }
-                        .map { event in
-                            RemoteActivityEvent(
-                                timestamp: event.timestamp,
-                                source: readerUsage.name,
-                                model: remoteModel(event.key),
-                                streamID: identifierHasher.identifier(
-                                    for: "\(readerUsage.name)\u{0}\(event.streamID)"),
-                                agentKind: event.agentKind == .subagent ? .subagent : .main)
-                        }
-                }
-                .sorted(by: activityEventSort),
-            maximumCount: eventLimits.maximumActivityEventCount)
+        let activityEvents = readerUsages
+            .flatMap { readerUsage in
+                readerUsage.usage.activityEvents
+                    .filter { $0.timestamp >= coveredFrom && $0.timestamp < coveredTo }
+                    .map { event in
+                        RemoteActivityEvent(
+                            timestamp: event.timestamp,
+                            source: readerUsage.name,
+                            model: remoteModel(event.key),
+                            streamID: identifierHasher.identifier(
+                                for: "\(readerUsage.name)\u{0}\(event.streamID)"),
+                            agentKind: event.agentKind == .subagent ? .subagent : .main)
+                    }
+            }
+            .sorted(by: activityEventSort)
 
-        return RemoteUsageSnapshot(
+        return try AgentSnapshotEventBounder(limits: eventLimits).snapshot(
             device: RemoteDeviceDescriptor(
                 id: configuration.deviceID,
                 name: configuration.deviceName,
@@ -143,8 +137,9 @@ struct AgentSnapshotBuilder: AgentSnapshotBuilding {
             coveredFrom: coveredFrom,
             coveredTo: coveredTo,
             tokenEvents: tokenEvents,
-            costEvents: costEvents.isEmpty ? nil : costEvents,
-            activityEvents: activityEvents)
+            costEvents: costEvents,
+            activityEvents: activityEvents,
+            encryptionKey: configuration.encryptionKey)
     }
 
     func prepareForSync() async throws {
