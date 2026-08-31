@@ -114,9 +114,9 @@ public struct CodexReader: TokenReader {
 
             let url = URL(fileURLWithPath: session.rolloutPath)
             guard FileManager.default.fileExists(atPath: url.path) else { continue }
-            let summary = await Self.cachedDailySummary(
-                fromRolloutAt: url,
-                cache: rolloutUsageCache)
+            let summary = await rolloutUsageCache.dailySummary(
+                for: url,
+                includingDerivedData: false)
             outputTokens += Self.dailyTokenSum(
                 fromDailyUsage: summary.dailyUsage,
                 from: startDate,
@@ -326,38 +326,7 @@ extension CodexReader {
     private static func cachedDailySummary(
         fromRolloutAt url: URL,
         cache: CodexRolloutUsageCache) async -> CodexRolloutDailySummary {
-        let cachedDailyUsage = await cache.dailyUsage(for: url)
-        let cachedActivityTimestamps = await cache.dailyActivityTimestamps(for: url)
-        let cachedTokenUsageEvents = await cache.dailyTokenUsageEvents(for: url)
-
-        if let cachedDailyUsage,
-           let cachedActivityTimestamps,
-           let cachedTokenUsageEvents {
-            return CodexRolloutDailySummary(
-                dailyUsage: cachedDailyUsage,
-                dailyActivityTimestamps: cachedActivityTimestamps,
-                dailyTokenUsageEvents: cachedTokenUsageEvents)
-        }
-
-        let rebuiltSummary = codexRolloutDailySummary(fromRolloutAt: url)
-        guard !Task.isCancelled else { return CodexRolloutDailySummary() }
-
-        let summaryToStore = CodexRolloutDailySummary(
-            dailyUsage: dailyUsageForTimestampBackfill(
-                rebuiltDailyUsage: rebuiltSummary.dailyUsage,
-                existingDailyUsage: cachedDailyUsage),
-            dailyActivityTimestamps: rebuiltSummary.dailyActivityTimestamps,
-            dailyTokenUsageEvents: rebuiltSummary.dailyTokenUsageEvents)
-
-        if !summaryToStore.isEmpty {
-            await cache.store(
-                dailyUsage: summaryToStore.dailyUsage,
-                dailyActivityTimestamps: summaryToStore.dailyActivityTimestamps,
-                dailyTokenUsageEvents: summaryToStore.dailyTokenUsageEvents,
-                for: url)
-        }
-
-        return summaryToStore
+        await cache.dailySummary(for: url)
     }
 
     private static func cachedUsage(

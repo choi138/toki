@@ -28,32 +28,29 @@ public actor CodexRolloutUsageCache {
         maximumEntryBytes = max(0, maximumBytes - min(1024, maximumBytes))
     }
 
-    func beginBatch(retaining paths: [String]) async -> UUID {
-        await loadIfNeeded()
+    func beginBatch(retaining paths: [String]) -> UUID {
+        loadIfNeeded()
         let token = UUID()
         activeBatches[token] = Set(paths)
-        prune(retaining: activeBatches.values.reduce(into: Set<String>()) { $0.formUnion($1) })
         return token
     }
 
-    func endBatch(_ token: UUID) async {
-        await loadIfNeeded()
-        guard let completedPaths = activeBatches.removeValue(forKey: token) else { return }
-        let retainedPaths = activeBatches.values.reduce(into: completedPaths) { $0.formUnion($1) }
-        prune(retaining: retainedPaths)
-        persistIfNeeded()
+    func endBatch(_ token: UUID) {
+        loadIfNeeded()
+        guard activeBatches.removeValue(forKey: token) != nil else { return }
+        persistIfNeeded(allowActiveBatches: true)
     }
 
-    func dailyUsage(for url: URL) async -> [String: CodexCachedDailyUsage]? {
-        guard let cached = await cachedEntry(for: url) else {
+    func dailyUsage(for url: URL) -> [String: CodexCachedDailyUsage]? {
+        guard let cached = cachedEntry(for: url) else {
             return nil
         }
 
         return cached.dailyUsage
     }
 
-    func dailyActivityTimestamps(for url: URL) async -> [String: [TimeInterval]]? {
-        guard let cached = await cachedEntry(for: url) else {
+    func dailyActivityTimestamps(for url: URL) -> [String: [TimeInterval]]? {
+        guard let cached = cachedEntry(for: url) else {
             return nil
         }
 
@@ -65,8 +62,8 @@ public actor CodexRolloutUsageCache {
         return cached.dailyActivityTimestamps
     }
 
-    func dailyTokenUsageEvents(for url: URL) async -> [String: [CodexCachedTokenUsageEvent]]? {
-        guard let cached = await cachedEntry(for: url) else {
+    func dailyTokenUsageEvents(for url: URL) -> [String: [CodexCachedTokenUsageEvent]]? {
+        guard let cached = cachedEntry(for: url) else {
             return nil
         }
 
@@ -82,8 +79,9 @@ public actor CodexRolloutUsageCache {
         dailyUsage: [String: CodexCachedDailyUsage],
         dailyActivityTimestamps: [String: [TimeInterval]],
         dailyTokenUsageEvents: [String: [CodexCachedTokenUsageEvent]] = [:],
-        for url: URL) async {
-        await loadIfNeeded()
+        processingState: CodexRolloutProcessingState? = nil,
+        for url: URL) {
+        loadIfNeeded()
 
         guard let fileSignature = codexFileSignature(for: url) else { return }
 
@@ -93,7 +91,8 @@ public actor CodexRolloutUsageCache {
             timeZoneIdentifier: codexCacheTimeZoneIdentifier(),
             dailyUsage: dailyUsage,
             dailyActivityTimestamps: dailyActivityTimestamps,
-            dailyTokenUsageEvents: dailyTokenUsageEvents)
+            dailyTokenUsageEvents: dailyTokenUsageEvents,
+            processingState: processingState)
         guard let entryByteCount = encodedByteCount(path: url.path, entry: entry),
               entryByteCount <= maximumEntryBytes else {
             removeEntry(path: url.path)
@@ -111,7 +110,7 @@ public actor CodexRolloutUsageCache {
         persistIfNeeded()
     }
 
-    private func loadIfNeeded() async {
+    private func loadIfNeeded() {
         guard !isLoaded else { return }
         isLoaded = true
 
@@ -147,8 +146,8 @@ public actor CodexRolloutUsageCache {
         }
     }
 
-    private func cachedEntry(for url: URL) async -> CodexRolloutUsageCacheEntry? {
-        await loadIfNeeded()
+    private func cachedEntry(for url: URL) -> CodexRolloutUsageCacheEntry? {
+        loadIfNeeded()
 
         guard let fileSignature = codexFileSignature(for: url),
               let cached = entries[url.path] else {
@@ -167,8 +166,8 @@ public actor CodexRolloutUsageCache {
         return cached
     }
 
-    private func persistIfNeeded() {
-        guard hasPendingChanges, activeBatches.isEmpty else { return }
+    private func persistIfNeeded(allowActiveBatches: Bool = false) {
+        guard hasPendingChanges, allowActiveBatches || activeBatches.isEmpty else { return }
 
         guard !entries.isEmpty else {
             do {
@@ -182,14 +181,6 @@ public actor CodexRolloutUsageCache {
             try writeCodexRolloutUsageCache(data, to: cacheURL)
             hasPendingChanges = false
         } catch {}
-    }
-
-    private func prune(retaining paths: Set<String>) {
-        let removedPaths = Set(entries.keys).subtracting(paths)
-        guard !removedPaths.isEmpty else { return }
-        for path in removedPaths {
-            removeEntry(path: path)
-        }
     }
 
     private func enforceMemoryLimit() {
@@ -212,11 +203,76 @@ public actor CodexRolloutUsageCache {
     }
 
     private func encodedByteCount(path: String, entry: CodexRolloutUsageCacheEntry) -> Int? {
-        try? JSONEncoder().encode(CodexRolloutUsageCacheFile(entries: [path: entry])).count
+        #if canImport(ObjectiveC)
+            return autoreleasepool {
+                try? JSONEncoder().encode(CodexRolloutUsageCacheFile(entries: [path: entry])).count
+            }
+        #else
+            return try? JSONEncoder().encode(CodexRolloutUsageCacheFile(entries: [path: entry])).count
+        #endif
     }
 
     private func encodedCacheFile() -> Data? {
-        try? JSONEncoder().encode(CodexRolloutUsageCacheFile(entries: entries))
+        #if canImport(ObjectiveC)
+            return autoreleasepool {
+                try? JSONEncoder().encode(CodexRolloutUsageCacheFile(entries: entries))
+            }
+        #else
+            return try? JSONEncoder().encode(CodexRolloutUsageCacheFile(entries: entries))
+        #endif
+    }
+}
+
+extension CodexRolloutUsageCache {
+    func dailySummary(
+        for url: URL,
+        includingDerivedData: Bool = true) -> CodexRolloutDailySummary {
+        loadIfNeeded()
+
+        guard let signature = codexFileSignature(for: url) else {
+            return CodexRolloutDailySummary()
+        }
+
+        if let cached = entries[url.path],
+           cached.isCurrentSchema,
+           !includingDerivedData || cached.hasCompleteDerivedData,
+           cached.fileSize == signature.fileSize,
+           cached.modifiedAt == signature.modifiedAt,
+           cached.timeZoneIdentifier == codexCacheTimeZoneIdentifier() {
+            touch(url.path)
+            return cached.summary
+        }
+
+        if let cached = entries[url.path] {
+            let preserveDerivedData = includingDerivedData || cached.hasCompleteDerivedData
+            if let updated = codexRolloutDailySummaryByAppending(
+                fromRolloutAt: url,
+                signature: signature,
+                cachedEntry: cached,
+                includingDerivedData: preserveDerivedData) {
+                store(
+                    dailyUsage: updated.summary.dailyUsage,
+                    dailyActivityTimestamps: updated.summary.dailyActivityTimestamps,
+                    dailyTokenUsageEvents: updated.summary.dailyTokenUsageEvents,
+                    processingState: updated.processingState,
+                    for: url)
+                return updated.summary
+            }
+        }
+
+        let rebuilt = codexRolloutDailySummaryWithState(
+            fromRolloutAt: url,
+            signature: signature,
+            includingDerivedData: includingDerivedData)
+        guard !Task.isCancelled, rebuilt.didReadToEnd else { return CodexRolloutDailySummary() }
+
+        store(
+            dailyUsage: rebuilt.summary.dailyUsage,
+            dailyActivityTimestamps: rebuilt.summary.dailyActivityTimestamps,
+            dailyTokenUsageEvents: rebuilt.summary.dailyTokenUsageEvents,
+            processingState: rebuilt.processingState,
+            for: url)
+        return rebuilt.summary
     }
 }
 
@@ -240,7 +296,7 @@ struct CodexRolloutUsageCacheFile: Codable {
 }
 
 struct CodexRolloutUsageCacheEntry: Codable {
-    static let currentSchemaVersion = 2
+    static let currentSchemaVersion = 3
 
     let schemaVersion: Int
     let fileSize: Int
@@ -249,6 +305,7 @@ struct CodexRolloutUsageCacheEntry: Codable {
     let dailyUsage: [String: CodexCachedDailyUsage]
     let dailyActivityTimestamps: [String: [TimeInterval]]
     let dailyTokenUsageEvents: [String: [CodexCachedTokenUsageEvent]]
+    let processingState: CodexRolloutProcessingState?
 
     var isCurrentSchema: Bool {
         schemaVersion == Self.currentSchemaVersion
@@ -260,7 +317,8 @@ struct CodexRolloutUsageCacheEntry: Codable {
         timeZoneIdentifier: String,
         dailyUsage: [String: CodexCachedDailyUsage],
         dailyActivityTimestamps: [String: [TimeInterval]] = [:],
-        dailyTokenUsageEvents: [String: [CodexCachedTokenUsageEvent]] = [:]) {
+        dailyTokenUsageEvents: [String: [CodexCachedTokenUsageEvent]] = [:],
+        processingState: CodexRolloutProcessingState? = nil) {
         schemaVersion = Self.currentSchemaVersion
         self.fileSize = fileSize
         self.modifiedAt = modifiedAt
@@ -268,6 +326,7 @@ struct CodexRolloutUsageCacheEntry: Codable {
         self.dailyUsage = dailyUsage
         self.dailyActivityTimestamps = dailyActivityTimestamps
         self.dailyTokenUsageEvents = dailyTokenUsageEvents
+        self.processingState = processingState
     }
 
     enum CodingKeys: String, CodingKey {
@@ -278,6 +337,7 @@ struct CodexRolloutUsageCacheEntry: Codable {
         case dailyUsage
         case dailyActivityTimestamps
         case dailyTokenUsageEvents
+        case processingState
     }
 
     init(from decoder: Decoder) throws {
@@ -293,6 +353,21 @@ struct CodexRolloutUsageCacheEntry: Codable {
         dailyTokenUsageEvents = try container.decodeIfPresent(
             [String: [CodexCachedTokenUsageEvent]].self,
             forKey: .dailyTokenUsageEvents) ?? [:]
+        processingState = try container.decodeIfPresent(
+            CodexRolloutProcessingState.self,
+            forKey: .processingState)
+    }
+
+    var summary: CodexRolloutDailySummary {
+        CodexRolloutDailySummary(
+            dailyUsage: dailyUsage,
+            dailyActivityTimestamps: dailyActivityTimestamps,
+            dailyTokenUsageEvents: dailyTokenUsageEvents)
+    }
+
+    var hasCompleteDerivedData: Bool {
+        let hasUsage = dailyUsage.values.contains { $0.totalTokens > 0 }
+        return !hasUsage || (!dailyActivityTimestamps.isEmpty && !dailyTokenUsageEvents.isEmpty)
     }
 }
 
@@ -355,9 +430,9 @@ struct CodexFileSignature {
 }
 
 func codexFileSignature(for url: URL) -> CodexFileSignature? {
-    guard let values = try? url.resourceValues(forKeys: [.contentModificationDateKey, .fileSizeKey]),
-          let modifiedAt = values.contentModificationDate,
-          let fileSize = values.fileSize else {
+    guard let attributes = try? FileManager.default.attributesOfItem(atPath: url.path),
+          let modifiedAt = attributes[.modificationDate] as? Date,
+          let fileSize = (attributes[.size] as? NSNumber)?.intValue else {
         return nil
     }
 
@@ -434,33 +509,15 @@ func dailyTokenUsageEvents(fromRolloutLines lines: [String]) -> [String: [CodexC
 }
 
 func codexRolloutDailySummary(fromRolloutAt url: URL) -> CodexRolloutDailySummary {
-    codexRolloutDailySummary(fromSnapshots: codexRolloutSnapshots(fromRolloutAt: url))
+    guard let signature = codexFileSignature(for: url) else {
+        return CodexRolloutDailySummary()
+    }
+    return codexRolloutDailySummaryWithState(fromRolloutAt: url, signature: signature).summary
 }
 
 func codexRolloutDailySummary(fromSnapshots snapshots: [CodexTimedSnapshot]) -> CodexRolloutDailySummary {
-    var previousSnapshot: CodexUsageSnapshot?
     var summary = CodexRolloutDailySummary()
-    var activityTimestamps: [Date] = []
-
-    for entry in snapshots {
-        guard !Task.isCancelled else { return CodexRolloutDailySummary() }
-
-        let usage = entry.usage(since: previousSnapshot)
-        previousSnapshot = entry.tokenCount.nextBaseline(after: previousSnapshot)
-
-        guard usage.totalTokens > 0 else { continue }
-
-        activityTimestamps.append(entry.date)
-        let dayKey = codexDayKey(for: entry.date)
-        summary.dailyUsage[dayKey, default: .zero].accumulate(usage)
-        summary.dailyActivityTimestamps[dayKey, default: []].append(entry.date.timeIntervalSince1970)
-        summary.dailyTokenUsageEvents[dayKey, default: []].append(
-            CodexCachedTokenUsageEvent(timestamp: entry.date, usage: usage))
-    }
-
-    for (dayKey, seconds) in dailyActiveSeconds(from: activityTimestamps) {
-        summary.dailyUsage[dayKey, default: .zero].activeSeconds += seconds
-    }
-
+    _ = accumulateCodexSnapshots(snapshots, into: &summary, previousSnapshot: nil)
+    recomputeCodexActiveSeconds(in: &summary)
     return summary
 }

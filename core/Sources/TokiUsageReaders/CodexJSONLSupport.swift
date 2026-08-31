@@ -67,6 +67,7 @@ func forEachJSONLLineUntilThrowing(
     var lineIndex = 0
     var pending = Data()
     var consumedBytes = 0
+    var newlineSearchOffset = 0
 
     while true {
         try Task.checkCancellation()
@@ -84,20 +85,27 @@ func forEachJSONLLineUntilThrowing(
         }
 
         pending.append(chunk)
-        while let newlineIndex = pending.firstIndex(of: 0x0A) {
+        var lineStartIndex = pending.startIndex
+        var newlineSearchIndex = pending.index(pending.startIndex, offsetBy: newlineSearchOffset)
+        while let newlineIndex = pending[newlineSearchIndex...].firstIndex(of: 0x0A) {
             try Task.checkCancellation()
             if let maximumLineBytes = limits?.maximumLineBytes,
-               pending.distance(from: pending.startIndex, to: newlineIndex) > maximumLineBytes {
+               pending.distance(from: lineStartIndex, to: newlineIndex) > maximumLineBytes {
                 throw PiCompatibleReaderError.lineTooLong(url)
             }
 
-            let lineData = pending.subdata(in: pending.startIndex..<newlineIndex)
-            pending.removeSubrange(pending.startIndex...newlineIndex)
+            let lineData = pending.subdata(in: lineStartIndex..<newlineIndex)
+            lineStartIndex = pending.index(after: newlineIndex)
+            newlineSearchIndex = lineStartIndex
             if let line = jsonlLineString(from: lineData) {
                 guard try body(line, lineIndex) else { return }
                 lineIndex += 1
             }
         }
+        if lineStartIndex > pending.startIndex {
+            pending.removeSubrange(pending.startIndex..<lineStartIndex)
+        }
+        newlineSearchOffset = pending.count
         if let maximumLineBytes = limits?.maximumLineBytes,
            pending.count > maximumLineBytes {
             throw PiCompatibleReaderError.lineTooLong(url)
@@ -113,6 +121,103 @@ func forEachJSONLLineUntilThrowing(
     if let line = jsonlLineString(from: pending) {
         _ = try body(line, lineIndex)
     }
+}
+
+@discardableResult
+// The branches model one streaming state machine and keep oversized lines from being buffered.
+// swiftlint:disable:next cyclomatic_complexity
+func forEachJSONLLineUntil(
+    at url: URL,
+    startingAt byteOffset: UInt64,
+    endingAt endByteOffset: UInt64?,
+    initialLineIndex: Int,
+    maximumBufferedLineByteCount: Int? = nil,
+    shouldKeepOversizedLine: ((Data) -> Bool)? = nil,
+    shouldProcessLineData: ((Data) -> Bool)? = nil,
+    _ body: (String, Int) -> Bool) -> Bool {
+    guard let handle = try? FileHandle(forReadingFrom: url) else { return false }
+    defer { try? handle.close() }
+
+    do {
+        try handle.seek(toOffset: byteOffset)
+    } catch {
+        return false
+    }
+
+    var lineIndex = initialLineIndex
+    var pending = Data()
+    var newlineSearchOffset = 0
+    var isDiscardingOversizedLine = false
+
+    while true {
+        guard !Task.isCancelled else { return false }
+
+        var chunk: Data
+        do {
+            let maximumReadCount = endByteOffset.map {
+                min(64 * 1024, Int(max(0, $0 - handle.offsetInFile)))
+            } ?? 64 * 1024
+            guard maximumReadCount > 0,
+                  let data = try handle.read(upToCount: maximumReadCount),
+                  !data.isEmpty else {
+                break
+            }
+            chunk = data
+        } catch {
+            return false
+        }
+
+        if isDiscardingOversizedLine {
+            guard let newlineIndex = chunk.firstIndex(of: 0x0A) else { continue }
+            guard body("", lineIndex) else { return false }
+            lineIndex += 1
+            let remainingStartIndex = chunk.index(after: newlineIndex)
+            chunk = chunk.subdata(in: remainingStartIndex..<chunk.endIndex)
+            isDiscardingOversizedLine = false
+            guard !chunk.isEmpty else { continue }
+        }
+
+        pending.append(chunk)
+        var lineStartIndex = pending.startIndex
+        var newlineSearchIndex = pending.index(pending.startIndex, offsetBy: newlineSearchOffset)
+        while let newlineIndex = pending[newlineSearchIndex...].firstIndex(of: 0x0A) {
+            guard !Task.isCancelled else { return false }
+
+            let lineData = pending.subdata(in: lineStartIndex..<newlineIndex)
+            lineStartIndex = pending.index(after: newlineIndex)
+            newlineSearchIndex = lineStartIndex
+            if shouldProcessLineData?(lineData) == false {
+                guard body("", lineIndex) else { return false }
+                lineIndex += 1
+                continue
+            }
+            if let line = jsonlLineString(from: lineData) {
+                guard body(line, lineIndex) else { return false }
+                lineIndex += 1
+            }
+        }
+        if lineStartIndex > pending.startIndex {
+            pending.removeSubrange(pending.startIndex..<lineStartIndex)
+        }
+        newlineSearchOffset = pending.count
+        if let maximumBufferedLineByteCount,
+           pending.count > maximumBufferedLineByteCount,
+           shouldKeepOversizedLine?(pending) == false {
+            pending.removeAll(keepingCapacity: false)
+            newlineSearchOffset = 0
+            isDiscardingOversizedLine = true
+        }
+    }
+
+    if isDiscardingOversizedLine {
+        guard body("", lineIndex) else { return false }
+    }
+    if !pending.isEmpty, shouldProcessLineData?(pending) == false {
+        guard body("", lineIndex) else { return false }
+    } else if let line = jsonlLineString(from: pending) {
+        guard body(line, lineIndex) else { return false }
+    }
+    return endByteOffset.map { handle.offsetInFile >= $0 } ?? true
 }
 
 func codexIsWholeDayAlignedRange(from startDate: Date, to endDate: Date) -> Bool {

@@ -124,13 +124,13 @@ final class CodexReaderAdditionalTests: XCTestCase {
         XCTAssertEqual(Set(merged.map(\.upstreamSessionID)), ["shared-session", "independent-session"])
     }
 
-    func test_codexRolloutCacheInvalidatesPreDedupSchema() throws {
-        let legacyJSON = #"{"schemaVersion":1,"fileSize":10,"modifiedAt":100,"timeZoneIdentifier":"UTC","dailyUsage":{},"dailyActivityTimestamps":{},"dailyTokenUsageEvents":{}}"#
+    func test_codexRolloutCacheInvalidatesPreIncrementalSchema() throws {
+        let legacyJSON = #"{"schemaVersion":2,"fileSize":10,"modifiedAt":100,"timeZoneIdentifier":"UTC","dailyUsage":{},"dailyActivityTimestamps":{},"dailyTokenUsageEvents":{}}"#
         let entry = try JSONDecoder().decode(
             CodexRolloutUsageCacheEntry.self,
             from: Data(legacyJSON.utf8))
 
-        XCTAssertEqual(CodexRolloutUsageCacheEntry.currentSchemaVersion, 2)
+        XCTAssertEqual(CodexRolloutUsageCacheEntry.currentSchemaVersion, 3)
         XCTAssertFalse(entry.isCurrentSchema)
     }
 
@@ -506,7 +506,7 @@ extension CodexReaderAdditionalTests {
         XCTAssertGreaterThan(usage.totalTokens, 0)
     }
 
-    func test_rolloutCachePrunesEntriesOutsideRetainedBatch() async throws {
+    func test_rolloutCachePreservesEntriesAcrossDifferentRangeBatches() async throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("toki-rollout-cache-tests-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -531,9 +531,9 @@ extension CodexReaderAdditionalTests {
         let persisted = try JSONDecoder().decode(
             CodexRolloutUsageCacheFile.self,
             from: Data(contentsOf: cacheURL))
-        XCTAssertNil(firstUsage)
+        XCTAssertNotNil(firstUsage)
         XCTAssertNotNil(secondUsage)
-        XCTAssertEqual(Set(persisted.entries.keys), [secondURL.path])
+        XCTAssertEqual(Set(persisted.entries.keys), [firstURL.path, secondURL.path])
     }
 
     func test_rolloutCacheRejectsEntryThatExceedsMemoryBudget() async throws {
