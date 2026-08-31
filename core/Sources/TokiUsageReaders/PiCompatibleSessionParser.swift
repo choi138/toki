@@ -28,6 +28,7 @@ struct PiCompatibleUsageRecord {
     let timestamp: Date
     let model: String?
     let provider: String?
+    let providerIsExplicit: Bool
     let inputTokens: Int
     let outputTokens: Int
     let cacheReadTokens: Int
@@ -43,34 +44,54 @@ struct PiCompatibleUsageRecord {
         inputTokens + outputTokens + cacheReadTokens + cacheWriteTokens + reasoningTokens
     }
 
-    func merged(with other: Self) -> Self {
+    func merged(
+        with other: Self,
+        agentKind mergedAgentKind: WorkTimeAgentKind? = nil) -> Self {
         let prefersSelf = totalTokens > other.totalTokens
             || (totalTokens == other.totalTokens && cost > other.cost)
             || (totalTokens == other.totalTokens && cost == other.cost
                 && costIsKnown == true && other.costIsKnown != true)
         let preferred = prefersSelf ? self : other
         let supplemental = prefersSelf ? other : self
+        let costSource: Self = if preferred.costIsKnown == true {
+            preferred
+        } else if supplemental.costIsKnown == true {
+            supplemental
+        } else {
+            preferred
+        }
+        let providerSource: Self = if providerIsExplicit != other.providerIsExplicit {
+            providerIsExplicit ? self : other
+        } else if preferred.provider != nil {
+            preferred
+        } else {
+            supplemental
+        }
         return PiCompatibleUsageRecord(
             deduplicationKey: deduplicationKey,
             timestamp: preferred.timestamp,
             model: preferred.model,
-            provider: preferred.provider ?? supplemental.provider,
+            provider: providerSource.provider,
+            providerIsExplicit: providerIsExplicit || other.providerIsExplicit,
             inputTokens: preferred.inputTokens,
             outputTokens: preferred.outputTokens,
             cacheReadTokens: preferred.cacheReadTokens,
             cacheWriteTokens: preferred.cacheWriteTokens,
             reasoningTokens: preferred.reasoningTokens,
-            cost: preferred.cost,
-            costIsKnown: preferred.costIsKnown ?? supplemental.costIsKnown,
+            cost: costSource.cost,
+            costIsKnown: costIsKnown == true || other.costIsKnown == true
+                ? true
+                : (preferred.costIsKnown ?? supplemental.costIsKnown),
             attribution: bestUsageAttribution(attribution, other.attribution) ?? attribution,
             agentName: preferred.agentName ?? supplemental.agentName,
-            agentKind: agentKind == .subagent || other.agentKind == .subagent ? .subagent : .main)
+            agentKind: mergedAgentKind
+                ?? (agentKind == .subagent && other.agentKind == .subagent ? .subagent : .main))
     }
 }
 
 enum PiCompatibleDeduplicationKey: Hashable {
-    case message(String)
-    case response(String)
+    case message(sessionID: String, id: String)
+    case response(sessionID: String, provider: String?, id: String)
     case record(
         timestamp: Date,
         provider: String?,
@@ -84,6 +105,95 @@ enum PiCompatibleDeduplicationKey: Hashable {
         location: String)
 }
 
+private enum PiCompatibleReplicaIdentity: Hashable {
+    case message(String)
+    case response(String)
+}
+
+func reconciledPiCompatibleRecords(
+    _ records: some Sequence<PiCompatibleUsageRecord>)
+    -> [PiCompatibleDeduplicationKey: PiCompatibleUsageRecord] {
+    var recordsByKey: [PiCompatibleDeduplicationKey: PiCompatibleUsageRecord] = [:]
+    var knownProviders: [PiCompatibleResponseScope: Set<String>] = [:]
+    var keysByReplicaIdentity: [PiCompatibleReplicaIdentity: [PiCompatibleDeduplicationKey]] = [:]
+    for record in records {
+        recordsByKey[record.deduplicationKey] = recordsByKey[record.deduplicationKey]
+            .map { $0.merged(with: record) } ?? record
+        if case let .response(sessionID, provider?, responseID) = record.deduplicationKey {
+            knownProviders[
+                PiCompatibleResponseScope(sessionID: sessionID, responseID: responseID),
+                default: []
+            ].insert(provider)
+        }
+        let replicaIdentity: PiCompatibleReplicaIdentity? = switch record.deduplicationKey {
+        case let .message(_, messageID): .message(messageID)
+        case let .response(_, _, responseID): .response(responseID)
+        case .record: nil
+        }
+        if let replicaIdentity,
+           keysByReplicaIdentity[replicaIdentity]?.contains(record.deduplicationKey) != true {
+            keysByReplicaIdentity[replicaIdentity, default: []].append(record.deduplicationKey)
+        }
+    }
+
+    for key in Array(recordsByKey.keys) {
+        guard case let .response(sessionID, nil, responseID) = key,
+              let unknownProviderRecord = recordsByKey[key] else {
+            continue
+        }
+        let scope = PiCompatibleResponseScope(sessionID: sessionID, responseID: responseID)
+        guard let providers = knownProviders[scope], providers.count == 1,
+              let provider = providers.first else {
+            continue
+        }
+        let enrichedKey = PiCompatibleDeduplicationKey.response(
+            sessionID: sessionID,
+            provider: provider,
+            id: responseID)
+        recordsByKey[enrichedKey] = recordsByKey[enrichedKey]
+            .map { $0.merged(with: unknownProviderRecord) } ?? unknownProviderRecord
+        recordsByKey.removeValue(forKey: key)
+    }
+
+    for keys in keysByReplicaIdentity.values {
+        let mainKeys = keys.filter { recordsByKey[$0]?.agentKind == .main }
+        let subagentKeys = keys.filter { recordsByKey[$0]?.agentKind == .subagent }
+        for subagentKey in subagentKeys {
+            guard let subagentRecord = recordsByKey[subagentKey] else { continue }
+            let matchingMainKeys = mainKeys.filter {
+                guard let mainRecord = recordsByKey[$0] else { return false }
+                return copiedPiCompatibleRecordsMatch(mainRecord, subagentRecord)
+            }
+            guard matchingMainKeys.count == 1, let mainKey = matchingMainKeys.first,
+                  let mainRecord = recordsByKey[mainKey] else {
+                continue
+            }
+            recordsByKey[mainKey] = mainRecord.merged(
+                with: subagentRecord,
+                agentKind: .main)
+            recordsByKey.removeValue(forKey: subagentKey)
+        }
+    }
+    return recordsByKey
+}
+
+private func copiedPiCompatibleRecordsMatch(
+    _ mainRecord: PiCompatibleUsageRecord,
+    _ subagentRecord: PiCompatibleUsageRecord) -> Bool {
+    guard mainRecord.timestamp == subagentRecord.timestamp,
+          mainRecord.model == subagentRecord.model else {
+        return false
+    }
+    if let mainProjectPath = mainRecord.attribution.projectPath,
+       let subagentProjectPath = subagentRecord.attribution.projectPath,
+       mainProjectPath != subagentProjectPath {
+        return false
+    }
+    return mainRecord.provider == subagentRecord.provider
+        || !mainRecord.providerIsExplicit
+        || !subagentRecord.providerIsExplicit
+}
+
 struct PiCompatibleSessionParser {
     private let decoder = JSONDecoder()
     private let streamID: String
@@ -91,6 +201,7 @@ struct PiCompatibleSessionParser {
     private var agentKind: WorkTimeAgentKind
     private var agentName: String?
     private var sessionContext: PiCompatibleSessionContext?
+    private var responseProviders: [PiCompatibleResponseScope: String] = [:]
     private var rejectedPreHeader = false
 
     init(
@@ -178,7 +289,7 @@ struct PiCompatibleSessionParser {
             lineIndex: lineIndex)
     }
 
-    private func makeRecord(
+    private mutating func makeRecord(
         entry: PiCompatibleEntry,
         message: PiCompatibleMessage,
         usage: PiCompatibleUsage,
@@ -194,7 +305,17 @@ struct PiCompatibleSessionParser {
         let reasoning = source.reportsReasoningSeparately ? recordedReasoning : 0
         let messageID = nonEmptyPiValue(entry.id)
         let responseID = nonEmptyPiValue(message.responseID)
-        let provider = nonEmptyPiValue(message.provider) ?? inferredUsageProvider(from: model)
+        let responseScope = responseID.map {
+            PiCompatibleResponseScope(sessionID: sessionContext.id, responseID: $0)
+        }
+        let declaredProvider = nonEmptyPiValue(message.provider)
+        let explicitProvider = declaredProvider
+            ?? responseScope.flatMap { responseProviders[$0] }
+        let provider = explicitProvider
+            ?? inferredUsageProvider(from: model)
+        if let responseScope, let declaredProvider {
+            responseProviders[responseScope] = declaredProvider
+        }
         let inputTokens = boundedUsageTokenCount(usage.input)
         let outputTokens = outputIncludingReasoning - reasoning
         let cacheReadTokens = boundedUsageTokenCount(usage.cacheRead)
@@ -208,9 +329,12 @@ struct PiCompatibleSessionParser {
             false
         }
         let deduplicationKey: PiCompatibleDeduplicationKey = if let messageID {
-            .message(messageID)
+            .message(sessionID: sessionContext.id, id: messageID)
         } else if let responseID {
-            .response(responseID)
+            .response(
+                sessionID: sessionContext.id,
+                provider: explicitProvider,
+                id: responseID)
         } else {
             .record(
                 timestamp: timestamp,
@@ -229,6 +353,7 @@ struct PiCompatibleSessionParser {
             timestamp: timestamp,
             model: model,
             provider: provider,
+            providerIsExplicit: explicitProvider != nil,
             inputTokens: inputTokens,
             outputTokens: outputTokens,
             cacheReadTokens: cacheReadTokens,
@@ -290,6 +415,11 @@ extension PiCompatibleSessionParser {
 private struct PiCompatibleSessionContext {
     let id: String
     let cwd: String?
+}
+
+struct PiCompatibleResponseScope: Hashable {
+    let sessionID: String
+    let responseID: String
 }
 
 private struct PiCompatibleEntry: Decodable {

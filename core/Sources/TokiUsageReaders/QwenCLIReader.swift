@@ -1,4 +1,5 @@
 import Foundation
+import TokiSyncProtocol
 import TokiUsageCore
 
 public struct QwenCLIReader: TokenReader {
@@ -72,6 +73,7 @@ public struct QwenCLIReader: TokenReader {
                 }
 
                 let tokens = QwenTokenCounts(metadata: metadata)
+                guard tokens.isValidEvent else { return }
                 guard let totalTokens = tokens.total, totalTokens > 0 else { return }
 
                 let model = normalizedModelID(entry.model)
@@ -199,6 +201,12 @@ private struct QwenTokenCounts {
     var total: Int? {
         checkedTokenTotal(input, output, cacheRead, reasoning)
     }
+
+    var isValidEvent: Bool {
+        [input, output, cacheRead, reasoning].allSatisfy {
+            (0...RemoteUsageSnapshotValidator.maximumTokenCountPerBucket).contains($0)
+        }
+    }
 }
 
 private struct QwenUsageEvent {
@@ -265,15 +273,7 @@ private func qwenRawUsage(
             checkedTokenTotal(accumulatedTotal, event.totalTokens) != nil else {
             continue
         }
-        result.inputTokens += event.tokens.input
-        result.outputTokens += event.tokens.output
-        result.cacheReadTokens += event.tokens.cacheRead
-        result.reasoningTokens += event.tokens.reasoning
-        result.accumulatePerModelUsage(
-            model: event.model,
-            source: QwenCLIReader.sourceName,
-            totalTokens: event.totalTokens)
-        result.recordTokenEvent(
+        guard result.recordTokenEvent(
             timestamp: event.timestamp,
             source: QwenCLIReader.sourceName,
             model: event.model,
@@ -290,7 +290,17 @@ private func qwenRawUsage(
                 sessionLabel: event.sessionLabel,
                 quality: event.projectPath != nil
                     ? .exact
-                    : (event.fallbackProjectName == nil ? .unknown : .inferred)))
+                    : (event.fallbackProjectName == nil ? .unknown : .inferred))) else {
+            continue
+        }
+        result.inputTokens += event.tokens.input
+        result.outputTokens += event.tokens.output
+        result.cacheReadTokens += event.tokens.cacheRead
+        result.reasoningTokens += event.tokens.reasoning
+        result.accumulatePerModelUsage(
+            model: event.model,
+            source: QwenCLIReader.sourceName,
+            totalTokens: event.totalTokens)
         activityEvents.append(
             ActivityTimeEvent(
                 streamID: event.sessionID,

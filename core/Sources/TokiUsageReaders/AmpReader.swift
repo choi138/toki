@@ -1,3 +1,4 @@
+// swiftlint:disable file_length
 import Foundation
 import TokiUsageCore
 
@@ -53,9 +54,11 @@ public struct AmpReader: TokenReader {
                 ?? thread.environment?.workingDirectory?.trimmedNonEmpty
             group.ledgerRecords.append(contentsOf: ampLedgerRecords(
                 thread.usageLedger?.events?.elements ?? [],
+                replicaID: canonicalPath,
                 fallbackDate: fallbackDate))
             group.messageRecords.append(contentsOf: ampMessageRecords(
                 thread.messages?.elements ?? [],
+                replicaID: canonicalPath,
                 fallbackDate: fallbackDate))
             recordsByThread[threadID] = group
         }
@@ -332,6 +335,7 @@ private struct AmpTokenCounts: Equatable {
 }
 
 private struct AmpUsageRecord {
+    let replicaID: String
     let stableID: String
     let contentFingerprint: String
     let contentID: String
@@ -443,6 +447,7 @@ private func reconciledAmpRecords(
 
 private func ampLedgerRecords(
     _ events: [AmpUsageLedgerEvent],
+    replicaID: String,
     fallbackDate: Date?) -> [AmpUsageRecord] {
     var occurrences: [String: Int] = [:]
     var records: [AmpUsageRecord] = []
@@ -461,6 +466,7 @@ private func ampLedgerRecords(
         occurrences[fingerprint] = occurrence + 1
         let contentID = "\(fingerprint):\(occurrence)"
         records.append(AmpUsageRecord(
+            replicaID: replicaID,
             stableID: messageID.map { "message:\($0)" } ?? contentID,
             contentFingerprint: fingerprint,
             contentID: contentID,
@@ -477,6 +483,7 @@ private func ampLedgerRecords(
 
 private func ampMessageRecords(
     _ messages: [AmpMessage],
+    replicaID: String,
     fallbackDate: Date?) -> [AmpUsageRecord] {
     var occurrences: [String: Int] = [:]
     var records: [AmpUsageRecord] = []
@@ -500,6 +507,7 @@ private func ampMessageRecords(
         occurrences[fingerprint] = occurrence + 1
         let contentID = "\(fingerprint):\(occurrence)"
         records.append(AmpUsageRecord(
+            replicaID: replicaID,
             stableID: messageID.map { "message:\($0)" } ?? contentID,
             contentFingerprint: fingerprint,
             contentID: contentID,
@@ -517,18 +525,34 @@ private func ampMessageRecords(
 private func coalescedAmpRecords(_ records: [AmpUsageRecord]) -> [AmpUsageRecord] {
     var result: [AmpUsageRecord] = []
     var index = AmpCoalescingIndex()
+    var matchedIndexesByReplica: [String: Set<Int>] = [:]
     for record in records {
-        var candidateIndexes = Set(index.indexesByContentID[record.contentID] ?? [])
-        candidateIndexes.formUnion(
-            index.indexesByContentFingerprint[record.contentFingerprint] ?? [])
+        var candidateIndexes: [Int] = []
+        candidateIndexes.append(contentsOf: index.indexesByContentID[record.contentID] ?? [])
         if let messageID = record.messageID {
-            candidateIndexes.formUnion(index.indexesByMessageID[messageID] ?? [])
+            candidateIndexes.append(contentsOf: index.indexesByMessageID[messageID] ?? [])
         }
-        if let matchingIndex = candidateIndexes.sorted().first(where: {
-            sameKindAmpRecordsMatch(result[$0], record)
+        candidateIndexes.append(contentsOf:
+            index.indexesByContentFingerprint[record.contentFingerprint] ?? [])
+        var seenCandidateIndexes = Set<Int>()
+        if let matchingIndex = candidateIndexes.first(where: {
+            guard seenCandidateIndexes.insert($0).inserted else { return false }
+            let existing = result[$0]
+            let needsOneToOneReplicaMatch = existing.replicaID != record.replicaID
+                && (existing.messageID == nil || record.messageID == nil)
+            guard !needsOneToOneReplicaMatch
+                || matchedIndexesByReplica[record.replicaID]?.contains($0) != true else {
+                return false
+            }
+            return sameKindAmpRecordsMatch(existing, record)
         }) {
+            let existing = result[matchingIndex]
+            if existing.replicaID != record.replicaID,
+               existing.messageID == nil || record.messageID == nil {
+                matchedIndexesByReplica[record.replicaID, default: []].insert(matchingIndex)
+            }
             result[matchingIndex] = mergeAmpRecord(
-                ledger: result[matchingIndex],
+                ledger: existing,
                 message: record)
             if let messageID = result[matchingIndex].messageID,
                index.indexesByMessageID[messageID]?.contains(matchingIndex) != true {
@@ -551,7 +575,10 @@ private func sameKindAmpRecordsMatch(
             && ampRecordsAreCompatible(lhs, rhs)
     }
     if lhs.messageID == nil, rhs.messageID == nil {
-        return lhs.contentFingerprint == rhs.contentFingerprint
+        let identityMatches = lhs.replicaID == rhs.replicaID
+            ? lhs.contentID == rhs.contentID
+            : lhs.contentFingerprint == rhs.contentFingerprint
+        return identityMatches
             && ampRecordsAreCompatible(lhs, rhs)
     }
     return lhs.contentID == rhs.contentID
@@ -563,6 +590,7 @@ private func mergeAmpRecord(
     message: AmpUsageRecord) -> AmpUsageRecord {
     let messageID = ledger.messageID ?? message.messageID
     return AmpUsageRecord(
+        replicaID: ledger.replicaID,
         stableID: messageID.map { "message:\($0)" } ?? ledger.stableID,
         contentFingerprint: ledger.contentFingerprint,
         contentID: ledger.contentID,
