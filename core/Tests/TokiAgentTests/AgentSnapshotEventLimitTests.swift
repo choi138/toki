@@ -53,8 +53,9 @@ final class AgentSnapshotEventLimitTests: XCTestCase {
             now.addingTimeInterval(-60),
             now.addingTimeInterval(-30),
         ]
+        let expectedCoveredFrom = now.addingTimeInterval(-120 + 0.001)
 
-        XCTAssertEqual(firstSnapshot.coveredFrom, expectedTimestamps[0])
+        XCTAssertEqual(firstSnapshot.coveredFrom, expectedCoveredFrom)
         XCTAssertEqual(firstSnapshot.tokenEvents.map(\.timestamp), expectedTimestamps)
         XCTAssertEqual(firstSnapshot.costEvents?.map(\.timestamp), expectedTimestamps)
         XCTAssertEqual(firstSnapshot.activityEvents.map(\.timestamp), expectedTimestamps)
@@ -91,8 +92,62 @@ final class AgentSnapshotEventLimitTests: XCTestCase {
 
         XCTAssertGreaterThan(snapshot.coveredFrom, fixture.now.addingTimeInterval(-30))
         XCTAssertLessThan(snapshot.tokenEvents.count, eventCount)
+        XCTAssertFalse(snapshot.tokenEvents.isEmpty)
         XCTAssertTrue(snapshot.tokenEvents.allSatisfy { $0.timestamp >= snapshot.coveredFrom })
         XCTAssertLessThanOrEqual(encodedEnvelope.count, TokiSyncLimits.maximumEnvelopeBytes)
+
+        let precedingTimestamp = try XCTUnwrap(
+            usage.tokenEvents.lazy.map(\.timestamp).filter { $0 < snapshot.coveredFrom }.max())
+        let precedingSnapshot = RemoteUsageSnapshot(
+            device: snapshot.device,
+            generatedAt: snapshot.generatedAt,
+            coveredFrom: precedingTimestamp,
+            coveredTo: snapshot.coveredTo,
+            tokenEvents: [Self.highVolumeRemoteEvent(timestamp: precedingTimestamp)] + snapshot.tokenEvents,
+            costEvents: snapshot.costEvents,
+            activityEvents: snapshot.activityEvents)
+        XCTAssertThrowsError(try SnapshotCipher.seal(
+            precedingSnapshot,
+            sequence: UInt64.max,
+            key: fixture.configuration.encryptionKey)) { error in
+                guard case SnapshotCipherError.payloadTooLarge = error else {
+                    return XCTFail("Expected payloadTooLarge, received \(error)")
+                }
+            }
+    }
+
+    func test_snapshotUsesStableCutoffAfterOversizedTimestampCohort() async throws {
+        let fixture = try AgentSnapshotFixture()
+        defer { fixture.remove() }
+        let eventTimestamp = fixture.now.addingTimeInterval(-60)
+        let usage = Self.usage(
+            source: "Senpi",
+            timestamps: [eventTimestamp, eventTimestamp, eventTimestamp])
+        let descriptor = LocalUsageReaderDescriptor(
+            reader: FixedTokenReader(name: "Senpi", usage: usage),
+            sourceLocations: [])
+        let limits = AgentSnapshotEventLimits(
+            maximumTokenEventCount: 2,
+            maximumCostEventCount: 2,
+            maximumActivityEventCount: 2)
+        let builder = AgentSnapshotBuilder(
+            home: fixture.root,
+            readerDescriptors: [descriptor],
+            eventLimits: limits)
+
+        let firstSnapshot = try await builder.build(
+            configuration: fixture.configuration,
+            now: fixture.now)
+        let secondSnapshot = try await builder.build(
+            configuration: fixture.configuration,
+            now: fixture.now.addingTimeInterval(10))
+
+        XCTAssertGreaterThan(firstSnapshot.coveredFrom, eventTimestamp)
+        XCTAssertLessThan(firstSnapshot.coveredFrom, fixture.now)
+        XCTAssertEqual(firstSnapshot.coveredFrom, secondSnapshot.coveredFrom)
+        XCTAssertEqual(
+            try builder.contentDigest(firstSnapshot),
+            try builder.contentDigest(secondSnapshot))
     }
 
     private static func usage(source: String, timestamps: [Date]) -> RawTokenUsage {
@@ -136,5 +191,19 @@ final class AgentSnapshotEventLimitTests: XCTestCase {
                 cost: RemoteUsageSnapshotValidator.maximumCostPerEvent)
         }
         return usage
+    }
+
+    private static func highVolumeRemoteEvent(timestamp: Date) -> RemoteTokenEvent {
+        RemoteTokenEvent(
+            timestamp: timestamp,
+            source: "Senpi",
+            model: String(repeating: "m", count: RemoteUsageSnapshotValidator.maximumModelLength),
+            provider: "openrouter",
+            inputTokens: RemoteUsageSnapshotValidator.maximumTokenCountPerBucket,
+            outputTokens: RemoteUsageSnapshotValidator.maximumTokenCountPerBucket,
+            cacheReadTokens: RemoteUsageSnapshotValidator.maximumTokenCountPerBucket,
+            cacheWriteTokens: RemoteUsageSnapshotValidator.maximumTokenCountPerBucket,
+            reasoningTokens: RemoteUsageSnapshotValidator.maximumTokenCountPerBucket,
+            cost: RemoteUsageSnapshotValidator.maximumCostPerEvent)
     }
 }

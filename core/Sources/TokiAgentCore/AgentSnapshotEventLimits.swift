@@ -78,9 +78,17 @@ struct AgentSnapshotEventBounder {
         costEvents: [RemoteCostEvent],
         activityEvents: [RemoteActivityEvent]) -> [Date] {
         var candidates = [coveredFrom, generatedAt]
-        candidates.append(contentsOf: tokenEvents.lazy.map(\.timestamp).filter { $0 <= generatedAt })
-        candidates.append(contentsOf: costEvents.lazy.map(\.timestamp).filter { $0 <= generatedAt })
-        candidates.append(contentsOf: activityEvents.lazy.map(\.timestamp).filter { $0 <= generatedAt })
+        func appendCutoffs(for timestamp: Date) {
+            guard timestamp <= generatedAt else { return }
+            candidates.append(timestamp)
+            let cutoffAfterTimestamp = timestamp.addingTimeInterval(0.001)
+            if cutoffAfterTimestamp <= generatedAt {
+                candidates.append(cutoffAfterTimestamp)
+            }
+        }
+        tokenEvents.forEach { appendCutoffs(for: $0.timestamp) }
+        costEvents.forEach { appendCutoffs(for: $0.timestamp) }
+        activityEvents.forEach { appendCutoffs(for: $0.timestamp) }
         candidates.sort()
         return candidates.reduce(into: []) { unique, candidate in
             if unique.last != candidate {
