@@ -13,6 +13,8 @@ final class UsagePanelSettings: ObservableObject {
         "Cursor",
         "Gemini CLI",
         "GJC",
+        "Factory Droid",
+        "Amp",
         "Senpi",
         "Pi",
         "Oh My Pi",

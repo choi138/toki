@@ -293,12 +293,13 @@ tool records data outside the standard roots, add only the narrowest required
 path with `BindReadOnlyPaths`, run `systemctl --user daemon-reload`, and restart
 the unit. Relative XDG paths are ignored in favor of the default directories.
 
-The Kimi and Qwen readers also support `KIMI_SHARE_DIR`, `KIMI_CODE_HOME`,
+The Copilot, Kimi, and Qwen readers also support
+`COPILOT_OTEL_FILE_EXPORTER_PATH`, `KIMI_SHARE_DIR`, `KIMI_CODE_HOME`,
 `QWEN_HOME`, and `QWEN_RUNTIME_DIR`. `ProtectHome=tmpfs` hides override
 directories under the user's home unless the service explicitly bind-mounts
 them. Start from the supplied drop-in example, replace every `/home/USER/...`
-value with the matching absolute tool home, and create every listed `sessions`
-or `projects` directory before starting the service. Keep those required mounts
+value with the matching absolute path, and create every listed exporter file,
+`sessions`, or `projects` parent directory before starting the service. Keep those required mounts
 in the drop-in so a missing data directory fails at startup instead of silently
 omitting usage:
 

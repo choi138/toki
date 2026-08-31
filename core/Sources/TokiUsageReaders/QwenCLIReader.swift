@@ -159,6 +159,19 @@ private struct QwenLine: Decodable {
         case uuid, type, model, timestamp, cwd, usageMetadata
         case sessionID = "sessionId"
     }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        type = try container.decodeIfPresent(String.self, forKey: .type)
+        uuid = try? container.decodeIfPresent(String.self, forKey: .uuid)
+        model = try? container.decodeIfPresent(String.self, forKey: .model)
+        timestamp = try? container.decodeIfPresent(String.self, forKey: .timestamp)
+        sessionID = try? container.decodeIfPresent(String.self, forKey: .sessionID)
+        cwd = try? container.decodeIfPresent(String.self, forKey: .cwd)
+        usageMetadata = try container.decodeIfPresent(
+            QwenUsageMetadata.self,
+            forKey: .usageMetadata)
+    }
 }
 
 private struct QwenUsageMetadata: Decodable {

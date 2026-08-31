@@ -90,6 +90,7 @@ struct ModelStat: Equatable {
     let activeSeconds: TimeInterval
     let wallClockSeconds: TimeInterval
     let sources: [String]
+    let providers: [String]
     let isPriceKnown: Bool
 
     init(
@@ -100,6 +101,7 @@ struct ModelStat: Equatable {
         activeSeconds: TimeInterval,
         wallClockSeconds: TimeInterval = 0,
         sources: [String],
+        providers: [String] = [],
         isPriceKnown: Bool) {
         self.id = id
         self.modelID = modelID ?? id
@@ -108,6 +110,7 @@ struct ModelStat: Equatable {
         self.activeSeconds = activeSeconds
         self.wallClockSeconds = wallClockSeconds
         self.sources = sources
+        self.providers = providers
         self.isPriceKnown = isPriceKnown
     }
 

@@ -350,7 +350,7 @@ private extension AgentSnapshotBuilder {
                 values.contentModificationDate.map { $0 >= minimumDate } == true
             } ?? true
             guard values.isRegularFile == true,
-                  extensions.contains(fileURL.pathExtension),
+                  extensions.contains(fileURL.pathExtension.lowercased()),
                   isRecentEnough else {
                 continue
             }
@@ -437,6 +437,7 @@ private extension AgentSnapshotBuilder {
         if lhs.timestamp != rhs.timestamp { return lhs.timestamp < rhs.timestamp }
         if lhs.source != rhs.source { return lhs.source < rhs.source }
         if lhs.model != rhs.model { return (lhs.model ?? "") < (rhs.model ?? "") }
+        if lhs.provider != rhs.provider { return (lhs.provider ?? "") < (rhs.provider ?? "") }
         if lhs.inputTokens != rhs.inputTokens { return lhs.inputTokens < rhs.inputTokens }
         if lhs.outputTokens != rhs.outputTokens { return lhs.outputTokens < rhs.outputTokens }
         if lhs.cacheReadTokens != rhs.cacheReadTokens { return lhs.cacheReadTokens < rhs.cacheReadTokens }
@@ -561,11 +562,9 @@ private struct AgentReaderUsage {
 }
 
 enum AgentSnapshotBuilderError: LocalizedError {
-    case cacheResetFailed
-    case invalidDateRange
+    case cacheResetFailed, invalidDateRange
     case readerFailed(String)
-    case sourceMountRefreshRequired
-    case sourceInspectionFailed
+    case sourceMountRefreshRequired, sourceInspectionFailed
 
     var requiresProcessRestart: Bool {
         switch self {

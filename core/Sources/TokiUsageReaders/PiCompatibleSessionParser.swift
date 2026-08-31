@@ -2,6 +2,7 @@ import Foundation
 import TokiUsageCore
 
 enum PiCompatibleSource {
+    case gjc
     case senpi
     case pi
     case ohMyPi
@@ -9,6 +10,7 @@ enum PiCompatibleSource {
 
     var sourceName: String {
         switch self {
+        case .gjc: "GJC"
         case .senpi: "Senpi"
         case .pi: "Pi"
         case .ohMyPi: "Oh My Pi"
@@ -17,14 +19,14 @@ enum PiCompatibleSource {
     }
 
     var reportsReasoningSeparately: Bool {
-        self == .senpi
+        self == .senpi || self == .gjc
     }
 }
 
 struct PiCompatibleUsageRecord {
     let deduplicationKey: PiCompatibleDeduplicationKey
     let timestamp: Date
-    let model: String
+    let model: String?
     let provider: String?
     let inputTokens: Int
     let outputTokens: Int
@@ -32,7 +34,9 @@ struct PiCompatibleUsageRecord {
     let cacheWriteTokens: Int
     let reasoningTokens: Int
     let cost: Double
+    let costIsKnown: Bool?
     let attribution: UsageAttribution
+    let agentName: String?
     let agentKind: WorkTimeAgentKind
 
     var totalTokens: Int {
@@ -41,7 +45,9 @@ struct PiCompatibleUsageRecord {
 
     func merged(with other: Self) -> Self {
         let prefersSelf = totalTokens > other.totalTokens
-            || (totalTokens == other.totalTokens && cost >= other.cost)
+            || (totalTokens == other.totalTokens && cost > other.cost)
+            || (totalTokens == other.totalTokens && cost == other.cost
+                && costIsKnown == true && other.costIsKnown != true)
         let preferred = prefersSelf ? self : other
         let supplemental = prefersSelf ? other : self
         return PiCompatibleUsageRecord(
@@ -55,7 +61,9 @@ struct PiCompatibleUsageRecord {
             cacheWriteTokens: preferred.cacheWriteTokens,
             reasoningTokens: preferred.reasoningTokens,
             cost: preferred.cost,
+            costIsKnown: preferred.costIsKnown ?? supplemental.costIsKnown,
             attribution: bestUsageAttribution(attribution, other.attribution) ?? attribution,
+            agentName: preferred.agentName ?? supplemental.agentName,
             agentKind: agentKind == .subagent || other.agentKind == .subagent ? .subagent : .main)
     }
 }
@@ -66,7 +74,7 @@ enum PiCompatibleDeduplicationKey: Hashable {
     case record(
         timestamp: Date,
         provider: String?,
-        model: String,
+        model: String?,
         inputTokens: Int,
         outputTokens: Int,
         cacheReadTokens: Int,
@@ -81,6 +89,7 @@ struct PiCompatibleSessionParser {
     private let streamID: String
     private let source: PiCompatibleSource
     private var agentKind: WorkTimeAgentKind
+    private var agentName: String?
     private var sessionContext: PiCompatibleSessionContext?
     private var rejectedPreHeader = false
 
@@ -91,6 +100,12 @@ struct PiCompatibleSessionParser {
         self.streamID = streamID
         self.source = source
         self.agentKind = agentKind
+        agentName = nil
+        sessionContext = source == .gjc
+            ? PiCompatibleSessionContext(
+                id: usageSessionID(fromPath: streamID),
+                cwd: nil)
+            : nil
     }
 
     static func records(
@@ -118,8 +133,13 @@ struct PiCompatibleSessionParser {
         }
 
         if entry.type == "session" {
+            let nextSessionID = nonEmptyPiValue(entry.id) ?? usageSessionID(fromPath: streamID)
+            if sessionContext != nil, sessionContext?.id != nextSessionID {
+                agentName = nil
+                agentKind = .main
+            }
             sessionContext = PiCompatibleSessionContext(
-                id: nonEmptyPiValue(entry.id) ?? usageSessionID(fromPath: streamID),
+                id: nextSessionID,
                 cwd: nonEmptyPiValue(entry.cwd))
             return nil
         }
@@ -128,7 +148,7 @@ struct PiCompatibleSessionParser {
             if source == .ohMyPi, entry.type == "title" {
                 return nil
             }
-            if source != .senpi {
+            if source != .senpi, source != .gjc {
                 rejectedPreHeader = true
             }
             return nil
@@ -136,23 +156,40 @@ struct PiCompatibleSessionParser {
         guard !rejectedPreHeader else { return nil }
 
         if source == .pi, entry.type == "session_info" {
-            agentKind = strictPiSubagentName(from: entry.name) == nil ? .main : .subagent
+            agentName = strictPiSubagentName(from: entry.name)
+            agentKind = agentName == nil ? .main : .subagent
             return nil
         }
 
         guard let sessionContext,
               entry.type == "message",
               let message = entry.message,
-              message.role == "assistant",
-              let model = normalizedModelID(message.model),
-              let usage = message.usage,
+              let usage = usage(from: message),
               let timestamp = entry.timestamp.flatMap(DateParser.parse) else {
             return nil
         }
 
+        return makeRecord(
+            entry: entry,
+            message: message,
+            usage: usage,
+            timestamp: timestamp,
+            sessionContext: sessionContext,
+            lineIndex: lineIndex)
+    }
+
+    private func makeRecord(
+        entry: PiCompatibleEntry,
+        message: PiCompatibleMessage,
+        usage: PiCompatibleUsage,
+        timestamp: Date,
+        sessionContext: PiCompatibleSessionContext,
+        lineIndex: Int) -> PiCompatibleUsageRecord? {
+        let model = normalizedModelID(message.model)
+        guard source == .gjc || model != nil else { return nil }
         let outputIncludingReasoning = boundedUsageTokenCount(usage.output)
         let recordedReasoning = min(
-            boundedUsageTokenCount(usage.reasoning),
+            boundedUsageTokenCount(usage.reasoning ?? usage.reasoningTokens),
             outputIncludingReasoning)
         let reasoning = source.reportsReasoningSeparately ? recordedReasoning : 0
         let messageID = nonEmptyPiValue(entry.id)
@@ -163,6 +200,13 @@ struct PiCompatibleSessionParser {
         let cacheReadTokens = boundedUsageTokenCount(usage.cacheRead)
         let cacheWriteTokens = boundedUsageTokenCount(usage.cacheWrite)
         let cost = boundedUsageCost(usage.cost?.total)
+        let costIsKnown: Bool? = if usage.cost != nil {
+            true
+        } else if source == .gjc {
+            nil
+        } else {
+            false
+        }
         let deduplicationKey: PiCompatibleDeduplicationKey = if let messageID {
             .message(messageID)
         } else if let responseID {
@@ -191,11 +235,55 @@ struct PiCompatibleSessionParser {
             cacheWriteTokens: cacheWriteTokens,
             reasoningTokens: reasoning,
             cost: cost,
+            costIsKnown: costIsKnown,
             attribution: UsageAttribution(
                 projectPath: sessionContext.cwd,
                 sessionID: sessionContext.id,
                 quality: sessionContext.cwd == nil ? .unknown : .exact),
+            agentName: agentName,
             agentKind: agentKind)
+    }
+
+    private func usage(from message: PiCompatibleMessage) -> PiCompatibleUsage? {
+        if message.role == "assistant" {
+            return message.usage
+        }
+        guard source == .gjc,
+              message.role == "toolResult",
+              message.toolName == "task" else {
+            return nil
+        }
+        return message.details?.usage
+    }
+}
+
+struct PiCompatibleMessageSnapshot {
+    let provider: String?
+    let model: String?
+    let sessionID: String?
+    let cwd: String?
+    let agentName: String?
+    let agentKind: WorkTimeAgentKind
+}
+
+extension PiCompatibleSessionParser {
+    static func messages(
+        fromJSONLLines lines: [String],
+        source: PiCompatibleSource) -> [PiCompatibleMessageSnapshot] {
+        records(
+            fromJSONLLines: lines,
+            streamID: "inline-session",
+            source: source,
+            agentKind: .main)
+            .map { record in
+                PiCompatibleMessageSnapshot(
+                    provider: record.provider,
+                    model: record.model,
+                    sessionID: record.attribution.sessionID,
+                    cwd: record.attribution.projectPath,
+                    agentName: record.agentName,
+                    agentKind: record.agentKind)
+            }
     }
 }
 
@@ -211,18 +299,58 @@ private struct PiCompatibleEntry: Decodable {
     let cwd: String?
     let name: String?
     let message: PiCompatibleMessage?
+
+    enum CodingKeys: String, CodingKey {
+        case type, id, timestamp, cwd, name, message
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        type = try? container.decodeIfPresent(String.self, forKey: .type)
+        id = try? container.decodeIfPresent(String.self, forKey: .id)
+        timestamp = try? container.decodeIfPresent(String.self, forKey: .timestamp)
+        cwd = try? container.decodeIfPresent(String.self, forKey: .cwd)
+        name = try? container.decodeIfPresent(String.self, forKey: .name)
+        message = try? container.decodeIfPresent(PiCompatibleMessage.self, forKey: .message)
+    }
 }
 
 private struct PiCompatibleMessage: Decodable {
     let role: String?
+    let toolName: String?
     let model: String?
     let provider: String?
     let responseID: String?
     let usage: PiCompatibleUsage?
+    let details: PiCompatibleDetails?
 
     enum CodingKeys: String, CodingKey {
-        case role, model, provider, usage
+        case role, toolName, model, provider, usage, details
         case responseID = "responseId"
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        role = try? container.decodeIfPresent(String.self, forKey: .role)
+        toolName = try? container.decodeIfPresent(String.self, forKey: .toolName)
+        model = try? container.decodeIfPresent(String.self, forKey: .model)
+        provider = try? container.decodeIfPresent(String.self, forKey: .provider)
+        responseID = try? container.decodeIfPresent(String.self, forKey: .responseID)
+        usage = try? container.decodeIfPresent(PiCompatibleUsage.self, forKey: .usage)
+        details = try? container.decodeIfPresent(PiCompatibleDetails.self, forKey: .details)
+    }
+}
+
+private struct PiCompatibleDetails: Decodable {
+    let usage: PiCompatibleUsage?
+
+    enum CodingKeys: String, CodingKey {
+        case usage
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        usage = try? container.decodeIfPresent(PiCompatibleUsage.self, forKey: .usage)
     }
 }
 
@@ -232,11 +360,36 @@ private struct PiCompatibleUsage: Decodable {
     let cacheRead: Int?
     let cacheWrite: Int?
     let reasoning: Int?
+    let reasoningTokens: Int?
     let cost: PiCompatibleCost?
+
+    enum CodingKeys: String, CodingKey {
+        case input, output, cacheRead, cacheWrite, reasoning, reasoningTokens, cost
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        input = try? container.decodeIfPresent(Int.self, forKey: .input)
+        output = try? container.decodeIfPresent(Int.self, forKey: .output)
+        cacheRead = try? container.decodeIfPresent(Int.self, forKey: .cacheRead)
+        cacheWrite = try? container.decodeIfPresent(Int.self, forKey: .cacheWrite)
+        reasoning = try? container.decodeIfPresent(Int.self, forKey: .reasoning)
+        reasoningTokens = try? container.decodeIfPresent(Int.self, forKey: .reasoningTokens)
+        cost = try? container.decodeIfPresent(PiCompatibleCost.self, forKey: .cost)
+    }
 }
 
 private struct PiCompatibleCost: Decodable {
     let total: Double?
+
+    enum CodingKeys: String, CodingKey {
+        case total
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        total = try? container.decodeIfPresent(Double.self, forKey: .total)
+    }
 }
 
 private func nonEmptyPiValue(_ value: String?) -> String? {

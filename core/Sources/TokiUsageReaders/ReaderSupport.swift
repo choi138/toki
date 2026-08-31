@@ -1,6 +1,17 @@
 import Foundation
 import TokiUsageCore
 
+enum LocalUsageReaderDiagnosticError: LocalizedError {
+    case decodeFailed(source: String, stage: String)
+
+    var errorDescription: String? {
+        switch self {
+        case let .decodeFailed(source, stage):
+            "\(source) \(stage) decode failed"
+        }
+    }
+}
+
 func findFiles(in directory: URL, withExtension ext: String, modifiedAfter: Date? = nil) -> [URL] {
     (try? findFiles(
         in: directory,
@@ -178,17 +189,6 @@ func inferredUsageProvider(from model: String?) -> String? {
         return "openai"
     }
     return nil
-}
-
-func checkedTokenTotal(_ values: Int...) -> Int? {
-    var total = 0
-    for value in values {
-        guard value >= 0 else { return nil }
-        let addition = total.addingReportingOverflow(value)
-        guard !addition.overflow else { return nil }
-        total = addition.partialValue
-    }
-    return total
 }
 
 public extension RawTokenUsage {

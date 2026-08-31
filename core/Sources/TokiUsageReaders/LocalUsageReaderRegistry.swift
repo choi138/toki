@@ -48,6 +48,7 @@ public struct LocalUsageReaderPaths: Equatable {
     public let xdgConfigDirectory: URL
     public let xdgDataDirectory: URL
     public let xdgStateDirectory: URL
+    public let senpiSessions: [URL]
     public let senpiSessionDirectories: [URL]
     public let piSessions: URL
     public let ompSessions: URL
@@ -74,6 +75,13 @@ public struct LocalUsageReaderPaths: Equatable {
             key: "XDG_STATE_HOME",
             environment: environment)
             ?? homeDirectory.appendingPathComponent(".local/state")
+        let senpiSessionOverride = Self.absoluteEnvironmentDirectory(
+            key: "SENPI_CODING_AGENT_SESSION_DIR",
+            environment: environment)
+        senpiSessions = senpiSessionOverride.map { [$0] } ?? [
+            homeDirectory.appendingPathComponent(".omo/agent/sessions"),
+            homeDirectory.appendingPathComponent(".senpi/agent/sessions"),
+        ]
         var senpiDirectories = [
             homeDirectory.appendingPathComponent(".omo/agent/sessions"),
             homeDirectory.appendingPathComponent(".senpi/agent/sessions"),
@@ -85,9 +93,7 @@ public struct LocalUsageReaderPaths: Equatable {
             environment: environment) {
             senpiDirectories.append(agentDirectory.appendingPathComponent("sessions"))
         }
-        if let sessionDirectory = Self.absoluteEnvironmentDirectory(
-            key: "SENPI_CODING_AGENT_SESSION_DIR",
-            environment: environment) {
+        if let sessionDirectory = senpiSessionOverride {
             senpiDirectories.append(sessionDirectory)
         }
         if let projectDirectory = Self.absoluteEnvironmentDirectory(
@@ -160,6 +166,14 @@ public struct LocalUsageReaderPaths: Equatable {
 
     public var gjcSessions: URL {
         homeDirectory.appendingPathComponent(".gjc/agent/sessions")
+    }
+
+    public var factoryDroidSessions: URL {
+        homeDirectory.appendingPathComponent(".factory/sessions")
+    }
+
+    public var ampThreads: URL {
+        xdgDataDirectory.appendingPathComponent("amp/threads")
     }
 
     public var openCodeDatabase: URL {
@@ -308,6 +322,12 @@ public enum LocalUsageReaderRegistry {
             LocalUsageReaderDescriptor(
                 reader: GJCReader(sessionsURLOverride: paths.gjcSessions),
                 sourceLocations: [.directory(paths.gjcSessions, extensions: ["jsonl"])]),
+            LocalUsageReaderDescriptor(
+                reader: FactoryDroidReader(sessionsURLOverride: paths.factoryDroidSessions),
+                sourceLocations: [.directory(paths.factoryDroidSessions, extensions: ["json", "jsonl"])]),
+            LocalUsageReaderDescriptor(
+                reader: AmpReader(threadsURLOverride: paths.ampThreads),
+                sourceLocations: [.directory(paths.ampThreads, extensions: ["json"])]),
             LocalUsageReaderDescriptor(
                 reader: SenpiReader(sessionRootsOverride: paths.senpiSessionDirectories),
                 sourceLocations: paths.senpiSessionDirectories.map {

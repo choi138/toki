@@ -119,9 +119,10 @@ struct PiCompatibleReader {
                 cacheWriteTokens: record.cacheWriteTokens,
                 reasoningTokens: record.reasoningTokens,
                 cost: record.cost,
+                costIsKnown: record.costIsKnown,
                 attribution: record.attribution)
             activityEvents.append(ActivityTimeEvent(
-                streamID: record.attribution.sessionID ?? record.model,
+                streamID: record.attribution.sessionID ?? record.model ?? source.sourceName,
                 timestamp: record.timestamp,
                 key: UsageModelGrouping.groupingKey(for: record.model),
                 agentKind: record.agentKind))
@@ -137,7 +138,7 @@ struct PiCompatibleReader {
         _ lhs: PiCompatibleUsageRecord,
         _ rhs: PiCompatibleUsageRecord) -> Bool {
         if lhs.timestamp != rhs.timestamp { return lhs.timestamp < rhs.timestamp }
-        if lhs.model != rhs.model { return lhs.model < rhs.model }
+        if lhs.model != rhs.model { return (lhs.model ?? "") < (rhs.model ?? "") }
         if lhs.provider != rhs.provider { return (lhs.provider ?? "") < (rhs.provider ?? "") }
         if lhs.inputTokens != rhs.inputTokens { return lhs.inputTokens < rhs.inputTokens }
         return lhs.outputTokens < rhs.outputTokens

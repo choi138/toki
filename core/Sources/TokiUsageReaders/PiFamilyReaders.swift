@@ -5,15 +5,19 @@ public struct PiReader: TokenReader {
     public static let sourceName = "Pi"
 
     public let name = Self.sourceName
-    private let sessionsURLOverride: URL?
+    private let sessionRootsOverride: [URL]?
 
     public init(sessionsURLOverride: URL? = nil) {
-        self.sessionsURLOverride = sessionsURLOverride
+        sessionRootsOverride = sessionsURLOverride.map { [$0] }
+    }
+
+    init(sessionRootsOverride: [URL]) {
+        self.sessionRootsOverride = sessionRootsOverride
     }
 
     public func readUsage(from startDate: Date, to endDate: Date) async throws -> RawTokenUsage {
-        let sessionsURL = sessionsURLOverride ?? LocalUsageReaderPaths().piSessions
-        return try PiCompatibleReader(source: .pi, sessionRoots: [sessionsURL])
+        let sessionRoots = sessionRootsOverride ?? [LocalUsageReaderPaths().piSessions]
+        return try PiCompatibleReader(source: .pi, sessionRoots: sessionRoots)
             .readUsage(from: startDate, to: endDate)
     }
 
