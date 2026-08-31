@@ -38,7 +38,8 @@ final class AgentSystemdServiceTests: XCTestCase {
             "%h/.gjc/agent/sessions",
             "%h/.omo/agent/sessions",
             "%h/.senpi/agent/sessions",
-            "%h/.omo/senpi-task",
+            "%h/.omo/senpi-task/children",
+            "%h/.omo/senpi-task/sessions",
             "%h/.pi/agent/sessions",
             "%h/.omp/agent/sessions",
             "%h/.config/kimchi/harness/sessions",
@@ -57,6 +58,7 @@ final class AgentSystemdServiceTests: XCTestCase {
         XCTAssertFalse(service.contains("BindReadOnlyPaths=-%h/.hermes\n"))
         XCTAssertFalse(service.contains("BindReadOnlyPaths=-%h/.config/Cursor\n"))
         XCTAssertFalse(service.contains("BindReadOnlyPaths=-%h/.local/share/opencode\n"))
+        XCTAssertFalse(service.contains("BindReadOnlyPaths=-%h/.omo/senpi-task\n"))
     }
 
     func test_restartPolicyRateLimitsRepeatedFailures() throws {
