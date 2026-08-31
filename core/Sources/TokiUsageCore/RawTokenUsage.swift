@@ -124,34 +124,40 @@ public struct TokenUsageEvent: Equatable, Codable {
     public let timestamp: Date
     public let source: String
     public let model: String?
+    public let provider: String?
     public let inputTokens: Int
     public let outputTokens: Int
     public let cacheReadTokens: Int
     public let cacheWriteTokens: Int
     public let reasoningTokens: Int
     public let cost: Double
+    public let costIsKnown: Bool?
     public let attribution: UsageAttribution?
 
     public init(
         timestamp: Date,
         source: String,
         model: String?,
+        provider: String? = nil,
         inputTokens: Int,
         outputTokens: Int,
         cacheReadTokens: Int,
         cacheWriteTokens: Int,
         reasoningTokens: Int,
         cost: Double,
+        costIsKnown: Bool? = nil,
         attribution: UsageAttribution? = nil) {
         self.timestamp = timestamp
         self.source = source
         self.model = model
+        self.provider = provider?.nilIfBlank
         self.inputTokens = inputTokens
         self.outputTokens = outputTokens
         self.cacheReadTokens = cacheReadTokens
         self.cacheWriteTokens = cacheWriteTokens
         self.reasoningTokens = reasoningTokens
         self.cost = cost
+        self.costIsKnown = costIsKnown
         self.attribution = attribution
     }
 
@@ -336,23 +342,27 @@ public struct RawTokenUsage {
         timestamp: Date,
         source: String,
         model: String?,
+        provider: String? = nil,
         inputTokens: Int,
         outputTokens: Int,
         cacheReadTokens: Int = 0,
         cacheWriteTokens: Int = 0,
         reasoningTokens: Int = 0,
         cost: Double = 0,
+        costIsKnown: Bool? = nil,
         attribution: UsageAttribution? = nil) {
         let event = TokenUsageEvent(
             timestamp: timestamp,
             source: source,
             model: model,
+            provider: provider,
             inputTokens: inputTokens,
             outputTokens: outputTokens,
             cacheReadTokens: cacheReadTokens,
             cacheWriteTokens: cacheWriteTokens,
             reasoningTokens: reasoningTokens,
             cost: cost,
+            costIsKnown: costIsKnown,
             attribution: attribution)
         guard event.totalTokens > 0 || event.cost > 0 else { return }
         tokenEvents.append(event)
