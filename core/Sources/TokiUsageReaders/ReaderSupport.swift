@@ -77,8 +77,8 @@ func findFilesThrowing(
     try Task.checkCancellation()
 
     let keys: [URLResourceKey] = modifiedAfter != nil
-        ? [.isDirectoryKey, .isRegularFileKey, .isSymbolicLinkKey, .contentModificationDateKey]
-        : [.isDirectoryKey, .isRegularFileKey, .isSymbolicLinkKey]
+        ? [.isHiddenKey, .isDirectoryKey, .isRegularFileKey, .isSymbolicLinkKey, .contentModificationDateKey]
+        : [.isHiddenKey, .isDirectoryKey, .isRegularFileKey, .isSymbolicLinkKey]
     let rootValues: URLResourceValues
     do {
         rootValues = try directory.resourceValues(forKeys: [.isDirectoryKey])
@@ -99,7 +99,7 @@ func findFilesThrowing(
     guard let enumerator = FileManager.default.enumerator(
         at: directory,
         includingPropertiesForKeys: keys,
-        options: [.skipsHiddenFiles],
+        options: [],
         errorHandler: { _, _ in
             traversalFailed = true
             return false
@@ -123,6 +123,7 @@ func findFilesThrowing(
         } catch {
             throw UsageFileDiscoveryError.cannotReadEntryMetadata
         }
+        if skipHiddenEntry(url, values: values, enumerator: enumerator) { continue }
         if values.isSymbolicLink == true {
             if values.isDirectory == true {
                 enumerator.skipDescendants()
@@ -148,6 +149,17 @@ func findFilesThrowing(
         throw UsageFileDiscoveryError.cannotEnumerateRoot
     }
     return files
+}
+
+private func skipHiddenEntry(
+    _ url: URL,
+    values: URLResourceValues,
+    enumerator: FileManager.DirectoryEnumerator) -> Bool {
+    guard values.isHidden == true || url.lastPathComponent.hasPrefix(".") else { return false }
+    if values.isDirectory == true {
+        enumerator.skipDescendants()
+    }
+    return true
 }
 
 func boundedUsageFileData(at url: URL, maximumBytes: Int) throws -> Data {

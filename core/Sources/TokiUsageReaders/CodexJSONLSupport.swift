@@ -66,12 +66,21 @@ func forEachJSONLLineUntilThrowing(
 
     var lineIndex = 0
     var pending = Data()
+    var consumedBytes = 0
 
     while true {
         try Task.checkCancellation()
         guard let chunk = try handle.read(upToCount: 64 * 1024),
               !chunk.isEmpty else {
             break
+        }
+
+        if let limits {
+            let (nextConsumedBytes, overflow) = consumedBytes.addingReportingOverflow(chunk.count)
+            guard !overflow, nextConsumedBytes <= limits.maximumFileBytes else {
+                throw PiCompatibleReaderError.fileTooLarge(url)
+            }
+            consumedBytes = nextConsumedBytes
         }
 
         pending.append(chunk)
@@ -96,6 +105,11 @@ func forEachJSONLLineUntilThrowing(
     }
 
     try Task.checkCancellation()
+    if let limits {
+        guard try handle.seekToEnd() <= UInt64(limits.maximumFileBytes) else {
+            throw PiCompatibleReaderError.fileTooLarge(url)
+        }
+    }
     if let line = jsonlLineString(from: pending) {
         _ = try body(line, lineIndex)
     }

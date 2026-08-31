@@ -57,17 +57,22 @@ struct AgentSnapshotBuildLimits: Equatable {
 struct AgentSnapshotAssembler {
     let limits: AgentSnapshotBuildLimits
 
+    struct Result {
+        let snapshot: RemoteUsageSnapshot
+        let earliestDeferredTimestamp: Date?
+    }
+
     func snapshot(
         from readerUsages: [AgentReaderUsage],
         configuration: AgentConfiguration,
         generatedAt: Date,
         coveredFrom: Date,
-        coveredTo: Date) throws -> RemoteUsageSnapshot {
+        coveredTo: Date) throws -> Result {
         try Task.checkCancellation()
         let identifierHasher = try identifierHasher(for: configuration)
         let tokenReplacementCoverages = try boundedReplacementCoverages(from: readerUsages)
         let device = deviceDescriptor(for: configuration)
-        var encodedBytes = try initialEncodedByteCount(
+        try validateEmptySnapshotFits(
             device: device,
             generatedAt: generatedAt,
             coveredFrom: coveredFrom,
@@ -79,6 +84,7 @@ struct AgentSnapshotAssembler {
         var examinedTokenEventCount = 0
         var examinedActivityEventCount = 0
         var replacementCoverageComparisonCount = 0
+        var earliestDeferredTimestamp: Date?
         for readerUsage in readerUsages {
             try Task.checkCancellation()
             for event in readerUsage.usage.tokenEvents {
@@ -89,7 +95,10 @@ struct AgentSnapshotAssembler {
                 guard event.timestamp >= coveredFrom, event.timestamp < coveredTo else {
                     continue
                 }
-                guard event.timestamp <= generatedAt else { continue }
+                guard event.timestamp <= generatedAt else {
+                    updateEarliestDeferredTimestamp(&earliestDeferredTimestamp, candidate: event.timestamp)
+                    continue
+                }
                 guard try !isReplaced(
                     event,
                     by: tokenReplacementCoverages,
@@ -97,17 +106,9 @@ struct AgentSnapshotAssembler {
                     continue
                 }
                 if let tokenEvent = remoteTokenEvent(event) {
-                    guard tokenEvents.count < limits.maximumTokenEventCount else {
-                        throw AgentSnapshotBuilderError.snapshotLimitExceeded
-                    }
-                    try reserveSnapshotBytes(for: tokenEvent, used: &encodedBytes)
                     tokenEvents.append(tokenEvent)
                 }
                 if let costEvent = remoteCostEvent(event) {
-                    guard costEvents.count < limits.maximumCostEventCount else {
-                        throw AgentSnapshotBuilderError.snapshotLimitExceeded
-                    }
-                    try reserveSnapshotBytes(for: costEvent, used: &encodedBytes)
                     costEvents.append(costEvent)
                 }
             }
@@ -119,9 +120,9 @@ struct AgentSnapshotAssembler {
                 guard event.timestamp >= coveredFrom, event.timestamp < coveredTo else {
                     continue
                 }
-                guard event.timestamp <= generatedAt else { continue }
-                guard activityEvents.count < limits.maximumActivityEventCount else {
-                    throw AgentSnapshotBuilderError.snapshotLimitExceeded
+                guard event.timestamp <= generatedAt else {
+                    updateEarliestDeferredTimestamp(&earliestDeferredTimestamp, candidate: event.timestamp)
+                    continue
                 }
                 let activityEvent = RemoteActivityEvent(
                     timestamp: event.timestamp,
@@ -130,12 +131,11 @@ struct AgentSnapshotAssembler {
                     streamID: identifierHasher.identifier(
                         for: "\(readerUsage.name)\u{0}\(event.streamID)"),
                     agentKind: event.agentKind == .subagent ? .subagent : .main)
-                try reserveSnapshotBytes(for: activityEvent, used: &encodedBytes)
                 activityEvents.append(activityEvent)
             }
         }
 
-        return try validatedSnapshot(
+        let snapshot = try boundedSnapshot(
             device: device,
             generatedAt: generatedAt,
             coveredFrom: coveredFrom,
@@ -143,6 +143,9 @@ struct AgentSnapshotAssembler {
             tokenEvents: tokenEvents,
             costEvents: costEvents,
             activityEvents: activityEvents)
+        return Result(
+            snapshot: snapshot,
+            earliestDeferredTimestamp: earliestDeferredTimestamp)
     }
 
     private func identifierHasher(
@@ -159,7 +162,7 @@ struct AgentSnapshotAssembler {
 }
 
 private extension AgentSnapshotAssembler {
-    private func validatedSnapshot(
+    private func boundedSnapshot(
         device: RemoteDeviceDescriptor,
         generatedAt: Date,
         coveredFrom: Date,
@@ -167,25 +170,78 @@ private extension AgentSnapshotAssembler {
         tokenEvents: [RemoteTokenEvent],
         costEvents: [RemoteCostEvent],
         activityEvents: [RemoteActivityEvent]) throws -> RemoteUsageSnapshot {
-        let snapshot = RemoteUsageSnapshot(
+        let sortedTokenEvents = tokenEvents.sorted(by: tokenEventSort)
+        let sortedCostEvents = costEvents.sorted(by: costEventSort)
+        let sortedActivityEvents = activityEvents.sorted(by: activityEventSort)
+        let cutoffs = cutoffCandidates(
+            coveredFrom: coveredFrom,
+            generatedAt: generatedAt,
+            tokenEvents: sortedTokenEvents,
+            costEvents: sortedCostEvents,
+            activityEvents: sortedActivityEvents)
+        let fullSnapshot = makeSnapshot(
+            device: device,
+            generatedAt: generatedAt,
+            coveredFrom: cutoffs[0],
+            coveredTo: coveredTo,
+            tokenEvents: sortedTokenEvents,
+            costEvents: sortedCostEvents,
+            activityEvents: sortedActivityEvents)
+        if try fitsAssemblyLimits(fullSnapshot) {
+            return fullSnapshot
+        }
+
+        var lowerBound = 1
+        var upperBound = cutoffs.count - 1
+        var boundedSnapshot: RemoteUsageSnapshot?
+        while lowerBound <= upperBound {
+            try Task.checkCancellation()
+            let index = lowerBound + (upperBound - lowerBound) / 2
+            let candidate = makeSnapshot(
+                device: device,
+                generatedAt: generatedAt,
+                coveredFrom: cutoffs[index],
+                coveredTo: coveredTo,
+                tokenEvents: sortedTokenEvents,
+                costEvents: sortedCostEvents,
+                activityEvents: sortedActivityEvents)
+            if try fitsAssemblyLimits(candidate) {
+                boundedSnapshot = candidate
+                upperBound = index - 1
+            } else {
+                lowerBound = index + 1
+            }
+        }
+        guard let boundedSnapshot else {
+            throw AgentSnapshotBuilderError.snapshotLimitExceeded
+        }
+        return boundedSnapshot
+    }
+
+    private func makeSnapshot(
+        device: RemoteDeviceDescriptor,
+        generatedAt: Date,
+        coveredFrom: Date,
+        coveredTo: Date,
+        tokenEvents: [RemoteTokenEvent],
+        costEvents: [RemoteCostEvent],
+        activityEvents: [RemoteActivityEvent]) -> RemoteUsageSnapshot {
+        let boundedCosts = costEvents.filter { $0.timestamp >= coveredFrom }
+        return RemoteUsageSnapshot(
             device: device,
             generatedAt: generatedAt,
             coveredFrom: coveredFrom,
             coveredTo: coveredTo,
-            tokenEvents: tokenEvents.sorted(by: tokenEventSort),
-            costEvents: costEvents.isEmpty ? nil : costEvents.sorted(by: costEventSort),
-            activityEvents: activityEvents.sorted(by: activityEventSort))
-        guard try TokiSyncCoding.makeEncoder().encode(snapshot).count <= limits.maximumEncodedBytes else {
-            throw AgentSnapshotBuilderError.snapshotLimitExceeded
-        }
-        return snapshot
+            tokenEvents: tokenEvents.filter { $0.timestamp >= coveredFrom },
+            costEvents: boundedCosts.isEmpty ? nil : boundedCosts,
+            activityEvents: activityEvents.filter { $0.timestamp >= coveredFrom })
     }
 
-    private func initialEncodedByteCount(
+    private func validateEmptySnapshotFits(
         device: RemoteDeviceDescriptor,
         generatedAt: Date,
         coveredFrom: Date,
-        coveredTo: Date) throws -> Int {
+        coveredTo: Date) throws {
         let emptySnapshot = RemoteUsageSnapshot(
             device: device,
             generatedAt: generatedAt,
@@ -193,11 +249,43 @@ private extension AgentSnapshotAssembler {
             coveredTo: coveredTo,
             tokenEvents: [],
             activityEvents: [])
-        let count = try TokiSyncCoding.makeEncoder().encode(emptySnapshot).count
-        guard count <= limits.maximumEncodedBytes else {
+        guard try fitsAssemblyLimits(emptySnapshot) else {
             throw AgentSnapshotBuilderError.snapshotLimitExceeded
         }
-        return count
+    }
+
+    private func fitsAssemblyLimits(_ snapshot: RemoteUsageSnapshot) throws -> Bool {
+        guard snapshot.tokenEvents.count <= max(0, limits.maximumTokenEventCount),
+              (snapshot.costEvents?.count ?? 0) <= max(0, limits.maximumCostEventCount),
+              snapshot.activityEvents.count <= max(0, limits.maximumActivityEventCount) else {
+            return false
+        }
+        return try TokiSyncCoding.makeEncoder().encode(snapshot).count <= max(0, limits.maximumEncodedBytes)
+    }
+
+    private func cutoffCandidates(
+        coveredFrom: Date,
+        generatedAt: Date,
+        tokenEvents: [RemoteTokenEvent],
+        costEvents: [RemoteCostEvent],
+        activityEvents: [RemoteActivityEvent]) -> [Date] {
+        var candidates = [coveredFrom, generatedAt]
+        func appendCutoffs(for timestamp: Date) {
+            candidates.append(timestamp)
+            let afterTimestamp = timestamp.addingTimeInterval(0.001)
+            if afterTimestamp <= generatedAt {
+                candidates.append(afterTimestamp)
+            }
+        }
+        tokenEvents.forEach { appendCutoffs(for: $0.timestamp) }
+        costEvents.forEach { appendCutoffs(for: $0.timestamp) }
+        activityEvents.forEach { appendCutoffs(for: $0.timestamp) }
+        candidates.sort()
+        return candidates.reduce(into: []) { unique, candidate in
+            if unique.last != candidate {
+                unique.append(candidate)
+            }
+        }
     }
 
     private func boundedReplacementCoverages(
@@ -237,18 +325,10 @@ private extension AgentSnapshotAssembler {
         return false
     }
 
-    private func reserveSnapshotBytes(
-        for event: some Encodable,
-        used: inout Int) throws {
-        let eventBytes = try TokiSyncCoding.makeEncoder().encode(event).count
-        let (reservedBytes, separatorOverflow) = eventBytes.addingReportingOverflow(1)
-        let (next, totalOverflow) = used.addingReportingOverflow(reservedBytes)
-        guard !separatorOverflow,
-              !totalOverflow,
-              next <= limits.maximumEncodedBytes else {
-            throw AgentSnapshotBuilderError.snapshotLimitExceeded
+    private func updateEarliestDeferredTimestamp(_ earliest: inout Date?, candidate: Date) {
+        if earliest.map({ candidate < $0 }) ?? true {
+            earliest = candidate
         }
-        used = next
     }
 
     private func tokenEventSort(_ lhs: RemoteTokenEvent, _ rhs: RemoteTokenEvent) -> Bool {

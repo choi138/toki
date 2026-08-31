@@ -486,9 +486,9 @@ private extension PiCompatibleRevisionIdentity {
 
 private func costKnowledgeRank(_ value: Bool?) -> Int {
     switch value {
-    case true: 2
+    case .some(true): 2
     case nil: 1
-    case false: 0
+    case .some(false): 0
     }
 }
 

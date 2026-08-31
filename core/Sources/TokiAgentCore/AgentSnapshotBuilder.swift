@@ -100,16 +100,13 @@ struct AgentSnapshotBuilder: AgentSnapshotBuilding {
         let coveredFrom = window.start
         let coveredTo = window.end
         let readerUsages = try await readUsages(from: coveredFrom, to: coveredTo)
-        let earliestDeferredTimestamp = try earliestDeferredEventTimestamp(
-            in: readerUsages,
-            after: now,
-            before: coveredTo)
-        let assembledSnapshot = try AgentSnapshotAssembler(limits: snapshotLimits).snapshot(
+        let assembly = try AgentSnapshotAssembler(limits: snapshotLimits).snapshot(
             from: readerUsages,
             configuration: configuration,
             generatedAt: now,
             coveredFrom: coveredFrom,
             coveredTo: coveredTo)
+        let assembledSnapshot = assembly.snapshot
         let allTokenEvents = assembledSnapshot.tokenEvents
         let allCostEvents = assembledSnapshot.costEvents ?? []
         let allActivityEvents = assembledSnapshot.activityEvents
@@ -120,13 +117,13 @@ struct AgentSnapshotBuilder: AgentSnapshotBuilding {
         let snapshot = try AgentSnapshotEventBounder(limits: eventLimits).snapshot(
             device: assembledSnapshot.device,
             generatedAt: now,
-            coveredFrom: coveredFrom,
+            coveredFrom: assembledSnapshot.coveredFrom,
             coveredTo: coveredTo,
             tokenEvents: tokenEvents,
             costEvents: costEvents,
             activityEvents: activityEvents,
             encryptionKey: configuration.encryptionKey)
-        deferredEventRecheck.replaceEarliestTimestamp(earliestDeferredTimestamp)
+        deferredEventRecheck.replaceEarliestTimestamp(assembly.earliestDeferredTimestamp)
         return snapshot
     }
 

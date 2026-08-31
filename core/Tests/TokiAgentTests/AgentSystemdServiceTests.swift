@@ -86,6 +86,8 @@ final class AgentSystemdServiceTests: XCTestCase {
         "%h/.kimi/sessions",
         "%h/.kimi-code/sessions",
         "%h/.qwen/projects",
+        "%h/.factory/sessions",
+        "%h/.local/share/amp/threads",
     ]
 
     func test_restartPolicyRateLimitsRepeatedFailures() throws {

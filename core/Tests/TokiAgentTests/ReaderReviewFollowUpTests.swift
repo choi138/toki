@@ -100,15 +100,15 @@ final class ReaderReviewFollowUpTests: XCTestCase {
         let range = (date("2026-08-20T00:00:00Z"), date("2026-08-21T00:00:00Z"))
 
         let ampTask = Task {
-            try await AmpReader(threadsURLOverride: root).readUsage(from: range.0, to: range.1)
+            withUnsafeCurrentTask { $0?.cancel() }
+            _ = try await AmpReader(threadsURLOverride: root).readUsage(from: range.0, to: range.1)
         }
-        ampTask.cancel()
         await XCTAssertThrowsErrorAsync { _ = try await ampTask.value }
 
         let droidTask = Task {
-            try await FactoryDroidReader(sessionsURLOverride: root).readUsage(from: range.0, to: range.1)
+            withUnsafeCurrentTask { $0?.cancel() }
+            _ = try await FactoryDroidReader(sessionsURLOverride: root).readUsage(from: range.0, to: range.1)
         }
-        droidTask.cancel()
         await XCTAssertThrowsErrorAsync { _ = try await droidTask.value }
     }
 
@@ -216,6 +216,44 @@ final class ReaderReviewFollowUpTests: XCTestCase {
             maximumFileBytes: fileBytes,
             maximumLineBytes: lineBytes,
             maximumEventCount: events)
+    }
+}
+
+extension ReaderReviewFollowUpTests {
+    func test_throwingDiscoveryCountsHiddenEntriesBeforeSkippingThem() throws {
+        let root = try temporaryDirectory("hidden-entry-limit")
+        defer { try? FileManager.default.removeItem(at: root) }
+        try Data("{}\n".utf8).write(to: root.appendingPathComponent(".hidden.jsonl"))
+        try Data("{}\n".utf8).write(to: root.appendingPathComponent("visible.jsonl"))
+
+        XCTAssertThrowsError(try findFilesThrowing(
+            in: root,
+            withExtension: "jsonl",
+            maximumEntryCount: 1)) { error in
+                XCTAssertEqual(
+                    (error as? PiCompatibleReaderError)?.errorDescription,
+                    PiCompatibleReaderError.tooManyEntries(2).errorDescription)
+            }
+    }
+
+    func test_codexJSONLRejectsFileGrowthBeyondByteLimit() throws {
+        let root = try temporaryDirectory("growing-jsonl")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let file = root.appendingPathComponent("session.jsonl")
+        let initialData = Data("{}\n".utf8)
+        try initialData.write(to: file)
+        let limits = limits(fileBytes: initialData.count)
+
+        XCTAssertThrowsError(try forEachJSONLLineThrowing(at: file, limits: limits) { _, _ in
+            let writer = try FileHandle(forWritingTo: file)
+            defer { try? writer.close() }
+            try writer.seekToEnd()
+            try writer.write(contentsOf: Data("{}\n".utf8))
+        }) { error in
+            XCTAssertEqual(
+                (error as? PiCompatibleReaderError)?.errorDescription,
+                PiCompatibleReaderError.fileTooLarge(file).errorDescription)
+        }
     }
 }
 

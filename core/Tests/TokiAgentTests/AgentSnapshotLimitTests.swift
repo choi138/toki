@@ -1,3 +1,4 @@
+import TokiSyncProtocol
 import TokiUsageCore
 import XCTest
 @testable import TokiAgentCore
@@ -72,7 +73,7 @@ final class AgentSnapshotLimitTests: XCTestCase {
         XCTAssertTrue(snapshot.costEvents?.isEmpty ?? true)
     }
 
-    func test_snapshotBuildRejectsGlobalEventCountBeforeAppendingAllEvents() async throws {
+    func test_snapshotBuildKeepsNewestSuffixWhenAssemblyEventLimitIsExceeded() async throws {
         let fixture = try AgentSnapshotFixture()
         defer { fixture.remove() }
         var usage = RawTokenUsage()
@@ -90,7 +91,11 @@ final class AgentSnapshotLimitTests: XCTestCase {
             maximumTokenEventCount: 1,
             maximumEncodedBytes: 10000)
 
-        await assertSnapshotLimit(builder: builder, fixture: fixture)
+        let snapshot = try await builder.build(configuration: fixture.configuration, now: fixture.now)
+
+        XCTAssertEqual(snapshot.tokenEvents.count, 1)
+        XCTAssertEqual(snapshot.tokenEvents.first?.timestamp, fixture.latestEventDate.addingTimeInterval(1))
+        XCTAssertGreaterThan(snapshot.coveredFrom, fixture.latestEventDate)
     }
 
     func test_snapshotBuildRejectsEncodedBudgetDuringAssembly() async throws {
@@ -201,6 +206,47 @@ final class AgentSnapshotLimitTests: XCTestCase {
             maximumCoverageComparisonCount: 1)
 
         await assertSnapshotLimit(builder: builder, fixture: fixture)
+    }
+}
+
+extension AgentSnapshotLimitTests {
+    func test_snapshotBuildKeepsNewestSuffixWhenAssemblyByteLimitIsExceeded() async throws {
+        let fixture = try AgentSnapshotFixture()
+        defer { fixture.remove() }
+        var usage = RawTokenUsage()
+        for offset in 0..<2 {
+            usage.recordTokenEvent(
+                timestamp: fixture.latestEventDate.addingTimeInterval(TimeInterval(offset)),
+                source: "Pi",
+                model: "gpt-5",
+                inputTokens: 1,
+                outputTokens: 1)
+        }
+        let fullSnapshot = try await builder(fixture: fixture, usage: usage, name: "Pi").build(
+            configuration: fixture.configuration,
+            now: fixture.now)
+        let latestTimestamp = fixture.latestEventDate.addingTimeInterval(1)
+        let latestOnlySnapshot = try RemoteUsageSnapshot(
+            device: fullSnapshot.device,
+            generatedAt: fullSnapshot.generatedAt,
+            coveredFrom: fixture.latestEventDate.addingTimeInterval(0.001),
+            coveredTo: fullSnapshot.coveredTo,
+            tokenEvents: [XCTUnwrap(fullSnapshot.tokenEvents.last)],
+            activityEvents: [])
+        let maximumEncodedBytes = try TokiSyncCoding.makeEncoder().encode(latestOnlySnapshot).count
+        let limited = limitedBuilder(
+            fixture: fixture,
+            usage: usage,
+            maximumTokenEventCount: 10,
+            maximumEncodedBytes: maximumEncodedBytes)
+
+        let snapshot = try await limited.build(configuration: fixture.configuration, now: fixture.now)
+
+        XCTAssertEqual(snapshot.tokenEvents.map(\.timestamp), [latestTimestamp])
+        XCTAssertGreaterThan(snapshot.coveredFrom, fixture.latestEventDate)
+        XCTAssertLessThanOrEqual(
+            try TokiSyncCoding.makeEncoder().encode(snapshot).count,
+            maximumEncodedBytes)
     }
 }
 
