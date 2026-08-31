@@ -131,15 +131,6 @@ public struct LocalUsageReaderPaths: Equatable {
         kimiCLIHomes.map { $0.appendingPathComponent("sessions") }
     }
 
-    public var kimiCLIConfigFiles: [URL] {
-        kimiCLIHomes.flatMap { home in
-            [
-                home.appendingPathComponent("config.toml"),
-                home.appendingPathComponent("config.json"),
-            ]
-        }
-    }
-
     public var kimiCodeSessions: [URL] {
         Self.uniqueDirectories(
             [homeDirectory.appendingPathComponent(".kimi-code")]
@@ -273,9 +264,7 @@ public enum LocalUsageReaderRegistry {
                 sourceLocations: [.directory(paths.openClawAgents, extensions: ["jsonl"])]),
             LocalUsageReaderDescriptor(
                 reader: KimiCLIReader(sessionRoots: paths.kimiCLISessions),
-                sourceLocations:
-                paths.kimiCLIConfigFiles.map { .file($0, includesSQLiteSidecars: false) }
-                    + paths.kimiCLISessions.map { .directory($0, extensions: ["jsonl"]) }),
+                sourceLocations: paths.kimiCLISessions.map { .directory($0, extensions: ["jsonl"]) }),
             LocalUsageReaderDescriptor(
                 reader: KimiCodeReader(sessionRoots: paths.kimiCodeSessions),
                 sourceLocations: paths.kimiCodeSessions.map { .directory($0, extensions: ["jsonl"]) }),

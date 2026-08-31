@@ -72,9 +72,13 @@ public struct QwenCLIReader: TokenReader {
                 let tokens = QwenTokenCounts(metadata: metadata)
                 guard let totalTokens = tokens.total, totalTokens > 0 else { return }
 
-                let sessionID = nonemptyQwenValue(entry.sessionID) ?? pathIdentity.sessionID
                 let model = normalizedModelID(entry.model)
                 let projectPath = nonemptyQwenValue(entry.cwd)
+                let projectIdentity = pathIdentity.project ?? projectPath
+                let sessionLabel = nonemptyQwenValue(entry.sessionID) ?? pathIdentity.sessionLabel
+                let sessionID = qwenSessionScope(
+                    project: projectIdentity,
+                    sessionLabel: sessionLabel)
                 let recordIdentity: String
                 if let uuid = nonemptyQwenValue(entry.uuid) {
                     recordIdentity = "uuid:\(uuid)"
@@ -92,7 +96,6 @@ public struct QwenCLIReader: TokenReader {
                     contentOccurrences[contentIdentity] = occurrence + 1
                     recordIdentity = "content:\(contentIdentity)|occurrence:\(occurrence)"
                 }
-                let projectIdentity = pathIdentity.project ?? projectPath
                 let key = if recordIdentity.hasPrefix("uuid:"),
                              let projectIdentity {
                     "project:\(projectIdentity.utf8.count):\(projectIdentity)|\(recordIdentity)"
@@ -103,6 +106,7 @@ public struct QwenCLIReader: TokenReader {
                     timestamp: timestamp,
                     model: model,
                     sessionID: sessionID,
+                    sessionLabel: sessionLabel,
                     projectPath: projectPath,
                     fallbackProjectName: pathIdentity.project,
                     tokens: tokens,
@@ -172,6 +176,7 @@ private struct QwenUsageEvent {
     let timestamp: Date
     let model: String?
     let sessionID: String
+    let sessionLabel: String
     let projectPath: String?
     let fallbackProjectName: String?
     let tokens: QwenTokenCounts
@@ -240,6 +245,7 @@ private func qwenRawUsage(
                 projectPath: event.projectPath,
                 projectName: event.projectPath == nil ? event.fallbackProjectName : nil,
                 sessionID: event.sessionID,
+                sessionLabel: event.sessionLabel,
                 quality: event.projectPath != nil
                     ? .exact
                     : (event.fallbackProjectName == nil ? .unknown : .inferred)))
@@ -257,7 +263,7 @@ private func qwenRawUsage(
     return result
 }
 
-private func qwenPathIdentity(from path: String) -> (project: String?, sessionID: String) {
+private func qwenPathIdentity(from path: String) -> (project: String?, sessionLabel: String) {
     let url = URL(fileURLWithPath: path)
     let components = url.pathComponents
     var project: String?
@@ -267,9 +273,15 @@ private func qwenPathIdentity(from path: String) -> (project: String?, sessionID
             project = nonemptyQwenValue(components[index + 1])
         }
     }
-    let fileSessionID = nonemptyQwenValue(url.deletingPathExtension().lastPathComponent) ?? "unknown"
-    let sessionID = [project, fileSessionID].compactMap { $0 }.joined(separator: "-")
-    return (project, sessionID.isEmpty ? "unknown" : sessionID)
+    let sessionLabel = nonemptyQwenValue(url.deletingPathExtension().lastPathComponent) ?? "unknown"
+    return (project, sessionLabel)
+}
+
+private func qwenSessionScope(project: String?, sessionLabel: String) -> String {
+    [
+        "\(project?.utf8.count ?? 0):\(project ?? "")",
+        "\(sessionLabel.utf8.count):\(sessionLabel)",
+    ].joined(separator: "|")
 }
 
 private func qwenEventSort(_ lhs: QwenUsageEvent, _ rhs: QwenUsageEvent) -> Bool {

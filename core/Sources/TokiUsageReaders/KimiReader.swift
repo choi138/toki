@@ -13,13 +13,10 @@ public struct KimiCLIReader: TokenReader {
 
     public func readUsage(from startDate: Date, to endDate: Date) async throws -> RawTokenUsage {
         let sessions = sessionRoots.flatMap { root in
-            let configuration = kimiCLIConfiguration(at: root.deletingLastPathComponent())
-            return kimiWireFiles(in: root).map { file in
+            kimiWireFiles(in: root).map { file in
                 KimiCLISession(
                     streamID: file.path,
-                    lineSource: .file(file),
-                    model: configuration?.model,
-                    provider: configuration?.provider)
+                    lineSource: .file(file))
             }
         }
         return Self.usage(from: sessions, from: startDate, to: endDate)
@@ -28,16 +25,13 @@ public struct KimiCLIReader: TokenReader {
     static func usage(
         fromJSONLLines lines: [String],
         streamID: String,
-        model: String?,
         from startDate: Date,
         to endDate: Date) -> RawTokenUsage {
         usage(
             from: [
                 KimiCLISession(
                     streamID: streamID,
-                    lineSource: .lines(lines),
-                    model: model,
-                    provider: nil),
+                    lineSource: .lines(lines)),
             ],
             from: startDate,
             to: endDate)
@@ -66,7 +60,6 @@ public struct KimiCLIReader: TokenReader {
                     return
                 }
 
-                let model = normalizedModelID(session.model) ?? "kimi-for-coding"
                 let messageKey = if let messageID = nonemptyKimiValue(payload.messageID) {
                     "message:\(messageID)"
                 } else {
@@ -74,14 +67,14 @@ public struct KimiCLIReader: TokenReader {
                 }
                 let event = KimiUsageEvent(
                     timestamp: timestamp,
-                    model: model,
+                    model: kimiFallbackModel,
+                    modelIsConcrete: false,
                     sessionID: identity.dedupScope,
                     sessionLabel: identity.sessionID,
                     projectName: identity.workspace,
                     streamID: identity.dedupScope,
                     tokens: tokens,
                     totalTokens: totalTokens,
-                    provider: session.provider,
                     dedupKey: "\(identity.dedupScope):\(messageKey)")
                 if let existing = snapshots[event.dedupKey],
                    !event.shouldReplace(existing) {
@@ -168,15 +161,15 @@ public struct KimiCodeReader: TokenReader {
                     return
                 }
 
-                let model = concreteKimiCodeModel(wire.model)
-                    ?? latestConcreteModel
-                    ?? "kimi-for-coding"
+                let recordedModel = nonemptyKimiValue(wire.model)
+                let concreteModel = concreteKimiCodeModel(recordedModel) ?? latestConcreteModel
+                let model = concreteModel ?? kimiFallbackModel
                 let contentIdentity = [
                     "\(identity.workspace?.utf8.count ?? 0):\(identity.workspace ?? "")",
                     "\(identity.sessionID.utf8.count):\(identity.sessionID)",
                     "\(identity.agent.utf8.count):\(identity.agent)",
                     String(timestamp.timeIntervalSince1970.bitPattern),
-                    "\(model.utf8.count):\(model)",
+                    "\(recordedModel?.utf8.count ?? 0):\(recordedModel ?? "")",
                     String(tokens.input),
                     String(tokens.output),
                     String(tokens.cacheRead),
@@ -185,17 +178,21 @@ public struct KimiCodeReader: TokenReader {
                 let occurrence = contentOccurrences[contentIdentity, default: 0]
                 contentOccurrences[contentIdentity] = occurrence + 1
                 let key = "\(contentIdentity)|occurrence:\(occurrence)"
-                eventsByKey[key] = KimiUsageEvent(
+                let event = KimiUsageEvent(
                     timestamp: timestamp,
                     model: model,
+                    modelIsConcrete: concreteModel != nil,
                     sessionID: identity.sessionScope,
                     sessionLabel: identity.sessionID,
                     projectName: identity.workspace,
                     streamID: identity.streamID,
                     tokens: tokens,
                     totalTokens: totalTokens,
-                    provider: nil,
                     dedupKey: key)
+                if let existing = eventsByKey[key], !event.shouldReplace(existing) {
+                    return
+                }
+                eventsByKey[key] = event
             }
         }
 
@@ -209,8 +206,6 @@ public struct KimiCodeReader: TokenReader {
 private struct KimiCLISession {
     let streamID: String
     let lineSource: JSONLLineSource
-    let model: String?
-    let provider: String?
 }
 
 private struct KimiCodeSession {
@@ -296,18 +291,26 @@ private struct KimiTokenCounts {
 private struct KimiUsageEvent {
     let timestamp: Date
     let model: String
+    let modelIsConcrete: Bool
     let sessionID: String
     let sessionLabel: String
     let projectName: String?
     let streamID: String
     let tokens: KimiTokenCounts
     let totalTokens: Int
-    let provider: String?
     let dedupKey: String
 
     func shouldReplace(_ existing: KimiUsageEvent) -> Bool {
-        totalTokens > existing.totalTokens
-            || (totalTokens == existing.totalTokens && timestamp > existing.timestamp)
+        if totalTokens != existing.totalTokens {
+            return totalTokens > existing.totalTokens
+        }
+        if timestamp != existing.timestamp {
+            return timestamp > existing.timestamp
+        }
+        if modelIsConcrete != existing.modelIsConcrete {
+            return modelIsConcrete
+        }
+        return model > existing.model
     }
 }
 
@@ -341,7 +344,7 @@ private func kimiRawUsage(
             timestamp: event.timestamp,
             source: source,
             model: event.model,
-            provider: event.provider ?? inferredUsageProvider(from: event.model),
+            provider: inferredUsageProvider(from: event.model),
             inputTokens: event.tokens.input,
             outputTokens: event.tokens.output,
             cacheReadTokens: event.tokens.cacheRead,
@@ -374,111 +377,6 @@ private func kimiWireFiles(in root: URL) -> [URL] {
         }
         .values
         .sorted { $0.path < $1.path }
-}
-
-private func kimiCLIConfiguration(at root: URL) -> KimiCLIResolvedConfiguration? {
-    let tomlURL = root.appendingPathComponent("config.toml")
-    if let contents = try? String(contentsOf: tomlURL, encoding: .utf8),
-       let configuration = kimiCLITOMLConfiguration(contents) {
-        return configuration
-    }
-
-    let jsonURL = root.appendingPathComponent("config.json")
-    guard let data = try? Data(contentsOf: jsonURL),
-          let config = try? JSONDecoder().decode(KimiCLIConfig.self, from: data) else {
-        return nil
-    }
-    let defaultModel = normalizedModelID(config.defaultModel) ?? normalizedModelID(config.model)
-    guard let defaultModel else { return nil }
-    let selectedModel = config.models?[defaultModel]
-    return KimiCLIResolvedConfiguration(
-        model: normalizedModelID(selectedModel?.model) ?? defaultModel,
-        provider: normalizedModelID(selectedModel?.provider))
-}
-
-private struct KimiCLIConfig: Decodable {
-    let model: String?
-    let defaultModel: String?
-    let models: [String: KimiCLIModelConfiguration]?
-
-    enum CodingKeys: String, CodingKey {
-        case model, models
-        case defaultModel = "default_model"
-    }
-}
-
-private struct KimiCLIModelConfiguration: Decodable {
-    let provider: String?
-    let model: String?
-}
-
-private struct KimiCLIResolvedConfiguration {
-    let model: String
-    let provider: String?
-}
-
-private func kimiCLITOMLConfiguration(_ contents: String) -> KimiCLIResolvedConfiguration? {
-    var section: String?
-    var defaultModel: String?
-    var models: [String: [String: String]] = [:]
-
-    for rawLine in contents.components(separatedBy: .newlines) {
-        let line = rawLine.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !line.isEmpty, !line.hasPrefix("#") else { continue }
-
-        if line.hasPrefix("["), line.hasSuffix("]") {
-            section = String(line.dropFirst().dropLast())
-            continue
-        }
-
-        guard let separator = line.firstIndex(of: "="),
-              let value = kimiTOMLStringValue(String(line[line.index(after: separator)...])) else {
-            continue
-        }
-        let key = line[..<separator].trimmingCharacters(in: .whitespacesAndNewlines)
-        if section == nil, key == "default_model" {
-            defaultModel = normalizedModelID(value)
-            continue
-        }
-        guard let section,
-              section.hasPrefix("models."),
-              key == "model" || key == "provider" else {
-            continue
-        }
-        let modelName = String(section.dropFirst("models.".count))
-        models[modelName, default: [:]][key] = value
-    }
-
-    guard let defaultModel else { return nil }
-    return KimiCLIResolvedConfiguration(
-        model: normalizedModelID(models[defaultModel]?["model"]) ?? defaultModel,
-        provider: normalizedModelID(models[defaultModel]?["provider"]))
-}
-
-private func kimiTOMLStringValue(_ rawValue: String) -> String? {
-    let value = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
-    guard let quote = value.first, quote == "\"" || quote == "'" else { return nil }
-
-    var escaped = false
-    for index in value.indices.dropFirst() {
-        let character = value[index]
-        if quote == "\"", character == "\\", !escaped {
-            escaped = true
-            continue
-        }
-        if character == quote, !escaped {
-            let content = String(value[value.index(after: value.startIndex)..<index])
-            if quote == "\"" {
-                let data = Data("\"\(content)\"".utf8)
-                if let decoded = try? JSONDecoder().decode(String.self, from: data) {
-                    return decoded
-                }
-            }
-            return content
-        }
-        escaped = false
-    }
-    return nil
 }
 
 private struct KimiCLIIdentity {
@@ -534,6 +432,8 @@ private func concreteKimiCodeModel(_ value: String?) -> String? {
     }
     return model
 }
+
+private let kimiFallbackModel = "kimi-for-coding"
 
 private func kimiCLITimestamp(_ value: Double?) -> Date? {
     guard let value, value.isFinite, value > 0 else { return nil }

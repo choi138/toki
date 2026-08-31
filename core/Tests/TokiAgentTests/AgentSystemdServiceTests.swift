@@ -40,8 +40,6 @@ final class AgentSystemdServiceTests: XCTestCase {
             "%h/.local/share/opencode/opencode.db-wal",
             "%h/.local/share/opencode/opencode.db-shm",
             "%h/.openclaw/agents",
-            "%h/.kimi/config.toml",
-            "%h/.kimi/config.json",
             "%h/.kimi/sessions",
             "%h/.kimi-code/sessions",
             "%h/.qwen/projects",
@@ -55,6 +53,8 @@ final class AgentSystemdServiceTests: XCTestCase {
         XCTAssertFalse(service.contains("BindReadOnlyPaths=-%h/.hermes\n"))
         XCTAssertFalse(service.contains("BindReadOnlyPaths=-%h/.config/Cursor\n"))
         XCTAssertFalse(service.contains("BindReadOnlyPaths=-%h/.local/share/opencode\n"))
+        XCTAssertFalse(service.contains("BindReadOnlyPaths=-%h/.kimi/config.toml"))
+        XCTAssertFalse(service.contains("BindReadOnlyPaths=-%h/.kimi/config.json"))
     }
 
     func test_restartPolicyRateLimitsRepeatedFailures() throws {

@@ -4,7 +4,7 @@ import XCTest
 @testable import TokiUsageReaders
 
 final class ChineseCLIAgentIntegrationTests: XCTestCase {
-    func test_agentRegistryExportsKimiAndQwenAndTracksTheirSourceFiles() async throws {
+    func test_agentRegistryExportsKimiAndQwenAndTracksOnlyUsageSourceFiles() async throws {
         let fixture = try AgentSnapshotFixture()
         defer { fixture.remove() }
         let builder = AgentSnapshotBuilder(home: fixture.root)
@@ -57,8 +57,8 @@ final class ChineseCLIAgentIntegrationTests: XCTestCase {
             now: fixture.now)
 
         XCTAssertNotEqual(initialSignature, sessionSignature)
-        XCTAssertNotEqual(sessionSignature, tomlSignature)
-        XCTAssertNotEqual(tomlSignature, jsonSignature)
+        XCTAssertEqual(sessionSignature, tomlSignature)
+        XCTAssertEqual(tomlSignature, jsonSignature)
         XCTAssertTrue(snapshot.tokenEvents.contains {
             $0.source == "Kimi CLI" && $0.model == "kimi-for-coding"
                 && $0.provider == "moonshot" && $0.cost == 0 && $0.costIsKnown == false

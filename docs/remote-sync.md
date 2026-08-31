@@ -312,8 +312,10 @@ entire unused override group, not a mount from a group that remains enabled. If
 a CLI creates its data directory after the Agent starts, add or restore the
 mount and restart the service. Do not mount the entire dedicated Kimi or Qwen
 home. The Kimi configuration files are intentionally not mounted because they
-may contain credentials; sessions without model metadata use the reader's
-documented fallback model.
+may contain credentials. Kimi CLI wire history does not record its model or
+provider, so the reader uses the stable `kimi-for-coding` fallback and infers
+the `moonshot` provider instead of applying the current configuration to old
+sessions.
 
 For a headless account that must run after logout, an administrator can enable
 user lingering with `sudo loginctl enable-linger USERNAME`. The Agent opens no

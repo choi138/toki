@@ -24,7 +24,6 @@ final class KimiReaderTests: XCTestCase {
         let usage = KimiCLIReader.usage(
             fromJSONLLines: lines,
             streamID: "/tmp/.kimi/sessions/workspace-a/session-cli/wire.jsonl",
-            model: "kimi-k2.5",
             from: startDate,
             to: endDate)
 
@@ -35,7 +34,7 @@ final class KimiReaderTests: XCTestCase {
         XCTAssertEqual(usage.reasoningTokens, 0)
         XCTAssertEqual(usage.cost, 0)
         XCTAssertEqual(usage.tokenEvents.map(\.source), ["Kimi CLI", "Kimi CLI"])
-        XCTAssertEqual(usage.tokenEvents.map(\.model), ["kimi-k2.5", "kimi-k2.5"])
+        XCTAssertEqual(usage.tokenEvents.map(\.model), ["kimi-for-coding", "kimi-for-coding"])
         XCTAssertEqual(usage.tokenEvents.map(\.provider), ["moonshot", "moonshot"])
         XCTAssertTrue(usage.tokenEvents.allSatisfy { $0.costIsKnown == false })
         XCTAssertEqual(Set(usage.tokenEvents.compactMap(\.attribution?.sessionID)).count, 1)
@@ -48,7 +47,7 @@ final class KimiReaderTests: XCTestCase {
         XCTAssertEqual(usage.activityEvents.count, 2)
     }
 
-    func test_kimiCLIReadsCurrentTOMLModelAndProvider() async throws {
+    func test_kimiCLIDoesNotReattributeHistoryWhenCurrentConfigChanges() async throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
             .appendingPathComponent(".kimi", isDirectory: true)
@@ -59,20 +58,7 @@ final class KimiReaderTests: XCTestCase {
             .appendingPathComponent("workspace", isDirectory: true)
             .appendingPathComponent("session", isDirectory: true)
         try FileManager.default.createDirectory(at: session, withIntermediateDirectories: true)
-        let config = [
-            #"default_model = "custom-kimi""#,
-            "",
-            "[providers.openrouter]",
-            #"type = "openai_compatible""#,
-            #"base_url = "https://openrouter.ai/api/v1""#,
-            #"api_key = "unused""#,
-            "",
-            "[models.custom-kimi]",
-            #"provider = "openrouter""#,
-            #"model = "moonshotai/kimi-k2.5""#,
-            "max_context_size = 262144",
-        ].joined(separator: "\n")
-        try config.write(
+        try #"default_model = "first-model""#.write(
             to: root.appendingPathComponent("config.toml"),
             atomically: true,
             encoding: .utf8)
@@ -83,11 +69,18 @@ final class KimiReaderTests: XCTestCase {
             atomically: true,
             encoding: .utf8)
 
-        let usage = try await KimiCLIReader(sessionRoots: [sessions])
+        let firstUsage = try await KimiCLIReader(sessionRoots: [sessions])
+            .readUsage(from: startDate, to: endDate)
+        try #"default_model = "second-model""#.write(
+            to: root.appendingPathComponent("config.toml"),
+            atomically: true,
+            encoding: .utf8)
+        let secondUsage = try await KimiCLIReader(sessionRoots: [sessions])
             .readUsage(from: startDate, to: endDate)
 
-        XCTAssertEqual(usage.tokenEvents.first?.model, "moonshotai/kimi-k2.5")
-        XCTAssertEqual(usage.tokenEvents.first?.provider, "openrouter")
+        XCTAssertEqual(firstUsage.tokenEvents, secondUsage.tokenEvents)
+        XCTAssertEqual(firstUsage.tokenEvents.first?.model, "kimi-for-coding")
+        XCTAssertEqual(firstUsage.tokenEvents.first?.provider, "moonshot")
     }
 
     func test_kimiCodeCountsOnlyTurnUsageRecordsAndUsesConcreteRequestModel() {
@@ -134,7 +127,6 @@ final class KimiReaderTests: XCTestCase {
                 #"{"timestamp":1770983420.0,"message":{"type":"StatusUpdate""#,
             ],
             streamID: "/tmp/.kimi/sessions/workspace/session/wire.jsonl",
-            model: nil,
             from: startDate,
             to: endDate)
         let codeUsage = KimiCodeReader.usage(
@@ -242,7 +234,6 @@ extension KimiReaderTests {
         let cliUsage = KimiCLIReader.usage(
             fromJSONLLines: [overflowingCLI, validCLI],
             streamID: "/tmp/.kimi/sessions/workspace/session/wire.jsonl",
-            model: nil,
             from: startDate,
             to: endDate)
         let codeUsage = KimiCodeReader.usage(
@@ -291,6 +282,40 @@ extension KimiReaderTests {
 
         XCTAssertEqual(usage.totalTokens, 60)
         XCTAssertEqual(usage.tokenEvents.count, 3)
+    }
+
+    func test_kimiCodeDeduplicatesReplicasWhenOnlyOneKnowsConcreteModel() async throws {
+        let temporaryRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: temporaryRoot) }
+
+        let defaultRoot = temporaryRoot.appendingPathComponent("default", isDirectory: true)
+        let overrideRoot = temporaryRoot.appendingPathComponent("override", isDirectory: true)
+        let relativeWirePath = "workspace/session/agents/main/wire.jsonl"
+        let defaultWire = defaultRoot.appendingPathComponent(relativeWirePath)
+        let overrideWire = overrideRoot.appendingPathComponent(relativeWirePath)
+        for file in [defaultWire, overrideWire] {
+            try FileManager.default.createDirectory(
+                at: file.deletingLastPathComponent(),
+                withIntermediateDirectories: true)
+        }
+        let usageRecord =
+            #"{"type":"usage.record","model":"__kimi_env_model__","usage":{"inputOther":10,"output":0},"# +
+            #""usageScope":"turn","time":1770983410000}"#
+        try usageRecord.write(to: defaultWire, atomically: true, encoding: .utf8)
+        try [#"{"type":"llm.request","model":"moonshot/kimi-k2.6"}"#, usageRecord]
+            .joined(separator: "\n")
+            .write(to: overrideWire, atomically: true, encoding: .utf8)
+
+        let forward = try await KimiCodeReader(sessionRoots: [defaultRoot, overrideRoot])
+            .readUsage(from: startDate, to: endDate)
+        let reversed = try await KimiCodeReader(sessionRoots: [overrideRoot, defaultRoot])
+            .readUsage(from: startDate, to: endDate)
+
+        XCTAssertEqual(forward.totalTokens, 10)
+        XCTAssertEqual(forward.tokenEvents.count, 1)
+        XCTAssertEqual(forward.tokenEvents.first?.model, "moonshot/kimi-k2.6")
+        XCTAssertEqual(forward.tokenEvents, reversed.tokenEvents)
     }
 
     func test_kimiCodeKeepsSameNamedSessionsFromDifferentWorkspaces() async throws {

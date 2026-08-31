@@ -35,7 +35,8 @@ final class QwenReaderTests: XCTestCase {
         XCTAssertEqual(usage.tokenEvents.first?.model, "qwen3.5-plus")
         XCTAssertEqual(usage.tokenEvents.first?.provider, "qwen")
         XCTAssertEqual(usage.tokenEvents.first?.costIsKnown, false)
-        XCTAssertEqual(usage.tokenEvents.first?.attribution?.sessionID, "session-qwen")
+        XCTAssertNotEqual(usage.tokenEvents.first?.attribution?.sessionID, "session-qwen")
+        XCTAssertEqual(usage.tokenEvents.first?.attribution?.sessionLabel, "session-qwen")
         XCTAssertEqual(
             usage.tokenEvents.first?.attribution?.projectPath,
             "/Users/test/Projects/my-project")
@@ -113,7 +114,8 @@ final class QwenReaderTests: XCTestCase {
             to: endDate)
 
         XCTAssertEqual(usage.totalTokens, 12)
-        XCTAssertEqual(usage.tokenEvents.first?.attribution?.sessionID, "workspace-fallback-session")
+        XCTAssertNotEqual(usage.tokenEvents.first?.attribution?.sessionID, "fallback-session")
+        XCTAssertEqual(usage.tokenEvents.first?.attribution?.sessionLabel, "fallback-session")
     }
 
     func test_qwenSkipsOverflowingTokenRecords() {
@@ -227,6 +229,9 @@ extension QwenReaderTests {
 
         XCTAssertEqual(usage.totalTokens, 30)
         XCTAssertEqual(usage.tokenEvents.count, 2)
+        XCTAssertEqual(Set(usage.tokenEvents.compactMap(\.attribution?.sessionID)).count, 2)
+        XCTAssertEqual(Set(usage.tokenEvents.compactMap(\.attribution?.sessionLabel)), ["session"])
+        XCTAssertEqual(usage.resolvedWorkTime.activeStreamCount, 2)
     }
 
     func test_qwenReadsInRangeRecordFromFileWithOldModificationDate() async throws {
