@@ -61,6 +61,29 @@ final class QwenReaderTests: XCTestCase {
         XCTAssertTrue(usage.tokenEvents.isEmpty)
     }
 
+    func test_qwenRejectsOversizedReplicaBeforeSelectingValidRecord() throws {
+        func line(promptTokens: Int) -> String {
+            #"{"uuid":"replicated","type":"assistant","model":"qwen3.5-plus","# +
+                #""timestamp":"2026-02-23T14:24:56.857Z","sessionId":"session-qwen","# +
+                #""usageMetadata":{"promptTokenCount":"# + String(promptTokens) +
+                #","candidatesTokenCount":2}}"#
+        }
+        let usage = try QwenCLIReader.usage(
+            fromJSONLSessions: [
+                (
+                    streamID: "/tmp/a/projects/workspace/chats/original.jsonl",
+                    lines: [line(promptTokens: 10)]),
+                (
+                    streamID: "/tmp/b/projects/workspace/chats/replica.jsonl",
+                    lines: [line(promptTokens: 1_000_000_001)]),
+            ],
+            from: startDate,
+            to: endDate)
+
+        XCTAssertEqual(usage.totalTokens, 12)
+        XCTAssertEqual(usage.tokenEvents.count, 1)
+    }
+
     func test_qwenDeduplicatesDivergentReplicasByRecordUUID() throws {
         let usage = try QwenCLIReader.usage(
             fromJSONLSessions: [

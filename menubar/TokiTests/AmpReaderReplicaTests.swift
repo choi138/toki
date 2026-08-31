@@ -24,6 +24,35 @@ final class AmpReaderReplicaTests: XCTestCase {
         XCTAssertEqual(usage.tokenEvents.count, 2)
     }
 
+    func test_identicalReplicaOccurrencesReceiveDistinctCostEnrichment() async throws {
+        let fixture = try AmpFixture()
+        defer { fixture.remove() }
+        let tokenOnlyRecord = [
+            "timestamp": "2026-08-20T11:00:00Z",
+            "model": "gpt-5.4",
+            "tokens": ["input": 10],
+        ] as [String: Any]
+        try fixture.writeThread([
+            "id": "T-repeated-replicas",
+            "usageLedger": ["events": [tokenOnlyRecord, tokenOnlyRecord]],
+        ], named: "a-token-only.json")
+        try fixture.writeThread([
+            "id": "T-repeated-replicas",
+            "usageLedger": ["events": [
+                tokenOnlyRecord.merging(["credits": 0.1]) { _, new in new },
+                tokenOnlyRecord.merging(["credits": 0.2]) { _, new in new },
+            ]],
+        ], named: "b-cost-enriched.json")
+
+        let usage = try await fixture.reader.readUsage(
+            from: fixture.date("2026-08-20T00:00:00Z"),
+            to: fixture.date("2026-08-21T00:00:00Z"))
+
+        XCTAssertEqual(usage.totalTokens, 20)
+        XCTAssertEqual(usage.cost, 0.3, accuracy: 0.000_001)
+        XCTAssertEqual(usage.tokenEvents.count, 2)
+    }
+
     func test_idlessIndependentRecordsAtSameTimestampRemainDistinct() async throws {
         let fixture = try AmpFixture()
         defer { fixture.remove() }

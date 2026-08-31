@@ -49,13 +49,17 @@ public struct SenpiReader: TokenReader {
                 }
                 recordsByKey[record.deduplicationKey] = recordsByKey[record.deduplicationKey]
                     .map { $0.merged(with: record) } ?? record
-                guard recordsByKey.count <= readLimits.maximumEventCount else {
+                guard recordsByKey.count <= readLimits.maximumUnreconciledEventCount else {
                     throw PiCompatibleReaderError.tooManyEvents(recordsByKey.count)
                 }
             }
         }
+        let reconciledRecords = reconciledPiCompatibleRecords(recordsByKey.values)
+        guard reconciledRecords.count <= readLimits.maximumEventCount else {
+            throw PiCompatibleReaderError.tooManyEvents(reconciledRecords.count)
+        }
         return Self.usage(
-            from: recordsByKey.values,
+            from: reconciledRecords.values,
             from: startDate,
             to: endDate)
     }
@@ -79,11 +83,7 @@ public struct SenpiReader: TokenReader {
         from records: some Sequence<PiCompatibleUsageRecord>,
         from startDate: Date,
         to endDate: Date) -> RawTokenUsage {
-        var recordsByKey: [PiCompatibleDeduplicationKey: PiCompatibleUsageRecord] = [:]
-        for record in records {
-            recordsByKey[record.deduplicationKey] = recordsByKey[record.deduplicationKey]
-                .map { $0.merged(with: record) } ?? record
-        }
+        let recordsByKey = reconciledPiCompatibleRecords(records)
 
         var result = RawTokenUsage()
         var activityEvents: [ActivityTimeEvent<String>] = []

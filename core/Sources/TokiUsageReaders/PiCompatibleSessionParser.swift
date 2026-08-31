@@ -95,6 +95,43 @@ enum PiCompatibleDeduplicationKey: Hashable {
         location: String)
 }
 
+func reconciledPiCompatibleRecords(
+    _ records: some Sequence<PiCompatibleUsageRecord>)
+    -> [PiCompatibleDeduplicationKey: PiCompatibleUsageRecord] {
+    var recordsByKey: [PiCompatibleDeduplicationKey: PiCompatibleUsageRecord] = [:]
+    var knownProviders: [PiCompatibleResponseScope: Set<String>] = [:]
+    for record in records {
+        recordsByKey[record.deduplicationKey] = recordsByKey[record.deduplicationKey]
+            .map { $0.merged(with: record) } ?? record
+        if case let .response(sessionID, provider?, responseID) = record.deduplicationKey {
+            knownProviders[
+                PiCompatibleResponseScope(sessionID: sessionID, responseID: responseID),
+                default: []
+            ].insert(provider)
+        }
+    }
+
+    for key in Array(recordsByKey.keys) {
+        guard case let .response(sessionID, nil, responseID) = key,
+              let unknownProviderRecord = recordsByKey[key] else {
+            continue
+        }
+        let scope = PiCompatibleResponseScope(sessionID: sessionID, responseID: responseID)
+        guard let providers = knownProviders[scope], providers.count == 1,
+              let provider = providers.first else {
+            continue
+        }
+        let enrichedKey = PiCompatibleDeduplicationKey.response(
+            sessionID: sessionID,
+            provider: provider,
+            id: responseID)
+        recordsByKey[enrichedKey] = recordsByKey[enrichedKey]
+            .map { $0.merged(with: unknownProviderRecord) } ?? unknownProviderRecord
+        recordsByKey.removeValue(forKey: key)
+    }
+    return recordsByKey
+}
+
 struct PiCompatibleSessionParser {
     private let decoder = JSONDecoder()
     private let streamID: String
@@ -315,7 +352,7 @@ private struct PiCompatibleSessionContext {
     let cwd: String?
 }
 
-private struct PiCompatibleResponseScope: Hashable {
+struct PiCompatibleResponseScope: Hashable {
     let sessionID: String
     let responseID: String
 }

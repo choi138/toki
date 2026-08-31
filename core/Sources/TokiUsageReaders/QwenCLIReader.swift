@@ -1,4 +1,5 @@
 import Foundation
+import TokiSyncProtocol
 import TokiUsageCore
 
 public struct QwenCLIReader: TokenReader {
@@ -72,6 +73,7 @@ public struct QwenCLIReader: TokenReader {
                 }
 
                 let tokens = QwenTokenCounts(metadata: metadata)
+                guard tokens.isValidEvent else { return }
                 guard let totalTokens = tokens.total, totalTokens > 0 else { return }
 
                 let model = normalizedModelID(entry.model)
@@ -198,6 +200,12 @@ private struct QwenTokenCounts {
 
     var total: Int? {
         checkedTokenTotal(input, output, cacheRead, reasoning)
+    }
+
+    var isValidEvent: Bool {
+        [input, output, cacheRead, reasoning].allSatisfy {
+            (0...RemoteUsageSnapshotValidator.maximumTokenCountPerBucket).contains($0)
+        }
     }
 }
 

@@ -525,18 +525,34 @@ private func ampMessageRecords(
 private func coalescedAmpRecords(_ records: [AmpUsageRecord]) -> [AmpUsageRecord] {
     var result: [AmpUsageRecord] = []
     var index = AmpCoalescingIndex()
+    var matchedIndexesByReplica: [String: Set<Int>] = [:]
     for record in records {
-        var candidateIndexes = Set(index.indexesByContentID[record.contentID] ?? [])
-        candidateIndexes.formUnion(
-            index.indexesByContentFingerprint[record.contentFingerprint] ?? [])
+        var candidateIndexes: [Int] = []
+        candidateIndexes.append(contentsOf: index.indexesByContentID[record.contentID] ?? [])
         if let messageID = record.messageID {
-            candidateIndexes.formUnion(index.indexesByMessageID[messageID] ?? [])
+            candidateIndexes.append(contentsOf: index.indexesByMessageID[messageID] ?? [])
         }
-        if let matchingIndex = candidateIndexes.sorted().first(where: {
-            sameKindAmpRecordsMatch(result[$0], record)
+        candidateIndexes.append(contentsOf:
+            index.indexesByContentFingerprint[record.contentFingerprint] ?? [])
+        var seenCandidateIndexes = Set<Int>()
+        if let matchingIndex = candidateIndexes.first(where: {
+            guard seenCandidateIndexes.insert($0).inserted else { return false }
+            let existing = result[$0]
+            let needsOneToOneReplicaMatch = existing.replicaID != record.replicaID
+                && (existing.messageID == nil || record.messageID == nil)
+            guard !needsOneToOneReplicaMatch
+                || matchedIndexesByReplica[record.replicaID]?.contains($0) != true else {
+                return false
+            }
+            return sameKindAmpRecordsMatch(existing, record)
         }) {
+            let existing = result[matchingIndex]
+            if existing.replicaID != record.replicaID,
+               existing.messageID == nil || record.messageID == nil {
+                matchedIndexesByReplica[record.replicaID, default: []].insert(matchingIndex)
+            }
             result[matchingIndex] = mergeAmpRecord(
-                ledger: result[matchingIndex],
+                ledger: existing,
                 message: record)
             if let messageID = result[matchingIndex].messageID,
                index.indexesByMessageID[messageID]?.contains(matchingIndex) != true {

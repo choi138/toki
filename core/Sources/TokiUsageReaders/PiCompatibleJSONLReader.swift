@@ -12,6 +12,10 @@ struct PiCompatibleReadLimits: Equatable {
     let maximumFileBytes: Int
     let maximumLineBytes: Int
     let maximumEventCount: Int
+
+    var maximumUnreconciledEventCount: Int {
+        maximumEventCount > Int.max / 2 ? Int.max : maximumEventCount * 2
+    }
 }
 
 enum PiCompatibleReaderError: LocalizedError, Equatable {
