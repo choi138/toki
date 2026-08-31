@@ -388,11 +388,11 @@ private extension AgentSnapshotAssembler {
             return nil
         }
         let reportedCost: Double? = switch event.costIsKnown {
-        case true:
+        case .some(true):
             event.cost
-        case false:
+        case .some(false):
             0
-        case nil:
+        case .none:
             event.cost > 0 ? event.cost : nil
         }
         return RemoteTokenEvent(
@@ -446,9 +446,9 @@ private extension AgentSnapshotAssembler {
 
     private func costKnownSortRank(_ value: Bool?) -> Int {
         switch value {
-        case nil: 0
-        case false: 1
-        case true: 2
+        case .none: 0
+        case .some(false): 1
+        case .some(true): 2
         }
     }
 
