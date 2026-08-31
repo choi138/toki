@@ -397,15 +397,19 @@ private func reconcileTraceCandidates(
     _ candidates: [CopilotUsageCandidate]) -> [CopilotUsageCandidate] {
     var reconciled = candidates
     var removed = Set<Int>()
+    var responseIndicesByTraceID: [String: [Int]] = [:]
+    for (index, candidate) in candidates.enumerated() {
+        guard candidate.responseID != nil,
+              let traceID = candidate.traceID else {
+            continue
+        }
+        responseIndicesByTraceID[traceID, default: []].append(index)
+    }
 
     for (index, candidate) in candidates.enumerated()
         where candidate.responseID == nil {
         guard let traceID = candidate.traceID else { continue }
-        let matches = candidates.indices.filter { candidateIndex in
-            candidateIndex != index
-                && candidates[candidateIndex].responseID != nil
-                && candidates[candidateIndex].traceID == traceID
-        }
+        let matches = responseIndicesByTraceID[traceID] ?? []
         if let match = matches.first, matches.count == 1 {
             reconciled[match] = reconciled[match].merged(with: candidate)
         }

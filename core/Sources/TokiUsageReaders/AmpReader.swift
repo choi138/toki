@@ -320,6 +320,18 @@ private struct AmpRecordMatchKey: Hashable {
     let timestamp: Date
 }
 
+private struct AmpCoalescingIndex {
+    var indexesByMessageID: [Int64: [Int]] = [:]
+    var indexesByContentID: [String: [Int]] = [:]
+
+    mutating func append(_ index: Int, record: AmpUsageRecord) {
+        if let messageID = record.messageID {
+            indexesByMessageID[messageID, default: []].append(index)
+        }
+        indexesByContentID[record.contentID, default: []].append(index)
+    }
+}
+
 private struct LossyArray<Element: Decodable>: Decodable {
     let elements: [Element]
 
@@ -468,15 +480,25 @@ private func ampMessageRecords(
 
 private func coalescedAmpRecords(_ records: [AmpUsageRecord]) -> [AmpUsageRecord] {
     var result: [AmpUsageRecord] = []
+    var index = AmpCoalescingIndex()
     for record in records {
-        if let matchingIndex = result.firstIndex(where: {
-            sameKindAmpRecordsMatch($0, record)
+        var candidateIndexes = Set(index.indexesByContentID[record.contentID] ?? [])
+        if let messageID = record.messageID {
+            candidateIndexes.formUnion(index.indexesByMessageID[messageID] ?? [])
+        }
+        if let matchingIndex = candidateIndexes.sorted().first(where: {
+            sameKindAmpRecordsMatch(result[$0], record)
         }) {
             result[matchingIndex] = mergeAmpRecord(
                 ledger: result[matchingIndex],
                 message: record)
+            if let messageID = result[matchingIndex].messageID,
+               index.indexesByMessageID[messageID]?.contains(matchingIndex) != true {
+                index.indexesByMessageID[messageID, default: []].append(matchingIndex)
+            }
         } else {
             result.append(record)
+            index.append(result.endIndex - 1, record: record)
         }
     }
     return result
