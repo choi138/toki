@@ -8,8 +8,8 @@ StartLimitBurst=5
 
 [Service]
 Type=simple
-# '+' bypasses this unit's filesystem namespace; '-' keeps an absent Senpi task parent optional.
-ExecStartPre=+-/usr/bin/mkdir -m 0700 "%h/.omo/senpi-task/children" "%h/.omo/senpi-task/sessions"
+# '+' validates and prepares existing Senpi roots before entering this unit's filesystem namespace.
+ExecStartPre=+/usr/local/bin/toki-agent prepare-senpi-mounts
 ExecStartPre=/usr/local/bin/toki-agent doctor
 ExecStart=/usr/local/bin/toki-agent run
 Restart=on-failure

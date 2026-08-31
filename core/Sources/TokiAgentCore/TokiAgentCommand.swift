@@ -49,6 +49,8 @@ package enum TokiAgentCommand {
         case "migrate-hermes-ledger":
             let result = try migrateHermesLedger(arguments: commandArguments, paths: migrationPaths)
             AgentConsole.write(migrationDescription(result))
+        case "prepare-senpi-mounts":
+            try AgentSenpiMountPreparer.prepare()
         case "run":
             _ = try await AgentSyncService().run()
         case "help", "--help", "-h":
@@ -212,6 +214,8 @@ extension TokiAgentCommand {
       full-rescan  Clear local usage parse caches and synchronize
       migrate-hermes-ledger [--apply]
                    Inspect legacy ledger migration; write only with --apply
+      prepare-senpi-mounts
+                   Safely prepare existing Senpi delegated task roots
       run          Run continuously without opening an inbound port
       version      Show the sync protocol version
     """
@@ -350,6 +354,7 @@ enum AgentCommandError: LocalizedError {
     case localUsageDataUnavailable
     case localUsageSourceErrors(Int)
     case invalidMigrationArguments
+    case unsafeSenpiMountPaths
 
     var errorDescription: String? {
         switch self {
@@ -371,6 +376,8 @@ enum AgentCommandError: LocalizedError {
             "\(count) local usage source(s) could not be read safely. Check the Agent service read-only paths."
         case .invalidMigrationArguments:
             "Usage: toki-agent migrate-hermes-ledger [--apply]"
+        case .unsafeSenpiMountPaths:
+            "Senpi delegated task paths are not safe directories owned by the Agent user."
         }
     }
 }

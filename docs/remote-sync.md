@@ -249,9 +249,11 @@ In addition to `ProtectHome=tmpfs`, the supplied user service mounts an empty
 read-only temporary filesystem over `%h`, so a nonstandard home outside `/home`
 is hidden as well. It then grants write access only to the default Toki Agent XDG
 directories. When Senpi's `.omo/senpi-task` parent already exists, a pre-start
-command outside that namespace creates only its delegated `children` and
-`sessions` roots so their narrow read-only bind mounts exist before Senpi creates
-a delegated task. It does not create the parent on source-free installations.
+helper outside that namespace verifies the parent components are real directories
+owned by the Agent user, then creates only its delegated `children` and `sessions`
+roots without following symbolic links. This lets their narrow read-only bind
+mounts exist before Senpi creates a delegated task. The helper does not create
+the parent on source-free installations, and an unsafe existing path fails startup.
 The service exposes only the supported log roots and individual SQLite
 database/WAL/SHM files as optional read-only mounts; it does not expose an
 entire home directory. At least one source must exist and be readable. A source
