@@ -185,6 +185,18 @@ private struct AmpMessage: Decodable {
     let messageId: Int64?
     let createdAt: String?
     let usage: AmpMessageUsage?
+
+    enum CodingKeys: String, CodingKey {
+        case role, messageId, createdAt, usage
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        role = try? container.decodeIfPresent(String.self, forKey: .role)
+        messageId = try? container.decodeIfPresent(Int64.self, forKey: .messageId)
+        createdAt = try? container.decodeIfPresent(String.self, forKey: .createdAt)
+        usage = try? container.decodeIfPresent(AmpMessageUsage.self, forKey: .usage)
+    }
 }
 
 private struct AmpMessageUsage: Decodable {
@@ -228,6 +240,20 @@ private struct AmpUsageLedgerEvent: Decodable {
     let tokens: AmpLedgerTokens?
     let fromMessageId: Int64?
     let toMessageId: Int64?
+
+    enum CodingKeys: String, CodingKey {
+        case timestamp, model, credits, tokens, fromMessageId, toMessageId
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        timestamp = try? container.decodeIfPresent(String.self, forKey: .timestamp)
+        model = try? container.decodeIfPresent(String.self, forKey: .model)
+        credits = try? container.decodeIfPresent(Double.self, forKey: .credits)
+        tokens = try? container.decodeIfPresent(AmpLedgerTokens.self, forKey: .tokens)
+        fromMessageId = try? container.decodeIfPresent(Int64.self, forKey: .fromMessageId)
+        toMessageId = try? container.decodeIfPresent(Int64.self, forKey: .toMessageId)
+    }
 }
 
 private struct AmpLedgerTokens: Decodable {
@@ -352,23 +378,6 @@ private struct AmpCoalescingIndex {
     }
 }
 
-private struct LossyArray<Element: Decodable>: Decodable {
-    let elements: [Element]
-
-    init(from decoder: Decoder) throws {
-        var container = try decoder.unkeyedContainer()
-        var elements: [Element] = []
-        while !container.isAtEnd {
-            if let value = try? container.decode(Element.self) {
-                elements.append(value)
-            } else {
-                _ = try? container.superDecoder()
-            }
-        }
-        self.elements = elements
-    }
-}
-
 private func reconciledAmpRecords(
     ledgerRecords: [AmpUsageRecord],
     messageRecords: [AmpUsageRecord]) -> [AmpUsageRecord] {
@@ -377,6 +386,7 @@ private func reconciledAmpRecords(
     var unmatchedMessages: [AmpUsageRecord] = []
     var ledgerIndexesByMessageID: [Int64: [Int]] = [:]
     var ledgerIndexesByMatchKey: [AmpRecordMatchKey: [Int]] = [:]
+    var ledgerIndexesByTimestamp: [Date: [Int]] = [:]
     for (index, ledger) in result.enumerated() {
         if let messageID = ledger.messageID {
             ledgerIndexesByMessageID[messageID, default: []].append(index)
@@ -385,12 +395,20 @@ private func reconciledAmpRecords(
             AmpRecordMatchKey(model: ledger.model, timestamp: ledger.timestamp),
             default: []
         ].append(index)
+        ledgerIndexesByTimestamp[ledger.timestamp, default: []].append(index)
     }
 
     for message in coalescedAmpRecords(messageRecords) {
         var candidateIndexes = ledgerIndexesByMatchKey[
             AmpRecordMatchKey(model: message.model, timestamp: message.timestamp)
         ] ?? []
+        if message.model == nil {
+            candidateIndexes.append(contentsOf: ledgerIndexesByTimestamp[message.timestamp] ?? [])
+        } else {
+            candidateIndexes.append(contentsOf: ledgerIndexesByMatchKey[
+                AmpRecordMatchKey(model: nil, timestamp: message.timestamp)
+            ] ?? [])
+        }
         if let messageID = message.messageID {
             candidateIndexes.append(contentsOf: ledgerIndexesByMessageID[messageID] ?? [])
         }
@@ -402,7 +420,7 @@ private func reconciledAmpRecords(
                 return ledgerMessageID == messageID
                     && ampRecordsAreCompatible(ledger, message)
             }
-            return ledger.model == message.model
+            return (ledger.model == nil || message.model == nil || ledger.model == message.model)
                 && ledger.tokens.isCompatible(with: message.tokens)
                 && ledger.timestamp == message.timestamp
         }
@@ -573,15 +591,4 @@ private func ampRecordsAreCompatible(
     (lhs.model == nil || rhs.model == nil || lhs.model == rhs.model)
         && lhs.tokens.isCompatible(with: rhs.tokens)
         && (!lhs.hasExplicitTimestamp || !rhs.hasExplicitTimestamp || lhs.timestamp == rhs.timestamp)
-}
-
-private func nonnegativeAmpCost(_ value: Double?) -> Double? {
-    guard let value, value.isFinite, value >= 0 else { return nil }
-    return value
-}
-
-private func ampEpochDate(_ value: Int64) -> Date? {
-    guard value > 0 else { return nil }
-    let seconds = value >= 100_000_000_000 ? Double(value) / 1000 : Double(value)
-    return Date(timeIntervalSince1970: seconds)
 }

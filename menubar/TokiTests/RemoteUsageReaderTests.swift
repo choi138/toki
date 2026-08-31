@@ -201,6 +201,38 @@ final class RemoteUsageReaderTests: XCTestCase {
 }
 
 extension RemoteUsageReaderTests {
+    func test_costlessGJCEventUsesRemoteModelPricingFallback() throws {
+        let fixture = try makeFixture()
+        let original = try SnapshotCipher.open(fixture.envelope, key: fixture.encryptionKey)
+        let snapshot = RemoteUsageSnapshot(
+            device: original.device,
+            generatedAt: original.generatedAt,
+            coveredFrom: original.coveredFrom,
+            coveredTo: original.coveredTo,
+            tokenEvents: [
+                RemoteTokenEvent(
+                    timestamp: fixture.start.addingTimeInterval(60),
+                    source: "GJC",
+                    model: "gpt-5",
+                    inputTokens: 1000,
+                    outputTokens: 500,
+                    cacheReadTokens: 0,
+                    cacheWriteTokens: 0,
+                    reasoningTokens: 0,
+                    cost: nil,
+                    costIsKnown: nil),
+            ],
+            activityEvents: [])
+
+        let slice = try XCTUnwrap(RemoteUsageMapper().usageSlice(
+            from: snapshot,
+            startDate: fixture.start,
+            endDate: fixture.end))
+
+        XCTAssertGreaterThan(slice.usage.cost, 0)
+        XCTAssertNil(slice.usage.tokenEvents.first?.costIsKnown)
+    }
+
     func test_remoteReaderReturnsOneOriginSlicePerStableDeviceID() async throws {
         let fixture = try makeFixture()
         let secondKey = SnapshotCipher.generateKey()

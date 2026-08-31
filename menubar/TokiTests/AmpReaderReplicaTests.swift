@@ -117,6 +117,68 @@ final class AmpReaderReplicaTests: XCTestCase {
 }
 
 extension AmpReaderReplicaTests {
+    func test_malformedMessageAndLedgerMetadataKeepValidUsage() async throws {
+        let fixture = try AmpFixture()
+        defer { fixture.remove() }
+        try fixture.writeThread([
+            "id": "T-lossy-parent-metadata",
+            "created": fixture.milliseconds("2026-08-20T10:00:00Z"),
+            "usageLedger": ["events": [[
+                "timestamp": "2026-08-20T12:00:00Z",
+                "model": "gpt-5.4",
+                "credits": "not-a-number",
+                "fromMessageId": "not-an-id",
+                "toMessageId": ["unexpected": true],
+                "tokens": ["input": 30, "output": 6],
+            ]]],
+            "messages": [[
+                "role": "assistant",
+                "messageId": "not-an-id",
+                "createdAt": 42,
+                "usage": [
+                    "model": "gpt-5.4",
+                    "timestamp": "2026-08-20T11:00:00Z",
+                    "inputTokens": 20,
+                    "outputTokens": 5,
+                ],
+            ]],
+        ])
+
+        let usage = try await fixture.reader.readUsage(
+            from: fixture.date("2026-08-20T00:00:00Z"),
+            to: fixture.date("2026-08-21T00:00:00Z"))
+
+        XCTAssertEqual(usage.totalTokens, 61)
+        XCTAssertEqual(usage.tokenEvents.count, 2)
+    }
+
+    func test_modelLessMessageCoalescesWithKnownModelLedgerReplica() async throws {
+        let fixture = try AmpFixture()
+        defer { fixture.remove() }
+        try fixture.writeThread([
+            "id": "T-model-less-replica",
+            "created": fixture.milliseconds("2026-08-20T10:00:00Z"),
+            "usageLedger": ["events": [[
+                "timestamp": "2026-08-20T11:00:00Z",
+                "model": "gpt-5.4",
+                "tokens": ["input": 20, "output": 5],
+            ]]],
+            "messages": [[
+                "role": "assistant",
+                "createdAt": "2026-08-20T11:00:00Z",
+                "usage": ["inputTokens": 20, "outputTokens": 5],
+            ]],
+        ])
+
+        let usage = try await fixture.reader.readUsage(
+            from: fixture.date("2026-08-20T00:00:00Z"),
+            to: fixture.date("2026-08-21T00:00:00Z"))
+
+        XCTAssertEqual(usage.totalTokens, 25)
+        XCTAssertEqual(usage.tokenEvents.count, 1)
+        XCTAssertEqual(usage.tokenEvents.first?.model, "gpt-5.4")
+    }
+
     func test_idlessPartialReplicaDoesNotShiftLogicalIdentity() async throws {
         let fixture = try AmpFixture()
         defer { fixture.remove() }

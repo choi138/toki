@@ -94,6 +94,13 @@ struct PiCompatibleReader {
                     source: source.sourceName,
                     totalTokens: totalTokens,
                     cost: message.cost ?? 0)
+                let costIsKnown: Bool? = if message.cost != nil {
+                    true
+                } else if source == .gjc {
+                    nil
+                } else {
+                    false
+                }
                 result.recordTokenEvent(
                     timestamp: message.timestamp,
                     source: source.sourceName,
@@ -105,7 +112,7 @@ struct PiCompatibleReader {
                     cacheWriteTokens: message.cacheWriteTokens,
                     reasoningTokens: message.reasoningTokens,
                     cost: message.cost ?? 0,
-                    costIsKnown: message.cost != nil,
+                    costIsKnown: costIsKnown,
                     attribution: attribution)
             }
         }
