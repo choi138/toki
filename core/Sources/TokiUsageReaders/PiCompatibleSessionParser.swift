@@ -82,7 +82,6 @@ struct PiCompatibleMessage {
                 "\(cacheReadTokens)",
                 "\(cacheWriteTokens)",
                 "\(reasoningTokens)",
-                cost.map { "\($0)" } ?? "unknown",
             ]
             return components.joined(separator: ":")
         }
@@ -99,9 +98,27 @@ struct PiCompatibleMessage {
             "\(cacheReadTokens)",
             "\(cacheWriteTokens)",
             "\(reasoningTokens)",
-            cost.map { "\($0)" } ?? "unknown",
         ]
         return components.joined(separator: ":")
+    }
+
+    func mergingEnrichment(from other: PiCompatibleMessage) -> PiCompatibleMessage {
+        PiCompatibleMessage(
+            id: id ?? other.id,
+            responseID: responseID ?? other.responseID,
+            timestamp: timestamp,
+            sessionID: sessionID,
+            cwd: cwd ?? other.cwd,
+            provider: provider ?? other.provider,
+            model: model ?? other.model,
+            inputTokens: inputTokens,
+            outputTokens: outputTokens,
+            cacheReadTokens: cacheReadTokens,
+            cacheWriteTokens: cacheWriteTokens,
+            reasoningTokens: reasoningTokens,
+            cost: cost ?? other.cost,
+            agentName: agentName ?? other.agentName,
+            agentKind: agentName != nil ? agentKind : other.agentKind)
     }
 }
 

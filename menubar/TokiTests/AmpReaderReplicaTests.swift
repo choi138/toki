@@ -117,6 +117,64 @@ final class AmpReaderReplicaTests: XCTestCase {
 }
 
 extension AmpReaderReplicaTests {
+    func test_matchingMessageIDCoalescesAcrossTimestampSkew() async throws {
+        let fixture = try AmpFixture()
+        defer { fixture.remove() }
+        try fixture.writeThread([
+            "id": "T-skewed-id",
+            "usageLedger": ["events": [[
+                "timestamp": "2026-08-20T11:05:00Z",
+                "model": "gpt-5.4",
+                "toMessageId": 42,
+                "tokens": ["input": 20, "output": 5],
+            ]]],
+            "messages": [[
+                "role": "assistant",
+                "messageId": 42,
+                "createdAt": "2026-08-20T11:00:00Z",
+                "usage": [
+                    "model": "gpt-5.4",
+                    "timestamp": "2026-08-20T11:00:00Z",
+                    "inputTokens": 20,
+                    "outputTokens": 5,
+                ],
+            ]],
+        ])
+
+        let usage = try await fixture.reader.readUsage(
+            from: fixture.date("2026-08-20T00:00:00Z"),
+            to: fixture.date("2026-08-21T00:00:00Z"))
+
+        XCTAssertEqual(usage.totalTokens, 25)
+        XCTAssertEqual(usage.tokenEvents.count, 1)
+    }
+
+    func test_malformedLedgerCounterKeepsOtherValidTokens() async throws {
+        let fixture = try AmpFixture()
+        defer { fixture.remove() }
+        try fixture.writeThread([
+            "id": "T-lossy-ledger-tokens",
+            "usageLedger": ["events": [[
+                "timestamp": "2026-08-20T11:00:00Z",
+                "model": "gpt-5.4",
+                "tokens": [
+                    "input": 20,
+                    "output": "not-a-counter",
+                    "cacheReadInputTokens": 5,
+                ],
+            ]]],
+        ])
+
+        let usage = try await fixture.reader.readUsage(
+            from: fixture.date("2026-08-20T00:00:00Z"),
+            to: fixture.date("2026-08-21T00:00:00Z"))
+
+        XCTAssertEqual(usage.inputTokens, 20)
+        XCTAssertEqual(usage.outputTokens, 0)
+        XCTAssertEqual(usage.cacheReadTokens, 5)
+        XCTAssertEqual(usage.tokenEvents.count, 1)
+    }
+
     func test_malformedMessageAndLedgerMetadataKeepValidUsage() async throws {
         let fixture = try AmpFixture()
         defer { fixture.remove() }

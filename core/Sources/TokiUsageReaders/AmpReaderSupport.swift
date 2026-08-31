@@ -1,5 +1,28 @@
 import Foundation
 
+struct AmpLedgerTokens: Decodable {
+    let input: Int?
+    let output: Int?
+    let cacheReadInputTokens: Int?
+    let cacheCreationInputTokens: Int?
+
+    enum CodingKeys: String, CodingKey {
+        case input, output, cacheReadInputTokens, cacheCreationInputTokens
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        input = try? container.decodeIfPresent(Int.self, forKey: .input)
+        output = try? container.decodeIfPresent(Int.self, forKey: .output)
+        cacheReadInputTokens = try? container.decodeIfPresent(
+            Int.self,
+            forKey: .cacheReadInputTokens)
+        cacheCreationInputTokens = try? container.decodeIfPresent(
+            Int.self,
+            forKey: .cacheCreationInputTokens)
+    }
+}
+
 struct LossyArray<Element: Decodable>: Decodable {
     let elements: [Element]
 

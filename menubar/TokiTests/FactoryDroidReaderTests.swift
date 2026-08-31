@@ -322,6 +322,34 @@ extension FactoryDroidReaderTests {
     }
 }
 
+extension FactoryDroidReaderTests {
+    func test_malformedTranscriptIDsKeepAssistantActivity() async throws {
+        let fixture = try FactoryDroidFixture()
+        defer { fixture.remove() }
+        _ = try fixture.writeSession(
+            id: "lossy-transcript-id",
+            model: "gpt-5.4",
+            provider: "openai",
+            tokenUsage: [:],
+            transcriptLines: [
+                #"{"type":"session_start","id":"lossy-transcript-id","cwd":"/tmp/project"}"#,
+                [
+                    #"{"type":"message","id":{"unexpected":true},"timestamp":"2026-08-20T11:00:00Z","#,
+                    #""message":{"role":"assistant","id":42}}"#,
+                ].joined(),
+            ])
+
+        let usage = try await fixture.reader.readUsage(
+            from: fixture.date("2026-08-20T00:00:00Z"),
+            to: fixture.date("2026-08-21T00:00:00Z"))
+
+        XCTAssertEqual(usage.activityEvents.count, 1)
+        XCTAssertEqual(
+            usage.activityEvents.first?.timestamp,
+            fixture.date("2026-08-20T11:00:00Z"))
+    }
+}
+
 private struct FactoryDroidFixture {
     let root: URL
 

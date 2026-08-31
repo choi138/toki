@@ -256,13 +256,6 @@ private struct AmpUsageLedgerEvent: Decodable {
     }
 }
 
-private struct AmpLedgerTokens: Decodable {
-    let input: Int?
-    let output: Int?
-    let cacheReadInputTokens: Int?
-    let cacheCreationInputTokens: Int?
-}
-
 private struct AmpTokenCounts: Equatable {
     let input: Int
     let output: Int
@@ -588,7 +581,11 @@ private func ampContentFingerprint(
 private func ampRecordsAreCompatible(
     _ lhs: AmpUsageRecord,
     _ rhs: AmpUsageRecord) -> Bool {
-    (lhs.model == nil || rhs.model == nil || lhs.model == rhs.model)
+    let hasMatchingMessageID = lhs.messageID != nil && lhs.messageID == rhs.messageID
+    return (lhs.model == nil || rhs.model == nil || lhs.model == rhs.model)
         && lhs.tokens.isCompatible(with: rhs.tokens)
-        && (!lhs.hasExplicitTimestamp || !rhs.hasExplicitTimestamp || lhs.timestamp == rhs.timestamp)
+        && (hasMatchingMessageID
+            || !lhs.hasExplicitTimestamp
+            || !rhs.hasExplicitTimestamp
+            || lhs.timestamp == rhs.timestamp)
 }

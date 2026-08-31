@@ -53,7 +53,8 @@ struct PiCompatibleReader {
         to endDate: Date) -> RawTokenUsage {
         var result = RawTokenUsage()
         var activityEvents: [ActivityTimeEvent<String>] = []
-        var dedupKeys = Set<String>()
+        var dedupedMessages: [String: PiCompatibleMessage] = [:]
+        var dedupKeyOrder: [String] = []
 
         for session in sessions {
             let messages = PiCompatibleSessionParser.messages(
@@ -64,57 +65,66 @@ struct PiCompatibleReader {
                     .lastPathComponent)
             for message in messages {
                 guard message.timestamp >= startDate,
-                      message.timestamp < endDate,
-                      dedupKeys.insert(message.dedupKey(namespace: source.dedupNamespace)).inserted else {
+                      message.timestamp < endDate else {
                     continue
                 }
-
-                guard let totalTokens = result.accumulateTokenCounts(
-                    input: message.inputTokens,
-                    output: message.outputTokens,
-                    cacheRead: message.cacheReadTokens,
-                    cacheWrite: message.cacheWriteTokens,
-                    reasoning: message.reasoningTokens) else {
-                    continue
-                }
-                result.cost += message.cost ?? 0
-
-                let attribution = UsageAttribution(
-                    projectPath: message.cwd,
-                    sessionID: message.sessionID,
-                    quality: message.cwd == nil ? .unknown : .exact)
-                let modelKey = UsageModelGrouping.groupingKey(for: message.model)
-                activityEvents.append(ActivityTimeEvent(
-                    streamID: message.sessionID,
-                    timestamp: message.timestamp,
-                    key: modelKey,
-                    agentKind: message.agentKind))
-                result.accumulatePerModelUsage(
-                    model: message.model,
-                    source: source.sourceName,
-                    totalTokens: totalTokens,
-                    cost: message.cost ?? 0)
-                let costIsKnown: Bool? = if message.cost != nil {
-                    true
-                } else if source == .gjc {
-                    nil
+                let key = message.dedupKey(namespace: source.dedupNamespace)
+                if let existing = dedupedMessages[key] {
+                    dedupedMessages[key] = existing.mergingEnrichment(from: message)
                 } else {
-                    false
+                    dedupedMessages[key] = message
+                    dedupKeyOrder.append(key)
                 }
-                result.recordTokenEvent(
-                    timestamp: message.timestamp,
-                    source: source.sourceName,
-                    model: message.model,
-                    provider: message.provider,
-                    inputTokens: message.inputTokens,
-                    outputTokens: message.outputTokens,
-                    cacheReadTokens: message.cacheReadTokens,
-                    cacheWriteTokens: message.cacheWriteTokens,
-                    reasoningTokens: message.reasoningTokens,
-                    cost: message.cost ?? 0,
-                    costIsKnown: costIsKnown,
-                    attribution: attribution)
             }
+        }
+
+        for key in dedupKeyOrder {
+            guard let message = dedupedMessages[key] else { continue }
+            guard let totalTokens = result.accumulateTokenCounts(
+                input: message.inputTokens,
+                output: message.outputTokens,
+                cacheRead: message.cacheReadTokens,
+                cacheWrite: message.cacheWriteTokens,
+                reasoning: message.reasoningTokens) else {
+                continue
+            }
+            result.cost += message.cost ?? 0
+
+            let attribution = UsageAttribution(
+                projectPath: message.cwd,
+                sessionID: message.sessionID,
+                quality: message.cwd == nil ? .unknown : .exact)
+            let modelKey = UsageModelGrouping.groupingKey(for: message.model)
+            activityEvents.append(ActivityTimeEvent(
+                streamID: message.sessionID,
+                timestamp: message.timestamp,
+                key: modelKey,
+                agentKind: message.agentKind))
+            result.accumulatePerModelUsage(
+                model: message.model,
+                source: source.sourceName,
+                totalTokens: totalTokens,
+                cost: message.cost ?? 0)
+            let costIsKnown: Bool? = if message.cost != nil {
+                true
+            } else if source == .gjc {
+                nil
+            } else {
+                false
+            }
+            result.recordTokenEvent(
+                timestamp: message.timestamp,
+                source: source.sourceName,
+                model: message.model,
+                provider: message.provider,
+                inputTokens: message.inputTokens,
+                outputTokens: message.outputTokens,
+                cacheReadTokens: message.cacheReadTokens,
+                cacheWriteTokens: message.cacheWriteTokens,
+                reasoningTokens: message.reasoningTokens,
+                cost: message.cost ?? 0,
+                costIsKnown: costIsKnown,
+                attribution: attribution)
         }
 
         result.mergeActivityEvents(

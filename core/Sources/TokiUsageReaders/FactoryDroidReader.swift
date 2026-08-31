@@ -243,9 +243,32 @@ private struct FactoryDroidTranscriptEntry: Decodable {
     let cwd: String?
     let message: Message?
 
+    enum CodingKeys: String, CodingKey {
+        case type, id, timestamp, cwd, message
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        type = try? container.decodeIfPresent(String.self, forKey: .type)
+        id = try? container.decodeIfPresent(String.self, forKey: .id)
+        timestamp = try? container.decodeIfPresent(String.self, forKey: .timestamp)
+        cwd = try? container.decodeIfPresent(String.self, forKey: .cwd)
+        message = try? container.decodeIfPresent(Message.self, forKey: .message)
+    }
+
     struct Message: Decodable {
         let role: String?
         let id: String?
+
+        enum CodingKeys: String, CodingKey {
+            case role, id
+        }
+
+        init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            role = try? container.decodeIfPresent(String.self, forKey: .role)
+            id = try? container.decodeIfPresent(String.self, forKey: .id)
+        }
     }
 }
 
