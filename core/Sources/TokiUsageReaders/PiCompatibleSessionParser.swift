@@ -53,14 +53,12 @@ struct PiCompatibleUsageRecord {
                 && costIsKnown == true && other.costIsKnown != true)
         let preferred = prefersSelf ? self : other
         let supplemental = prefersSelf ? other : self
-        let costSource: Self = if costIsKnown == true, other.costIsKnown != true {
-            self
-        } else if other.costIsKnown == true, costIsKnown != true {
-            other
-        } else if cost >= other.cost {
-            self
+        let costSource: Self = if preferred.costIsKnown == true {
+            preferred
+        } else if supplemental.costIsKnown == true {
+            supplemental
         } else {
-            other
+            preferred
         }
         let providerSource: Self = if providerIsExplicit != other.providerIsExplicit {
             providerIsExplicit ? self : other

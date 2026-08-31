@@ -22,6 +22,25 @@ final class PiCompatibleReplicaEnrichmentTests: XCTestCase {
         XCTAssertEqual(usage.tokenEvents.first?.costIsKnown, true)
     }
 
+    func test_copiedMessageKeepsSelectedRevisionCostWhenBothAreKnown() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("toki-pi-revision-cost-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let parent = root.appendingPathComponent("parent/session.jsonl")
+        let child = root.appendingPathComponent("child/session.jsonl")
+        try writeSession(to: parent, input: 7, output: 5, cost: 0.10)
+        try writeSession(to: child, input: 4, output: 3, cost: 0.25)
+
+        let usage = try await PiReader(sessionsURLOverride: root).readUsage(
+            from: replicaDate("2026-08-01T00:00:00Z"),
+            to: replicaDate("2026-08-02T00:00:00Z"))
+
+        XCTAssertEqual(usage.totalTokens, 12)
+        XCTAssertEqual(usage.cost, 0.10, accuracy: 0.000_001)
+        XCTAssertEqual(usage.tokenEvents.count, 1)
+        XCTAssertEqual(usage.tokenEvents.first?.costIsKnown, true)
+    }
+
     func test_idlessResponsePrefersUniqueExplicitProviderAcrossFiles() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("toki-pi-provider-enrichment-\(UUID().uuidString)", isDirectory: true)
