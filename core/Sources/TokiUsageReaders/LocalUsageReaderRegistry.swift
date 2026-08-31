@@ -16,6 +16,7 @@ package enum LocalUsageSourceLocation: Equatable {
 package enum LocalUsageSourceSignatureStrategy {
     case standard
     case allFiles
+    case boundedAllFiles(maximumFileCount: Int)
     case codexRollouts
 }
 
@@ -416,16 +417,19 @@ public enum LocalUsageReaderRegistry {
             descriptors.append(LocalUsageReaderDescriptor(
                 reader: PiReader(sessionsURLOverride: paths.piSessions),
                 sourceLocations: [.directory(paths.piSessions, extensions: ["jsonl"])],
-                sourceSignatureStrategy: .allFiles))
+                sourceSignatureStrategy: .boundedAllFiles(
+                    maximumFileCount: PiCompatibleReadLimits.default.maximumFileCount)))
         }
         descriptors.append(LocalUsageReaderDescriptor(
             reader: OMPReader(sessionsURLOverride: paths.ompSessions),
             sourceLocations: [.directory(paths.ompSessions, extensions: ["jsonl"])],
-            sourceSignatureStrategy: .allFiles))
+            sourceSignatureStrategy: .boundedAllFiles(
+                maximumFileCount: PiCompatibleReadLimits.default.maximumFileCount)))
         descriptors.append(LocalUsageReaderDescriptor(
             reader: KimchiReader(sessionsURLOverride: paths.kimchiSessions),
             sourceLocations: [.directory(paths.kimchiSessions, extensions: ["jsonl"])],
-            sourceSignatureStrategy: .allFiles))
+            sourceSignatureStrategy: .boundedAllFiles(
+                maximumFileCount: PiCompatibleReadLimits.default.maximumFileCount)))
         return descriptors
     }
 

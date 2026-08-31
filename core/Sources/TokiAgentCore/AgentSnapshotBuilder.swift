@@ -154,22 +154,35 @@ struct AgentSnapshotBuilder: AgentSnapshotBuilding {
     }
 
     func sourceSignature(configuration: AgentConfiguration, now: Date) async throws -> String? {
+        try Task.checkCancellation()
         let window = try retentionWindow(configuration: configuration, now: now)
-        let sources = try readerDescriptors.map { descriptor in
+        var sources: [AgentSourceSignature.Source] = []
+        for descriptor in readerDescriptors {
+            try Task.checkCancellation()
             let records: [String] = switch descriptor.sourceSignatureStrategy {
             case .standard:
-                try sourceRecords(locations: descriptor.sourceLocations, modifiedOnOrAfter: window.start)
+                try standardSourceRecords(
+                    locations: descriptor.sourceLocations,
+                    modifiedOnOrAfter: window.start)
             case .allFiles:
-                try sourceRecords(locations: descriptor.sourceLocations, modifiedOnOrAfter: nil)
+                try standardSourceRecords(
+                    locations: descriptor.sourceLocations,
+                    modifiedOnOrAfter: .distantPast)
+            case let .boundedAllFiles(maximumFileCount):
+                try standardSourceRecords(
+                    locations: descriptor.sourceLocations,
+                    modifiedOnOrAfter: .distantPast,
+                    maximumFileCount: maximumFileCount)
             case .codexRollouts:
                 try codexSourceRecords(window: window)
             }
-            return AgentSourceSignature.Source(
+            sources.append(AgentSourceSignature.Source(
                 reader: descriptor.name,
-                records: records.sorted())
+                records: records.sorted()))
         }
-        .sorted { $0.reader < $1.reader }
+        sources.sort { $0.reader < $1.reader }
 
+        try Task.checkCancellation()
         let document = AgentSourceSignature(
             coveredFrom: window.start,
             coveredTo: window.end,
@@ -217,10 +230,17 @@ private extension AgentSnapshotBuilder {
         return DateInterval(start: coveredFrom, end: coveredTo)
     }
 
-    private func sourceRecords(
-        locations: [LocalUsageSourceLocation], modifiedOnOrAfter minimumDate: Date?) throws -> [String] {
+    private func standardSourceRecords(
+        locations: [LocalUsageSourceLocation],
+        modifiedOnOrAfter minimumDate: Date,
+        maximumFileCount: Int? = nil) throws -> [String] {
+        guard maximumFileCount.map({ $0 >= 0 }) ?? true else {
+            throw AgentSnapshotBuilderError.sourceInspectionFailed
+        }
         var records: [String] = []
+        var discoveredFileCount = 0
         for location in locations {
+            try Task.checkCancellation()
             switch location {
             case let .file(url, includesSQLiteSidecars):
                 try records.append(fileSignatureRecord(url))
@@ -233,10 +253,13 @@ private extension AgentSnapshotBuilder {
                 try records.append(contentsOf: retainedFiles(
                     in: url,
                     extensions: extensions,
-                    modifiedOnOrAfter: minimumDate)
+                    modifiedOnOrAfter: minimumDate,
+                    discoveredFileCount: &discoveredFileCount,
+                    maximumFileCount: maximumFileCount)
                     .map(fileSignatureRecord))
             }
         }
+        try Task.checkCancellation()
         return records
     }
 
@@ -283,7 +306,12 @@ private extension AgentSnapshotBuilder {
     }
 
     private func retainedFiles(
-        in directory: URL, extensions: Set<String>, modifiedOnOrAfter minimumDate: Date?) throws -> Set<URL> {
+        in directory: URL,
+        extensions: Set<String>,
+        modifiedOnOrAfter minimumDate: Date,
+        discoveredFileCount: inout Int,
+        maximumFileCount: Int?) throws -> Set<URL> {
+        try Task.checkCancellation()
         guard FileManager.default.fileExists(atPath: directory.path) else { return [] }
 
         var inspectionFailed = false
@@ -305,6 +333,7 @@ private extension AgentSnapshotBuilder {
 
         var files: Set<URL> = []
         for case let fileURL as URL in enumerator {
+            try Task.checkCancellation()
             let values: URLResourceValues
             do {
                 values = try fileURL.resourceValues(forKeys: [
@@ -322,19 +351,26 @@ private extension AgentSnapshotBuilder {
                 }
                 continue
             }
-            let isRecentEnough = minimumDate.map { minimumDate in
-                values.contentModificationDate.map { $0 >= minimumDate } == true
-            } ?? true
             guard values.isRegularFile == true,
                   extensions.contains(fileURL.pathExtension),
-                  isRecentEnough else {
+                  values.contentModificationDate.map({ $0 >= minimumDate }) == true else {
                 continue
             }
+            if let maximumFileCount,
+               discoveredFileCount >= maximumFileCount {
+                throw AgentSnapshotBuilderError.sourceInspectionFailed
+            }
+            let (nextCount, overflow) = discoveredFileCount.addingReportingOverflow(1)
+            guard !overflow else {
+                throw AgentSnapshotBuilderError.sourceInspectionFailed
+            }
+            discoveredFileCount = nextCount
             files.insert(fileURL.standardizedFileURL)
         }
         guard !inspectionFailed else {
             throw AgentSnapshotBuilderError.sourceInspectionFailed
         }
+        try Task.checkCancellation()
         return files
     }
 
@@ -373,6 +409,7 @@ private extension AgentSnapshotBuilder {
     }
 
     private func directoryPresenceRecord(_ url: URL) throws -> String {
+        try Task.checkCancellation()
         let normalizedURL = url.standardizedFileURL
         let pathDigest = SnapshotCipher.digest(normalizedURL.path)
         guard FileManager.default.fileExists(atPath: normalizedURL.path) else {
@@ -391,6 +428,7 @@ private extension AgentSnapshotBuilder {
     }
 
     private func fileSignatureRecord(_ url: URL) throws -> String {
+        try Task.checkCancellation()
         let normalizedURL = url.standardizedFileURL
         let pathDigest = SnapshotCipher.digest(normalizedURL.path)
         guard FileManager.default.fileExists(atPath: normalizedURL.path) else {
