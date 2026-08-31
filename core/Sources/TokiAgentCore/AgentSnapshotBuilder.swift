@@ -30,6 +30,7 @@ struct AgentSnapshotBuilder: AgentSnapshotBuilding {
     private let rolloutUsageCache: CodexRolloutUsageCache
     private let claudeUsageCache: ClaudeUsageCache
     private let readerDescriptors: [LocalUsageReaderDescriptor]
+    private let eventLimits: AgentSnapshotEventLimits
     private let retentionTimeZone: TimeZone
     private let agentHermesLedgerURL: URL
     private let sourceMountMonitor: AgentSourceMountMonitor
@@ -40,6 +41,7 @@ struct AgentSnapshotBuilder: AgentSnapshotBuilding {
         rolloutUsageCache: CodexRolloutUsageCache? = nil,
         claudeUsageCache: ClaudeUsageCache? = nil,
         readerDescriptors: [LocalUsageReaderDescriptor]? = nil,
+        eventLimits: AgentSnapshotEventLimits = .protocolMaximum,
         retentionTimeZone: TimeZone = TimeZone(secondsFromGMT: 0) ?? .current,
         sourceMountInfoProvider: @escaping AgentSourceMountMonitor.MountInfoProvider =
             AgentSourceMountMonitor.currentProcessMountInfo) {
@@ -81,6 +83,7 @@ struct AgentSnapshotBuilder: AgentSnapshotBuilding {
                 }
         }
         self.readerDescriptors = resolvedReaderDescriptors
+        self.eventLimits = eventLimits
         sourceMountMonitor = AgentSourceMountMonitor(
             sourceLocations: resolvedReaderDescriptors.flatMap(\.sourceLocations),
             mountInfoProvider: sourceMountInfoProvider)
@@ -102,28 +105,34 @@ struct AgentSnapshotBuilder: AgentSnapshotBuilding {
                     && event.timestamp < coveredTo
                     && !tokenReplacementCoverages.contains { $0.replaces(event) }
             }
-        let tokenEvents = usageEvents
-            .compactMap(remoteTokenEvent)
-            .sorted(by: tokenEventSort)
-        let costEvents = usageEvents
-            .compactMap(remoteCostEvent)
-            .sorted(by: costEventSort)
+        let tokenEvents = boundedMostRecentEvents(
+            usageEvents
+                .compactMap(remoteTokenEvent)
+                .sorted(by: tokenEventSort),
+            maximumCount: eventLimits.maximumTokenEventCount)
+        let costEvents = boundedMostRecentEvents(
+            usageEvents
+                .compactMap(remoteCostEvent)
+                .sorted(by: costEventSort),
+            maximumCount: eventLimits.maximumCostEventCount)
 
-        let activityEvents = readerUsages
-            .flatMap { readerUsage in
-                readerUsage.usage.activityEvents
-                    .filter { $0.timestamp >= coveredFrom && $0.timestamp < coveredTo }
-                    .map { event in
-                        RemoteActivityEvent(
-                            timestamp: event.timestamp,
-                            source: readerUsage.name,
-                            model: remoteModel(event.key),
-                            streamID: identifierHasher.identifier(
-                                for: "\(readerUsage.name)\u{0}\(event.streamID)"),
-                            agentKind: event.agentKind == .subagent ? .subagent : .main)
-                    }
-            }
-            .sorted(by: activityEventSort)
+        let activityEvents = boundedMostRecentEvents(
+            readerUsages
+                .flatMap { readerUsage in
+                    readerUsage.usage.activityEvents
+                        .filter { $0.timestamp >= coveredFrom && $0.timestamp < coveredTo }
+                        .map { event in
+                            RemoteActivityEvent(
+                                timestamp: event.timestamp,
+                                source: readerUsage.name,
+                                model: remoteModel(event.key),
+                                streamID: identifierHasher.identifier(
+                                    for: "\(readerUsage.name)\u{0}\(event.streamID)"),
+                                agentKind: event.agentKind == .subagent ? .subagent : .main)
+                        }
+                }
+                .sorted(by: activityEventSort),
+            maximumCount: eventLimits.maximumActivityEventCount)
 
         return RemoteUsageSnapshot(
             device: RemoteDeviceDescriptor(
@@ -136,17 +145,6 @@ struct AgentSnapshotBuilder: AgentSnapshotBuilding {
             tokenEvents: tokenEvents,
             costEvents: costEvents.isEmpty ? nil : costEvents,
             activityEvents: activityEvents)
-    }
-
-    func contentDigest(_ snapshot: RemoteUsageSnapshot) throws -> String {
-        let content = AgentSnapshotContent(
-            device: snapshot.device,
-            coveredFrom: snapshot.coveredFrom,
-            coveredTo: snapshot.coveredTo,
-            tokenEvents: snapshot.tokenEvents,
-            costEvents: snapshot.costEvents,
-            activityEvents: snapshot.activityEvents)
-        return try SnapshotCipher.digest(TokiSyncCoding.makeEncoder().encode(content))
     }
 
     func prepareForSync() async throws {
@@ -545,15 +543,6 @@ private struct AgentReaderUsage {
     let index: Int
     let name: String
     let usage: RawTokenUsage
-}
-
-private struct AgentSnapshotContent: Encodable {
-    let device: RemoteDeviceDescriptor
-    let coveredFrom: Date
-    let coveredTo: Date
-    let tokenEvents: [RemoteTokenEvent]
-    let costEvents: [RemoteCostEvent]?
-    let activityEvents: [RemoteActivityEvent]
 }
 
 private struct AgentSourceSignature: Encodable {
