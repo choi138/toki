@@ -95,6 +95,7 @@ final class AgentSnapshotEventLimitTests: XCTestCase {
         XCTAssertFalse(snapshot.tokenEvents.isEmpty)
         XCTAssertTrue(snapshot.tokenEvents.allSatisfy { $0.timestamp >= snapshot.coveredFrom })
         XCTAssertLessThanOrEqual(encodedEnvelope.count, TokiSyncLimits.maximumEnvelopeBytes)
+        XCTAssertNil(snapshot.costEvents)
 
         let precedingTimestamp = try XCTUnwrap(
             usage.tokenEvents.lazy.map(\.timestamp).filter { $0 < snapshot.coveredFrom }.max())
@@ -104,7 +105,7 @@ final class AgentSnapshotEventLimitTests: XCTestCase {
             coveredFrom: precedingTimestamp,
             coveredTo: snapshot.coveredTo,
             tokenEvents: [Self.highVolumeRemoteEvent(timestamp: precedingTimestamp)] + snapshot.tokenEvents,
-            costEvents: snapshot.costEvents,
+            costEvents: nil,
             activityEvents: snapshot.activityEvents)
         XCTAssertThrowsError(try SnapshotCipher.seal(
             precedingSnapshot,
@@ -148,6 +149,78 @@ final class AgentSnapshotEventLimitTests: XCTestCase {
         XCTAssertEqual(
             try builder.contentDigest(firstSnapshot),
             try builder.contentDigest(secondSnapshot))
+    }
+}
+
+extension AgentSnapshotEventLimitTests {
+    func test_snapshotChecksFittingFullWindowOnce() throws {
+        let now = Date(timeIntervalSince1970: 1_788_000_000)
+        let coveredFrom = now.addingTimeInterval(-300)
+        var fitCheckCount = 0
+        let bounder = AgentSnapshotEventBounder(
+            limits: AgentSnapshotEventLimits(
+                maximumTokenEventCount: 10,
+                maximumCostEventCount: 10,
+                maximumActivityEventCount: 10),
+            envelopeFitCheck: { _, _ in
+                fitCheckCount += 1
+                return true
+            })
+
+        let snapshot = try bounder.snapshot(
+            device: RemoteDeviceDescriptor(id: "device", name: "Device", platform: "linux"),
+            generatedAt: now,
+            coveredFrom: coveredFrom,
+            coveredTo: now.addingTimeInterval(300),
+            tokenEvents: [
+                Self.highVolumeRemoteEvent(timestamp: now.addingTimeInterval(-120)),
+                Self.highVolumeRemoteEvent(timestamp: now.addingTimeInterval(-60)),
+            ],
+            costEvents: [],
+            activityEvents: [],
+            encryptionKey: "test-key")
+
+        XCTAssertEqual(snapshot.coveredFrom, coveredFrom)
+        XCTAssertEqual(fitCheckCount, 1)
+    }
+
+    func test_snapshotDefersFutureEventsUntilTheyBecomeEligible() async throws {
+        let fixture = try AgentSnapshotFixture()
+        defer { fixture.remove() }
+        let timestamps = [10.0, 20.0, 30.0].map(fixture.now.addingTimeInterval)
+        let usage = Self.usage(source: "Senpi", timestamps: timestamps)
+        let descriptor = LocalUsageReaderDescriptor(
+            reader: FixedTokenReader(name: "Senpi", usage: usage),
+            sourceLocations: [])
+        let limits = AgentSnapshotEventLimits(
+            maximumTokenEventCount: 2,
+            maximumCostEventCount: 2,
+            maximumActivityEventCount: 2)
+        let builder = AgentSnapshotBuilder(
+            home: fixture.root,
+            readerDescriptors: [descriptor],
+            eventLimits: limits)
+
+        let firstSnapshot = try await builder.build(
+            configuration: fixture.configuration,
+            now: fixture.now)
+        let pendingSignature = try await builder.sourceSignature(
+            configuration: fixture.configuration,
+            now: fixture.now.addingTimeInterval(9))
+        let eligibleSignature = try await builder.sourceSignature(
+            configuration: fixture.configuration,
+            now: fixture.now.addingTimeInterval(10))
+        let laterSnapshot = try await builder.build(
+            configuration: fixture.configuration,
+            now: fixture.now.addingTimeInterval(40))
+
+        XCTAssertTrue(firstSnapshot.tokenEvents.isEmpty)
+        XCTAssertNil(firstSnapshot.costEvents)
+        XCTAssertTrue(firstSnapshot.activityEvents.isEmpty)
+        XCTAssertNotEqual(pendingSignature, eligibleSignature)
+        XCTAssertEqual(laterSnapshot.tokenEvents.map(\.timestamp), Array(timestamps.suffix(2)))
+        XCTAssertEqual(laterSnapshot.costEvents?.map(\.timestamp), Array(timestamps.suffix(2)))
+        XCTAssertEqual(laterSnapshot.activityEvents.map(\.timestamp), Array(timestamps.suffix(2)))
     }
 
     private static func usage(source: String, timestamps: [Date]) -> RawTokenUsage {

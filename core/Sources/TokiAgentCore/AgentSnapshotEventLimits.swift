@@ -26,7 +26,17 @@ struct AgentSnapshotEventLimits: Equatable {
 }
 
 struct AgentSnapshotEventBounder {
+    typealias EnvelopeFitCheck = (RemoteUsageSnapshot, String) throws -> Bool
+
     let limits: AgentSnapshotEventLimits
+    private let envelopeFitCheck: EnvelopeFitCheck?
+
+    init(
+        limits: AgentSnapshotEventLimits,
+        envelopeFitCheck: EnvelopeFitCheck? = nil) {
+        self.limits = limits
+        self.envelopeFitCheck = envelopeFitCheck
+    }
 
     func snapshot(
         device: RemoteDeviceDescriptor,
@@ -43,7 +53,19 @@ struct AgentSnapshotEventBounder {
             tokenEvents: tokenEvents,
             costEvents: costEvents,
             activityEvents: activityEvents)
-        var lowerBound = 0
+        let fullSnapshot = makeSnapshot(
+            device: device,
+            generatedAt: generatedAt,
+            coveredFrom: cutoffs[0],
+            coveredTo: coveredTo,
+            tokenEvents: tokenEvents,
+            costEvents: costEvents,
+            activityEvents: activityEvents)
+        if try fitsUploadEnvelope(fullSnapshot, encryptionKey: encryptionKey) {
+            return fullSnapshot
+        }
+
+        var lowerBound = 1
         var upperBound = cutoffs.count - 1
         var boundedSnapshot: RemoteUsageSnapshot?
 
@@ -119,6 +141,9 @@ struct AgentSnapshotEventBounder {
     private func fitsUploadEnvelope(
         _ snapshot: RemoteUsageSnapshot,
         encryptionKey: String) throws -> Bool {
+        if let envelopeFitCheck {
+            return try envelopeFitCheck(snapshot, encryptionKey)
+        }
         guard snapshot.tokenEvents.count <= max(0, limits.maximumTokenEventCount),
               (snapshot.costEvents?.count ?? 0) <= max(0, limits.maximumCostEventCount),
               snapshot.activityEvents.count <= max(0, limits.maximumActivityEventCount) else {

@@ -31,6 +31,7 @@ struct AgentSnapshotBuilder: AgentSnapshotBuilding {
     private let claudeUsageCache: ClaudeUsageCache
     private let readerDescriptors: [LocalUsageReaderDescriptor]
     private let eventLimits: AgentSnapshotEventLimits
+    private let deferredEventRecheck: AgentDeferredEventRecheck
     private let retentionTimeZone: TimeZone
     private let agentHermesLedgerURL: URL
     private let sourceMountMonitor: AgentSourceMountMonitor
@@ -42,6 +43,7 @@ struct AgentSnapshotBuilder: AgentSnapshotBuilding {
         claudeUsageCache: ClaudeUsageCache? = nil,
         readerDescriptors: [LocalUsageReaderDescriptor]? = nil,
         eventLimits: AgentSnapshotEventLimits = .protocolMaximum,
+        deferredEventRecheck: AgentDeferredEventRecheck = AgentDeferredEventRecheck(),
         retentionTimeZone: TimeZone = TimeZone(secondsFromGMT: 0) ?? .current,
         sourceMountInfoProvider: @escaping AgentSourceMountMonitor.MountInfoProvider =
             AgentSourceMountMonitor.currentProcessMountInfo) {
@@ -84,6 +86,7 @@ struct AgentSnapshotBuilder: AgentSnapshotBuilding {
         }
         self.readerDescriptors = resolvedReaderDescriptors
         self.eventLimits = eventLimits
+        self.deferredEventRecheck = deferredEventRecheck
         sourceMountMonitor = AgentSourceMountMonitor(
             sourceLocations: resolvedReaderDescriptors.flatMap(\.sourceLocations),
             mountInfoProvider: sourceMountInfoProvider)
@@ -105,14 +108,14 @@ struct AgentSnapshotBuilder: AgentSnapshotBuilding {
                     && event.timestamp < coveredTo
                     && !tokenReplacementCoverages.contains { $0.replaces(event) }
             }
-        let tokenEvents = usageEvents
+        let allTokenEvents = usageEvents
             .compactMap(remoteTokenEvent)
             .sorted(by: tokenEventSort)
-        let costEvents = usageEvents
+        let allCostEvents = usageEvents
             .compactMap(remoteCostEvent)
             .sorted(by: costEventSort)
 
-        let activityEvents = readerUsages
+        let allActivityEvents = readerUsages
             .flatMap { readerUsage in
                 readerUsage.usage.activityEvents
                     .filter { $0.timestamp >= coveredFrom && $0.timestamp < coveredTo }
@@ -127,8 +130,18 @@ struct AgentSnapshotBuilder: AgentSnapshotBuilding {
                     }
             }
             .sorted(by: activityEventSort)
+        let earliestDeferredTimestamp = [
+            allTokenEvents.first { $0.timestamp > now }?.timestamp,
+            allCostEvents.first { $0.timestamp > now }?.timestamp,
+            allActivityEvents.first { $0.timestamp > now }?.timestamp,
+        ]
+        .compactMap { $0 }
+        .min()
+        let tokenEvents = allTokenEvents.filter { $0.timestamp <= now }
+        let costEvents = allCostEvents.filter { $0.timestamp <= now }
+        let activityEvents = allActivityEvents.filter { $0.timestamp <= now }
 
-        return try AgentSnapshotEventBounder(limits: eventLimits).snapshot(
+        let snapshot = try AgentSnapshotEventBounder(limits: eventLimits).snapshot(
             device: RemoteDeviceDescriptor(
                 id: configuration.deviceID,
                 name: configuration.deviceName,
@@ -140,6 +153,8 @@ struct AgentSnapshotBuilder: AgentSnapshotBuilding {
             costEvents: costEvents,
             activityEvents: activityEvents,
             encryptionKey: configuration.encryptionKey)
+        deferredEventRecheck.replaceEarliestTimestamp(earliestDeferredTimestamp)
+        return snapshot
     }
 
     func prepareForSync() async throws {
@@ -186,6 +201,7 @@ struct AgentSnapshotBuilder: AgentSnapshotBuilding {
         let document = AgentSourceSignature(
             coveredFrom: window.start,
             coveredTo: window.end,
+            deferredEventRecheck: deferredEventRecheck.signature(now: now),
             sources: sources)
         return try SnapshotCipher.digest(TokiSyncCoding.makeEncoder().encode(document))
     }
@@ -538,17 +554,6 @@ private struct AgentReaderUsage {
     let index: Int
     let name: String
     let usage: RawTokenUsage
-}
-
-private struct AgentSourceSignature: Encodable {
-    struct Source: Encodable {
-        let reader: String
-        let records: [String]
-    }
-
-    let coveredFrom: Date
-    let coveredTo: Date
-    let sources: [Source]
 }
 
 enum AgentSnapshotBuilderError: LocalizedError {
