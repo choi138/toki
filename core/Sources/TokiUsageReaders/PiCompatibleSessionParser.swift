@@ -87,7 +87,7 @@ struct PiCompatibleUsageRecord {
             attribution: bestUsageAttribution(attribution, other.attribution) ?? attribution,
             agentName: preferred.agentName ?? supplemental.agentName,
             agentKind: mergedAgentKind
-                ?? (agentKind == .subagent || other.agentKind == .subagent ? .subagent : .main))
+                ?? (agentKind == .subagent && other.agentKind == .subagent ? .subagent : .main))
     }
 }
 
@@ -183,8 +183,12 @@ private func copiedPiCompatibleRecordsMatch(
     _ mainRecord: PiCompatibleUsageRecord,
     _ subagentRecord: PiCompatibleUsageRecord) -> Bool {
     guard mainRecord.timestamp == subagentRecord.timestamp,
-          mainRecord.model == subagentRecord.model,
-          mainRecord.attribution.projectPath == subagentRecord.attribution.projectPath else {
+          mainRecord.model == subagentRecord.model else {
+        return false
+    }
+    if let mainProjectPath = mainRecord.attribution.projectPath,
+       let subagentProjectPath = subagentRecord.attribution.projectPath,
+       mainProjectPath != subagentProjectPath {
         return false
     }
     return mainRecord.provider == subagentRecord.provider
