@@ -57,18 +57,16 @@ public struct FactoryDroidReader: TokenReader {
                 activityKeys: &activityKeys,
                 activityEvents: &activityEvents)
 
-            if let tokenUsage = settings.tokenUsage {
-                let summary = FactoryDroidSummary(
-                    modifiedDate: modifiedDate,
-                    model: model,
-                    provider: settings.providerLock?.trimmedNonEmpty
-                        ?? inferredUsageProvider(from: model),
-                    tokenUsage: tokenUsage,
-                    transcript: transcript)
-                if summariesBySession[transcript.sessionID]?.modifiedDate ?? .distantPast
-                    < modifiedDate {
-                    summariesBySession[transcript.sessionID] = summary
-                }
+            let summary = FactoryDroidSummary(
+                modifiedDate: modifiedDate,
+                model: model,
+                provider: settings.providerLock?.trimmedNonEmpty
+                    ?? inferredUsageProvider(from: model),
+                tokenUsage: settings.tokenUsage,
+                transcript: transcript)
+            if summariesBySession[transcript.sessionID]?.modifiedDate ?? .distantPast
+                < modifiedDate {
+                summariesBySession[transcript.sessionID] = summary
             }
         }
 
@@ -91,7 +89,7 @@ private struct FactoryDroidSummary {
     let modifiedDate: Date
     let model: String?
     let provider: String?
-    let tokenUsage: FactoryDroidTokenUsage
+    let tokenUsage: FactoryDroidTokenUsage?
     let transcript: FactoryDroidTranscript
 }
 
@@ -101,43 +99,66 @@ private func appendFactoryDroidSummaries(
     to endDate: Date,
     usage: inout RawTokenUsage) {
     for sessionID in summariesBySession.keys.sorted() {
-        guard let summary = summariesBySession[sessionID],
-              summary.modifiedDate >= startDate,
-              summary.modifiedDate < endDate else {
-            continue
-        }
-        let counts = FactoryDroidTokenCounts(summary.tokenUsage)
-        guard counts.totalTokens > 0 else { continue }
+        guard let summary = summariesBySession[sessionID] else { continue }
         let attribution = UsageAttribution(
             projectPath: summary.transcript.projectPath,
             sessionID: summary.transcript.sessionID,
             quality: summary.transcript.projectPath == nil ? .unknown : .exact)
 
-        guard let totalTokens = usage.accumulateTokenCounts(
-            input: counts.input,
-            output: counts.output,
-            cacheRead: counts.cacheRead,
-            cacheWrite: counts.cacheWrite,
-            reasoning: counts.reasoning) else {
-            continue
+        if summary.transcript.hasTokenUsageRecords {
+            for record in summary.transcript.tokenUsageRecords {
+                appendFactoryDroidTokenUsage(
+                    record.tokenUsage,
+                    timestamp: record.timestamp,
+                    summary: summary,
+                    attribution: attribution,
+                    usage: &usage)
+            }
+        } else if summary.modifiedDate >= startDate,
+                  summary.modifiedDate < endDate,
+                  let tokenUsage = summary.tokenUsage {
+            appendFactoryDroidTokenUsage(
+                tokenUsage,
+                timestamp: summary.modifiedDate,
+                summary: summary,
+                attribution: attribution,
+                usage: &usage)
         }
-        usage.accumulatePerModelUsage(
-            model: summary.model,
-            source: FactoryDroidReader.sourceName,
-            totalTokens: totalTokens)
-        usage.recordTokenEvent(
-            timestamp: summary.modifiedDate,
-            source: FactoryDroidReader.sourceName,
-            model: summary.model,
-            provider: summary.provider,
-            inputTokens: counts.input,
-            outputTokens: counts.output,
-            cacheReadTokens: counts.cacheRead,
-            cacheWriteTokens: counts.cacheWrite,
-            reasoningTokens: counts.reasoning,
-            costIsKnown: false,
-            attribution: attribution)
     }
+}
+
+private func appendFactoryDroidTokenUsage(
+    _ tokenUsage: FactoryDroidTokenUsage,
+    timestamp: Date,
+    summary: FactoryDroidSummary,
+    attribution: UsageAttribution,
+    usage: inout RawTokenUsage) {
+    let counts = FactoryDroidTokenCounts(tokenUsage)
+    guard counts.totalTokens > 0,
+          let totalTokens = usage.accumulateTokenCounts(
+              input: counts.input,
+              output: counts.output,
+              cacheRead: counts.cacheRead,
+              cacheWrite: counts.cacheWrite,
+              reasoning: counts.reasoning) else {
+        return
+    }
+    usage.accumulatePerModelUsage(
+        model: summary.model,
+        source: FactoryDroidReader.sourceName,
+        totalTokens: totalTokens)
+    usage.recordTokenEvent(
+        timestamp: timestamp,
+        source: FactoryDroidReader.sourceName,
+        model: summary.model,
+        provider: summary.provider,
+        inputTokens: counts.input,
+        outputTokens: counts.output,
+        cacheReadTokens: counts.cacheRead,
+        cacheWriteTokens: counts.cacheWrite,
+        reasoningTokens: counts.reasoning,
+        costIsKnown: false,
+        attribution: attribution)
 }
 
 private func appendFactoryDroidActivities(
@@ -259,15 +280,17 @@ private struct FactoryDroidTranscriptEntry: Decodable {
     struct Message: Decodable {
         let role: String?
         let id: String?
+        let usage: FactoryDroidTokenUsage?
 
         enum CodingKeys: String, CodingKey {
-            case role, id
+            case role, id, usage
         }
 
         init(from decoder: Decoder) throws {
             let container = try decoder.container(keyedBy: CodingKeys.self)
             role = try? container.decodeIfPresent(String.self, forKey: .role)
             id = try? container.decodeIfPresent(String.self, forKey: .id)
+            usage = try? container.decodeIfPresent(FactoryDroidTokenUsage.self, forKey: .usage)
         }
     }
 }
@@ -276,11 +299,18 @@ private struct FactoryDroidTranscript {
     let sessionID: String
     let projectPath: String?
     let activities: [FactoryDroidActivity]
+    let tokenUsageRecords: [FactoryDroidTokenUsageRecord]
+    let hasTokenUsageRecords: Bool
 }
 
 private struct FactoryDroidActivity {
     let id: String
     let timestamp: Date
+}
+
+private struct FactoryDroidTokenUsageRecord {
+    let timestamp: Date
+    let tokenUsage: FactoryDroidTokenUsage
 }
 
 private func factoryDroidTranscript(
@@ -297,6 +327,9 @@ private func factoryDroidTranscript(
     var projectPath: String?
     var activities: [FactoryDroidActivity] = []
     var activityIDs = Set<String>()
+    var tokenUsageRecords: [FactoryDroidTokenUsageRecord] = []
+    var tokenUsageIDs = Set<String>()
+    var hasTokenUsageRecords = false
 
     for line in readJSONLLines(at: transcriptURL) {
         guard let data = line.data(using: .utf8),
@@ -312,24 +345,38 @@ private func factoryDroidTranscript(
 
         guard entry.type == "message",
               entry.message?.role == "assistant",
-              let timestamp = entry.timestamp.flatMap(DateParser.parse),
-              timestamp >= startDate,
-              timestamp < endDate else {
+              let timestamp = entry.timestamp.flatMap(DateParser.parse) else {
             continue
         }
         let activityID = entry.id?.trimmedNonEmpty
             ?? entry.message?.id?.trimmedNonEmpty
             ?? line
-        guard activityIDs.insert(activityID).inserted else { continue }
-        activities.append(FactoryDroidActivity(
-            id: activityID,
-            timestamp: timestamp))
+        if timestamp >= startDate,
+           timestamp < endDate,
+           activityIDs.insert(activityID).inserted {
+            activities.append(FactoryDroidActivity(
+                id: activityID,
+                timestamp: timestamp))
+        }
+        if let tokenUsage = entry.message?.usage,
+           FactoryDroidTokenCounts(tokenUsage).totalTokens > 0 {
+            hasTokenUsageRecords = true
+            if timestamp >= startDate,
+               timestamp < endDate,
+               tokenUsageIDs.insert(activityID).inserted {
+                tokenUsageRecords.append(FactoryDroidTokenUsageRecord(
+                    timestamp: timestamp,
+                    tokenUsage: tokenUsage))
+            }
+        }
     }
 
     return FactoryDroidTranscript(
         sessionID: resolvedSessionID,
         projectPath: projectPath,
-        activities: activities.sorted { $0.timestamp < $1.timestamp })
+        activities: activities.sorted { $0.timestamp < $1.timestamp },
+        tokenUsageRecords: tokenUsageRecords.sorted { $0.timestamp < $1.timestamp },
+        hasTokenUsageRecords: hasTokenUsageRecords)
 }
 
 private func factoryDroidSessionID(from url: URL) -> String {

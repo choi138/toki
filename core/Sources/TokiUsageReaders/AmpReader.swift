@@ -333,6 +333,7 @@ private struct AmpTokenCounts: Equatable {
 
 private struct AmpUsageRecord {
     let stableID: String
+    let contentFingerprint: String
     let contentID: String
     let messageID: Int64?
     let sequenceIndex: Int
@@ -361,12 +362,14 @@ private struct AmpRecordMatchKey: Hashable {
 
 private struct AmpCoalescingIndex {
     var indexesByMessageID: [Int64: [Int]] = [:]
+    var indexesByContentFingerprint: [String: [Int]] = [:]
     var indexesByContentID: [String: [Int]] = [:]
 
     mutating func append(_ index: Int, record: AmpUsageRecord) {
         if let messageID = record.messageID {
             indexesByMessageID[messageID, default: []].append(index)
         }
+        indexesByContentFingerprint[record.contentFingerprint, default: []].append(index)
         indexesByContentID[record.contentID, default: []].append(index)
     }
 }
@@ -459,6 +462,7 @@ private func ampLedgerRecords(
         let contentID = "\(fingerprint):\(occurrence)"
         records.append(AmpUsageRecord(
             stableID: messageID.map { "message:\($0)" } ?? contentID,
+            contentFingerprint: fingerprint,
             contentID: contentID,
             messageID: messageID,
             sequenceIndex: sequenceIndex,
@@ -497,6 +501,7 @@ private func ampMessageRecords(
         let contentID = "\(fingerprint):\(occurrence)"
         records.append(AmpUsageRecord(
             stableID: messageID.map { "message:\($0)" } ?? contentID,
+            contentFingerprint: fingerprint,
             contentID: contentID,
             messageID: messageID,
             sequenceIndex: sequenceIndex,
@@ -514,6 +519,8 @@ private func coalescedAmpRecords(_ records: [AmpUsageRecord]) -> [AmpUsageRecord
     var index = AmpCoalescingIndex()
     for record in records {
         var candidateIndexes = Set(index.indexesByContentID[record.contentID] ?? [])
+        candidateIndexes.formUnion(
+            index.indexesByContentFingerprint[record.contentFingerprint] ?? [])
         if let messageID = record.messageID {
             candidateIndexes.formUnion(index.indexesByMessageID[messageID] ?? [])
         }
@@ -544,7 +551,7 @@ private func sameKindAmpRecordsMatch(
             && ampRecordsAreCompatible(lhs, rhs)
     }
     if lhs.messageID == nil, rhs.messageID == nil {
-        return lhs.contentID == rhs.contentID
+        return lhs.contentFingerprint == rhs.contentFingerprint
             && ampRecordsAreCompatible(lhs, rhs)
     }
     return lhs.contentID == rhs.contentID
@@ -557,6 +564,7 @@ private func mergeAmpRecord(
     let messageID = ledger.messageID ?? message.messageID
     return AmpUsageRecord(
         stableID: messageID.map { "message:\($0)" } ?? ledger.stableID,
+        contentFingerprint: ledger.contentFingerprint,
         contentID: ledger.contentID,
         messageID: messageID,
         sequenceIndex: ledger.sequenceIndex,

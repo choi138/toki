@@ -323,6 +323,40 @@ extension FactoryDroidReaderTests {
 }
 
 extension FactoryDroidReaderTests {
+    func test_transcriptUsageIsAttributedAcrossReportingWindows() async throws {
+        let fixture = try FactoryDroidFixture()
+        defer { fixture.remove() }
+        let settings = try fixture.writeSession(
+            id: "cross-window",
+            model: "gpt-5.4",
+            provider: "openai",
+            tokenUsage: ["inputTokens": 30],
+            transcriptLines: [
+                #"{"type":"session_start","id":"cross-window","cwd":"/tmp/project"}"#,
+                #"{"type":"message","id":"first-day","timestamp":"2026-08-20T23:00:00Z","# +
+                    #""message":{"role":"assistant","usage":{"inputTokens":10}}}"#,
+                #"{"type":"message","id":"second-day","timestamp":"2026-08-21T01:00:00Z","# +
+                    #""message":{"role":"assistant","usage":{"inputTokens":20}}}"#,
+            ])
+        try fixture.setModificationDate("2026-08-21T01:01:00Z", for: settings)
+
+        let firstDay = try await fixture.reader.readUsage(
+            from: fixture.date("2026-08-20T00:00:00Z"),
+            to: fixture.date("2026-08-21T00:00:00Z"))
+        let secondDay = try await fixture.reader.readUsage(
+            from: fixture.date("2026-08-21T00:00:00Z"),
+            to: fixture.date("2026-08-22T00:00:00Z"))
+
+        XCTAssertEqual(firstDay.inputTokens, 10)
+        XCTAssertEqual(firstDay.tokenEvents.map(\.timestamp), [
+            fixture.date("2026-08-20T23:00:00Z"),
+        ])
+        XCTAssertEqual(secondDay.inputTokens, 20)
+        XCTAssertEqual(secondDay.tokenEvents.map(\.timestamp), [
+            fixture.date("2026-08-21T01:00:00Z"),
+        ])
+    }
+
     func test_malformedTranscriptIDsKeepAssistantActivity() async throws {
         let fixture = try FactoryDroidFixture()
         defer { fixture.remove() }

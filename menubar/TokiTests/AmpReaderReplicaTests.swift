@@ -267,6 +267,36 @@ extension AmpReaderReplicaTests {
         XCTAssertEqual(usage.tokenEvents.count, 2)
     }
 
+    func test_sameTimestampPartialReplicaMatchesCompatibleRecord() async throws {
+        let fixture = try AmpFixture()
+        defer { fixture.remove() }
+        let first = [
+            "timestamp": "2026-08-20T11:00:00Z",
+            "model": "gpt-5.4",
+            "tokens": ["input": 10],
+        ] as [String: Any]
+        let second = [
+            "timestamp": "2026-08-20T11:00:00Z",
+            "model": "gpt-5.4",
+            "tokens": ["input": 20],
+        ] as [String: Any]
+        try fixture.writeThread([
+            "id": "T-same-time-partial",
+            "usageLedger": ["events": [first, second]],
+        ], named: "a-complete.json")
+        try fixture.writeThread([
+            "id": "T-same-time-partial",
+            "usageLedger": ["events": [second]],
+        ], named: "b-partial.json")
+
+        let usage = try await fixture.reader.readUsage(
+            from: fixture.date("2026-08-20T00:00:00Z"),
+            to: fixture.date("2026-08-21T00:00:00Z"))
+
+        XCTAssertEqual(usage.totalTokens, 30)
+        XCTAssertEqual(usage.tokenEvents.count, 2)
+    }
+
     func test_idlessExplicitTimestampRecordsWithConflictingTokensRemainDistinct() async throws {
         let fixture = try AmpFixture()
         defer { fixture.remove() }
