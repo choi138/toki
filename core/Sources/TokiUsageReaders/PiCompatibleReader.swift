@@ -26,6 +26,7 @@ struct PiCompatibleReader {
 
     func readUsage(from startDate: Date, to endDate: Date) throws -> RawTokenUsage {
         let files = try discoveredFiles()
+        usageFileCache.retainFiles(files, source: source)
         guard files.count <= readLimits.maximumFileCount else {
             throw PiCompatibleReaderError.tooManyFiles(files.count)
         }

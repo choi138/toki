@@ -32,6 +32,43 @@ final class TokenVelocityMonitorTests: XCTestCase {
         XCTAssertEqual([firstSample.outputTokens, secondSample.outputTokens], [120, 120])
     }
 
+    func test_concurrentSamplesAcrossDaysReadEachDay() async {
+        let firstRead = expectation(description: "first day read started")
+        let secondRead = expectation(description: "second day read started")
+        let gate = TokenOutputDayGate(
+            outputs: [120, 20],
+            readExpectations: [firstRead, secondRead])
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0) ?? calendar.timeZone
+        let monitor = TokenVelocityMonitor(
+            calendar: calendar,
+            readDailyOutputTokens: { start, _ in
+                await gate.read(start: start)
+            })
+
+        let first = Task {
+            await monitor.sample(at: tokiTestISODate("2026-04-10T23:59:59Z"))
+        }
+        await fulfillment(of: [firstRead], timeout: 1)
+        let second = Task {
+            await monitor.sample(at: tokiTestISODate("2026-04-11T00:00:01Z"))
+        }
+
+        await gate.releaseRead(at: 0)
+        await fulfillment(of: [secondRead], timeout: 1)
+        await gate.releaseRead(at: 1)
+        let firstSample = await first.value
+        let secondSample = await second.value
+        let readDays = await gate.readDays
+
+        XCTAssertEqual(firstSample.outputTokens, 120)
+        XCTAssertEqual(secondSample.outputTokens, 20)
+        XCTAssertEqual(readDays, [
+            tokiTestISODate("2026-04-10T00:00:00Z"),
+            tokiTestISODate("2026-04-11T00:00:00Z"),
+        ])
+    }
+
     func test_firstSampleStartsAtZeroVelocity() async {
         let reader = TokenOutputSequence([120])
         let monitor = TokenVelocityMonitor(readDailyOutputTokens: { _, _ in
@@ -206,6 +243,32 @@ private actor TokenOutputGate {
         for waiter in waiters {
             waiter.resume()
         }
+    }
+}
+
+private actor TokenOutputDayGate {
+    private let outputs: [Int]
+    private let readExpectations: [XCTestExpectation]
+    private(set) var readDays: [Date] = []
+    private var releaseWaiters: [Int: CheckedContinuation<Void, Never>] = [:]
+
+    init(outputs: [Int], readExpectations: [XCTestExpectation]) {
+        self.outputs = outputs
+        self.readExpectations = readExpectations
+    }
+
+    func read(start: Date) async -> Int {
+        let index = readDays.count
+        readDays.append(start)
+        readExpectations[index].fulfill()
+        await withCheckedContinuation { continuation in
+            releaseWaiters[index] = continuation
+        }
+        return outputs[index]
+    }
+
+    func releaseRead(at index: Int) {
+        releaseWaiters.removeValue(forKey: index)?.resume()
     }
 }
 

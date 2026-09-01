@@ -34,6 +34,7 @@ public struct SenpiReader: TokenReader {
                 .map { $0.resolvingSymlinksInPath().standardizedFileURL }
         })
         .sorted { $0.path < $1.path }
+        usageFileCache.retainFiles(files, source: .senpi)
         guard files.count <= readLimits.maximumFileCount else {
             throw PiCompatibleReaderError.tooManyFiles(files.count)
         }

@@ -2,7 +2,7 @@ import Foundation
 import TokiUsageCore
 
 final class PiCompatibleUsageFileCache: @unchecked Sendable {
-    static let shared = PiCompatibleUsageFileCache()
+    static let shared = PiCompatibleUsageFileCache(maximumBytes: 512 * 1024 * 1024)
 
     private struct Key: Hashable {
         let path: String
@@ -27,13 +27,38 @@ final class PiCompatibleUsageFileCache: @unchecked Sendable {
     }
 
     private let lock = NSLock()
+    private let maximumBytes: Int
     private var entries: [Key: Entry] = [:]
     private var totalBytesRead = 0
+    private var totalEntryBytes = 0
+    private var accessOrder: [Key: UInt64] = [:]
+    private var accessCounter: UInt64 = 0
+
+    init(maximumBytes: Int = 512 * 1024 * 1024) {
+        precondition(maximumBytes >= 0)
+        self.maximumBytes = maximumBytes
+    }
 
     var bytesRead: Int {
         lock.lock()
         defer { lock.unlock() }
         return totalBytesRead
+    }
+
+    var cachedFileCount: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return entries.count
+    }
+
+    func retainFiles(_ urls: [URL], source: PiCompatibleSource) {
+        lock.lock()
+        defer { lock.unlock() }
+        let retainedPaths = Set(urls.map(\.path))
+        for key in entries.keys
+            where key.source == source.sourceName && !retainedPaths.contains(key.path) {
+            removeEntry(for: key)
+        }
     }
 
     func records(
@@ -58,7 +83,8 @@ final class PiCompatibleUsageFileCache: @unchecked Sendable {
            entry.signature.fileSize == signature.fileSize,
            entry.signature.modifiedAt == signature.modifiedAt,
            entry.signature.fileIdentifier == signature.fileIdentifier {
-            return entry.records
+            touch(key)
+            return try validatedRecords(entry.records, maximumCount: limits.maximumEventCount)
         }
 
         if let entry = entries[key],
@@ -67,7 +93,7 @@ final class PiCompatibleUsageFileCache: @unchecked Sendable {
                signature: signature,
                url: url,
                limits: limits) {
-            entries[key] = updated
+            store(updated, for: key)
             return updated.records
         }
 
@@ -78,7 +104,7 @@ final class PiCompatibleUsageFileCache: @unchecked Sendable {
             agentKind: agentKind,
             replicaScope: replicaScope,
             limits: limits)
-        entries[key] = rebuilt
+        store(rebuilt, for: key)
         return rebuilt.records
     }
 
@@ -103,7 +129,7 @@ final class PiCompatibleUsageFileCache: @unchecked Sendable {
             initialLineIndex: entry.processedLineCount,
             limits: limits) { line, lineIndex in
                 if let record = parser.record(fromJSONLLine: line, lineIndex: lineIndex) {
-                    records.append(record)
+                    try append(record, to: &records, maximumCount: limits.maximumEventCount)
                 }
             }
         totalBytesRead += result.bytesRead
@@ -136,7 +162,7 @@ final class PiCompatibleUsageFileCache: @unchecked Sendable {
             initialLineIndex: 0,
             limits: limits) { line, lineIndex in
                 if let record = parser.record(fromJSONLLine: line, lineIndex: lineIndex) {
-                    records.append(record)
+                    try append(record, to: &records, maximumCount: limits.maximumEventCount)
                 }
             }
         totalBytesRead += result.bytesRead
@@ -148,6 +174,47 @@ final class PiCompatibleUsageFileCache: @unchecked Sendable {
             fileEndedWithNewline: result.endedWithNewline,
             prefixFingerprint: fingerprint(url, byteCount: signature.fileSize) ?? 0)
     }
+
+    private func store(_ entry: Entry, for key: Key) {
+        totalEntryBytes -= entries[key]?.signature.fileSize ?? 0
+        entries[key] = entry
+        totalEntryBytes += entry.signature.fileSize
+        touch(key)
+        while totalEntryBytes > maximumBytes,
+              let leastRecentlyUsed = accessOrder.min(by: { $0.value < $1.value })?.key {
+            removeEntry(for: leastRecentlyUsed)
+        }
+    }
+
+    private func touch(_ key: Key) {
+        accessCounter &+= 1
+        accessOrder[key] = accessCounter
+    }
+
+    private func removeEntry(for key: Key) {
+        totalEntryBytes -= entries.removeValue(forKey: key)?.signature.fileSize ?? 0
+        accessOrder[key] = nil
+    }
+}
+
+private func append(
+    _ record: PiCompatibleUsageRecord,
+    to records: inout [PiCompatibleUsageRecord],
+    maximumCount: Int) throws {
+    let (nextCount, overflow) = records.count.addingReportingOverflow(1)
+    guard !overflow, nextCount <= maximumCount else {
+        throw PiCompatibleReaderError.tooManyEvents(overflow ? Int.max : nextCount)
+    }
+    records.append(record)
+}
+
+private func validatedRecords(
+    _ records: [PiCompatibleUsageRecord],
+    maximumCount: Int) throws -> [PiCompatibleUsageRecord] {
+    guard records.count <= maximumCount else {
+        throw PiCompatibleReaderError.tooManyEvents(records.count)
+    }
+    return records
 }
 
 private struct PiCompatibleLineReadResult {

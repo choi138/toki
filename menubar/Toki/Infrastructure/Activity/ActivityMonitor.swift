@@ -322,6 +322,7 @@ actor TokenVelocityMonitor {
 
     private struct InFlightSample {
         let id: UUID
+        let dayStart: Date
         let task: Task<TokenVelocitySample, Never>
     }
 
@@ -349,11 +350,14 @@ actor TokenVelocityMonitor {
 
     func sample(at now: Date = Date()) async -> TokenVelocitySample {
         sampleRequestObserver()
-        if let inFlightSample {
-            return await inFlightSample.task.value
+        let interval = dayInterval(containing: now)
+        while let inFlightSample {
+            if inFlightSample.dayStart == interval.start {
+                return await inFlightSample.task.value
+            }
+            _ = await inFlightSample.task.value
         }
 
-        let interval = dayInterval(containing: now)
         let id = UUID()
         let readDailyOutputTokens = readDailyOutputTokens
         let task = Task { [weak self] in
@@ -361,13 +365,16 @@ actor TokenVelocityMonitor {
             guard let self else {
                 return TokenVelocitySample.zero(outputTokens: outputTokens, sampledAt: now)
             }
-            return await self.completeSample(
+            return await completeSample(
                 id: id,
                 dayStart: interval.start,
                 outputTokens: outputTokens,
                 sampledAt: now)
         }
-        inFlightSample = InFlightSample(id: id, task: task)
+        inFlightSample = InFlightSample(
+            id: id,
+            dayStart: interval.start,
+            task: task)
         return await task.value
     }
 

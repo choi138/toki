@@ -123,14 +123,66 @@ extension PiFamilyReaderTests {
             maximumFileBytes: 10 * 1024,
             maximumLineBytes: 2 * 1024,
             maximumEventCount: 1)
-
-        XCTAssertThrowsError(try PiCompatibleReader(
+        let cache = PiCompatibleUsageFileCache()
+        let reader = PiCompatibleReader(
             source: .pi,
             sessionRoots: [root],
-            readLimits: limits)
-            .readUsage(
-                from: piFamilyDate("2026-08-20T00:00:00Z"),
-                to: piFamilyDate("2026-08-21T00:00:00Z")))
+            readLimits: limits,
+            usageFileCache: cache)
+
+        XCTAssertThrowsError(try reader.readUsage(
+            from: piFamilyDate("2026-08-20T00:00:00Z"),
+            to: piFamilyDate("2026-08-21T00:00:00Z")))
+        XCTAssertEqual(cache.cachedFileCount, 0)
+    }
+
+    func test_piCacheDropsDeletedSessionEntries() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("toki-pi-cache-deletion-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let first = root.appendingPathComponent("first.jsonl")
+        let second = root.appendingPathComponent("second.jsonl")
+        try Data(#"{"type":"session","id":"first","cwd":"/tmp/project"}"#.utf8).write(to: first)
+        try Data(#"{"type":"session","id":"second","cwd":"/tmp/project"}"#.utf8).write(to: second)
+        let cache = PiCompatibleUsageFileCache()
+        let reader = PiCompatibleReader(
+            source: .pi,
+            sessionRoots: [root],
+            usageFileCache: cache)
+        let start = piFamilyDate("2026-08-20T00:00:00Z")
+        let end = piFamilyDate("2026-08-21T00:00:00Z")
+
+        _ = try reader.readUsage(from: start, to: end)
+        XCTAssertEqual(cache.cachedFileCount, 2)
+
+        try FileManager.default.removeItem(at: first)
+        _ = try reader.readUsage(from: start, to: end)
+
+        XCTAssertEqual(cache.cachedFileCount, 1)
+    }
+
+    func test_piCacheEvictsLeastRecentlyUsedEntriesOverByteLimit() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("toki-pi-cache-byte-limit-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let firstData = Data((#"{"type":"session","id":"first","cwd":"/tmp/project"}"# + "\n").utf8)
+        let secondData = Data((#"{"type":"session","id":"second","cwd":"/tmp/project"}"# + "\n").utf8)
+        try firstData.write(to: root.appendingPathComponent("first.jsonl"))
+        try secondData.write(to: root.appendingPathComponent("second.jsonl"))
+        let cache = PiCompatibleUsageFileCache(
+            maximumBytes: max(firstData.count, secondData.count))
+        let reader = PiCompatibleReader(
+            source: .pi,
+            sessionRoots: [root],
+            usageFileCache: cache)
+
+        _ = try reader.readUsage(
+            from: piFamilyDate("2026-08-20T00:00:00Z"),
+            to: piFamilyDate("2026-08-21T00:00:00Z"))
+
+        XCTAssertEqual(cache.cachedFileCount, 1)
     }
 
     func test_revisionSpanningDateBoundaryIsCountedInOnlyOneWindow() async throws {
