@@ -2,6 +2,36 @@ import XCTest
 @testable import Toki
 
 final class TokenVelocityMonitorTests: XCTestCase {
+    func test_concurrentSamplesShareOneReaderCall() async {
+        let gate = TokenOutputGate(outputTokens: 120)
+        let secondRequest = expectation(description: "second sample request entered monitor")
+        let requests = TokenVelocityRequestCounter(secondRequest: secondRequest)
+        let monitor = TokenVelocityMonitor(
+            readDailyOutputTokens: { _, _ in
+                await gate.read()
+            },
+            sampleRequestObserver: {
+                requests.recordRequest()
+            })
+
+        let first = Task {
+            await monitor.sample(at: tokiTestISODate("2026-04-10T10:00:00Z"))
+        }
+        await gate.waitUntilStarted()
+        let second = Task {
+            await monitor.sample(at: tokiTestISODate("2026-04-10T10:00:01Z"))
+        }
+        await fulfillment(of: [secondRequest], timeout: 1)
+
+        let readCount = await gate.readCount
+        XCTAssertEqual(readCount, 1)
+        await gate.release()
+        let firstSample = await first.value
+        let secondSample = await second.value
+
+        XCTAssertEqual([firstSample.outputTokens, secondSample.outputTokens], [120, 120])
+    }
+
     func test_firstSampleStartsAtZeroVelocity() async {
         let reader = TokenOutputSequence([120])
         let monitor = TokenVelocityMonitor(readDailyOutputTokens: { _, _ in
@@ -135,5 +165,66 @@ private actor TokenOutputSequence {
     func next() -> Int {
         guard !values.isEmpty else { return 0 }
         return values.removeFirst()
+    }
+}
+
+private actor TokenOutputGate {
+    let outputTokens: Int
+    private(set) var readCount = 0
+    private var isStarted = false
+    private var startWaiters: [CheckedContinuation<Void, Never>] = []
+    private var releaseWaiters: [CheckedContinuation<Void, Never>] = []
+
+    init(outputTokens: Int) {
+        self.outputTokens = outputTokens
+    }
+
+    func read() async -> Int {
+        readCount += 1
+        isStarted = true
+        let waiters = startWaiters
+        startWaiters.removeAll()
+        for waiter in waiters {
+            waiter.resume()
+        }
+        await withCheckedContinuation { continuation in
+            releaseWaiters.append(continuation)
+        }
+        return outputTokens
+    }
+
+    func waitUntilStarted() async {
+        if isStarted { return }
+        await withCheckedContinuation { continuation in
+            startWaiters.append(continuation)
+        }
+    }
+
+    func release() {
+        let waiters = releaseWaiters
+        releaseWaiters.removeAll()
+        for waiter in waiters {
+            waiter.resume()
+        }
+    }
+}
+
+private final class TokenVelocityRequestCounter: @unchecked Sendable {
+    private let lock = NSLock()
+    private var count = 0
+    private let secondRequest: XCTestExpectation
+
+    init(secondRequest: XCTestExpectation) {
+        self.secondRequest = secondRequest
+    }
+
+    func recordRequest() {
+        lock.lock()
+        count += 1
+        let shouldFulfill = count == 2
+        lock.unlock()
+        if shouldFulfill {
+            secondRequest.fulfill()
+        }
     }
 }

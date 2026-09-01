@@ -312,6 +312,7 @@ struct TokenVelocitySample: Equatable {
 
 actor TokenVelocityMonitor {
     typealias DailyOutputTokenReader = (Date, Date) async -> Int
+    typealias SampleRequestObserver = @Sendable () -> Void
 
     private struct SamplePoint {
         let dayStart: Date
@@ -319,29 +320,68 @@ actor TokenVelocityMonitor {
         let sampledAt: Date
     }
 
+    private struct InFlightSample {
+        let id: UUID
+        let task: Task<TokenVelocitySample, Never>
+    }
+
     private let calendar: Calendar
     private let smoothingWeight: Double
     private let minimumElapsedSeconds: TimeInterval
     private let readDailyOutputTokens: DailyOutputTokenReader
+    private let sampleRequestObserver: SampleRequestObserver
     private var lastPoint: SamplePoint?
     private var smoothedTokensPerSecond: Double = 0
+    private var inFlightSample: InFlightSample?
 
     init(
         calendar: Calendar = .autoupdatingCurrent,
         smoothingWeight: Double = 0.65,
         minimumElapsedSeconds: TimeInterval = 1,
-        readDailyOutputTokens: @escaping DailyOutputTokenReader = TokenVelocityMonitor.defaultDailyOutputTokens) {
+        readDailyOutputTokens: @escaping DailyOutputTokenReader = TokenVelocityMonitor.defaultDailyOutputTokens,
+        sampleRequestObserver: @escaping SampleRequestObserver = {}) {
         self.calendar = calendar
         self.smoothingWeight = min(max(smoothingWeight, 0), 1)
         self.minimumElapsedSeconds = max(minimumElapsedSeconds, 0.1)
         self.readDailyOutputTokens = readDailyOutputTokens
+        self.sampleRequestObserver = sampleRequestObserver
     }
 
     func sample(at now: Date = Date()) async -> TokenVelocitySample {
+        sampleRequestObserver()
+        if let inFlightSample {
+            return await inFlightSample.task.value
+        }
+
         let interval = dayInterval(containing: now)
-        let outputTokens = await readDailyOutputTokens(interval.start, interval.end)
+        let id = UUID()
+        let readDailyOutputTokens = readDailyOutputTokens
+        let task = Task { [weak self] in
+            let outputTokens = await readDailyOutputTokens(interval.start, interval.end)
+            guard let self else {
+                return TokenVelocitySample.zero(outputTokens: outputTokens, sampledAt: now)
+            }
+            return await self.completeSample(
+                id: id,
+                dayStart: interval.start,
+                outputTokens: outputTokens,
+                sampledAt: now)
+        }
+        inFlightSample = InFlightSample(id: id, task: task)
+        return await task.value
+    }
+
+    private func completeSample(
+        id: UUID,
+        dayStart: Date,
+        outputTokens: Int,
+        sampledAt now: Date) -> TokenVelocitySample {
+        guard inFlightSample?.id == id else {
+            return .zero(outputTokens: outputTokens, sampledAt: now)
+        }
+        inFlightSample = nil
         let currentPoint = SamplePoint(
-            dayStart: interval.start,
+            dayStart: dayStart,
             outputTokens: outputTokens,
             sampledAt: now)
 
@@ -380,6 +420,8 @@ actor TokenVelocityMonitor {
     }
 
     func reset() {
+        inFlightSample?.task.cancel()
+        inFlightSample = nil
         lastPoint = nil
         smoothedTokensPerSecond = 0
     }

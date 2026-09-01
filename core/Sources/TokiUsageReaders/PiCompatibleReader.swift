@@ -7,18 +7,21 @@ struct PiCompatibleReader {
     let readLimits: PiCompatibleReadLimits
     let agentKindForFile: (URL) -> WorkTimeAgentKind
     let replicaScopeForFile: (URL) -> String?
+    let usageFileCache: PiCompatibleUsageFileCache
 
     init(
         source: PiCompatibleSource,
         sessionRoots: [URL],
         readLimits: PiCompatibleReadLimits = .default,
         agentKindForFile: @escaping (URL) -> WorkTimeAgentKind = { _ in .main },
-        replicaScopeForFile: @escaping (URL) -> String? = { _ in nil }) {
+        replicaScopeForFile: @escaping (URL) -> String? = { _ in nil },
+        usageFileCache: PiCompatibleUsageFileCache = .shared) {
         self.source = source
         self.sessionRoots = sessionRoots
         self.readLimits = readLimits
         self.agentKindForFile = agentKindForFile
         self.replicaScopeForFile = replicaScopeForFile
+        self.usageFileCache = usageFileCache
     }
 
     func readUsage(from startDate: Date, to endDate: Date) throws -> RawTokenUsage {
@@ -30,22 +33,16 @@ struct PiCompatibleReader {
         var records: [PiCompatibleUsageRecord] = []
         var unreconciledRecordCount = 0
         for file in files {
-            var fileRecordCount = 0
-            var parser = PiCompatibleSessionParser(
-                streamID: file.path,
+            let fileRecords = try usageFileCache.records(
+                for: file,
                 source: source,
                 agentKind: agentKindForFile(file),
-                replicaScope: replicaScopeForFile(file))
-            try forEachBoundedJSONLLine(at: file, limits: readLimits) { line, lineIndex in
-                guard let record = parser.record(fromJSONLLine: line, lineIndex: lineIndex) else {
-                    return
-                }
-                let (nextFileCount, fileOverflow) = fileRecordCount.addingReportingOverflow(1)
-                guard !fileOverflow, nextFileCount <= readLimits.maximumEventCount else {
-                    throw PiCompatibleReaderError.tooManyEvents(
-                        fileOverflow ? Int.max : nextFileCount)
-                }
-                fileRecordCount = nextFileCount
+                replicaScope: replicaScopeForFile(file),
+                limits: readLimits)
+            guard fileRecords.count <= readLimits.maximumEventCount else {
+                throw PiCompatibleReaderError.tooManyEvents(fileRecords.count)
+            }
+            for record in fileRecords {
                 let (nextCount, overflow) = unreconciledRecordCount.addingReportingOverflow(1)
                 guard !overflow, nextCount <= readLimits.maximumUnreconciledEventCount else {
                     throw PiCompatibleReaderError.tooManyEvents(overflow ? Int.max : nextCount)
