@@ -2,6 +2,52 @@ import XCTest
 @testable import TokiUsageReaders
 
 final class CodexRolloutIncrementalCacheTests: XCTestCase {
+    func test_appendedRolloutPersistsWithoutRewritingBaselineCache() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("toki-rollout-delta-persistence-tests-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let rolloutURL = directory.appendingPathComponent("rollout.jsonl")
+        let cacheURL = directory.appendingPathComponent("cache.json")
+        let initial = tokenCountLine(
+            ts: "2026-04-10T08:00:00Z",
+            input: 100,
+            cachedInput: 20,
+            output: 10,
+            reasoning: 2,
+            total: 110)
+        try Data((initial + "\n").utf8).write(to: rolloutURL)
+
+        let cache = CodexRolloutUsageCache(cacheURL: cacheURL)
+        let initialBatch = await cache.beginBatch(retaining: [rolloutURL.path])
+        _ = await cache.dailySummary(for: rolloutURL, includingDerivedData: false)
+        await cache.endBatch(initialBatch)
+        let baselineData = try Data(contentsOf: cacheURL)
+
+        let appended = tokenCountLine(
+            ts: "2026-04-10T08:00:01Z",
+            input: 120,
+            cachedInput: 25,
+            output: 15,
+            reasoning: 3,
+            total: 135)
+        let handle = try FileHandle(forWritingTo: rolloutURL)
+        try handle.seekToEnd()
+        try handle.write(contentsOf: Data((appended + "\n").utf8))
+        try handle.close()
+
+        let updateBatch = await cache.beginBatch(retaining: [rolloutURL.path])
+        _ = await cache.dailySummary(for: rolloutURL, includingDerivedData: false)
+        await cache.endBatch(updateBatch)
+
+        XCTAssertEqual(try Data(contentsOf: cacheURL), baselineData)
+
+        let reloaded = CodexRolloutUsageCache(cacheURL: cacheURL)
+        let summary = await reloaded.dailySummary(for: rolloutURL, includingDerivedData: false)
+        XCTAssertEqual(summary.dailyUsage["2026-04-10"]?.totalTokens, 135)
+    }
+
     func test_completedBatchPersistsCheckpointWhileAnotherBatchRemainsActive() async throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("toki-rollout-overlapping-batch-tests-\(UUID().uuidString)", isDirectory: true)
@@ -275,11 +321,10 @@ extension CodexRolloutIncrementalCacheTests {
         let updated = await cache.dailySummary(for: rolloutURL)
         XCTAssertEqual(updated.dailyUsage["2026-04-10"]?.totalTokens, 135)
 
-        let cacheData = try Data(contentsOf: cacheURL)
-        let cacheFile = try JSONDecoder().decode(CodexRolloutUsageCacheFile.self, from: cacheData)
-        let cachedEntry = try XCTUnwrap(cacheFile.entries[rolloutURL.path])
-        XCTAssertEqual(cachedEntry.processingState?.processedByteCount, cachedEntry.fileSize)
-        XCTAssertGreaterThan(cachedEntry.fileSize, scannedSignature.fileSize)
+        let reloaded = CodexRolloutUsageCache(cacheURL: cacheURL)
+        let reloadedFileSize = await reloaded.cachedFileSize(for: rolloutURL)
+        let persistedFileSize = try XCTUnwrap(reloadedFileSize)
+        XCTAssertGreaterThan(persistedFileSize, scannedSignature.fileSize)
     }
 
     func test_detailedReadFailurePreservesCachedTotals() async throws {

@@ -2,6 +2,73 @@ import XCTest
 @testable import Toki
 
 final class TokenVelocityMonitorTests: XCTestCase {
+    func test_concurrentSamplesShareOneReaderCall() async {
+        let gate = TokenOutputGate(outputTokens: 120)
+        let secondRequest = expectation(description: "second sample request entered monitor")
+        let requests = TokenVelocityRequestCounter(secondRequest: secondRequest)
+        let monitor = TokenVelocityMonitor(
+            readDailyOutputTokens: { _, _ in
+                await gate.read()
+            },
+            sampleRequestObserver: {
+                requests.recordRequest()
+            })
+
+        let first = Task {
+            await monitor.sample(at: tokiTestISODate("2026-04-10T10:00:00Z"))
+        }
+        await gate.waitUntilStarted()
+        let second = Task {
+            await monitor.sample(at: tokiTestISODate("2026-04-10T10:00:01Z"))
+        }
+        await fulfillment(of: [secondRequest], timeout: 1)
+
+        let readCount = await gate.readCount
+        XCTAssertEqual(readCount, 1)
+        await gate.release()
+        let firstSample = await first.value
+        let secondSample = await second.value
+
+        XCTAssertEqual([firstSample.outputTokens, secondSample.outputTokens], [120, 120])
+    }
+
+    func test_concurrentSamplesAcrossDaysReadEachDay() async {
+        let firstRead = expectation(description: "first day read started")
+        let secondRead = expectation(description: "second day read started")
+        let gate = TokenOutputDayGate(
+            outputs: [120, 20],
+            readExpectations: [firstRead, secondRead])
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0) ?? calendar.timeZone
+        let monitor = TokenVelocityMonitor(
+            calendar: calendar,
+            readDailyOutputTokens: { start, _ in
+                await gate.read(start: start)
+            })
+
+        let first = Task {
+            await monitor.sample(at: tokiTestISODate("2026-04-10T23:59:59Z"))
+        }
+        await fulfillment(of: [firstRead], timeout: 1)
+        let second = Task {
+            await monitor.sample(at: tokiTestISODate("2026-04-11T00:00:01Z"))
+        }
+
+        await gate.releaseRead(at: 0)
+        await fulfillment(of: [secondRead], timeout: 1)
+        await gate.releaseRead(at: 1)
+        let firstSample = await first.value
+        let secondSample = await second.value
+        let readDays = await gate.readDays
+
+        XCTAssertEqual(firstSample.outputTokens, 120)
+        XCTAssertEqual(secondSample.outputTokens, 20)
+        XCTAssertEqual(readDays, [
+            tokiTestISODate("2026-04-10T00:00:00Z"),
+            tokiTestISODate("2026-04-11T00:00:00Z"),
+        ])
+    }
+
     func test_firstSampleStartsAtZeroVelocity() async {
         let reader = TokenOutputSequence([120])
         let monitor = TokenVelocityMonitor(readDailyOutputTokens: { _, _ in
@@ -135,5 +202,92 @@ private actor TokenOutputSequence {
     func next() -> Int {
         guard !values.isEmpty else { return 0 }
         return values.removeFirst()
+    }
+}
+
+private actor TokenOutputGate {
+    let outputTokens: Int
+    private(set) var readCount = 0
+    private var isStarted = false
+    private var startWaiters: [CheckedContinuation<Void, Never>] = []
+    private var releaseWaiters: [CheckedContinuation<Void, Never>] = []
+
+    init(outputTokens: Int) {
+        self.outputTokens = outputTokens
+    }
+
+    func read() async -> Int {
+        readCount += 1
+        isStarted = true
+        let waiters = startWaiters
+        startWaiters.removeAll()
+        for waiter in waiters {
+            waiter.resume()
+        }
+        await withCheckedContinuation { continuation in
+            releaseWaiters.append(continuation)
+        }
+        return outputTokens
+    }
+
+    func waitUntilStarted() async {
+        if isStarted { return }
+        await withCheckedContinuation { continuation in
+            startWaiters.append(continuation)
+        }
+    }
+
+    func release() {
+        let waiters = releaseWaiters
+        releaseWaiters.removeAll()
+        for waiter in waiters {
+            waiter.resume()
+        }
+    }
+}
+
+private actor TokenOutputDayGate {
+    private let outputs: [Int]
+    private let readExpectations: [XCTestExpectation]
+    private(set) var readDays: [Date] = []
+    private var releaseWaiters: [Int: CheckedContinuation<Void, Never>] = [:]
+
+    init(outputs: [Int], readExpectations: [XCTestExpectation]) {
+        self.outputs = outputs
+        self.readExpectations = readExpectations
+    }
+
+    func read(start: Date) async -> Int {
+        let index = readDays.count
+        readDays.append(start)
+        readExpectations[index].fulfill()
+        await withCheckedContinuation { continuation in
+            releaseWaiters[index] = continuation
+        }
+        return outputs[index]
+    }
+
+    func releaseRead(at index: Int) {
+        releaseWaiters.removeValue(forKey: index)?.resume()
+    }
+}
+
+private final class TokenVelocityRequestCounter: @unchecked Sendable {
+    private let lock = NSLock()
+    private var count = 0
+    private let secondRequest: XCTestExpectation
+
+    init(secondRequest: XCTestExpectation) {
+        self.secondRequest = secondRequest
+    }
+
+    func recordRequest() {
+        lock.lock()
+        count += 1
+        let shouldFulfill = count == 2
+        lock.unlock()
+        if shouldFulfill {
+            secondRequest.fulfill()
+        }
     }
 }

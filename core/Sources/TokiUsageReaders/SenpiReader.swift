@@ -7,10 +7,12 @@ public struct SenpiReader: TokenReader {
     public let name = Self.sourceName
     private let sessionRootsOverride: [URL]?
     private let readLimits: PiCompatibleReadLimits
+    private let usageFileCache: PiCompatibleUsageFileCache
 
     public init(sessionRootsOverride: [URL]? = nil) {
         self.sessionRootsOverride = sessionRootsOverride
         readLimits = .default
+        usageFileCache = .shared
     }
 
     init(
@@ -18,6 +20,7 @@ public struct SenpiReader: TokenReader {
         readLimits: PiCompatibleReadLimits) {
         self.sessionRootsOverride = sessionRootsOverride
         self.readLimits = readLimits
+        usageFileCache = .shared
     }
 
     public func readUsage(from startDate: Date, to endDate: Date) async throws -> RawTokenUsage {
@@ -31,6 +34,7 @@ public struct SenpiReader: TokenReader {
                 .map { $0.resolvingSymlinksInPath().standardizedFileURL }
         })
         .sorted { $0.path < $1.path }
+        usageFileCache.retainFiles(files, source: .senpi)
         guard files.count <= readLimits.maximumFileCount else {
             throw PiCompatibleReaderError.tooManyFiles(files.count)
         }
@@ -38,13 +42,12 @@ public struct SenpiReader: TokenReader {
         var recordsByKey: [PiCompatibleDeduplicationKey: PiCompatibleUsageRecord] = [:]
         var examinedRecordCount = 0
         for file in files {
-            var parser = PiCompatibleSessionParser(
-                streamID: file.path,
-                agentKind: Self.agentKind(for: file))
-            try forEachBoundedJSONLLine(at: file, limits: readLimits) { line, lineIndex in
-                guard let record = parser.record(fromJSONLLine: line, lineIndex: lineIndex) else {
-                    return
-                }
+            let records = try usageFileCache.records(
+                for: file,
+                source: .senpi,
+                agentKind: Self.agentKind(for: file),
+                limits: readLimits)
+            for record in records {
                 let (nextCount, overflow) = examinedRecordCount.addingReportingOverflow(1)
                 guard !overflow, nextCount <= readLimits.maximumEventCount else {
                     throw PiCompatibleReaderError.tooManyEvents(overflow ? Int.max : nextCount)

@@ -8,8 +8,10 @@ public actor CodexRolloutUsageCache {
     public static let shared = CodexRolloutUsageCache()
 
     let cacheURL: URL
+    private let updatesURL: URL
     private let maximumBytes: Int
     private let maximumEntryBytes: Int
+    private let maximumUpdatesBytes: Int
     private var isLoaded = false
     private var entries: [String: CodexRolloutUsageCacheEntry] = [:]
     private var entryByteCounts: [String: Int] = [:]
@@ -18,14 +20,18 @@ public actor CodexRolloutUsageCache {
     private var accessCounter: UInt64 = 0
     private var activeBatches: [UUID: Set<String>] = [:]
     private var hasPendingChanges = false
+    private var dirtyPaths: Set<String> = []
+    private var persistedChanges: [String: CodexRolloutUsageCacheChange] = [:]
 
     public init(
         cacheURL: URL = codexRolloutUsageCacheURL(),
         maximumBytes: Int = maximumCodexRolloutUsageCacheBytes) {
         precondition(maximumBytes >= 0)
         self.cacheURL = cacheURL
+        updatesURL = cacheURL.appendingPathExtension("updates")
         self.maximumBytes = maximumBytes
         maximumEntryBytes = max(0, maximumBytes - min(1024, maximumBytes))
+        maximumUpdatesBytes = min(maximumBytes, 8 * 1024 * 1024)
     }
 
     func beginBatch(retaining paths: [String]) -> UUID {
@@ -75,6 +81,11 @@ public actor CodexRolloutUsageCache {
         return cached.dailyTokenUsageEvents
     }
 
+    func cachedFileSize(for url: URL) -> Int? {
+        loadIfNeeded()
+        return entries[url.path]?.fileSize
+    }
+
     func store(
         dailyUsage: [String: CodexCachedDailyUsage],
         dailyActivityTimestamps: [String: [TimeInterval]],
@@ -108,35 +119,57 @@ public actor CodexRolloutUsageCache {
         touch(url.path)
         enforceMemoryLimit()
         hasPendingChanges = true
+        dirtyPaths.insert(url.path)
         persistIfNeeded()
     }
+}
 
+private extension CodexRolloutUsageCache {
     private func loadIfNeeded() {
         guard !isLoaded else { return }
         isLoaded = true
 
-        guard FileManager.default.fileExists(atPath: cacheURL.path)
-            || (try? FileManager.default.destinationOfSymbolicLink(atPath: cacheURL.path)) != nil else { return }
-        guard let values = try? cacheURL.resourceValues(
-            forKeys: [.fileSizeKey, .isRegularFileKey, .isSymbolicLinkKey]),
-            values.isRegularFile == true,
-            values.isSymbolicLink != true,
-            let fileSize = values.fileSize,
-            fileSize <= maximumBytes,
-            let data = try? Data(contentsOf: cacheURL),
-            data.count <= maximumBytes,
-            let decoded = try? JSONDecoder().decode(CodexRolloutUsageCacheFile.self, from: data) else {
-            entries = [:]
-            hasPendingChanges = true
-            persistIfNeeded()
-            return
+        var loadedEntries: [String: CodexRolloutUsageCacheEntry] = [:]
+        if FileManager.default.fileExists(atPath: cacheURL.path)
+            || (try? FileManager.default.destinationOfSymbolicLink(atPath: cacheURL.path)) != nil {
+            guard let values = try? cacheURL.resourceValues(
+                forKeys: [.fileSizeKey, .isRegularFileKey, .isSymbolicLinkKey]),
+                values.isRegularFile == true,
+                values.isSymbolicLink != true,
+                let fileSize = values.fileSize,
+                fileSize <= maximumBytes,
+                let data = try? Data(contentsOf: cacheURL),
+                data.count <= maximumBytes,
+                let decoded = try? JSONDecoder().decode(CodexRolloutUsageCacheFile.self, from: data) else {
+                hasPendingChanges = true
+                persistIfNeeded()
+                return
+            }
+            loadedEntries = decoded.entries
         }
 
-        for path in decoded.entries.keys.sorted() {
-            guard let entry = decoded.entries[path],
+        if let updatesData = try? DurableFileIO.readPrivate(
+            from: updatesURL,
+            maximumByteCount: maximumUpdatesBytes),
+            let updates = try? JSONDecoder().decode(
+                CodexRolloutUsageCacheUpdates.self,
+                from: updatesData) {
+            persistedChanges = updates.changes
+            for (path, change) in updates.changes {
+                if let entry = change.entry {
+                    loadedEntries[path] = entry
+                } else {
+                    loadedEntries[path] = nil
+                }
+            }
+        }
+
+        for path in loadedEntries.keys.sorted() {
+            guard let entry = loadedEntries[path],
                   let byteCount = encodedByteCount(path: path, entry: entry),
                   byteCount <= maximumEntryBytes else {
                 hasPendingChanges = true
+                dirtyPaths.insert(path)
                 continue
             }
             entries[path] = entry
@@ -173,14 +206,38 @@ public actor CodexRolloutUsageCache {
         guard !entries.isEmpty else {
             do {
                 try DurableFileIO.removeIfPresent(cacheURL)
+                try DurableFileIO.removeIfPresent(updatesURL)
                 hasPendingChanges = false
+                dirtyPaths.removeAll()
+                persistedChanges.removeAll()
             } catch {}
             return
         }
+
+        for path in dirtyPaths {
+            persistedChanges[path] = CodexRolloutUsageCacheChange(entry: entries[path])
+        }
+
+        let cacheExists = FileManager.default.fileExists(atPath: cacheURL.path)
+        if cacheExists,
+           let updatesData = try? JSONEncoder().encode(
+               CodexRolloutUsageCacheUpdates(changes: persistedChanges)),
+           updatesData.count <= maximumUpdatesBytes {
+            do {
+                try DurableFileIO.writePrivate(updatesData, to: updatesURL)
+                hasPendingChanges = false
+                dirtyPaths.removeAll()
+            } catch {}
+            return
+        }
+
         guard let data = encodedCacheFile(), data.count <= maximumBytes else { return }
         do {
             try writeCodexRolloutUsageCache(data, to: cacheURL)
+            try DurableFileIO.removeIfPresent(updatesURL)
             hasPendingChanges = false
+            dirtyPaths.removeAll()
+            persistedChanges.removeAll()
         } catch {}
     }
 
@@ -196,6 +253,7 @@ public actor CodexRolloutUsageCache {
         totalEntryBytes -= entryByteCounts.removeValue(forKey: path) ?? 0
         accessOrder.removeValue(forKey: path)
         hasPendingChanges = true
+        dirtyPaths.insert(path)
     }
 
     private func touch(_ path: String) {
@@ -303,13 +361,12 @@ public extension CodexRolloutUsageCache {
         accessCounter = 0
         activeBatches = [:]
         hasPendingChanges = false
+        dirtyPaths = []
+        persistedChanges = [:]
 
         try DurableFileIO.removeIfPresent(cacheURL)
+        try DurableFileIO.removeIfPresent(updatesURL)
     }
-}
-
-struct CodexRolloutUsageCacheFile: Codable {
-    let entries: [String: CodexRolloutUsageCacheEntry]
 }
 
 struct CodexRolloutUsageCacheEntry: Codable {

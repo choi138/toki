@@ -4,6 +4,51 @@ import XCTest
 @testable import TokiUsageReaders
 
 final class GJCReaderTests: XCTestCase {
+    func test_gjcReaderOnlyParsesAppendedBytesAfterInitialRead() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("toki-gjc-incremental-cache-tests-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let sessionURL = directory.appendingPathComponent("session.jsonl")
+        let initialLines = [
+            gjcSessionLine(),
+            gjcAssistantLine(
+                timestamp: "2026-04-10T10:00:00Z",
+                input: 100,
+                output: 20),
+        ]
+        try Data((initialLines.joined(separator: "\n") + "\n").utf8).write(to: sessionURL)
+
+        let cache = PiCompatibleUsageFileCache()
+        let reader = GJCReader(
+            sessionsURLOverride: directory,
+            usageFileCache: cache)
+        let start = tokiTestISODate("2026-04-10T00:00:00Z")
+        let end = tokiTestISODate("2026-04-11T00:00:00Z")
+
+        let initialUsage = try await reader.readUsage(from: start, to: end)
+        let initialBytesRead = cache.bytesRead
+        XCTAssertEqual(initialUsage.totalTokens, 120)
+        XCTAssertEqual(initialBytesRead, try Data(contentsOf: sessionURL).count)
+
+        let appendedLine = gjcAssistantLine(
+            timestamp: "2026-04-10T10:05:00Z",
+            input: 50,
+            output: 10)
+        let appendedData = Data((appendedLine + "\n").utf8)
+        let handle = try FileHandle(forWritingTo: sessionURL)
+        try handle.seekToEnd()
+        try handle.write(contentsOf: appendedData)
+        try handle.close()
+
+        let updatedUsage = try await reader.readUsage(from: start, to: end)
+        let finalBytesRead = cache.bytesRead
+
+        XCTAssertEqual(updatedUsage.totalTokens, 180)
+        XCTAssertEqual(finalBytesRead, initialBytesRead + appendedData.count)
+    }
+
     func test_gjcReader_countsAssistantAndTaskUsageInsideRange() {
         let usage = GJCReader.usage(
             fromJSONLLines: [
