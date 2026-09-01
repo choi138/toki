@@ -38,6 +38,7 @@ func codexRolloutDailySummaryWithState(
         endingAt: UInt64(signature.fileSize),
         initialLineIndex: 0,
         maximumBufferedLineByteCount: 1024 * 1024,
+        maximumRetainedLineByteCount: 8 * 1024 * 1024,
         shouldKeepOversizedLine: { data in
             codexDataShouldKeepOversizedRolloutLine(data)
         },
@@ -107,6 +108,7 @@ func codexRolloutDailySummaryByAppending(
         endingAt: UInt64(signature.fileSize),
         initialLineIndex: state.processedLineCount,
         maximumBufferedLineByteCount: 1024 * 1024,
+        maximumRetainedLineByteCount: 8 * 1024 * 1024,
         shouldKeepOversizedLine: { data in
             codexDataShouldKeepOversizedRolloutLine(data)
         },

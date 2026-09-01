@@ -192,6 +192,29 @@ final class CodexReaderAdditionalTests: XCTestCase {
         XCTAssertEqual(usage.reasoningTokens, 5)
         XCTAssertEqual(usage.totalTokens, 60)
     }
+
+    func test_codexReaderBuildsPartialDayUsageFromCachedEvents() {
+        let first = CodexCachedTokenUsageEvent(
+            timestamp: isoDate("2026-04-10T08:00:00Z"),
+            usage: RawTokenUsage(inputTokens: 100, outputTokens: 10, cacheReadTokens: 20, reasoningTokens: 2))
+        let second = CodexCachedTokenUsageEvent(
+            timestamp: isoDate("2026-04-10T15:00:00Z"),
+            usage: RawTokenUsage(inputTokens: 40, outputTokens: 10, cacheReadTokens: 10, reasoningTokens: 5))
+
+        let usage = CodexReader.usage(
+            fromCachedDailyTokenUsageEvents: ["2026-04-10": [first, second]],
+            model: "gpt-5.4-mini",
+            attribution: UsageAttribution(sessionID: "rollout-a", quality: .exact),
+            from: isoDate("2026-04-10T12:00:00Z"),
+            to: isoDate("2026-04-10T23:00:00Z"))
+
+        XCTAssertEqual(usage.inputTokens, 40)
+        XCTAssertEqual(usage.outputTokens, 10)
+        XCTAssertEqual(usage.cacheReadTokens, 10)
+        XCTAssertEqual(usage.reasoningTokens, 5)
+        XCTAssertEqual(usage.tokenEvents.count, 1)
+        XCTAssertEqual(usage.tokenEvents.first?.attribution?.sessionID, "rollout-a")
+    }
 }
 
 extension CodexReaderAdditionalTests {

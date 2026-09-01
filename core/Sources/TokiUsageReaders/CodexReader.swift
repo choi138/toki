@@ -339,18 +339,16 @@ extension CodexReader {
         cache: CodexRolloutUsageCache) async -> RawTokenUsage {
         guard !Task.isCancelled else { return RawTokenUsage() }
 
+        let summary = await cachedDailySummary(fromRolloutAt: url, cache: cache)
+
         guard codexIsWholeDayAlignedRange(from: startDate, to: endDate) else {
             return usage(
-                fromRolloutLines: readJSONLLines(at: url),
+                fromCachedDailyTokenUsageEvents: summary.dailyTokenUsageEvents,
                 model: model,
-                from: startDate,
-                to: endDate,
-                streamID: url.path,
                 attribution: attribution,
-                includeActivity: false)
+                from: startDate,
+                to: endDate)
         }
-
-        let summary = await cachedDailySummary(fromRolloutAt: url, cache: cache)
 
         var result = usage(
             fromDailyUsage: summary.dailyUsage,
@@ -378,62 +376,14 @@ extension CodexReader {
 
         let normalizedModel = normalizedModelID(model)
 
-        if codexIsWholeDayAlignedRange(from: startDate, to: endDate),
-           let cached = await cache.dailyActivityTimestamps(for: url) {
-            let calendar = Calendar.current
-            var currentDay = calendar.startOfDay(for: startDate)
-            var result: [ActivityTimeEvent<String>] = []
-
-            while currentDay < endDate {
-                guard !Task.isCancelled else { return [] }
-
-                let dayKey = codexDayKey(for: currentDay)
-                if let timestamps = cached[dayKey] {
-                    result.append(
-                        contentsOf: timestamps.map { timestamp in
-                            ActivityTimeEvent(
-                                streamID: url.path,
-                                timestamp: Date(timeIntervalSince1970: timestamp),
-                                key: UsageModelGrouping.groupingKey(for: normalizedModel),
-                                agentKind: agentKind)
-                        })
-                }
-
-                guard let nextDay = calendar.date(byAdding: .day, value: 1, to: currentDay) else { break }
-                currentDay = nextDay
-            }
-
-            return result
-        }
-
-        if codexIsWholeDayAlignedRange(from: startDate, to: endDate) {
-            let summary = await cachedDailySummary(fromRolloutAt: url, cache: cache)
-
-            return activityEvents(
-                fromCachedTimestamps: summary.dailyActivityTimestamps,
-                streamID: url.path,
-                model: normalizedModel,
-                agentKind: agentKind,
-                from: startDate,
-                to: endDate)
-        }
-
-        var previousSnapshot: CodexUsageSnapshot?
-        return codexRolloutSnapshots(fromRolloutLines: readJSONLLines(at: url)).compactMap { entry in
-            guard !Task.isCancelled else { return nil }
-
-            let usage = entry.usage(since: previousSnapshot)
-            previousSnapshot = entry.tokenCount.nextBaseline(after: previousSnapshot)
-
-            guard entry.date >= startDate, entry.date < endDate else { return nil }
-            guard usage.totalTokens > 0 else { return nil }
-
-            return ActivityTimeEvent(
-                streamID: url.path,
-                timestamp: entry.date,
-                key: UsageModelGrouping.groupingKey(for: normalizedModel),
-                agentKind: agentKind)
-        }
+        let summary = await cachedDailySummary(fromRolloutAt: url, cache: cache)
+        return activityEvents(
+            fromCachedTimestamps: summary.dailyActivityTimestamps,
+            streamID: url.path,
+            model: normalizedModel,
+            agentKind: agentKind,
+            from: startDate,
+            to: endDate)
     }
 
     private static func activityEvents(
@@ -453,10 +403,12 @@ extension CodexReader {
             let dayKey = codexDayKey(for: currentDay)
             if let timestamps = cached[dayKey] {
                 result.append(
-                    contentsOf: timestamps.map { timestamp in
-                        ActivityTimeEvent(
+                    contentsOf: timestamps.compactMap { timestamp in
+                        let date = Date(timeIntervalSince1970: timestamp)
+                        guard date >= startDate, date < endDate else { return nil }
+                        return ActivityTimeEvent(
                             streamID: streamID,
-                            timestamp: Date(timeIntervalSince1970: timestamp),
+                            timestamp: date,
                             key: UsageModelGrouping.groupingKey(for: model),
                             agentKind: agentKind)
                     })
@@ -518,6 +470,36 @@ extension CodexReader {
 
             guard let nextDay = calendar.date(byAdding: .day, value: 1, to: currentDay) else { break }
             currentDay = nextDay
+        }
+
+        return result
+    }
+
+    static func usage(
+        fromCachedDailyTokenUsageEvents cached: [String: [CodexCachedTokenUsageEvent]],
+        model: String?,
+        attribution: UsageAttribution,
+        from startDate: Date,
+        to endDate: Date) -> RawTokenUsage {
+        let events = tokenEvents(
+            fromCachedDailyTokenUsageEvents: cached,
+            model: model,
+            attribution: attribution,
+            from: startDate,
+            to: endDate)
+        var result = RawTokenUsage(tokenEvents: events)
+
+        for event in events {
+            result.inputTokens += event.inputTokens
+            result.outputTokens += event.outputTokens
+            result.cacheReadTokens += event.cacheReadTokens
+            result.reasoningTokens += event.reasoningTokens
+            result.cost += event.cost
+            result.accumulatePerModelUsage(
+                model: event.model,
+                source: event.source,
+                totalTokens: event.totalTokens,
+                cost: event.cost)
         }
 
         return result

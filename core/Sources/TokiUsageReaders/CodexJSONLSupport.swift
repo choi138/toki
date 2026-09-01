@@ -125,13 +125,14 @@ func forEachJSONLLineUntilThrowing(
 
 @discardableResult
 // The branches model one streaming state machine and keep oversized lines from being buffered.
-// swiftlint:disable:next cyclomatic_complexity
+// swiftlint:disable:next cyclomatic_complexity function_body_length
 func forEachJSONLLineUntil(
     at url: URL,
     startingAt byteOffset: UInt64,
     endingAt endByteOffset: UInt64?,
     initialLineIndex: Int,
     maximumBufferedLineByteCount: Int? = nil,
+    maximumRetainedLineByteCount: Int? = nil,
     shouldKeepOversizedLine: ((Data) -> Bool)? = nil,
     shouldProcessLineData: ((Data) -> Bool)? = nil,
     _ body: (String, Int) -> Bool) -> Bool {
@@ -148,6 +149,7 @@ func forEachJSONLLineUntil(
     var pending = Data()
     var newlineSearchOffset = 0
     var isDiscardingOversizedLine = false
+    var isRetainingOversizedLine = false
 
     while true {
         guard !Task.isCancelled else { return false }
@@ -174,6 +176,7 @@ func forEachJSONLLineUntil(
             let remainingStartIndex = chunk.index(after: newlineIndex)
             chunk = chunk.subdata(in: remainingStartIndex..<chunk.endIndex)
             isDiscardingOversizedLine = false
+            isRetainingOversizedLine = false
             guard !chunk.isEmpty else { continue }
         }
 
@@ -198,14 +201,21 @@ func forEachJSONLLineUntil(
         }
         if lineStartIndex > pending.startIndex {
             pending.removeSubrange(pending.startIndex..<lineStartIndex)
+            isRetainingOversizedLine = false
         }
         newlineSearchOffset = pending.count
         if let maximumBufferedLineByteCount,
-           pending.count > maximumBufferedLineByteCount,
-           shouldKeepOversizedLine?(pending) == false {
-            pending.removeAll(keepingCapacity: false)
-            newlineSearchOffset = 0
-            isDiscardingOversizedLine = true
+           pending.count > maximumBufferedLineByteCount {
+            if !isRetainingOversizedLine {
+                isRetainingOversizedLine = shouldKeepOversizedLine?(pending) == true
+            }
+            if !isRetainingOversizedLine
+                || maximumRetainedLineByteCount.map({ pending.count > $0 }) == true {
+                pending.removeAll(keepingCapacity: false)
+                newlineSearchOffset = 0
+                isDiscardingOversizedLine = true
+                isRetainingOversizedLine = false
+            }
         }
     }
 

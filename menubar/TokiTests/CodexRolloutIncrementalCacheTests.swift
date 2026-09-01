@@ -98,6 +98,34 @@ final class CodexRolloutReviewRegressionTests: XCTestCase {
         XCTAssertEqual(summary.dailyUsage["2026-04-10"]?.totalTokens, 110)
         XCTAssertEqual(summary.dailyTokenUsageEvents["2026-04-10"]?.count, 1)
     }
+
+    func test_summaryDiscardsRelevantLookingLineBeyondAbsoluteLimit() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("toki-rollout-absolute-line-limit-tests-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let rolloutURL = directory.appendingPathComponent("rollout.jsonl")
+        let cache = CodexRolloutUsageCache(cacheURL: directory.appendingPathComponent("cache.json"))
+        var rollout = Data(
+            #"{"timestamp":"2026-04-10T07:59:59Z","type":"event_msg","payload":{"type":"token_count","padding":""#
+                .utf8)
+        rollout.append(Data(repeating: 0x78, count: 9 * 1024 * 1024))
+        rollout.append(Data("\"}}\n".utf8))
+        rollout.append(Data((tokenCountLine(
+            ts: "2026-04-10T08:00:00Z",
+            input: 100,
+            cachedInput: 20,
+            output: 10,
+            reasoning: 2,
+            total: 110) + "\n").utf8))
+        try rollout.write(to: rolloutURL)
+
+        let summary = await cache.dailySummary(for: rolloutURL)
+
+        XCTAssertEqual(summary.dailyUsage["2026-04-10"]?.totalTokens, 110)
+        XCTAssertEqual(summary.dailyTokenUsageEvents["2026-04-10"]?.count, 1)
+    }
 }
 
 extension CodexRolloutIncrementalCacheTests {
@@ -171,6 +199,35 @@ extension CodexRolloutIncrementalCacheTests {
         XCTAssertEqual(detailed.dailyUsage["2026-04-10"]?.totalTokens, 110)
         XCTAssertEqual(detailed.dailyActivityTimestamps["2026-04-10"]?.count, 1)
         XCTAssertEqual(detailed.dailyTokenUsageEvents["2026-04-10"]?.count, 1)
+    }
+
+    func test_tokenOnlyRebuildOfIncompleteEntryPopulatesSharedDetailedCache() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("toki-rollout-incomplete-cache-tests-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let rolloutURL = directory.appendingPathComponent("rollout.jsonl")
+        let cache = CodexRolloutUsageCache(cacheURL: directory.appendingPathComponent("cache.json"))
+        let line = tokenCountLine(
+            ts: "2026-04-10T08:00:00Z",
+            input: 100,
+            cachedInput: 20,
+            output: 10,
+            reasoning: 2,
+            total: 110)
+        try Data((line + "\n").utf8).write(to: rolloutURL)
+        await cache.store(
+            dailyUsage: ["2026-04-10": CodexCachedDailyUsage(inputTokens: 1)],
+            dailyActivityTimestamps: [:],
+            dailyTokenUsageEvents: [:],
+            for: rolloutURL)
+
+        let tokenOnly = await cache.dailySummary(for: rolloutURL, includingDerivedData: false)
+
+        XCTAssertEqual(tokenOnly.dailyUsage["2026-04-10"]?.totalTokens, 110)
+        XCTAssertEqual(tokenOnly.dailyActivityTimestamps["2026-04-10"]?.count, 1)
+        XCTAssertEqual(tokenOnly.dailyTokenUsageEvents["2026-04-10"]?.count, 1)
     }
 
     func test_cacheStoresSignatureUsedForScanWhenRolloutAppendsBeforeStore() async throws {
@@ -260,6 +317,36 @@ extension CodexRolloutIncrementalCacheTests {
         let summary = await cache.dailySummary(for: rolloutURL)
 
         XCTAssertEqual(summary.dailyUsage["2026-04-10"]?.totalTokens, 110)
+    }
+
+    func test_readFailureDoesNotReturnCacheForReplacedRollout() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("toki-rollout-replaced-read-failure-tests-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let rolloutURL = directory.appendingPathComponent("rollout.jsonl")
+        let cache = CodexRolloutUsageCache(cacheURL: directory.appendingPathComponent("cache.json"))
+        let original = tokenCountLine(
+            ts: "2026-04-10T08:00:00Z",
+            input: 100,
+            cachedInput: 20,
+            output: 10,
+            reasoning: 2,
+            total: 110)
+        try Data((original + "\n").utf8).write(to: rolloutURL)
+        _ = await cache.dailySummary(for: rolloutURL)
+
+        try FileManager.default.removeItem(at: rolloutURL)
+        try Data("{\"replacement\":true}\n".utf8).write(to: rolloutURL)
+        try FileManager.default.setAttributes([.posixPermissions: 0], ofItemAtPath: rolloutURL.path)
+        defer {
+            try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: rolloutURL.path)
+        }
+
+        let summary = await cache.dailySummary(for: rolloutURL)
+
+        XCTAssertTrue(summary.isEmpty)
     }
 
     func test_rolloutCacheIncrementallyProcessesAppendedForkContinuation() async throws {

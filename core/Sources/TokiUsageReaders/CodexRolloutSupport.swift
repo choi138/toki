@@ -265,13 +265,21 @@ extension CodexRolloutUsageCache {
             }
         }
 
-        let rebuildIncludingDerivedData = includingDerivedData || entries[url.path] == nil
         let rebuilt = codexRolloutDailySummaryWithState(
             fromRolloutAt: url,
             signature: signature,
-            includingDerivedData: rebuildIncludingDerivedData)
+            includingDerivedData: true)
         guard !Task.isCancelled, rebuilt.didReadToEnd else {
-            return entries[url.path]?.summary ?? CodexRolloutDailySummary()
+            guard let cached = entries[url.path],
+                  cached.isCurrentSchema,
+                  cached.fileSize == signature.fileSize,
+                  cached.modifiedAt == signature.modifiedAt,
+                  cached.processingState?.processedByteCount == cached.fileSize,
+                  cached.processingState?.fileIdentifier == signature.fileIdentifier,
+                  cached.timeZoneIdentifier == codexCacheTimeZoneIdentifier() else {
+                return CodexRolloutDailySummary()
+            }
+            return cached.summary
         }
 
         store(
