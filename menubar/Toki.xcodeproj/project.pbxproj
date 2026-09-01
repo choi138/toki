@@ -65,8 +65,8 @@
 		5749C12527C71DC58B8F599D /* RemoteSyncLifecycleTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2B2E791E9576F6E07FBEAD30 /* RemoteSyncLifecycleTests.swift */; };
 		58DFC0CCDA089A70C1368340 /* RemoteSnapshotSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5DD5E9631A2AFE9BBB47D113 /* RemoteSnapshotSupport.swift */; };
 		590115D0DD0770D8AE1E99F2 /* UsageOriginAggregationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 282A1BF7C0245EB113DE2BA8 /* UsageOriginAggregationTests.swift */; };
-		5A04C5F3A301AC45D753865B /* DroidAmpIntegrationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 557BF6BDA123C204DA4DBE1A /* DroidAmpIntegrationTests.swift */; };
 		59879C98FB2AA90877E956EA /* SenpiUsageAttributionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8C79B87968BCAAC5E5D9754 /* SenpiUsageAttributionTests.swift */; };
+		5A04C5F3A301AC45D753865B /* DroidAmpIntegrationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 557BF6BDA123C204DA4DBE1A /* DroidAmpIntegrationTests.swift */; };
 		5C39A825A8F541801CBCD635 /* UsageAggregatorLightweightTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1970AD7949844A38FE750194 /* UsageAggregatorLightweightTests.swift */; };
 		5C7A9BCD44EE366E1FBA87E9 /* RemoteUsageReaderValidationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFA2DBD8FE3B6B7D1F66DEC3 /* RemoteUsageReaderValidationTests.swift */; };
 		5DFCC5FAC2D4E5BA818C5BA9 /* MenuBarStatusItemController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2A29762983DCCAA8DD498AE0 /* MenuBarStatusItemController.swift */; };
@@ -1054,14 +1054,14 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 6;
+				CURRENT_PROJECT_VERSION = 7;
 				INFOPLIST_FILE = Toki/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 13.0;
-				MARKETING_VERSION = 1.3.0;
+				MARKETING_VERSION = 1.4.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.toki.app;
 				SDKROOT = macosx;
 				SWIFT_VERSION = 5.9;
@@ -1157,14 +1157,14 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 6;
+				CURRENT_PROJECT_VERSION = 7;
 				INFOPLIST_FILE = Toki/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 13.0;
-				MARKETING_VERSION = 1.3.0;
+				MARKETING_VERSION = 1.4.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.toki.app;
 				SDKROOT = macosx;
 				SWIFT_VERSION = 5.9;
