@@ -507,8 +507,12 @@ public enum LocalUsageReaderRegistry {
 
     public static func readers(
         home: URL = homeDir(),
-        environment: [String: String] = ProcessInfo.processInfo.environment) -> [any TokenReader] {
-        descriptors(home: home, environment: environment).map(\.reader)
+        environment: [String: String] = ProcessInfo.processInfo.environment,
+        codexRolloutUsageCache: CodexRolloutUsageCache? = nil) -> [any TokenReader] {
+        descriptors(
+            home: home,
+            environment: environment,
+            codexRolloutUsageCache: codexRolloutUsageCache).map(\.reader)
     }
 
     package static func agentDescriptors(

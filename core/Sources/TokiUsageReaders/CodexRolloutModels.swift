@@ -358,7 +358,7 @@ struct CodexTokenUsageCounters: Decodable {
     }
 }
 
-struct CodexUsageSnapshot: Equatable {
+struct CodexUsageSnapshot: Codable, Equatable {
     let inputTokens: Int
     let cachedInputTokens: Int
     let outputTokens: Int

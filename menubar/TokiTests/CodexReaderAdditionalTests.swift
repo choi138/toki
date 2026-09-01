@@ -124,13 +124,13 @@ final class CodexReaderAdditionalTests: XCTestCase {
         XCTAssertEqual(Set(merged.map(\.upstreamSessionID)), ["shared-session", "independent-session"])
     }
 
-    func test_codexRolloutCacheInvalidatesPreDedupSchema() throws {
-        let legacyJSON = #"{"schemaVersion":1,"fileSize":10,"modifiedAt":100,"timeZoneIdentifier":"UTC","dailyUsage":{},"dailyActivityTimestamps":{},"dailyTokenUsageEvents":{}}"#
+    func test_codexRolloutCacheInvalidatesPreIncrementalSchema() throws {
+        let legacyJSON = #"{"schemaVersion":2,"fileSize":10,"modifiedAt":100,"timeZoneIdentifier":"UTC","dailyUsage":{},"dailyActivityTimestamps":{},"dailyTokenUsageEvents":{}}"#
         let entry = try JSONDecoder().decode(
             CodexRolloutUsageCacheEntry.self,
             from: Data(legacyJSON.utf8))
 
-        XCTAssertEqual(CodexRolloutUsageCacheEntry.currentSchemaVersion, 2)
+        XCTAssertEqual(CodexRolloutUsageCacheEntry.currentSchemaVersion, 3)
         XCTAssertFalse(entry.isCurrentSchema)
     }
 
@@ -191,6 +191,29 @@ final class CodexReaderAdditionalTests: XCTestCase {
         XCTAssertEqual(usage.outputTokens, 5)
         XCTAssertEqual(usage.reasoningTokens, 5)
         XCTAssertEqual(usage.totalTokens, 60)
+    }
+
+    func test_codexReaderBuildsPartialDayUsageFromCachedEvents() {
+        let first = CodexCachedTokenUsageEvent(
+            timestamp: isoDate("2026-04-10T08:00:00Z"),
+            usage: RawTokenUsage(inputTokens: 100, outputTokens: 10, cacheReadTokens: 20, reasoningTokens: 2))
+        let second = CodexCachedTokenUsageEvent(
+            timestamp: isoDate("2026-04-10T15:00:00Z"),
+            usage: RawTokenUsage(inputTokens: 40, outputTokens: 10, cacheReadTokens: 10, reasoningTokens: 5))
+
+        let usage = CodexReader.usage(
+            fromCachedDailyTokenUsageEvents: ["2026-04-10": [first, second]],
+            model: "gpt-5.4-mini",
+            attribution: UsageAttribution(sessionID: "rollout-a", quality: .exact),
+            from: isoDate("2026-04-10T12:00:00Z"),
+            to: isoDate("2026-04-10T23:00:00Z"))
+
+        XCTAssertEqual(usage.inputTokens, 40)
+        XCTAssertEqual(usage.outputTokens, 10)
+        XCTAssertEqual(usage.cacheReadTokens, 10)
+        XCTAssertEqual(usage.reasoningTokens, 5)
+        XCTAssertEqual(usage.tokenEvents.count, 1)
+        XCTAssertEqual(usage.tokenEvents.first?.attribution?.sessionID, "rollout-a")
     }
 }
 
@@ -506,7 +529,7 @@ extension CodexReaderAdditionalTests {
         XCTAssertGreaterThan(usage.totalTokens, 0)
     }
 
-    func test_rolloutCachePrunesEntriesOutsideRetainedBatch() async throws {
+    func test_rolloutCachePreservesEntriesAcrossDifferentRangeBatches() async throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("toki-rollout-cache-tests-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -531,9 +554,9 @@ extension CodexReaderAdditionalTests {
         let persisted = try JSONDecoder().decode(
             CodexRolloutUsageCacheFile.self,
             from: Data(contentsOf: cacheURL))
-        XCTAssertNil(firstUsage)
+        XCTAssertNotNil(firstUsage)
         XCTAssertNotNil(secondUsage)
-        XCTAssertEqual(Set(persisted.entries.keys), [secondURL.path])
+        XCTAssertEqual(Set(persisted.entries.keys), [firstURL.path, secondURL.path])
     }
 
     func test_rolloutCacheRejectsEntryThatExceedsMemoryBudget() async throws {
