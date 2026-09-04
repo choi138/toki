@@ -1,7 +1,7 @@
 import Foundation
 import TokiDurableStorage
 
-private let claudeUsageCacheParserVersion = 2
+private let claudeUsageCacheParserVersion = 3
 public let maximumClaudeUsageCacheBytes = 64 * 1024 * 1024
 
 public actor ClaudeUsageCache {
@@ -159,6 +159,7 @@ struct ClaudeCachedUsageRecord: Codable {
     let output: Int
     let cacheRead: Int
     let cacheWrite: Int
+    let cacheWriteOneHour: Int
 
     init(
         lineIndex: Int,
@@ -171,7 +172,8 @@ struct ClaudeCachedUsageRecord: Codable {
         input: Int,
         output: Int,
         cacheRead: Int,
-        cacheWrite: Int) {
+        cacheWrite: Int,
+        cacheWriteOneHour: Int = 0) {
         self.lineIndex = lineIndex
         self.timestamp = timestamp
         self.requestId = requestId
@@ -183,6 +185,7 @@ struct ClaudeCachedUsageRecord: Codable {
         self.output = output
         self.cacheRead = cacheRead
         self.cacheWrite = cacheWrite
+        self.cacheWriteOneHour = cacheWriteOneHour
     }
 }
 

@@ -7,7 +7,7 @@ const englishCopy = {
     homeLabel: 'Toki home',
     languageLabel: 'Language',
     nav: {
-      agents: 'Agents',
+      agents: 'Tools & models',
       docs: 'Docs',
       privacy: 'Privacy',
       time: 'Work time',
@@ -95,10 +95,13 @@ const englishCopy = {
   },
   agents: {
     description:
-      'Toki reads the supported local usage stores. It does not ask you to reconstruct a workday from browser tabs and invoices.',
-    listLabel: 'Supported agent tools',
-    pill: 'Supported agents',
-    title: 'The tools already in your terminal.',
+      'Toki reads the local usage stores of 18 agent tools and keeps every reported model ID in view—without asking you to reconstruct a workday from browser tabs and invoices.',
+    listLabel: '18 supported local agent tools',
+    modelListLabel: 'Model families Toki tracks',
+    modelSummary:
+      'Curated pricing covers Claude, GPT/Codex, Gemini, Grok, GLM, and Kimi; an automatic public catalog fills in more. Models without a known price still remain visible.',
+    pill: 'Tools and models',
+    title: 'The agents—and models—you already use.',
   },
   privacy: {
     description:
@@ -143,7 +146,7 @@ const koreanCopy = {
     homeLabel: 'Toki 홈',
     languageLabel: '언어 선택',
     nav: {
-      agents: '에이전트',
+      agents: '도구 · 모델',
       docs: '문서',
       privacy: '프라이버시',
       time: '작업 시간',
@@ -231,10 +234,13 @@ const koreanCopy = {
   },
   agents: {
     description:
-      'Toki는 지원되는 로컬 사용 기록을 읽습니다. 브라우저 탭과 청구서를 오가며 하루를 되짚을 필요가 없습니다.',
-    listLabel: '지원하는 에이전트 도구',
-    pill: '지원 에이전트',
-    title: '이미 터미널에서 쓰는 도구 그대로.',
+      'Toki는 18개 에이전트 도구의 로컬 사용 기록을 읽고, 기록된 모든 모델 ID를 그대로 보여 줍니다. 브라우저 탭과 청구서를 오가며 하루를 되짚을 필요가 없습니다.',
+    listLabel: '지원하는 로컬 에이전트 도구 18개',
+    modelListLabel: 'Toki가 추적하는 모델 패밀리',
+    modelSummary:
+      'Claude, GPT/Codex, Gemini, Grok, GLM, Kimi는 내장 가격표로 계산하고, 자동 공개 카탈로그가 더 많은 모델을 보완합니다. 가격을 모르는 모델도 숨기지 않고 그대로 표시합니다.',
+    pill: '도구와 모델',
+    title: '이미 쓰는 에이전트와 모델을 그대로.',
   },
   privacy: {
     description:
