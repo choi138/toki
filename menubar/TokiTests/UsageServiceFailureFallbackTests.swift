@@ -4,20 +4,20 @@ import XCTest
 
 @MainActor
 final class UsageServiceFailureFallbackTests: XCTestCase {
-    func test_usageServicePreservesLastSuccessfulUsageWhenReaderFails() async throws {
-        let state = FailingUsageReaderState(totalTokens: 300)
-        let reader = FailingUsageReader(name: "Flaky", state: state)
-        let service = UsageService(readers: [reader])
+    func test_usageServicePublishesFreshPartialUsageWhenOneReaderFails() async throws {
+        let healthy = FailingUsageReader(name: "Healthy", state: FailingUsageReaderState(totalTokens: 300))
+        let failingState = FailingUsageReaderState(totalTokens: 100)
+        let failing = FailingUsageReader(name: "Flaky", state: failingState)
+        let service = UsageService(readers: [healthy, failing])
         let pastDay = try XCTUnwrap(Calendar.current.date(byAdding: .day, value: -2, to: Date()))
 
         service.selectDay(pastDay)
         await service.refresh()
-        await state.setShouldFail(true)
+        await failingState.setShouldFail(true)
         await service.refresh()
 
         XCTAssertEqual(service.usageData.totalTokens, 300)
-        XCTAssertEqual(service.readerStatuses.first?.state, .failed)
-        XCTAssertEqual(service.readerStatuses.first?.totalTokens, 0)
+        XCTAssertEqual(service.readerStatuses.first(where: { $0.name == "Flaky" })?.state, .failed)
     }
 
     func test_usageServicePreservesPeriodTotalsWhenReaderFails() async throws {
@@ -35,7 +35,7 @@ final class UsageServiceFailureFallbackTests: XCTestCase {
         await state.setShouldFail(true)
         await service.refreshPeriodTokenTotals()
 
-        XCTAssertEqual(service.periodTokenTotals.map(\.totalTokens), [300, 300, 300])
+        XCTAssertEqual(service.periodTokenTotals.map(\.totalTokens), [0, 0, 0])
     }
 }
 

@@ -274,28 +274,15 @@ private extension UsagePanelViewModel {
                 for: usageRequest,
                 scope: request.scope,
                 modelScope: request.modelScope)
-            let totalTokens = if result.hasReaderFailures {
-                previousPeriodTotal(for: period, request: request) ?? result.totalTokens
-            } else {
-                result.totalTokens
-            }
-
             guard !Task.isCancelled else { return summaries }
             summaries.append(
                 TokenTotalSummary(
                     period: period,
                     startDate: interval.start,
                     endDate: interval.end,
-                    totalTokens: totalTokens))
+                    totalTokens: result.totalTokens))
         }
 
         return summaries
-    }
-
-    func previousPeriodTotal(
-        for period: TokenTotalPeriod,
-        request: PeriodTokenTotalsRequest) -> Int? {
-        guard lastPeriodTokenTotalsRequest == request else { return nil }
-        return periodTokenTotals.first { $0.period == period }?.totalTokens
     }
 }

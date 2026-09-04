@@ -53,7 +53,7 @@ final class UsagePanelViewModel: ObservableObject {
     private var usageRefreshGeneration: UInt64 = 0
     private var presentedUsageRequest: UsageAggregationRequest?
     private var presentedUsageWindow: CurrentUsageWindow?
-    private var lastSuccessfulUsageRequest: UsageAggregationRequest?
+    private var lastSuccessfulUsageIdentity: UsageRefreshIdentity?
     private var lastSuccessfulUsageResult: UsageAggregationResult?
     var activePeriodTokenTotalsRequest: PeriodTokenTotalsRequest?
     var periodTokenTotalsGeneration: UInt64 = 0
@@ -205,14 +205,14 @@ final class UsagePanelViewModel: ObservableObject {
         activeRefreshIdentity = nil
         let fetchedAt = now()
         previousTotalTokens = canCachePreviousComparison ? previousTotalTokens : nil
-        let publishedResult = resultPreservingLastSuccessfulUsage(result, for: request)
+        let publishedResult = resultPreservingLastSuccessfulUsage(result, for: refreshIdentity)
         let didFallBackToAllDevices = publishUsageResult(
             publishedResult,
             request: request,
             fetchedAt: fetchedAt,
             previousTotalTokens: previousTotalTokens,
             currentUsageWindow: selectedCurrentUsageWindow)
-        if let cacheKey {
+        if let cacheKey, !publishedResult.readerStatuses.contains(where: { $0.state == .failed }) {
             usageWindowResultCache.store(
                 UsageWindowResultCacheEntry(
                     request: request,
@@ -268,6 +268,7 @@ extension UsagePanelViewModel {
 
     func refreshAfterRemoteSyncChange() async {
         cancelActiveUsageRefresh()
+        clearLastSuccessfulUsage()
         usageWindowResultCache.clear()
         periodTokenTotalsCache.clear()
         invalidatePeriodTokenTotals()
@@ -300,6 +301,7 @@ extension UsagePanelViewModel {
 
     func handleModelPricingChange() {
         cancelActiveUsageRefresh()
+        clearLastSuccessfulUsage()
         usageWindowResultCache.clear()
     }
 
@@ -323,6 +325,7 @@ extension UsagePanelViewModel {
         }
 
         resetYesterdayComparison()
+        clearLastSuccessfulUsage()
         selectedUsageScope = scope
         invalidatePeriodTokenTotals()
 
@@ -346,6 +349,7 @@ extension UsagePanelViewModel {
         guard scope != selectedModelScope else { return }
 
         resetYesterdayComparison()
+        clearLastSuccessfulUsage()
         selectedModelScope = scope
         invalidatePeriodTokenTotals()
 
@@ -376,13 +380,14 @@ extension UsagePanelViewModel {
 private extension UsagePanelViewModel {
     func resultPreservingLastSuccessfulUsage(
         _ result: UsageAggregationResult,
-        for request: UsageAggregationRequest) -> UsageAggregationResult {
+        for identity: UsageRefreshIdentity) -> UsageAggregationResult {
         guard result.readerStatuses.contains(where: { $0.state == .failed }) else {
-            lastSuccessfulUsageRequest = request
+            lastSuccessfulUsageIdentity = identity
             lastSuccessfulUsageResult = result
             return result
         }
-        guard lastSuccessfulUsageRequest == request,
+        guard result.readerStatuses.allSatisfy({ $0.state == .failed }),
+              lastSuccessfulUsageIdentity == identity,
               let lastSuccessfulUsageResult else {
             return result
         }
@@ -391,6 +396,11 @@ private extension UsagePanelViewModel {
             modelReports: lastSuccessfulUsageResult.modelReports,
             originReports: lastSuccessfulUsageResult.originReports,
             readerStatuses: result.readerStatuses)
+    }
+
+    func clearLastSuccessfulUsage() {
+        lastSuccessfulUsageIdentity = nil
+        lastSuccessfulUsageResult = nil
     }
 
     func clearPresentedUsage() {
@@ -603,7 +613,7 @@ private extension UsagePanelViewModel {
                 end: previousInterval.end,
                 enabledReaderNames: request.enabledReaderNames,
                 includesEmptySourceRows: request.includesEmptySourceRows)
-            let previousTotalTokens = await aggregator.aggregateTotalTokens(
+            let previousResult = await aggregator.aggregateTotalTokenResult(
                 for: previousRequest,
                 scope: scope,
                 modelScope: modelScope)
@@ -617,10 +627,15 @@ private extension UsagePanelViewModel {
                 return
             }
 
-            updateSnapshot { $0.yesterdayTotalTokens = previousTotalTokens }
+            guard !previousResult.hasReaderFailures else {
+                yesterdayComparisonTask = nil
+                return
+            }
+
+            updateSnapshot { $0.yesterdayTotalTokens = previousResult.totalTokens }
             if let cacheKey {
                 usageWindowResultCache.storePreviousTotalTokens(
-                    previousTotalTokens,
+                    previousResult.totalTokens,
                     for: cacheKey,
                     matching: request)
             }
