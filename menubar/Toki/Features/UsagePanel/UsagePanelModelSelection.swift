@@ -39,28 +39,28 @@ extension UsagePanelViewModel {
     private var baseUsageData: UsageData {
         switch selectedUsageScope {
         case .all:
-            presentationSnapshot.combinedUsageData
+            selectedPresentationUsageResult.usageData
         case let .origin(originID):
-            presentationSnapshot.originReports.first { $0.id == originID }?.usageData
-                ?? presentationSnapshot.combinedUsageData
+            selectedPresentationUsageResult.originReports.first { $0.id == originID }?.usageData
+                ?? selectedPresentationUsageResult.usageData
         }
     }
 
     private var baseModelReports: [String: UsageModelReport] {
         switch selectedUsageScope {
         case .all:
-            presentationSnapshot.combinedModelReports
+            selectedPresentationUsageResult.modelReports
         case let .origin(originID):
-            presentationSnapshot.originReports.first { $0.id == originID }?.modelReports
-                ?? presentationSnapshot.combinedModelReports
+            selectedPresentationUsageResult.originReports.first { $0.id == originID }?.modelReports
+                ?? selectedPresentationUsageResult.modelReports
         }
     }
 
     var originReports: [UsageOriginReport] {
         guard case let .model(modelID) = selectedModelScope else {
-            return presentationSnapshot.originReports
+            return selectedPresentationUsageResult.originReports
         }
-        return presentationSnapshot.originReports.map { report in
+        return selectedPresentationUsageResult.originReports.map { report in
             UsageOriginReport(
                 origin: report.origin,
                 usageData: modelScopedUsageData(
@@ -73,7 +73,7 @@ extension UsagePanelViewModel {
 
     var selectedUsageOrigin: UsageOrigin? {
         guard case let .origin(originID) = selectedUsageScope else { return nil }
-        return presentationSnapshot.originReports.first { $0.id == originID }?.origin
+        return selectedPresentationUsageResult.originReports.first { $0.id == originID }?.origin
     }
 
     var usageScopeTitle: String {
@@ -89,7 +89,7 @@ extension UsagePanelViewModel {
     }
 
     var lastFetchedAt: Date? {
-        presentationSnapshot.lastFetchedAt
+        selectedPresentationFetchedAt
     }
 
     var yesterdayTotalTokens: Int? {

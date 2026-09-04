@@ -16,6 +16,37 @@ struct UsageServiceSnapshot: Equatable {
     var isLoadingPeriodTokenTotals = false
 }
 
+private struct LastSuccessfulUsage {
+    let result: UsageAggregationResult
+    let fetchedAt: Date
+}
+
+private struct UsagePresentationIdentity: Equatable {
+    let refreshIdentity: UsageRefreshIdentity
+    let usageScope: UsageScope
+    let modelScope: UsageModelScope
+}
+
+private struct LastSuccessfulComparison {
+    let identity: UsagePresentationIdentity
+    let totalTokens: Int
+}
+
+func panelUsageSelectionRequiresFallback(
+    readerStatuses: [ReaderStatus],
+    scope: UsageScope,
+    modelScope: UsageModelScope) -> Bool {
+    let participatingStatuses = panelReaderStatuses(readerStatuses, for: scope)
+        .filter { $0.state != .disabled }
+    switch modelScope {
+    case .all:
+        return !participatingStatuses.isEmpty
+            && participatingStatuses.allSatisfy { $0.state == .failed }
+    case .model:
+        return participatingStatuses.contains { $0.state == .failed }
+    }
+}
+
 @MainActor
 final class UsagePanelViewModel: ObservableObject {
     static let periodTokenTotalsCacheMaxAge: TimeInterval = 600
@@ -53,6 +84,9 @@ final class UsagePanelViewModel: ObservableObject {
     private var usageRefreshGeneration: UInt64 = 0
     private var presentedUsageRequest: UsageAggregationRequest?
     private var presentedUsageWindow: CurrentUsageWindow?
+    private var lastSuccessfulUsageIdentity: UsageRefreshIdentity?
+    private var lastSuccessfulUsage: LastSuccessfulUsage?
+    private var lastSuccessfulComparison: LastSuccessfulComparison?
     var activePeriodTokenTotalsRequest: PeriodTokenTotalsRequest?
     var periodTokenTotalsGeneration: UInt64 = 0
     var lastPeriodTokenTotalsRequest: PeriodTokenTotalsRequest?
@@ -156,9 +190,11 @@ final class UsagePanelViewModel: ObservableObject {
             end: endDate,
             now: refreshNow)
         let refreshIdentity = makeUsageRefreshIdentity()
-        var previousTotalTokens = presentedUsageRequest == request && canCachePreviousComparison
-            ? snapshot.yesterdayTotalTokens
-            : nil
+        let presentationIdentity = UsagePresentationIdentity(
+            refreshIdentity: refreshIdentity,
+            usageScope: selectedUsageScope,
+            modelScope: selectedModelScope)
+        var previousTotalTokens = preservedPreviousTotalTokens(for: presentationIdentity)
 
         cancelYesterdayComparison()
         let cacheKey = makeUsageWindowResultCacheKey()
@@ -167,6 +203,7 @@ final class UsagePanelViewModel: ObservableObject {
            let didFallBackToAllDevices = publishCachedUsage(
                cacheKey: cacheKey,
                now: refreshNow) {
+            previousTotalTokens = preservedPreviousTotalTokens(for: presentationIdentity) ?? previousTotalTokens
             refreshPeriodTokenTotalsAfterScopeFallbackIfNeeded(didFallBackToAllDevices)
         }
 
@@ -202,14 +239,17 @@ final class UsagePanelViewModel: ObservableObject {
         activeUsageTask = nil
         activeRefreshIdentity = nil
         let fetchedAt = now()
-        previousTotalTokens = canCachePreviousComparison ? previousTotalTokens : nil
+        recordLastSuccessfulUsage(
+            result,
+            for: refreshIdentity,
+            fetchedAt: fetchedAt)
         let didFallBackToAllDevices = publishUsageResult(
             result,
             request: request,
             fetchedAt: fetchedAt,
             previousTotalTokens: previousTotalTokens,
             currentUsageWindow: selectedCurrentUsageWindow)
-        if let cacheKey {
+        if let cacheKey, !result.readerStatuses.contains(where: { $0.state == .failed }) {
             usageWindowResultCache.store(
                 UsageWindowResultCacheEntry(
                     request: request,
@@ -265,6 +305,7 @@ extension UsagePanelViewModel {
 
     func refreshAfterRemoteSyncChange() async {
         cancelActiveUsageRefresh()
+        clearLastSuccessfulUsage()
         usageWindowResultCache.clear()
         periodTokenTotalsCache.clear()
         invalidatePeriodTokenTotals()
@@ -278,6 +319,26 @@ extension UsagePanelViewModel {
 
     var presentationSnapshot: UsageServiceSnapshot {
         snapshot
+    }
+
+    var selectedPresentationUsageResult: UsageAggregationResult {
+        lastSuccessfulUsageForSelection(
+            scope: selectedUsageScope,
+            modelScope: selectedModelScope,
+            readerStatuses: snapshot.readerStatuses)?.result
+            ?? UsageAggregationResult(
+                usageData: snapshot.combinedUsageData,
+                modelReports: snapshot.combinedModelReports,
+                originReports: snapshot.originReports,
+                readerStatuses: snapshot.readerStatuses)
+    }
+
+    var selectedPresentationFetchedAt: Date? {
+        lastSuccessfulUsageForSelection(
+            scope: selectedUsageScope,
+            modelScope: selectedModelScope,
+            readerStatuses: snapshot.readerStatuses)?.fetchedAt
+            ?? snapshot.lastFetchedAt
     }
 
     var isSingleDay: Bool {
@@ -297,6 +358,7 @@ extension UsagePanelViewModel {
 
     func handleModelPricingChange() {
         cancelActiveUsageRefresh()
+        clearLastSuccessfulUsage()
         usageWindowResultCache.clear()
     }
 
@@ -315,7 +377,11 @@ extension UsagePanelViewModel {
     func selectUsageScope(_ scope: UsageScope) {
         guard scope != selectedUsageScope else { return }
         if case let .origin(originID) = scope,
-           !snapshot.originReports.contains(where: { $0.id == originID }) {
+           !snapshot.originReports.contains(where: { $0.id == originID }),
+           lastSuccessfulUsageForSelection(
+               scope: scope,
+               modelScope: selectedModelScope,
+               readerStatuses: snapshot.readerStatuses) == nil {
             return
         }
 
@@ -371,6 +437,40 @@ extension UsagePanelViewModel {
 }
 
 private extension UsagePanelViewModel {
+    func recordLastSuccessfulUsage(
+        _ result: UsageAggregationResult,
+        for identity: UsageRefreshIdentity,
+        fetchedAt: Date) {
+        guard !result.readerStatuses.contains(where: { $0.state == .failed }) else { return }
+        lastSuccessfulUsageIdentity = identity
+        lastSuccessfulUsage = LastSuccessfulUsage(result: result, fetchedAt: fetchedAt)
+    }
+
+    func lastSuccessfulUsageForSelection(
+        scope: UsageScope,
+        modelScope: UsageModelScope,
+        readerStatuses: [ReaderStatus]) -> LastSuccessfulUsage? {
+        guard lastSuccessfulUsageIdentity == makeUsageRefreshIdentity(),
+              let lastSuccessfulUsage,
+              panelUsageSelectionRequiresFallback(
+                  readerStatuses: readerStatuses,
+                  scope: scope,
+                  modelScope: modelScope) else {
+            return nil
+        }
+        if case let .origin(originID) = scope,
+           !lastSuccessfulUsage.result.originReports.contains(where: { $0.id == originID }) {
+            return nil
+        }
+        return lastSuccessfulUsage
+    }
+
+    func clearLastSuccessfulUsage() {
+        lastSuccessfulUsageIdentity = nil
+        lastSuccessfulUsage = nil
+        lastSuccessfulComparison = nil
+    }
+
     func clearPresentedUsage() {
         presentedUsageRequest = nil
         presentedUsageWindow = nil
@@ -394,7 +494,20 @@ private extension UsagePanelViewModel {
            !cachedEntry.result.originReports.contains(where: { $0.id == originID }) {
             return nil
         }
-        let previousTotalTokens = canCachePreviousComparison ? cachedEntry.previousTotalTokens : nil
+        if canCachePreviousComparison,
+           let previousTotalTokens = cachedEntry.previousTotalTokens {
+            lastSuccessfulComparison = LastSuccessfulComparison(
+                identity: UsagePresentationIdentity(
+                    refreshIdentity: makeUsageRefreshIdentity(),
+                    usageScope: .all,
+                    modelScope: .all),
+                totalTokens: previousTotalTokens)
+        }
+        let presentationIdentity = UsagePresentationIdentity(
+            refreshIdentity: makeUsageRefreshIdentity(),
+            usageScope: selectedUsageScope,
+            modelScope: selectedModelScope)
+        let previousTotalTokens = preservedPreviousTotalTokens(for: presentationIdentity)
         let didFallBackToAllDevices = publishUsageResult(
             cachedEntry.result,
             request: cachedEntry.request,
@@ -402,6 +515,10 @@ private extension UsagePanelViewModel {
             previousTotalTokens: previousTotalTokens,
             currentUsageWindow: selectedCurrentUsageWindow,
             resolvesMissingScope: false)
+        lastSuccessfulUsageIdentity = makeUsageRefreshIdentity()
+        lastSuccessfulUsage = LastSuccessfulUsage(
+            result: cachedEntry.result,
+            fetchedAt: cachedEntry.fetchedAt)
         updateSnapshot {
             $0.isLoading = false
             $0.isRefreshing = true
@@ -420,6 +537,13 @@ private extension UsagePanelViewModel {
 
     var canCachePreviousComparison: Bool {
         selectedUsageScope == .all && selectedModelScope == .all
+    }
+
+    func preservedPreviousTotalTokens(for identity: UsagePresentationIdentity) -> Int? {
+        guard lastSuccessfulComparison?.identity == identity else {
+            return nil
+        }
+        return lastSuccessfulComparison?.totalTokens
     }
 
     private func cancelActiveUsageRefresh() {
@@ -465,7 +589,7 @@ private extension UsagePanelViewModel {
         currentUsageWindow: CurrentUsageWindow?,
         resolvesMissingScope: Bool = true) -> Bool {
         let didFallBackToAllDevices = resolvesMissingScope
-            ? resolveSelectedUsageScope(availableReports: result.originReports)
+            ? resolveSelectedUsageScope(for: result)
             : false
         updateSnapshot {
             $0.combinedUsageData = result.usageData
@@ -535,10 +659,15 @@ private extension UsagePanelViewModel {
     }
 
     @discardableResult
-    private func resolveSelectedUsageScope(
-        availableReports: [UsageOriginReport]) -> Bool {
+    private func resolveSelectedUsageScope(for result: UsageAggregationResult) -> Bool {
         guard case let .origin(originID) = selectedUsageScope,
-              !availableReports.contains(where: { $0.id == originID }) else {
+              !result.originReports.contains(where: { $0.id == originID }) else {
+            return false
+        }
+        guard lastSuccessfulUsageForSelection(
+            scope: selectedUsageScope,
+            modelScope: selectedModelScope,
+            readerStatuses: result.readerStatuses) == nil else {
             return false
         }
 
@@ -550,6 +679,7 @@ private extension UsagePanelViewModel {
 
     private func resetYesterdayComparison() {
         cancelYesterdayComparison()
+        lastSuccessfulComparison = nil
         if snapshot.yesterdayTotalTokens != nil {
             updateSnapshot { $0.yesterdayTotalTokens = nil }
         }
@@ -581,7 +711,7 @@ private extension UsagePanelViewModel {
                 end: previousInterval.end,
                 enabledReaderNames: request.enabledReaderNames,
                 includesEmptySourceRows: request.includesEmptySourceRows)
-            let previousTotalTokens = await aggregator.aggregateTotalTokens(
+            let previousResult = await aggregator.aggregateTotalTokenResult(
                 for: previousRequest,
                 scope: scope,
                 modelScope: modelScope)
@@ -595,10 +725,24 @@ private extension UsagePanelViewModel {
                 return
             }
 
-            updateSnapshot { $0.yesterdayTotalTokens = previousTotalTokens }
+            let participatingStatuses = panelReaderStatuses(
+                previousResult.readerStatuses,
+                for: scope)
+            guard !participatingStatuses.contains(where: { $0.state == .failed }) else {
+                yesterdayComparisonTask = nil
+                return
+            }
+
+            lastSuccessfulComparison = LastSuccessfulComparison(
+                identity: UsagePresentationIdentity(
+                    refreshIdentity: makeUsageRefreshIdentity(),
+                    usageScope: scope,
+                    modelScope: modelScope),
+                totalTokens: previousResult.totalTokens)
+            updateSnapshot { $0.yesterdayTotalTokens = previousResult.totalTokens }
             if let cacheKey {
                 usageWindowResultCache.storePreviousTotalTokens(
-                    previousTotalTokens,
+                    previousResult.totalTokens,
                     for: cacheKey,
                     matching: request)
             }

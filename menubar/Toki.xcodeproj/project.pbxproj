@@ -123,6 +123,7 @@
 		ACD47B7DF15BF86DE361B181 /* SecurityAuditFileDiscovery.swift in Sources */ = {isa = PBXBuildFile; fileRef = 90462ED4796DF8430B218A31 /* SecurityAuditFileDiscovery.swift */; };
 		AEFCAD47092D4DA5C27342A6 /* libsqlite3.tbd in Frameworks */ = {isa = PBXBuildFile; fileRef = 3BB2D1DD657FD734F8EC731D /* libsqlite3.tbd */; };
 		AF4E8FA1A1E2763EE9CE39E5 /* MenuBarUsageSummaryController.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7D982ED98F3C2AFC2321DD5 /* MenuBarUsageSummaryController.swift */; };
+		B12D1FD5013758DF840878A8 /* UsageServiceFailureFallbackTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C838BC74BEB5A89DAD2AC948 /* UsageServiceFailureFallbackTests.swift */; };
 		B286174B1C53D765BCAB029A /* RemoteSyncSettingsViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5012DD8BF341F42E263305CF /* RemoteSyncSettingsViewModel.swift */; };
 		B428BE62FCAE5AC78BE7F650 /* RemoteUsageMapper.swift in Sources */ = {isa = PBXBuildFile; fileRef = 818F5EF951A97C968090318D /* RemoteUsageMapper.swift */; };
 		B53717FC6BAEB04768700AD4 /* UsageModelSelectionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A49F1AAB4B8599691A6D3561 /* UsageModelSelectionTests.swift */; };
@@ -335,6 +336,7 @@
 		BDD7891CB45C773154861D21 /* Claude5ModelPricingBehaviorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Claude5ModelPricingBehaviorTests.swift; sourceTree = "<group>"; };
 		C08F6079C3FC989A7466B6E7 /* MenuBarActivityController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MenuBarActivityController.swift; sourceTree = "<group>"; };
 		C4BF69189BDE750B3BE66C4E /* RemoteSyncTransportTestSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteSyncTransportTestSupport.swift; sourceTree = "<group>"; };
+		C838BC74BEB5A89DAD2AC948 /* UsageServiceFailureFallbackTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UsageServiceFailureFallbackTests.swift; sourceTree = "<group>"; };
 		CA15B3EFD222050ECA620C03 /* PanelHeroComparisonContent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PanelHeroComparisonContent.swift; sourceTree = "<group>"; };
 		CA514E3EE586C1B3306B7B1F /* UsagePeriodTotals.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UsagePeriodTotals.swift; sourceTree = "<group>"; };
 		CE2CE799127C170D41957B12 /* RemoteSyncConfigurationStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteSyncConfigurationStore.swift; sourceTree = "<group>"; };
@@ -733,6 +735,7 @@
 				271C1138E2F9EA2CB9108BF5 /* UsageServiceComparisonRefreshTests.swift */,
 				F6554A78E80C72A953671FD9 /* UsageServiceDateSyncBehaviorTests.swift */,
 				E41E37DA37FF9E2357C6CF2D /* UsageServiceDiagnosticsTests.swift */,
+				C838BC74BEB5A89DAD2AC948 /* UsageServiceFailureFallbackTests.swift */,
 			);
 			path = TokiTests;
 			sourceTree = "<group>";
@@ -1014,6 +1017,7 @@
 				61BF0A488FC80446B5BD562E /* UsageServiceComparisonRefreshTests.swift in Sources */,
 				D06A0207C5CF3AC86FD35F75 /* UsageServiceDateSyncBehaviorTests.swift in Sources */,
 				30532706B9BC3C44AE192EA4 /* UsageServiceDiagnosticsTests.swift in Sources */,
+				B12D1FD5013758DF840878A8 /* UsageServiceFailureFallbackTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

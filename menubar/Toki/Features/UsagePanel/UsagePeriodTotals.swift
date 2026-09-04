@@ -197,6 +197,20 @@ private extension UsagePanelViewModel {
             await refreshPeriodTokenTotalsIfNeeded()
             return
         }
+        guard let summaries else {
+            activePeriodTokenTotalsRequest = nil
+            if lastPeriodTokenTotalsRequest == totalsRequest {
+                updateSnapshot { $0.isLoadingPeriodTokenTotals = false }
+            } else {
+                lastPeriodTokenTotalsRequest = nil
+                lastPeriodTokenTotalsFetchedAt = nil
+                updateSnapshot {
+                    $0.periodTokenTotals = []
+                    $0.isLoadingPeriodTokenTotals = false
+                }
+            }
+            return
+        }
 
         updateSnapshot {
             $0.periodTokenTotals = summaries
@@ -258,7 +272,7 @@ private extension UsagePanelViewModel {
             modelScope: selectedModelScope)
     }
 
-    func periodTokenTotals(for request: PeriodTokenTotalsRequest) async -> [TokenTotalSummary] {
+    func periodTokenTotals(for request: PeriodTokenTotalsRequest) async -> [TokenTotalSummary]? {
         var summaries: [TokenTotalSummary] = []
 
         for period in TokenTotalPeriod.allCases {
@@ -270,18 +284,23 @@ private extension UsagePanelViewModel {
                 end: interval.end,
                 enabledReaderNames: request.enabledReaderNames,
                 includesEmptySourceRows: request.includesEmptySourceRows)
-            let totalTokens = await aggregator.aggregateTotalTokens(
+            let result = await aggregator.aggregateTotalTokenResult(
                 for: usageRequest,
                 scope: request.scope,
                 modelScope: request.modelScope)
-
             guard !Task.isCancelled else { return summaries }
+            guard !panelUsageSelectionRequiresFallback(
+                readerStatuses: result.readerStatuses,
+                scope: request.scope,
+                modelScope: request.modelScope) else {
+                return nil
+            }
             summaries.append(
                 TokenTotalSummary(
                     period: period,
                     startDate: interval.start,
                     endDate: interval.end,
-                    totalTokens: totalTokens))
+                    totalTokens: result.totalTokens))
         }
 
         return summaries
