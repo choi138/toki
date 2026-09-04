@@ -163,7 +163,7 @@ final class UsageServiceFailureFallbackTests: XCTestCase {
             now: { clock.now })
 
         await service.refresh()
-        await waitForRequestCount(2, state: state)
+        await waitForYesterdayTotal(300, in: service)
         let successfulFetchedAt = service.lastFetchedAt
         XCTAssertEqual(service.yesterdayTotalTokens, 300)
 
@@ -195,7 +195,7 @@ final class UsageServiceFailureFallbackTests: XCTestCase {
             now: { clock.now })
 
         await initialService.refresh()
-        await waitForRequestCount(2, state: state)
+        await waitForYesterdayTotal(300, in: initialService)
         let successfulFetchedAt = initialService.lastFetchedAt
         XCTAssertEqual(initialService.yesterdayTotalTokens, 300)
 
@@ -216,10 +216,126 @@ final class UsageServiceFailureFallbackTests: XCTestCase {
         XCTAssertEqual(restoredService.readerStatuses.first?.state, .failed)
     }
 
-    private func waitForRequestCount(_ target: Int, state: FailingUsageReaderState) async {
-        for _ in 0..<20 where await state.requestCount() < target {
+    private func waitForYesterdayTotal(_ expected: Int, in service: UsageService) async {
+        let deadline = Date().addingTimeInterval(2)
+        while service.yesterdayTotalTokens != expected, Date() < deadline {
             try? await Task.sleep(for: .milliseconds(10))
         }
+        XCTAssertEqual(service.yesterdayTotalTokens, expected)
+    }
+
+    private func waitForRequestCount(_ target: Int, state: FailingUsageReaderState) async {
+        let deadline = Date().addingTimeInterval(2)
+        while await state.requestCount() < target, Date() < deadline {
+            try? await Task.sleep(for: .milliseconds(10))
+        }
+        let requestCount = await state.requestCount()
+        XCTAssertGreaterThanOrEqual(requestCount, target)
+    }
+}
+
+@MainActor
+final class UsageScopedPeriodFallbackTests: XCTestCase {
+    func test_usageServiceClearsPeriodTotalsWhenDifferentReaderRequestFails() async throws {
+        let suiteName = "UsageScopedPeriodFallbackTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let failingState = FailingUsageReaderState(totalTokens: 100)
+        let settings = UsagePanelSettings(defaults: defaults, readerNames: ["Healthy", "Flaky"])
+        let service = UsageService(
+            readers: [
+                FailingUsageReader(
+                    name: "Healthy",
+                    state: FailingUsageReaderState(totalTokens: 300)),
+                FailingUsageReader(name: "Flaky", state: failingState),
+            ],
+            settings: settings,
+            periodTokenTotalsCache: PeriodTokenTotalsCache(defaults: defaults))
+
+        await service.refreshPeriodTokenTotals()
+        XCTAssertEqual(service.periodTokenTotals.map(\.totalTokens), [400, 400, 400])
+
+        settings.setReader("Healthy", isEnabled: false)
+        await failingState.setShouldFail(true)
+        await service.refreshPeriodTokenTotalsIfNeeded()
+
+        XCTAssertTrue(service.periodTokenTotals.isEmpty)
+        XCTAssertNil(service.lastPeriodTokenTotalsRequest)
+        XCTAssertNil(service.lastPeriodTokenTotalsFetchedAt)
+        XCTAssertFalse(service.isLoadingPeriodTokenTotals)
+    }
+
+    func test_usageServicePreservesRemotePeriodTotalsWhenRemoteReaderFails() async throws {
+        let suiteName = "UsageScopedPeriodFallbackTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let remoteID = UsageOriginID.remote(deviceID: "remote-a")
+        let remoteState = FailingOriginUsageReaderState(totalTokens: 300)
+        let service = UsageService(
+            readers: [
+                FailingUsageReader(
+                    name: "Local",
+                    state: FailingUsageReaderState(totalTokens: 500)),
+                FailingOriginUsageReader(name: "Remote Devices", state: remoteState),
+            ],
+            settings: UsagePanelSettings(
+                defaults: defaults,
+                readerNames: ["Local", "Remote Devices"]),
+            periodTokenTotalsCache: PeriodTokenTotalsCache(defaults: defaults))
+        let pastDay = try XCTUnwrap(Calendar.current.date(byAdding: .day, value: -2, to: Date()))
+
+        service.selectDay(pastDay)
+        await service.refresh()
+        service.selectUsageScope(.origin(remoteID))
+        await waitForPeriodTotals([300, 300, 300], in: service)
+        let successfulFetchedAt = service.lastPeriodTokenTotalsFetchedAt
+
+        await remoteState.setShouldFail(true)
+        await service.refreshPeriodTokenTotals()
+
+        XCTAssertEqual(service.periodTokenTotals.map(\.totalTokens), [300, 300, 300])
+        XCTAssertEqual(service.lastPeriodTokenTotalsFetchedAt, successfulFetchedAt)
+    }
+
+    func test_usageServicePreservesLocalPeriodTotalsWhenLocalReaderFails() async throws {
+        let suiteName = "UsageScopedPeriodFallbackTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let localState = FailingUsageReaderState(totalTokens: 300)
+        let service = UsageService(
+            readers: [
+                FailingUsageReader(name: "Local", state: localState),
+                FailingOriginUsageReader(
+                    name: "Remote Devices",
+                    state: FailingOriginUsageReaderState(totalTokens: 500)),
+            ],
+            settings: UsagePanelSettings(
+                defaults: defaults,
+                readerNames: ["Local", "Remote Devices"]),
+            periodTokenTotalsCache: PeriodTokenTotalsCache(defaults: defaults))
+        let pastDay = try XCTUnwrap(Calendar.current.date(byAdding: .day, value: -2, to: Date()))
+
+        service.selectDay(pastDay)
+        await service.refresh()
+        service.selectUsageScope(.origin(.local))
+        await waitForPeriodTotals([300, 300, 300], in: service)
+        let successfulFetchedAt = service.lastPeriodTokenTotalsFetchedAt
+
+        await localState.setShouldFail(true)
+        await service.refreshPeriodTokenTotals()
+
+        XCTAssertEqual(service.periodTokenTotals.map(\.totalTokens), [300, 300, 300])
+        XCTAssertEqual(service.lastPeriodTokenTotalsFetchedAt, successfulFetchedAt)
+    }
+
+    private func waitForPeriodTotals(_ totals: [Int], in service: UsageService) async {
+        let deadline = Date().addingTimeInterval(2)
+        while service.periodTokenTotals.map(\.totalTokens) != totals
+            || service.isLoadingPeriodTokenTotals, Date() < deadline {
+            try? await Task.sleep(for: .milliseconds(10))
+        }
+        XCTAssertEqual(service.periodTokenTotals.map(\.totalTokens), totals)
+        XCTAssertFalse(service.isLoadingPeriodTokenTotals)
     }
 }
 
@@ -258,12 +374,50 @@ private actor FailingUsageReaderState {
     }
 }
 
+private actor FailingOriginUsageReaderState {
+    private let slices: [UsageOriginSlice]
+    private var shouldFail = false
+
+    init(totalTokens: Int) {
+        slices = [
+            UsageOriginSlice(
+                origin: .remote(
+                    deviceID: "remote-a",
+                    name: "worker",
+                    platform: "linux",
+                    lastUpdatedAt: nil),
+                usage: mockUsage(totalTokens: totalTokens),
+                sourceStats: []),
+        ]
+    }
+
+    func readUsageByOrigin() throws -> [UsageOriginSlice] {
+        if shouldFail {
+            throw FailingUsageReaderError.unavailable
+        }
+        return slices
+    }
+
+    func setShouldFail(_ shouldFail: Bool) {
+        self.shouldFail = shouldFail
+    }
+}
+
 private struct FailingUsageReader: TokenReader {
     let name: String
     let state: FailingUsageReaderState
 
     func readUsage(from startDate: Date, to endDate: Date) async throws -> RawTokenUsage {
         try await mockUsage(totalTokens: state.readTotalTokens())
+    }
+}
+
+private struct FailingOriginUsageReader: OriginPartitionedTokenReader {
+    let name: String
+    let state: FailingOriginUsageReaderState
+
+    func readUsageByOrigin(from _: Date, to _: Date) async throws -> [UsageOriginSlice] {
+        try await state.readUsageByOrigin()
     }
 }
 

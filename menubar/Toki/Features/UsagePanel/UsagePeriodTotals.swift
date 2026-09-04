@@ -199,7 +199,16 @@ private extension UsagePanelViewModel {
         }
         guard let summaries else {
             activePeriodTokenTotalsRequest = nil
-            updateSnapshot { $0.isLoadingPeriodTokenTotals = false }
+            if lastPeriodTokenTotalsRequest == totalsRequest {
+                updateSnapshot { $0.isLoadingPeriodTokenTotals = false }
+            } else {
+                lastPeriodTokenTotalsRequest = nil
+                lastPeriodTokenTotalsFetchedAt = nil
+                updateSnapshot {
+                    $0.periodTokenTotals = []
+                    $0.isLoadingPeriodTokenTotals = false
+                }
+            }
             return
         }
 
@@ -280,7 +289,10 @@ private extension UsagePanelViewModel {
                 scope: request.scope,
                 modelScope: request.modelScope)
             guard !Task.isCancelled else { return summaries }
-            let participatingStatuses = result.readerStatuses.filter { $0.state != .disabled }
+            let participatingStatuses = panelReaderStatuses(
+                result.readerStatuses,
+                for: request.scope)
+                .filter { $0.state != .disabled }
             guard participatingStatuses.isEmpty
                 || !participatingStatuses.allSatisfy({ $0.state == .failed }) else {
                 return nil
