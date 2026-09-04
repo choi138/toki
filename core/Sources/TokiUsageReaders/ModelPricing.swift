@@ -72,6 +72,7 @@ private let exactPricingTable: [String: ModelPrice] = [
     // claude-fable-5-mini tier must not silently inherit these rates.
     // Fast mode on claude-opus-5 bills $10/$50 under the same model ID, so
     // fast-mode usage is under-estimated by this table.
+    "claude-fable-5-1": price(10.0, 50.0, 0.25, 12.5),
     "claude-fable-5": price(10.0, 50.0, 1.00, 12.5),
     "claude-opus-5": price(5.0, 25.0, 0.50, 6.25),
     // Reported by the custom billing provider as its own catalog entry rather
@@ -156,6 +157,7 @@ private let exactPricingTable: [String: ModelPrice] = [
 ]
 
 private let exactOnlyPricingKeys: Set = [
+    "claude-fable-5-1",
     "claude-fable-5",
     "claude-opus-5",
     "kr/claude-opus-5",

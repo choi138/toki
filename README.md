@@ -14,7 +14,7 @@
 <p align="center">
   <a href="https://github.com/choi138/toki/releases/latest"><strong>Download</strong></a>
   · <a href="#features">Features</a>
-  · <a href="#supported-agents">Supported agents</a>
+  · <a href="#supported-agents-and-models">Supported agents &amp; models</a>
   · <a href="https://toki.choi138.com">Website</a>
   · <a href="#contributing">Contributing</a>
 </p>
@@ -134,7 +134,7 @@ tracked tool untouched.
 - **Local security audit**: masked findings for API keys, access tokens, cloud
   credentials, JWTs, private key blocks, and secret assignments.
 
-## Supported Agents
+## Supported Agents And Models
 
 Toki auto-detects the default local data locations below. No account login or
 remote service is required for local readers.
@@ -147,9 +147,28 @@ remote service is required for local readers.
 | **Cursor** | `~/Library/Application Support/Cursor/User/globalStorage/state.vscdb` | Exact token rows are counted when present; context-window metrics are shown separately when exact tokens are unavailable. |
 | **Gemini CLI** | `~/.gemini/tmp/*/chats/**/*.json` | Reads current and legacy Gemini chat history formats. |
 | **GJC** | `~/.gjc/agent/sessions/**/*.jsonl` | Reads local JSONL sessions, including assistant and delegated task token usage plus recorded cost. |
+| **Factory Droid** | `~/.factory/sessions/**/*.{json,jsonl}` | Reads local Factory session records. |
+| **Amp** | `$XDG_DATA_HOME/amp/threads/**/*.json` | Reads local thread and ledger usage records. |
+| **Senpi** | `~/.senpi/agent/sessions/**/*.jsonl` and OMO session directories | Includes delegated task sessions when they are present. |
+| **Pi** | `~/.pi/agent/sessions/**/*.jsonl` | Reads local Pi coding-agent sessions. |
+| **Oh My Pi** | Its configured local session directories | Shares a source with Pi when both tools use the same store. |
+| **Kimchi** | `$XDG_CONFIG_HOME/kimchi/harness/sessions/**/*.jsonl` | Reads Kimchi harness sessions. |
 | **OpenCode** | `~/.local/share/opencode/opencode.db` | Reads assistant message token rows from SQLite. |
 | **OpenClaw** | `~/.openclaw/agents/**/*.jsonl` | Reads assistant usage records from local agent logs. |
+| **Copilot CLI** | `~/.copilot/otel/**/*.jsonl` | Reads OpenTelemetry usage records, including an optional file-exporter path. |
+| **Kimi CLI** | `~/.kimi/sessions/**/*.jsonl` | Reads local Kimi CLI sessions. |
+| **Kimi Code** | `~/.kimi-code/**/*.jsonl` | Reads local Kimi Code sessions. |
+| **Qwen CLI** | `~/.qwen/**/*.jsonl` | Reads local Qwen CLI project sessions. |
 | **Remote Toki Agent** | The supported stores above under the remote user's home/XDG directories | Optional outbound-only Linux/macOS Agent uses the same local reader registry and uploads per-device encrypted usage snapshots through a Hub. |
+
+### Model Coverage
+
+Toki preserves every model ID emitted by its supported readers, so a model does
+not disappear merely because it is new or lacks a bundled price. Curated pricing
+covers Claude, GPT/Codex, Gemini, Grok, GLM, and Kimi families—including
+`claude-fable-5-1`—and the optional daily LiteLLM catalog fills in more known
+models. Models without a known price remain visible as unpriced rows instead of
+being silently omitted from token totals.
 
 ## Remote Devices
 
@@ -213,7 +232,7 @@ the reader reports a failure, the header shows an amber badge that jumps
 straight to the diagnostics.
 
 **My tool isn't listed at all**
-Only the agents in [Supported Agents](#supported-agents) are read today. Open an
+Only the agents in [Supported Agents And Models](#supported-agents-and-models) are read today. Open an
 issue with your tool's local data path and a redacted log sample, or add a
 reader yourself — see [Contributing](#contributing).
 
@@ -362,7 +381,7 @@ SwiftPM package, so `swift build --package-path core` works without Xcode.
    so tests can point at a fixture directory.
 5. Add a test next to the others in `menubar/TokiTests/`, modelled on
    `menubar/TokiTests/OpenClawReaderTests.swift`.
-6. Add a row to [Supported Agents](#supported-agents).
+6. Add a row to [Supported Agents And Models](#supported-agents-and-models).
 
 **No sample logs? Open an issue instead.** A redacted snippet of your tool's
 local usage file plus its path is genuinely useful on its own — it is the part

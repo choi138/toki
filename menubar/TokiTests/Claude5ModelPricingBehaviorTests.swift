@@ -12,6 +12,11 @@ final class Claude5ModelPricingBehaviorTests: XCTestCase {
 
     func test_modelPrice_matchesClaude5Models() throws {
         let expectedPrices: [String: ModelPrice] = [
+            "claude-fable-5-1": ModelPrice(
+                inputPerMillion: 10.0,
+                outputPerMillion: 50.0,
+                cacheReadPerMillion: 0.25,
+                cacheWritePerMillion: 12.5),
             "claude-fable-5": ModelPrice(
                 inputPerMillion: 10.0,
                 outputPerMillion: 50.0,
@@ -43,6 +48,7 @@ final class Claude5ModelPricingBehaviorTests: XCTestCase {
 
     func test_modelPrice_calculatesClaude5CostWithCacheRates() throws {
         let expectedCosts: [(modelID: String, cost: Double)] = [
+            ("claude-fable-5-1", 72.75),
             ("claude-fable-5", 73.5),
             ("claude-opus-5", 36.75),
             ("claude-sonnet-5", 14.7),
@@ -78,7 +84,7 @@ final class Claude5ModelPricingBehaviorTests: XCTestCase {
     }
 
     func test_modelPrice_keepsUnscheduledModelsConstantAcrossTimestamps() throws {
-        for modelID in ["claude-fable-5", "claude-opus-5", "gpt-5.5"] {
+        for modelID in ["claude-fable-5-1", "claude-fable-5", "claude-opus-5", "gpt-5.5"] {
             let before = try XCTUnwrap(modelPrice(for: modelID, at: Self.sonnet5LastIntroductoryDate))
             let after = try XCTUnwrap(modelPrice(for: modelID, at: Self.sonnet5StandardPricingStart))
 
@@ -94,6 +100,7 @@ final class Claude5ModelPricingBehaviorTests: XCTestCase {
         // are exact-only: a future tier such as claude-opus-5-1 or a suffixed
         // variant must stay unpriced instead of inheriting these rates.
         XCTAssertNil(modelPrice(for: "claude-fable-5-preview"))
+        XCTAssertNil(modelPrice(for: "claude-fable-5-1-preview"))
         XCTAssertNil(modelPrice(for: "claude-opus-5-1"))
         XCTAssertNil(modelPrice(for: "claude-opus-5-mini"))
         XCTAssertNil(modelPrice(for: "claude-sonnet-5-1"))
