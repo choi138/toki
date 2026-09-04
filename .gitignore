@@ -36,6 +36,7 @@ rabbit_preview.png
 .codegraph/
 .agents/hooks/state/
 .agents/settings.local.json
+.vercel/
 
 # Local agent scratch state
 .hermes/
