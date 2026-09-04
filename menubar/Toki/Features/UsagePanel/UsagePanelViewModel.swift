@@ -16,6 +16,11 @@ struct UsageServiceSnapshot: Equatable {
     var isLoadingPeriodTokenTotals = false
 }
 
+private struct LastSuccessfulUsage {
+    let result: UsageAggregationResult
+    let fetchedAt: Date
+}
+
 @MainActor
 final class UsagePanelViewModel: ObservableObject {
     static let periodTokenTotalsCacheMaxAge: TimeInterval = 600
@@ -54,7 +59,7 @@ final class UsagePanelViewModel: ObservableObject {
     private var presentedUsageRequest: UsageAggregationRequest?
     private var presentedUsageWindow: CurrentUsageWindow?
     private var lastSuccessfulUsageIdentity: UsageRefreshIdentity?
-    private var lastSuccessfulUsageResult: UsageAggregationResult?
+    private var lastSuccessfulUsage: LastSuccessfulUsage?
     var activePeriodTokenTotalsRequest: PeriodTokenTotalsRequest?
     var periodTokenTotalsGeneration: UInt64 = 0
     var lastPeriodTokenTotalsRequest: PeriodTokenTotalsRequest?
@@ -205,19 +210,22 @@ final class UsagePanelViewModel: ObservableObject {
         activeRefreshIdentity = nil
         let fetchedAt = now()
         previousTotalTokens = canCachePreviousComparison ? previousTotalTokens : nil
-        let publishedResult = resultPreservingLastSuccessfulUsage(result, for: refreshIdentity)
+        let publication = resultPreservingLastSuccessfulUsage(
+            result,
+            for: refreshIdentity,
+            fetchedAt: fetchedAt)
         let didFallBackToAllDevices = publishUsageResult(
-            publishedResult,
+            publication.result,
             request: request,
-            fetchedAt: fetchedAt,
+            fetchedAt: publication.fetchedAt,
             previousTotalTokens: previousTotalTokens,
             currentUsageWindow: selectedCurrentUsageWindow)
-        if let cacheKey, !publishedResult.readerStatuses.contains(where: { $0.state == .failed }) {
+        if let cacheKey, !publication.result.readerStatuses.contains(where: { $0.state == .failed }) {
             usageWindowResultCache.store(
                 UsageWindowResultCacheEntry(
                     request: request,
-                    result: publishedResult,
-                    fetchedAt: fetchedAt,
+                    result: publication.result,
+                    fetchedAt: publication.fetchedAt,
                     previousTotalTokens: previousTotalTokens),
                 for: cacheKey,
                 now: fetchedAt)
@@ -325,7 +333,6 @@ extension UsagePanelViewModel {
         }
 
         resetYesterdayComparison()
-        clearLastSuccessfulUsage()
         selectedUsageScope = scope
         invalidatePeriodTokenTotals()
 
@@ -349,7 +356,6 @@ extension UsagePanelViewModel {
         guard scope != selectedModelScope else { return }
 
         resetYesterdayComparison()
-        clearLastSuccessfulUsage()
         selectedModelScope = scope
         invalidatePeriodTokenTotals()
 
@@ -380,27 +386,33 @@ extension UsagePanelViewModel {
 private extension UsagePanelViewModel {
     func resultPreservingLastSuccessfulUsage(
         _ result: UsageAggregationResult,
-        for identity: UsageRefreshIdentity) -> UsageAggregationResult {
+        for identity: UsageRefreshIdentity,
+        fetchedAt: Date) -> LastSuccessfulUsage {
         guard result.readerStatuses.contains(where: { $0.state == .failed }) else {
+            let successfulUsage = LastSuccessfulUsage(result: result, fetchedAt: fetchedAt)
             lastSuccessfulUsageIdentity = identity
-            lastSuccessfulUsageResult = result
-            return result
+            lastSuccessfulUsage = successfulUsage
+            return successfulUsage
         }
-        guard result.readerStatuses.allSatisfy({ $0.state == .failed }),
+        let participatingStatuses = result.readerStatuses.filter { $0.state != .disabled }
+        guard !participatingStatuses.isEmpty,
+              participatingStatuses.allSatisfy({ $0.state == .failed }),
               lastSuccessfulUsageIdentity == identity,
-              let lastSuccessfulUsageResult else {
-            return result
+              let lastSuccessfulUsage else {
+            return LastSuccessfulUsage(result: result, fetchedAt: fetchedAt)
         }
-        return UsageAggregationResult(
-            usageData: lastSuccessfulUsageResult.usageData,
-            modelReports: lastSuccessfulUsageResult.modelReports,
-            originReports: lastSuccessfulUsageResult.originReports,
-            readerStatuses: result.readerStatuses)
+        return LastSuccessfulUsage(
+            result: UsageAggregationResult(
+                usageData: lastSuccessfulUsage.result.usageData,
+                modelReports: lastSuccessfulUsage.result.modelReports,
+                originReports: lastSuccessfulUsage.result.originReports,
+                readerStatuses: result.readerStatuses),
+            fetchedAt: lastSuccessfulUsage.fetchedAt)
     }
 
     func clearLastSuccessfulUsage() {
         lastSuccessfulUsageIdentity = nil
-        lastSuccessfulUsageResult = nil
+        lastSuccessfulUsage = nil
     }
 
     func clearPresentedUsage() {
@@ -434,6 +446,10 @@ private extension UsagePanelViewModel {
             previousTotalTokens: previousTotalTokens,
             currentUsageWindow: selectedCurrentUsageWindow,
             resolvesMissingScope: false)
+        lastSuccessfulUsageIdentity = makeUsageRefreshIdentity()
+        lastSuccessfulUsage = LastSuccessfulUsage(
+            result: cachedEntry.result,
+            fetchedAt: cachedEntry.fetchedAt)
         updateSnapshot {
             $0.isLoading = false
             $0.isRefreshing = true
