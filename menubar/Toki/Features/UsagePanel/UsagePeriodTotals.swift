@@ -197,6 +197,11 @@ private extension UsagePanelViewModel {
             await refreshPeriodTokenTotalsIfNeeded()
             return
         }
+        guard let summaries else {
+            activePeriodTokenTotalsRequest = nil
+            updateSnapshot { $0.isLoadingPeriodTokenTotals = false }
+            return
+        }
 
         updateSnapshot {
             $0.periodTokenTotals = summaries
@@ -258,7 +263,7 @@ private extension UsagePanelViewModel {
             modelScope: selectedModelScope)
     }
 
-    func periodTokenTotals(for request: PeriodTokenTotalsRequest) async -> [TokenTotalSummary] {
+    func periodTokenTotals(for request: PeriodTokenTotalsRequest) async -> [TokenTotalSummary]? {
         var summaries: [TokenTotalSummary] = []
 
         for period in TokenTotalPeriod.allCases {
@@ -275,6 +280,11 @@ private extension UsagePanelViewModel {
                 scope: request.scope,
                 modelScope: request.modelScope)
             guard !Task.isCancelled else { return summaries }
+            let participatingStatuses = result.readerStatuses.filter { $0.state != .disabled }
+            guard participatingStatuses.isEmpty
+                || !participatingStatuses.allSatisfy({ $0.state == .failed }) else {
+                return nil
+            }
             summaries.append(
                 TokenTotalSummary(
                     period: period,

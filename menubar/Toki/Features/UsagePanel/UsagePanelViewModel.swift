@@ -163,9 +163,7 @@ final class UsagePanelViewModel: ObservableObject {
             end: endDate,
             now: refreshNow)
         let refreshIdentity = makeUsageRefreshIdentity()
-        var previousTotalTokens = presentedUsageRequest == request && canCachePreviousComparison
-            ? snapshot.yesterdayTotalTokens
-            : nil
+        var previousTotalTokens = preservedPreviousTotalTokens(for: refreshIdentity)
 
         cancelYesterdayComparison()
         let cacheKey = makeUsageWindowResultCacheKey()
@@ -174,6 +172,7 @@ final class UsagePanelViewModel: ObservableObject {
            let didFallBackToAllDevices = publishCachedUsage(
                cacheKey: cacheKey,
                now: refreshNow) {
+            previousTotalTokens = preservedPreviousTotalTokens(for: refreshIdentity) ?? previousTotalTokens
             refreshPeriodTokenTotalsAfterScopeFallbackIfNeeded(didFallBackToAllDevices)
         }
 
@@ -468,6 +467,14 @@ private extension UsagePanelViewModel {
 
     var canCachePreviousComparison: Bool {
         selectedUsageScope == .all && selectedModelScope == .all
+    }
+
+    func preservedPreviousTotalTokens(for identity: UsageRefreshIdentity) -> Int? {
+        guard canCachePreviousComparison,
+              lastSuccessfulUsageIdentity == identity else {
+            return nil
+        }
+        return snapshot.yesterdayTotalTokens
     }
 
     private func cancelActiveUsageRefresh() {

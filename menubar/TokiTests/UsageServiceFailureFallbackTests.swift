@@ -110,15 +110,116 @@ final class UsageServiceFailureFallbackTests: XCTestCase {
 
         let state = FailingUsageReaderState(totalTokens: 300)
         let reader = FailingUsageReader(name: "Flaky", state: state)
+        let cache = PeriodTokenTotalsCache(defaults: defaults)
         let service = UsageService(
             readers: [reader],
-            periodTokenTotalsCache: PeriodTokenTotalsCache(defaults: defaults))
+            periodTokenTotalsCache: cache)
 
         await service.refreshPeriodTokenTotals()
+        let successfulSummaries = service.periodTokenTotals
+        let successfulFetchedAt = try XCTUnwrap(service.lastPeriodTokenTotalsFetchedAt)
+        let requestKey = try XCTUnwrap(service.lastPeriodTokenTotalsRequest?.cacheKey)
+        let successfulCacheEntry = try XCTUnwrap(cache.entry(for: requestKey))
         await state.setShouldFail(true)
         await service.refreshPeriodTokenTotals()
 
-        XCTAssertEqual(service.periodTokenTotals.map(\.totalTokens), [0, 0, 0])
+        XCTAssertEqual(service.periodTokenTotals, successfulSummaries)
+        XCTAssertEqual(service.periodTokenTotals.map(\.totalTokens), [300, 300, 300])
+        XCTAssertEqual(service.lastPeriodTokenTotalsFetchedAt, successfulFetchedAt)
+        XCTAssertEqual(cache.entry(for: requestKey), successfulCacheEntry)
+        XCTAssertFalse(service.isLoadingPeriodTokenTotals)
+    }
+
+    func test_usageServicePublishesFreshPartialPeriodTotalsWhenOneReaderFails() async {
+        let healthy = FailingUsageReader(name: "Healthy", state: FailingUsageReaderState(totalTokens: 300))
+        let failingState = FailingUsageReaderState(totalTokens: 100)
+        let service = UsageService(
+            readers: [
+                healthy,
+                FailingUsageReader(name: "Flaky", state: failingState),
+            ])
+
+        await service.refreshPeriodTokenTotals()
+        XCTAssertEqual(service.periodTokenTotals.map(\.totalTokens), [400, 400, 400])
+
+        await failingState.setShouldFail(true)
+        await service.refreshPeriodTokenTotals()
+
+        XCTAssertEqual(service.periodTokenTotals.map(\.totalTokens), [300, 300, 300])
+    }
+
+    func test_usageServicePreservesRollingComparisonWhenClockAdvancesAndReadersFail() async throws {
+        let suiteName = "UsageServiceFailureFallbackTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let clock = FallbackTestClock(now: tokiTestISODate("2026-09-04T12:00:00Z"))
+        let state = FailingUsageReaderState(totalTokens: 300)
+        let settings = UsagePanelSettings(defaults: defaults, readerNames: ["Flaky"])
+        settings.setCurrentUsageWindow(.rolling24Hours)
+        let service = UsageService(
+            readers: [FailingUsageReader(name: "Flaky", state: state)],
+            settings: settings,
+            comparisonDebounce: .zero,
+            now: { clock.now })
+
+        await service.refresh()
+        await waitForRequestCount(2, state: state)
+        let successfulFetchedAt = service.lastFetchedAt
+        XCTAssertEqual(service.yesterdayTotalTokens, 300)
+
+        clock.now = clock.now.addingTimeInterval(30)
+        await state.setShouldFail(true)
+        await service.refresh()
+        await waitForRequestCount(4, state: state)
+
+        XCTAssertEqual(service.usageData.totalTokens, 300)
+        XCTAssertEqual(service.lastFetchedAt, successfulFetchedAt)
+        XCTAssertEqual(service.yesterdayTotalTokens, 300)
+        XCTAssertEqual(service.readerStatuses.first?.state, .failed)
+    }
+
+    func test_usageServicePreservesCachedRollingComparisonWhenClockAdvancesAndReadersFail() async throws {
+        let suiteName = "UsageServiceFailureFallbackTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let clock = FallbackTestClock(now: tokiTestISODate("2026-09-04T12:00:00Z"))
+        let state = FailingUsageReaderState(totalTokens: 300)
+        let settings = UsagePanelSettings(defaults: defaults, readerNames: ["Flaky"])
+        settings.setCurrentUsageWindow(.rolling24Hours)
+        let cache = UsageWindowResultCache()
+        let initialService = UsageService(
+            readers: [FailingUsageReader(name: "Flaky", state: state)],
+            settings: settings,
+            usageWindowResultCache: cache,
+            comparisonDebounce: .zero,
+            now: { clock.now })
+
+        await initialService.refresh()
+        await waitForRequestCount(2, state: state)
+        let successfulFetchedAt = initialService.lastFetchedAt
+        XCTAssertEqual(initialService.yesterdayTotalTokens, 300)
+
+        clock.now = clock.now.addingTimeInterval(30)
+        await state.setShouldFail(true)
+        let restoredService = UsageService(
+            readers: [FailingUsageReader(name: "Flaky", state: state)],
+            settings: settings,
+            usageWindowResultCache: cache,
+            comparisonDebounce: .zero,
+            now: { clock.now })
+        await restoredService.refresh(usesWindowResultCache: true)
+        await waitForRequestCount(4, state: state)
+
+        XCTAssertEqual(restoredService.usageData.totalTokens, 300)
+        XCTAssertEqual(restoredService.lastFetchedAt, successfulFetchedAt)
+        XCTAssertEqual(restoredService.yesterdayTotalTokens, 300)
+        XCTAssertEqual(restoredService.readerStatuses.first?.state, .failed)
+    }
+
+    private func waitForRequestCount(_ target: Int, state: FailingUsageReaderState) async {
+        for _ in 0..<20 where await state.requestCount() < target {
+            try? await Task.sleep(for: .milliseconds(10))
+        }
     }
 }
 
@@ -134,16 +235,22 @@ private final class FallbackTestClock {
 private actor FailingUsageReaderState {
     private let totalTokens: Int
     private var shouldFail = false
+    private var readCount = 0
 
     init(totalTokens: Int) {
         self.totalTokens = totalTokens
     }
 
     func readTotalTokens() throws -> Int {
+        readCount += 1
         if shouldFail {
             throw FailingUsageReaderError.unavailable
         }
         return totalTokens
+    }
+
+    func requestCount() -> Int {
+        readCount
     }
 
     func setShouldFail(_ shouldFail: Bool) {
