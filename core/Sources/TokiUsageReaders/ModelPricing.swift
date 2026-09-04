@@ -80,33 +80,33 @@ private let exactPricingTable: [String: ModelPrice] = [
     // Fast mode on claude-opus-5 bills $10/$50 under the same model ID, so
     // fast-mode usage is under-estimated by this table.
     "claude-fable-5-1": price(10.0, 50.0, 0.25, 12.5, 20.0),
-    "claude-fable-5": price(10.0, 50.0, 1.00, 12.5),
-    "claude-opus-5": price(5.0, 25.0, 0.50, 6.25),
+    "claude-fable-5": price(10.0, 50.0, 1.00, 12.5, 20.0),
+    "claude-opus-5": price(5.0, 25.0, 0.50, 6.25, 10.0),
     // Reported by the custom billing provider as its own catalog entry rather
     // than as a provider prefix on claude-opus-5, so it needs an explicit key.
     // Rates match claude-opus-5; it is exact-only for the same reason.
-    "kr/claude-opus-5": price(5.0, 25.0, 0.50, 6.25),
+    "kr/claude-opus-5": price(5.0, 25.0, 0.50, 6.25, 10.0),
     // Introductory pricing through 2026-08-31 (UTC); the standard rate from
     // 2026-09-01 is applied per usage timestamp via scheduledPriceChanges.
-    "claude-sonnet-5": price(2.0, 10.0, 0.20, 2.50),
+    "claude-sonnet-5": price(2.0, 10.0, 0.20, 2.50, 4.0),
 
     // Claude Opus 4 (specific versions)
-    "claude-opus-4-8": price(5.0, 25.0, 0.50, 6.25),
-    "claude-opus-4-7": price(5.0, 25.0, 0.50, 6.25),
-    "claude-opus-4-5-thinking-high": price(5.0, 25.0, 0.50, 6.25),
-    "claude-opus-4-6": price(5.0, 25.0, 0.50, 6.25),
-    "claude-opus-4-5": price(5.0, 25.0, 0.50, 6.25),
-    "claude-opus-4": price(15.0, 75.0, 1.50, 18.75),
+    "claude-opus-4-8": price(5.0, 25.0, 0.50, 6.25, 10.0),
+    "claude-opus-4-7": price(5.0, 25.0, 0.50, 6.25, 10.0),
+    "claude-opus-4-5-thinking-high": price(5.0, 25.0, 0.50, 6.25, 10.0),
+    "claude-opus-4-6": price(5.0, 25.0, 0.50, 6.25, 10.0),
+    "claude-opus-4-5": price(5.0, 25.0, 0.50, 6.25, 10.0),
+    "claude-opus-4": price(15.0, 75.0, 1.50, 18.75, 30.0),
 
     // Claude Sonnet 4 (specific versions)
-    "claude-sonnet-4-5-thinking-medium": price(3.0, 15.0, 0.30, 3.75),
-    "claude-sonnet-4-6": price(3.0, 15.0, 0.30, 3.75),
-    "claude-sonnet-4-5": price(3.0, 15.0, 0.30, 3.75),
-    "claude-sonnet-4": price(3.0, 15.0, 0.30, 3.75),
+    "claude-sonnet-4-5-thinking-medium": price(3.0, 15.0, 0.30, 3.75, 6.0),
+    "claude-sonnet-4-6": price(3.0, 15.0, 0.30, 3.75, 6.0),
+    "claude-sonnet-4-5": price(3.0, 15.0, 0.30, 3.75, 6.0),
+    "claude-sonnet-4": price(3.0, 15.0, 0.30, 3.75, 6.0),
 
     // Claude Haiku 4
-    "claude-haiku-4-5": price(1.0, 5.0, 0.10, 1.25),
-    "claude-haiku-4": price(1.0, 5.0, 0.10, 1.25),
+    "claude-haiku-4-5": price(1.0, 5.0, 0.10, 1.25, 2.0),
+    "claude-haiku-4": price(1.0, 5.0, 0.10, 1.25, 2.0),
 
     // OpenAI
     // GPT-5.6 standard short-context pricing.
@@ -128,8 +128,8 @@ private let exactPricingTable: [String: ModelPrice] = [
     "gpt-5.2-pro": price(21.0, 168.0, 0.0),
     "gpt-5": price(1.25, 10.0, 0.125),
     // Cursor aliases
-    "claude-4.5-sonnet-thinking": price(3.0, 15.0, 0.30, 3.75),
-    "claude-4.5-sonnet": price(3.0, 15.0, 0.30, 3.75),
+    "claude-4.5-sonnet-thinking": price(3.0, 15.0, 0.30, 3.75, 6.0),
+    "claude-4.5-sonnet": price(3.0, 15.0, 0.30, 3.75, 6.0),
 
     // Google Gemini
     "gemini-3-pro-high": price(2.0, 12.0, 0.20),
@@ -201,7 +201,7 @@ private let scheduledPriceChanges: [String: [ScheduledPriceChange]] = [
     "claude-sonnet-5": [
         ScheduledPriceChange(
             effectiveFrom: Date(timeIntervalSince1970: 1_788_220_800),
-            price: price(3.0, 15.0, 0.30, 3.75)),
+            price: price(3.0, 15.0, 0.30, 3.75, 6.0)),
     ],
 ]
 

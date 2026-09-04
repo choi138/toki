@@ -16,22 +16,26 @@ final class Claude5ModelPricingBehaviorTests: XCTestCase {
                 inputPerMillion: 10.0,
                 outputPerMillion: 50.0,
                 cacheReadPerMillion: 0.25,
-                cacheWritePerMillion: 12.5),
+                cacheWritePerMillion: 12.5,
+                cacheWriteOneHourPerMillion: 20.0),
             "claude-fable-5": ModelPrice(
                 inputPerMillion: 10.0,
                 outputPerMillion: 50.0,
                 cacheReadPerMillion: 1.00,
-                cacheWritePerMillion: 12.5),
+                cacheWritePerMillion: 12.5,
+                cacheWriteOneHourPerMillion: 20.0),
             "claude-opus-5": ModelPrice(
                 inputPerMillion: 5.0,
                 outputPerMillion: 25.0,
                 cacheReadPerMillion: 0.50,
-                cacheWritePerMillion: 6.25),
+                cacheWritePerMillion: 6.25,
+                cacheWriteOneHourPerMillion: 10.0),
             "claude-sonnet-5": ModelPrice(
                 inputPerMillion: 2.0,
                 outputPerMillion: 10.0,
                 cacheReadPerMillion: 0.20,
-                cacheWritePerMillion: 2.50),
+                cacheWritePerMillion: 2.50,
+                cacheWriteOneHourPerMillion: 4.0),
         ]
 
         for (modelID, expected) in expectedPrices {
@@ -43,18 +47,16 @@ final class Claude5ModelPricingBehaviorTests: XCTestCase {
             XCTAssertEqual(price.outputPerMillion, expected.outputPerMillion, accuracy: 0.0001)
             XCTAssertEqual(price.cacheReadPerMillion, expected.cacheReadPerMillion, accuracy: 0.0001)
             XCTAssertEqual(price.cacheWritePerMillion, expected.cacheWritePerMillion, accuracy: 0.0001)
+            XCTAssertEqual(price.cacheWriteOneHourPerMillion, expected.cacheWriteOneHourPerMillion, accuracy: 0.0001)
         }
-
-        let fable51 = try XCTUnwrap(modelPrice(for: "claude-fable-5-1"))
-        XCTAssertEqual(fable51.cacheWriteOneHourPerMillion, 20.0, accuracy: 0.0001)
     }
 
     func test_modelPrice_calculatesClaude5CostWithCacheRates() throws {
         let expectedCosts: [(modelID: String, cost: Double)] = [
-            ("claude-fable-5-1", 72.75),
-            ("claude-fable-5", 73.5),
-            ("claude-opus-5", 36.75),
-            ("claude-sonnet-5", 14.7),
+            ("claude-fable-5-1", 92.75),
+            ("claude-fable-5", 93.5),
+            ("claude-opus-5", 46.75),
+            ("claude-sonnet-5", 18.7),
         ]
 
         for expected in expectedCosts {
@@ -63,7 +65,8 @@ final class Claude5ModelPricingBehaviorTests: XCTestCase {
                 input: 1_000_000,
                 output: 1_000_000,
                 cacheRead: 1_000_000,
-                cacheWrite: 1_000_000)
+                cacheWrite: 1_000_000,
+                cacheWriteOneHour: 1_000_000)
 
             XCTAssertEqual(cost, expected.cost, accuracy: 0.0001)
         }
@@ -132,12 +135,14 @@ final class Claude5ModelPricingBehaviorTests: XCTestCase {
         XCTAssertEqual(intro.outputPerMillion, 10.0, accuracy: 0.0001)
         XCTAssertEqual(intro.cacheReadPerMillion, 0.20, accuracy: 0.0001)
         XCTAssertEqual(intro.cacheWritePerMillion, 2.50, accuracy: 0.0001)
+        XCTAssertEqual(intro.cacheWriteOneHourPerMillion, 4.0, accuracy: 0.0001)
 
         let standard = try XCTUnwrap(modelPrice(for: "claude-sonnet-5", at: Self.sonnet5StandardPricingStart))
         XCTAssertEqual(standard.inputPerMillion, 3.0, accuracy: 0.0001)
         XCTAssertEqual(standard.outputPerMillion, 15.0, accuracy: 0.0001)
         XCTAssertEqual(standard.cacheReadPerMillion, 0.30, accuracy: 0.0001)
         XCTAssertEqual(standard.cacheWritePerMillion, 3.75, accuracy: 0.0001)
+        XCTAssertEqual(standard.cacheWriteOneHourPerMillion, 6.0, accuracy: 0.0001)
 
         let standardLookup = modelPriceLookup(for: "claude-sonnet-5", at: Self.sonnet5StandardPricingStart)
         XCTAssertEqual(standardLookup.match, .exact(modelId: "claude-sonnet-5"))
@@ -216,6 +221,33 @@ final class Claude5ModelPricingBehaviorTests: XCTestCase {
             XCTAssertEqual(price.outputPerMillion, 25.0, accuracy: 0.0001)
             XCTAssertEqual(price.cacheReadPerMillion, 0.50, accuracy: 0.0001)
             XCTAssertEqual(price.cacheWritePerMillion, 6.25, accuracy: 0.0001)
+        }
+    }
+}
+
+extension Claude5ModelPricingBehaviorTests {
+    func test_modelPrice_setsOneHourCacheWriteRatesForClaudeCatalog() throws {
+        let expectedRates: [String: Double] = [
+            "claude-opus-4-8": 10.0,
+            "claude-opus-4-7": 10.0,
+            "claude-opus-4-5-thinking-high": 10.0,
+            "claude-opus-4-6": 10.0,
+            "claude-opus-4-5": 10.0,
+            "claude-opus-4": 30.0,
+            "claude-sonnet-4-5-thinking-medium": 6.0,
+            "claude-sonnet-4-6": 6.0,
+            "claude-sonnet-4-5": 6.0,
+            "claude-sonnet-4": 6.0,
+            "claude-haiku-4-5": 2.0,
+            "claude-haiku-4": 2.0,
+            "claude-4.5-sonnet-thinking": 6.0,
+            "claude-4.5-sonnet": 6.0,
+            "kr/claude-opus-5": 10.0,
+        ]
+
+        for (modelID, expectedRate) in expectedRates {
+            let price = try XCTUnwrap(modelPrice(for: modelID, at: Self.claude5IntroductoryDate))
+            XCTAssertEqual(price.cacheWriteOneHourPerMillion, expectedRate, accuracy: 0.0001)
         }
     }
 }
