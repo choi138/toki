@@ -235,6 +235,77 @@ final class UsageServiceFailureFallbackTests: XCTestCase {
 }
 
 @MainActor
+final class UsageScopedFailureFallbackTests: XCTestCase {
+    func test_usageServicePreservesSelectedRemoteUsageWhenRemoteReaderFails() async throws {
+        let suiteName = "UsageScopedFailureFallbackTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let remoteID = UsageOriginID.remote(deviceID: "remote-a")
+        let remoteState = FailingOriginUsageReaderState(totalTokens: 300)
+        let service = UsageService(
+            readers: [
+                FailingUsageReader(
+                    name: "Local",
+                    state: FailingUsageReaderState(totalTokens: 500)),
+                FailingOriginUsageReader(name: "Remote Devices", state: remoteState),
+            ],
+            settings: UsagePanelSettings(
+                defaults: defaults,
+                readerNames: ["Local", "Remote Devices"]))
+        let pastDay = try XCTUnwrap(Calendar.current.date(byAdding: .day, value: -2, to: Date()))
+
+        service.selectDay(pastDay)
+        await service.refresh()
+        service.selectUsageScope(.origin(remoteID))
+        let successfulFetchedAt = service.lastFetchedAt
+        XCTAssertEqual(service.usageData.totalTokens, 300)
+
+        await remoteState.setShouldFail(true)
+        await service.refresh()
+
+        XCTAssertEqual(service.selectedUsageScope, .origin(remoteID))
+        XCTAssertEqual(service.usageData.totalTokens, 300)
+        XCTAssertEqual(service.lastFetchedAt, successfulFetchedAt)
+        XCTAssertEqual(service.readerStatuses.first(where: { $0.name == "Remote Devices" })?.state, .failed)
+    }
+
+    func test_usageServicePublishesLocalComparisonWhenRemoteReaderFails() async throws {
+        let suiteName = "UsageScopedFailureFallbackTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let remoteState = FailingOriginUsageReaderState(totalTokens: 500)
+        let service = UsageService(
+            readers: [
+                FailingUsageReader(
+                    name: "Local",
+                    state: FailingUsageReaderState(totalTokens: 300)),
+                FailingOriginUsageReader(name: "Remote Devices", state: remoteState),
+            ],
+            settings: UsagePanelSettings(
+                defaults: defaults,
+                readerNames: ["Local", "Remote Devices"]),
+            comparisonDebounce: .zero)
+
+        await service.refresh()
+        await waitForYesterdayTotal(800, in: service)
+        await remoteState.setShouldFail(true)
+        service.selectUsageScope(.origin(.local))
+        await waitForYesterdayTotal(300, in: service)
+
+        XCTAssertEqual(service.selectedUsageScope, .origin(.local))
+        XCTAssertEqual(service.yesterdayTotalTokens, 300)
+    }
+
+    private func waitForYesterdayTotal(_ expected: Int, in service: UsageService) async {
+        let deadline = Date().addingTimeInterval(2)
+        while service.yesterdayTotalTokens != expected, Date() < deadline {
+            try? await Task.sleep(for: .milliseconds(10))
+        }
+        XCTAssertEqual(service.yesterdayTotalTokens, expected)
+    }
+}
+
+@MainActor
 final class UsageScopedPeriodFallbackTests: XCTestCase {
     func test_usageServiceClearsPeriodTotalsWhenDifferentReaderRequestFails() async throws {
         let suiteName = "UsageScopedPeriodFallbackTests.\(UUID().uuidString)"

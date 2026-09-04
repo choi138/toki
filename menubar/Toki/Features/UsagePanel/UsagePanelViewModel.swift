@@ -393,7 +393,9 @@ private extension UsagePanelViewModel {
             lastSuccessfulUsage = successfulUsage
             return successfulUsage
         }
-        let participatingStatuses = result.readerStatuses.filter { $0.state != .disabled }
+        let participatingStatuses = panelReaderStatuses(
+            result.readerStatuses,
+            for: selectedUsageScope).filter { $0.state != .disabled }
         guard !participatingStatuses.isEmpty,
               participatingStatuses.allSatisfy({ $0.state == .failed }),
               lastSuccessfulUsageIdentity == identity,
@@ -650,7 +652,10 @@ private extension UsagePanelViewModel {
                 return
             }
 
-            guard !previousResult.hasReaderFailures else {
+            let participatingStatuses = panelReaderStatuses(
+                previousResult.readerStatuses,
+                for: scope)
+            guard !participatingStatuses.contains(where: { $0.state == .failed }) else {
                 yesterdayComparisonTask = nil
                 return
             }
