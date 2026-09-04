@@ -1,3 +1,4 @@
+// swiftlint:disable file_length
 import TokiUsageCore
 import XCTest
 @testable import Toki
@@ -25,7 +26,7 @@ final class UsageServiceFailureFallbackTests: XCTestCase {
         await failingState.setShouldFail(true)
         await service.refresh()
 
-        XCTAssertEqual(service.presentationSnapshot.combinedUsageData.totalTokens, 300)
+        XCTAssertEqual(service.usageData.totalTokens, 300)
         XCTAssertEqual(service.readerStatuses.first(where: { $0.name == "Disabled" })?.state, .disabled)
         XCTAssertEqual(service.readerStatuses.first(where: { $0.name == "Flaky" })?.state, .failed)
     }
@@ -40,13 +41,13 @@ final class UsageServiceFailureFallbackTests: XCTestCase {
 
         service.selectDay(pastDay)
         await service.refresh()
-        let successfulFetchTime = service.presentationSnapshot.lastFetchedAt
+        let successfulFetchTime = service.lastFetchedAt
         clock.now = clock.now.addingTimeInterval(300)
         await state.setShouldFail(true)
         await service.refresh()
 
-        XCTAssertEqual(service.presentationSnapshot.combinedUsageData.totalTokens, 300)
-        XCTAssertEqual(service.presentationSnapshot.lastFetchedAt, successfulFetchTime)
+        XCTAssertEqual(service.usageData.totalTokens, 300)
+        XCTAssertEqual(service.lastFetchedAt, successfulFetchTime)
     }
 
     func test_usageServiceSeedsFallbackFromCachedWindow() async throws {
@@ -68,22 +69,22 @@ final class UsageServiceFailureFallbackTests: XCTestCase {
         await state.setShouldFail(true)
         await service.refresh(usesWindowResultCache: true)
 
-        XCTAssertEqual(service.presentationSnapshot.combinedUsageData.totalTokens, 300)
+        XCTAssertEqual(service.usageData.totalTokens, 300)
         XCTAssertEqual(service.readerStatuses.first?.state, .failed)
     }
 
     func test_usageServiceRetainsFallbackAcrossPresentationScopeChange() async throws {
-        let state = FailingUsageReaderState(totalTokens: 300)
+        let state = FailingUsageReaderState(totalTokens: 300, modelID: "known-model")
         let service = UsageService(readers: [FailingUsageReader(name: "Flaky", state: state)])
         let pastDay = try XCTUnwrap(Calendar.current.date(byAdding: .day, value: -2, to: Date()))
 
         service.selectDay(pastDay)
         await service.refresh()
-        service.selectModelScope(.model("unavailable-model"))
+        service.selectModelScope(.model("known-model"))
         await state.setShouldFail(true)
         await service.refresh()
 
-        XCTAssertEqual(service.presentationSnapshot.combinedUsageData.totalTokens, 300)
+        XCTAssertEqual(service.usageData.totalTokens, 300)
         XCTAssertEqual(service.readerStatuses.first?.state, .failed)
     }
 
@@ -296,6 +297,76 @@ final class UsageScopedFailureFallbackTests: XCTestCase {
         XCTAssertEqual(service.yesterdayTotalTokens, 300)
     }
 
+    func test_usageServicePreservesModelComparisonWhenReaderFails() async throws {
+        let suiteName = "UsageScopedFailureFallbackTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let clock = FallbackTestClock(now: tokiTestISODate("2026-09-04T12:00:00Z"))
+        let state = FailingUsageReaderState(totalTokens: 300, modelID: "shared-model")
+        let service = UsageService(
+            readers: [FailingUsageReader(name: "Flaky", state: state)],
+            settings: UsagePanelSettings(defaults: defaults, readerNames: ["Flaky"]),
+            comparisonDebounce: .zero,
+            now: { clock.now })
+
+        await service.refresh()
+        service.selectModelScope(.model("shared-model"))
+        await waitForYesterdayTotal(300, in: service)
+        await waitForPeriodTotals([300, 300, 300], in: service)
+        let completedRequestCount = await state.requestCount()
+
+        clock.now = clock.now.addingTimeInterval(30)
+        await state.setShouldFail(true)
+        await service.refresh()
+        await waitForRequestCount(completedRequestCount + 2, state: state)
+
+        XCTAssertEqual(service.usageData.totalTokens, 300)
+        XCTAssertEqual(service.yesterdayTotalTokens, 300)
+        XCTAssertEqual(service.readerStatuses.first?.state, .failed)
+    }
+
+    func test_usageServiceKeepsFreshHealthyScopeDataBehindFailedScopeFallback() async throws {
+        let suiteName = "UsageScopedFailureFallbackTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let clock = FallbackTestClock(now: tokiTestISODate("2026-09-04T12:00:00Z"))
+        let localState = FailingUsageReaderState(totalTokens: 500)
+        let remoteState = FailingOriginUsageReaderState(totalTokens: 300)
+        let service = UsageService(
+            readers: [
+                FailingUsageReader(name: "Local", state: localState),
+                FailingOriginUsageReader(name: "Remote Devices", state: remoteState),
+            ],
+            settings: UsagePanelSettings(
+                defaults: defaults,
+                readerNames: ["Local", "Remote Devices"]),
+            now: { clock.now })
+        let pastDay = try XCTUnwrap(Calendar.current.date(byAdding: .day, value: -2, to: clock.now))
+
+        service.selectDay(pastDay)
+        await service.refresh()
+        service.selectUsageScope(.origin(.remote(deviceID: "remote-a")))
+        let successfulFetchedAt = service.lastFetchedAt
+
+        clock.now = clock.now.addingTimeInterval(300)
+        await localState.setTotalTokens(700)
+        await remoteState.setShouldFail(true)
+        await service.refresh()
+
+        XCTAssertEqual(service.presentationSnapshot.combinedUsageData.totalTokens, 700)
+        XCTAssertEqual(service.presentationSnapshot.lastFetchedAt, clock.now)
+        XCTAssertEqual(service.usageData.totalTokens, 300)
+        XCTAssertEqual(service.lastFetchedAt, successfulFetchedAt)
+
+        service.selectUsageScope(.origin(.local))
+        XCTAssertEqual(service.usageData.totalTokens, 700)
+        XCTAssertEqual(service.lastFetchedAt, clock.now)
+
+        service.selectUsageScope(.all)
+        XCTAssertEqual(service.usageData.totalTokens, 700)
+        XCTAssertEqual(service.lastFetchedAt, clock.now)
+    }
+
     private func waitForYesterdayTotal(_ expected: Int, in service: UsageService) async {
         let deadline = Date().addingTimeInterval(2)
         while service.yesterdayTotalTokens != expected, Date() < deadline {
@@ -303,10 +374,62 @@ final class UsageScopedFailureFallbackTests: XCTestCase {
         }
         XCTAssertEqual(service.yesterdayTotalTokens, expected)
     }
+
+    private func waitForPeriodTotals(_ totals: [Int], in service: UsageService) async {
+        let deadline = Date().addingTimeInterval(2)
+        while service.periodTokenTotals.map(\.totalTokens) != totals
+            || service.isLoadingPeriodTokenTotals, Date() < deadline {
+            try? await Task.sleep(for: .milliseconds(10))
+        }
+        XCTAssertEqual(service.periodTokenTotals.map(\.totalTokens), totals)
+        XCTAssertFalse(service.isLoadingPeriodTokenTotals)
+    }
+
+    private func waitForRequestCount(_ target: Int, state: FailingUsageReaderState) async {
+        let deadline = Date().addingTimeInterval(2)
+        while await state.requestCount() < target, Date() < deadline {
+            try? await Task.sleep(for: .milliseconds(10))
+        }
+        let requestCount = await state.requestCount()
+        XCTAssertGreaterThanOrEqual(requestCount, target)
+    }
 }
 
 @MainActor
 final class UsageScopedPeriodFallbackTests: XCTestCase {
+    func test_usageServicePreservesSelectedModelTotalsWhenOneReaderFails() async throws {
+        let suiteName = "UsageScopedPeriodFallbackTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let healthyState = FailingUsageReaderState(totalTokens: 300, modelID: "shared-model")
+        let failingState = FailingUsageReaderState(totalTokens: 100, modelID: "shared-model")
+        let service = UsageService(
+            readers: [
+                FailingUsageReader(name: "Healthy", state: healthyState),
+                FailingUsageReader(name: "Flaky", state: failingState),
+            ],
+            settings: UsagePanelSettings(
+                defaults: defaults,
+                readerNames: ["Healthy", "Flaky"]),
+            periodTokenTotalsCache: PeriodTokenTotalsCache(defaults: defaults))
+        let pastDay = try XCTUnwrap(Calendar.current.date(byAdding: .day, value: -2, to: Date()))
+
+        service.selectDay(pastDay)
+        await service.refresh()
+        service.selectModelScope(.model("shared-model"))
+        await waitForPeriodTotals([400, 400, 400], in: service)
+        let successfulFetchedAt = service.lastPeriodTokenTotalsFetchedAt
+
+        await failingState.setShouldFail(true)
+        await service.refresh()
+        await service.refreshPeriodTokenTotals()
+
+        XCTAssertEqual(service.presentationSnapshot.combinedUsageData.totalTokens, 300)
+        XCTAssertEqual(service.usageData.totalTokens, 400)
+        XCTAssertEqual(service.periodTokenTotals.map(\.totalTokens), [400, 400, 400])
+        XCTAssertEqual(service.lastPeriodTokenTotalsFetchedAt, successfulFetchedAt)
+    }
+
     func test_usageServiceClearsPeriodTotalsWhenDifferentReaderRequestFails() async throws {
         let suiteName = "UsageScopedPeriodFallbackTests.\(UUID().uuidString)"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
@@ -420,20 +543,22 @@ private final class FallbackTestClock {
 }
 
 private actor FailingUsageReaderState {
-    private let totalTokens: Int
+    private var totalTokens: Int
+    private let modelID: String?
     private var shouldFail = false
     private var readCount = 0
 
-    init(totalTokens: Int) {
+    init(totalTokens: Int, modelID: String? = nil) {
         self.totalTokens = totalTokens
+        self.modelID = modelID
     }
 
-    func readTotalTokens() throws -> Int {
+    func readUsageConfiguration() throws -> (totalTokens: Int, modelID: String?) {
         readCount += 1
         if shouldFail {
             throw FailingUsageReaderError.unavailable
         }
-        return totalTokens
+        return (totalTokens, modelID)
     }
 
     func requestCount() -> Int {
@@ -443,14 +568,25 @@ private actor FailingUsageReaderState {
     func setShouldFail(_ shouldFail: Bool) {
         self.shouldFail = shouldFail
     }
+
+    func setTotalTokens(_ totalTokens: Int) {
+        self.totalTokens = totalTokens
+    }
 }
 
 private actor FailingOriginUsageReaderState {
-    private let slices: [UsageOriginSlice]
+    private var totalTokens: Int
     private var shouldFail = false
 
     init(totalTokens: Int) {
-        slices = [
+        self.totalTokens = totalTokens
+    }
+
+    func readUsageByOrigin() throws -> [UsageOriginSlice] {
+        if shouldFail {
+            throw FailingUsageReaderError.unavailable
+        }
+        return [
             UsageOriginSlice(
                 origin: .remote(
                     deviceID: "remote-a",
@@ -460,13 +596,6 @@ private actor FailingOriginUsageReaderState {
                 usage: mockUsage(totalTokens: totalTokens),
                 sourceStats: []),
         ]
-    }
-
-    func readUsageByOrigin() throws -> [UsageOriginSlice] {
-        if shouldFail {
-            throw FailingUsageReaderError.unavailable
-        }
-        return slices
     }
 
     func setShouldFail(_ shouldFail: Bool) {
@@ -479,7 +608,14 @@ private struct FailingUsageReader: TokenReader {
     let state: FailingUsageReaderState
 
     func readUsage(from startDate: Date, to endDate: Date) async throws -> RawTokenUsage {
-        try await mockUsage(totalTokens: state.readTotalTokens())
+        let configuration = try await state.readUsageConfiguration()
+        var usage = mockUsage(totalTokens: configuration.totalTokens)
+        if let modelID = configuration.modelID {
+            usage.perModel[modelID] = PerModelUsage(
+                totalTokens: configuration.totalTokens,
+                sources: [name])
+        }
+        return usage
     }
 }
 

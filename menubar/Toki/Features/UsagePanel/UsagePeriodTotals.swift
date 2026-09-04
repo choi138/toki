@@ -289,12 +289,10 @@ private extension UsagePanelViewModel {
                 scope: request.scope,
                 modelScope: request.modelScope)
             guard !Task.isCancelled else { return summaries }
-            let participatingStatuses = panelReaderStatuses(
-                result.readerStatuses,
-                for: request.scope)
-                .filter { $0.state != .disabled }
-            guard participatingStatuses.isEmpty
-                || !participatingStatuses.allSatisfy({ $0.state == .failed }) else {
+            guard !panelUsageSelectionRequiresFallback(
+                readerStatuses: result.readerStatuses,
+                scope: request.scope,
+                modelScope: request.modelScope) else {
                 return nil
             }
             summaries.append(
