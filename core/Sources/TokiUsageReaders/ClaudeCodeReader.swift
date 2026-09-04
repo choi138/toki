@@ -230,14 +230,7 @@ extension ClaudeCodeReader {
                   let date = DateParser.parse(tsStr),
                   let usage = msg.message?.usage else { return nil }
 
-            let cacheWrite = usage.cacheCreationInputTokens
-                ?? usage.cacheCreation.map {
-                    ($0.ephemeral5MinuteInputTokens ?? 0) + ($0.ephemeral1HourInputTokens ?? 0)
-                }
-                ?? 0
-            let cacheWriteOneHour = min(
-                cacheWrite,
-                usage.cacheCreation?.ephemeral1HourInputTokens ?? 0)
+            let cacheWrite = cacheWriteTokens(for: usage)
 
             return ClaudeCachedUsageRecord(
                 lineIndex: index,
@@ -250,9 +243,23 @@ extension ClaudeCodeReader {
                 input: usage.inputTokens ?? 0,
                 output: usage.outputTokens ?? 0,
                 cacheRead: usage.cacheReadInputTokens ?? 0,
-                cacheWrite: cacheWrite,
-                cacheWriteOneHour: cacheWriteOneHour)
+                cacheWrite: cacheWrite.total,
+                cacheWriteOneHour: cacheWrite.oneHour)
         }
+    }
+
+    private static func cacheWriteTokens(for usage: RawMessage.Message.Usage) -> (total: Int, oneHour: Int) {
+        let oneHour = max(usage.cacheCreation?.ephemeral1HourInputTokens ?? 0, 0)
+        if let aggregate = usage.cacheCreationInputTokens, aggregate >= 0 {
+            return (aggregate, min(aggregate, oneHour))
+        }
+
+        let fiveMinutes = max(usage.cacheCreation?.ephemeral5MinuteInputTokens ?? 0, 0)
+        let sum = fiveMinutes.addingReportingOverflow(oneHour)
+        guard !sum.overflow else {
+            return (0, 0)
+        }
+        return (sum.partialValue, oneHour)
     }
 
     private static func resolveAttributionHomeDirectory(projectsURLOverride: URL?) -> URL {
@@ -453,6 +460,17 @@ private struct RawMessage: Decodable {
                 case cacheReadInputTokens = "cache_read_input_tokens"
                 case cacheCreationInputTokens = "cache_creation_input_tokens"
                 case cacheCreation = "cache_creation"
+            }
+
+            init(from decoder: Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                inputTokens = try container.decodeIfPresent(Int.self, forKey: .inputTokens)
+                outputTokens = try container.decodeIfPresent(Int.self, forKey: .outputTokens)
+                cacheReadInputTokens = try container.decodeIfPresent(Int.self, forKey: .cacheReadInputTokens)
+                cacheCreationInputTokens = try container.decodeIfPresent(
+                    Int.self,
+                    forKey: .cacheCreationInputTokens)
+                cacheCreation = try? container.decode(CacheCreation.self, forKey: .cacheCreation)
             }
 
             struct CacheCreation: Decodable {

@@ -88,6 +88,44 @@ final class Claude5ModelPricingBehaviorTests: XCTestCase {
         XCTAssertEqual(usage.cost, 32.5, accuracy: 0.0001)
     }
 
+    func test_claudeCodeReader_keepsAggregateCacheWriteWhenTTLMetadataIsMalformed() {
+        let usage = ClaudeCodeReader.usage(
+            fromJSONLLines: [
+                """
+                {"type":"assistant","timestamp":"2026-07-28T00:00:00Z","requestId":"req-1",\
+                "message":{"id":"msg-1","model":"claude-fable-5-1","usage":{\
+                "input_tokens":10,"output_tokens":5,"cache_creation_input_tokens":100,\
+                "cache_creation":"malformed"}}}
+                """,
+            ],
+            streamID: "fable-5-1-malformed-ttl-test",
+            from: Self.claude5IntroductoryDate,
+            to: Self.claude5IntroductoryDate.addingTimeInterval(3600))
+
+        XCTAssertEqual(usage.inputTokens, 10)
+        XCTAssertEqual(usage.outputTokens, 5)
+        XCTAssertEqual(usage.cacheWriteTokens, 100)
+    }
+
+    func test_claudeCodeReader_discardsOverflowingTTLBreakdownWithoutDroppingMessage() {
+        let usage = ClaudeCodeReader.usage(
+            fromJSONLLines: [
+                """
+                {"type":"assistant","timestamp":"2026-07-28T00:00:00Z","requestId":"req-1",\
+                "message":{"id":"msg-1","model":"claude-fable-5-1","usage":{\
+                "input_tokens":10,"output_tokens":5,"cache_creation":{\
+                "ephemeral_5m_input_tokens":9223372036854775807,"ephemeral_1h_input_tokens":1}}}}
+                """,
+            ],
+            streamID: "fable-5-1-overflowing-ttl-test",
+            from: Self.claude5IntroductoryDate,
+            to: Self.claude5IntroductoryDate.addingTimeInterval(3600))
+
+        XCTAssertEqual(usage.inputTokens, 10)
+        XCTAssertEqual(usage.outputTokens, 5)
+        XCTAssertEqual(usage.cacheWriteTokens, 0)
+    }
+
     func test_modelPrice_selectsSonnet5RateByUsageTimestamp() throws {
         let intro = try XCTUnwrap(modelPrice(for: "claude-sonnet-5", at: Self.sonnet5LastIntroductoryDate))
         XCTAssertEqual(intro.inputPerMillion, 2.0, accuracy: 0.0001)
