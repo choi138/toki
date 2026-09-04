@@ -36,6 +36,15 @@ struct UsageAggregationResult: Equatable {
     let readerStatuses: [ReaderStatus]
 }
 
+struct TokenTotalAggregationResult: Equatable {
+    let totalTokens: Int
+    let readerStatuses: [ReaderStatus]
+
+    var hasReaderFailures: Bool {
+        readerStatuses.contains { $0.state == .failed }
+    }
+}
+
 final class UsageAggregator {
     static let defaultReaders: [any TokenReader] = LocalUsageReaderRegistry.readers(
         codexRolloutUsageCache: .shared) + [
@@ -84,17 +93,30 @@ final class UsageAggregator {
         for request: UsageAggregationRequest,
         scope: UsageScope = .all,
         modelScope: UsageModelScope = .all) async -> Int {
+        await aggregateTotalTokenResult(
+            for: request,
+            scope: scope,
+            modelScope: modelScope).totalTokens
+    }
+
+    func aggregateTotalTokenResult(
+        for request: UsageAggregationRequest,
+        scope: UsageScope = .all,
+        modelScope: UsageModelScope = .all) async -> TokenTotalAggregationResult {
         if case let .model(modelID) = modelScope {
             let result = await aggregateUsage(for: request)
-            switch scope {
+            let totalTokens = switch scope {
             case .all:
-                return result.modelReports[modelID]?.usageData.totalTokens ?? 0
+                result.modelReports[modelID]?.usageData.totalTokens ?? 0
             case let .origin(originID):
-                return result.originReports
+                result.originReports
                     .first { $0.id == originID }?
                     .modelReports[modelID]?
                     .usageData.totalTokens ?? 0
             }
+            return TokenTotalAggregationResult(
+                totalTokens: totalTokens,
+                readerStatuses: result.readerStatuses)
         }
         return await fetchTotalTokens(for: request, scope: scope)
     }
@@ -112,12 +134,29 @@ private struct UsageFetchSummary {
 }
 
 private extension UsageAggregator {
-    func fetchTotalTokens(for request: UsageAggregationRequest, scope: UsageScope) async -> Int {
-        guard !Task.isCancelled else { return 0 }
+    func fetchTotalTokens(
+        for request: UsageAggregationRequest,
+        scope: UsageScope) async -> TokenTotalAggregationResult {
+        guard !Task.isCancelled else {
+            return TokenTotalAggregationResult(totalTokens: 0, readerStatuses: [])
+        }
 
-        var totalTokens = 0
-        await withTaskGroup(of: Int.self) { group in
-            for reader in readers {
+        var results: [ReaderTotalFetchResult] = readers.enumerated().compactMap { index, reader in
+            guard request.enabledReaderNames[reader.name] == false else { return nil }
+            return ReaderTotalFetchResult(
+                index: index,
+                totalTokens: 0,
+                status: ReaderStatus(
+                    name: reader.name,
+                    state: .disabled,
+                    message: nil,
+                    lastReadAt: nil,
+                    totalTokens: 0,
+                    isOriginPartitioned: reader is any OriginPartitionedTokenReader))
+        }
+
+        await withTaskGroup(of: ReaderTotalFetchResult.self) { group in
+            for (index, reader) in readers.enumerated() {
                 guard request.enabledReaderNames[reader.name] ?? true else { continue }
                 guard !Task.isCancelled else {
                     group.cancelAll()
@@ -125,7 +164,8 @@ private extension UsageAggregator {
                 }
 
                 group.addTask {
-                    await readerTotalTokens(
+                    await readerTotalFetchResult(
+                        index: index,
                         reader: reader,
                         scope: scope,
                         from: request.start,
@@ -138,12 +178,18 @@ private extension UsageAggregator {
                     group.cancelAll()
                     return
                 }
-                totalTokens += partial
+                results.append(partial)
             }
         }
 
-        guard !Task.isCancelled else { return 0 }
-        return totalTokens
+        guard !Task.isCancelled else {
+            return TokenTotalAggregationResult(totalTokens: 0, readerStatuses: [])
+        }
+
+        let sortedResults = results.sorted { $0.index < $1.index }
+        return TokenTotalAggregationResult(
+            totalTokens: sortedResults.reduce(0) { $0 + $1.totalTokens },
+            readerStatuses: sortedResults.map(\.status))
     }
 
     func fetchOutputTokens(for request: UsageAggregationRequest, scope: UsageScope) async -> Int {
@@ -238,32 +284,6 @@ private extension UsageAggregator {
                 originSlices.flatMap(\.sourceStats)
                     + sortedResults.flatMap(\.fallbackSourceStats)),
             originSlices: originSlices)
-    }
-}
-
-private func readerTotalTokens(
-    reader: any TokenReader,
-    scope: UsageScope,
-    from startDate: Date,
-    to endDate: Date) async -> Int {
-    guard !Task.isCancelled else { return 0 }
-
-    do {
-        switch scope {
-        case .all:
-            return try await reader.readTotalTokens(from: startDate, to: endDate)
-        case let .origin(originID):
-            if let partitionedReader = reader as? any OriginPartitionedTokenReader {
-                return try await partitionedReader
-                    .readUsageByOrigin(from: startDate, to: endDate)
-                    .filter { $0.origin.id == originID }
-                    .reduce(0) { $0 + $1.usage.totalTokens }
-            }
-            guard originID == .local else { return 0 }
-            return try await reader.readTotalTokens(from: startDate, to: endDate)
-        }
-    } catch {
-        return 0
     }
 }
 

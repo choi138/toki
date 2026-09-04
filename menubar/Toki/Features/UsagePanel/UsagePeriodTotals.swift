@@ -270,10 +270,15 @@ private extension UsagePanelViewModel {
                 end: interval.end,
                 enabledReaderNames: request.enabledReaderNames,
                 includesEmptySourceRows: request.includesEmptySourceRows)
-            let totalTokens = await aggregator.aggregateTotalTokens(
+            let result = await aggregator.aggregateTotalTokenResult(
                 for: usageRequest,
                 scope: request.scope,
                 modelScope: request.modelScope)
+            let totalTokens = if result.hasReaderFailures {
+                previousPeriodTotal(for: period, request: request) ?? result.totalTokens
+            } else {
+                result.totalTokens
+            }
 
             guard !Task.isCancelled else { return summaries }
             summaries.append(
@@ -285,5 +290,12 @@ private extension UsagePanelViewModel {
         }
 
         return summaries
+    }
+
+    func previousPeriodTotal(
+        for period: TokenTotalPeriod,
+        request: PeriodTokenTotalsRequest) -> Int? {
+        guard lastPeriodTokenTotalsRequest == request else { return nil }
+        return periodTokenTotals.first { $0.period == period }?.totalTokens
     }
 }

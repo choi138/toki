@@ -53,6 +53,8 @@ final class UsagePanelViewModel: ObservableObject {
     private var usageRefreshGeneration: UInt64 = 0
     private var presentedUsageRequest: UsageAggregationRequest?
     private var presentedUsageWindow: CurrentUsageWindow?
+    private var lastSuccessfulUsageRequest: UsageAggregationRequest?
+    private var lastSuccessfulUsageResult: UsageAggregationResult?
     var activePeriodTokenTotalsRequest: PeriodTokenTotalsRequest?
     var periodTokenTotalsGeneration: UInt64 = 0
     var lastPeriodTokenTotalsRequest: PeriodTokenTotalsRequest?
@@ -203,8 +205,9 @@ final class UsagePanelViewModel: ObservableObject {
         activeRefreshIdentity = nil
         let fetchedAt = now()
         previousTotalTokens = canCachePreviousComparison ? previousTotalTokens : nil
+        let publishedResult = resultPreservingLastSuccessfulUsage(result, for: request)
         let didFallBackToAllDevices = publishUsageResult(
-            result,
+            publishedResult,
             request: request,
             fetchedAt: fetchedAt,
             previousTotalTokens: previousTotalTokens,
@@ -213,7 +216,7 @@ final class UsagePanelViewModel: ObservableObject {
             usageWindowResultCache.store(
                 UsageWindowResultCacheEntry(
                     request: request,
-                    result: result,
+                    result: publishedResult,
                     fetchedAt: fetchedAt,
                     previousTotalTokens: previousTotalTokens),
                 for: cacheKey,
@@ -371,6 +374,25 @@ extension UsagePanelViewModel {
 }
 
 private extension UsagePanelViewModel {
+    func resultPreservingLastSuccessfulUsage(
+        _ result: UsageAggregationResult,
+        for request: UsageAggregationRequest) -> UsageAggregationResult {
+        guard result.readerStatuses.contains(where: { $0.state == .failed }) else {
+            lastSuccessfulUsageRequest = request
+            lastSuccessfulUsageResult = result
+            return result
+        }
+        guard lastSuccessfulUsageRequest == request,
+              let lastSuccessfulUsageResult else {
+            return result
+        }
+        return UsageAggregationResult(
+            usageData: lastSuccessfulUsageResult.usageData,
+            modelReports: lastSuccessfulUsageResult.modelReports,
+            originReports: lastSuccessfulUsageResult.originReports,
+            readerStatuses: result.readerStatuses)
+    }
+
     func clearPresentedUsage() {
         presentedUsageRequest = nil
         presentedUsageWindow = nil
