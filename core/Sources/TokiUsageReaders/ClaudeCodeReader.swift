@@ -108,6 +108,7 @@ extension ClaudeCodeReader {
                 output: record.output,
                 cacheRead: record.cacheRead,
                 cacheWrite: record.cacheWrite,
+                cacheWriteOneHour: record.cacheWriteOneHour,
                 attribution: attribution(
                     for: record,
                     streamID: streamID,
@@ -181,7 +182,8 @@ extension ClaudeCodeReader {
                     input: entry.input,
                     output: entry.output,
                     cacheRead: entry.cacheRead,
-                    cacheWrite: entry.cacheWrite)
+                    cacheWrite: entry.cacheWrite - entry.cacheWriteOneHour,
+                    cacheWriteOneHour: entry.cacheWriteOneHour)
                 result.cost += entryCost
             } else {
                 entryCost = 0
@@ -228,6 +230,15 @@ extension ClaudeCodeReader {
                   let date = DateParser.parse(tsStr),
                   let usage = msg.message?.usage else { return nil }
 
+            let cacheWrite = usage.cacheCreationInputTokens
+                ?? usage.cacheCreation.map {
+                    ($0.ephemeral5MinuteInputTokens ?? 0) + ($0.ephemeral1HourInputTokens ?? 0)
+                }
+                ?? 0
+            let cacheWriteOneHour = min(
+                cacheWrite,
+                usage.cacheCreation?.ephemeral1HourInputTokens ?? 0)
+
             return ClaudeCachedUsageRecord(
                 lineIndex: index,
                 timestamp: date.timeIntervalSince1970,
@@ -239,7 +250,8 @@ extension ClaudeCodeReader {
                 input: usage.inputTokens ?? 0,
                 output: usage.outputTokens ?? 0,
                 cacheRead: usage.cacheReadInputTokens ?? 0,
-                cacheWrite: usage.cacheCreationInputTokens ?? 0)
+                cacheWrite: cacheWrite,
+                cacheWriteOneHour: cacheWriteOneHour)
         }
     }
 
@@ -261,7 +273,7 @@ extension ClaudeCodeReader {
 private struct Entry {
     let timestamp: Date
     let model: String?
-    let input, output, cacheRead, cacheWrite: Int
+    let input, output, cacheRead, cacheWrite, cacheWriteOneHour: Int
     let attribution: UsageAttribution?
 
     func mergedMax(with other: Entry) -> Entry {
@@ -272,6 +284,7 @@ private struct Entry {
             output: max(output, other.output),
             cacheRead: max(cacheRead, other.cacheRead),
             cacheWrite: max(cacheWrite, other.cacheWrite),
+            cacheWriteOneHour: max(cacheWriteOneHour, other.cacheWriteOneHour),
             attribution: bestUsageAttribution(attribution, other.attribution))
     }
 }
@@ -432,12 +445,24 @@ private struct RawMessage: Decodable {
             let outputTokens: Int?
             let cacheReadInputTokens: Int?
             let cacheCreationInputTokens: Int?
+            let cacheCreation: CacheCreation?
 
             enum CodingKeys: String, CodingKey {
                 case inputTokens = "input_tokens"
                 case outputTokens = "output_tokens"
                 case cacheReadInputTokens = "cache_read_input_tokens"
                 case cacheCreationInputTokens = "cache_creation_input_tokens"
+                case cacheCreation = "cache_creation"
+            }
+
+            struct CacheCreation: Decodable {
+                let ephemeral5MinuteInputTokens: Int?
+                let ephemeral1HourInputTokens: Int?
+
+                enum CodingKeys: String, CodingKey {
+                    case ephemeral5MinuteInputTokens = "ephemeral_5m_input_tokens"
+                    case ephemeral1HourInputTokens = "ephemeral_1h_input_tokens"
+                }
             }
         }
     }

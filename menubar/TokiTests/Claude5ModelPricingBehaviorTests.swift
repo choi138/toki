@@ -44,6 +44,9 @@ final class Claude5ModelPricingBehaviorTests: XCTestCase {
             XCTAssertEqual(price.cacheReadPerMillion, expected.cacheReadPerMillion, accuracy: 0.0001)
             XCTAssertEqual(price.cacheWritePerMillion, expected.cacheWritePerMillion, accuracy: 0.0001)
         }
+
+        let fable51 = try XCTUnwrap(modelPrice(for: "claude-fable-5-1"))
+        XCTAssertEqual(fable51.cacheWriteOneHourPerMillion, 20.0, accuracy: 0.0001)
     }
 
     func test_modelPrice_calculatesClaude5CostWithCacheRates() throws {
@@ -64,6 +67,25 @@ final class Claude5ModelPricingBehaviorTests: XCTestCase {
 
             XCTAssertEqual(cost, expected.cost, accuracy: 0.0001)
         }
+    }
+
+    func test_claudeCodeReader_pricesFable51CacheWritesByTTL() {
+        let usage = ClaudeCodeReader.usage(
+            fromJSONLLines: [
+                """
+                {"type":"assistant","timestamp":"2026-07-28T00:00:00Z","requestId":"req-1",\
+                "message":{"id":"msg-1","model":"claude-fable-5-1","usage":{\
+                "input_tokens":0,"output_tokens":0,"cache_read_input_tokens":0,\
+                "cache_creation_input_tokens":2000000,"cache_creation":{\
+                "ephemeral_5m_input_tokens":1000000,"ephemeral_1h_input_tokens":1000000}}}}
+                """,
+            ],
+            streamID: "fable-5-1-cache-write-test",
+            from: Self.claude5IntroductoryDate,
+            to: Self.claude5IntroductoryDate.addingTimeInterval(3600))
+
+        XCTAssertEqual(usage.cacheWriteTokens, 2_000_000)
+        XCTAssertEqual(usage.cost, 32.5, accuracy: 0.0001)
     }
 
     func test_modelPrice_selectsSonnet5RateByUsageTimestamp() throws {

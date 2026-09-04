@@ -7,29 +7,34 @@ public struct ModelPrice {
     public let outputPerMillion: Double
     public let cacheReadPerMillion: Double
     public let cacheWritePerMillion: Double
+    public let cacheWriteOneHourPerMillion: Double
 
     public init(
         inputPerMillion: Double,
         outputPerMillion: Double,
         cacheReadPerMillion: Double,
-        cacheWritePerMillion: Double) {
+        cacheWritePerMillion: Double,
+        cacheWriteOneHourPerMillion: Double? = nil) {
         self.inputPerMillion = inputPerMillion
         self.outputPerMillion = outputPerMillion
         self.cacheReadPerMillion = cacheReadPerMillion
         self.cacheWritePerMillion = cacheWritePerMillion
+        self.cacheWriteOneHourPerMillion = cacheWriteOneHourPerMillion ?? cacheWritePerMillion
     }
 
     public func cost(
         input: Int,
         output: Int,
         cacheRead: Int,
-        cacheWrite: Int) -> Double {
+        cacheWrite: Int,
+        cacheWriteOneHour: Int = 0) -> Double {
         let million = 1_000_000.0
         let inputCost = Double(input) * inputPerMillion
         let outputCost = Double(output) * outputPerMillion
         let cacheReadCost = Double(cacheRead) * cacheReadPerMillion
         let cacheWriteCost = Double(cacheWrite) * cacheWritePerMillion
-        return (inputCost + outputCost + cacheReadCost + cacheWriteCost) / million
+        let cacheWriteOneHourCost = Double(cacheWriteOneHour) * cacheWriteOneHourPerMillion
+        return (inputCost + outputCost + cacheReadCost + cacheWriteCost + cacheWriteOneHourCost) / million
     }
 }
 
@@ -58,12 +63,14 @@ private func price(
     _ input: Double,
     _ output: Double,
     _ cacheRead: Double,
-    _ cacheWrite: Double = 0) -> ModelPrice {
+    _ cacheWrite: Double = 0,
+    _ cacheWriteOneHour: Double? = nil) -> ModelPrice {
     ModelPrice(
         inputPerMillion: input,
         outputPerMillion: output,
         cacheReadPerMillion: cacheRead,
-        cacheWritePerMillion: cacheWrite)
+        cacheWritePerMillion: cacheWrite,
+        cacheWriteOneHourPerMillion: cacheWriteOneHour)
 }
 
 private let exactPricingTable: [String: ModelPrice] = [
@@ -72,7 +79,7 @@ private let exactPricingTable: [String: ModelPrice] = [
     // claude-fable-5-mini tier must not silently inherit these rates.
     // Fast mode on claude-opus-5 bills $10/$50 under the same model ID, so
     // fast-mode usage is under-estimated by this table.
-    "claude-fable-5-1": price(10.0, 50.0, 0.25, 12.5),
+    "claude-fable-5-1": price(10.0, 50.0, 0.25, 12.5, 20.0),
     "claude-fable-5": price(10.0, 50.0, 1.00, 12.5),
     "claude-opus-5": price(5.0, 25.0, 0.50, 6.25),
     // Reported by the custom billing provider as its own catalog entry rather
