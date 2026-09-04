@@ -1,6 +1,7 @@
 name: Web CI
 
 on:
+    workflow_dispatch:
     push:
         branches:
             - main
@@ -64,7 +65,7 @@ jobs:
     deploy:
         name: Deploy production
         needs: checks
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
         runs-on: ubuntu-latest
         environment:
             name: Production
