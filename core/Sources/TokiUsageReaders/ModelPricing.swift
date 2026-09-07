@@ -109,6 +109,10 @@ private let exactPricingTable: [String: ModelPrice] = [
     "claude-haiku-4": price(1.0, 5.0, 0.10, 1.25, 2.0),
 
     // OpenAI
+    // GPT-6 standard short-context pricing. Requests above 272K input tokens
+    // bill at 2x input/cache and 1.5x output, and fast mode doubles every rate,
+    // both under the same model ID, so those paths are under-estimated here.
+    "gpt-6-astra": price(10.0, 50.0, 1.00, 12.50),
     // GPT-5.6 standard short-context pricing.
     "gpt-5.6-sol": price(5.0, 30.0, 0.50, 6.25),
     "gpt-5.6-terra": price(2.50, 15.0, 0.25, 3.125),

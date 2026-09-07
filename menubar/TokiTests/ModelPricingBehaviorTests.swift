@@ -55,6 +55,35 @@ final class ModelPricingBehaviorTests: XCTestCase {
         XCTAssertEqual(gpt55Pro.cacheReadPerMillion, 0.0, accuracy: 0.0001)
     }
 
+    func test_modelPrice_matchesGpt6Astra() throws {
+        let lookup = modelPriceLookup(for: "gpt-6-astra")
+        let price = try XCTUnwrap(lookup.price)
+
+        XCTAssertEqual(lookup.match, .exact(modelId: "gpt-6-astra"))
+        XCTAssertEqual(price.inputPerMillion, 10.0, accuracy: 0.0001)
+        XCTAssertEqual(price.outputPerMillion, 50.0, accuracy: 0.0001)
+        XCTAssertEqual(price.cacheReadPerMillion, 1.00, accuracy: 0.0001)
+        XCTAssertEqual(price.cacheWritePerMillion, 12.50, accuracy: 0.0001)
+    }
+
+    func test_modelPriceLookup_matchesGpt6AstraSnapshotPrefix() {
+        let lookup = modelPriceLookup(for: "gpt-6-astra-2026-08-14")
+
+        XCTAssertEqual(lookup.match, .prefix(prefix: "gpt-6-astra"))
+        XCTAssertTrue(lookup.isPriced)
+    }
+
+    func test_modelPrice_calculatesGpt6AstraCostWithCacheRates() throws {
+        let price = try XCTUnwrap(modelPrice(for: "gpt-6-astra"))
+        let cost = price.cost(
+            input: 1_000_000,
+            output: 1_000_000,
+            cacheRead: 1_000_000,
+            cacheWrite: 1_000_000)
+
+        XCTAssertEqual(cost, 73.5, accuracy: 0.0001)
+    }
+
     func test_modelPrice_matchesGpt56Models() throws {
         let expectedPrices: [String: ModelPrice] = [
             "gpt-5.6-sol": ModelPrice(
