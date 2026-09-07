@@ -12,6 +12,8 @@ targets:
     platform: macOS
     sources:
       - path: TokiTests
+        excludes:
+          - "**/*.md"
     dependencies:
       - target: Toki
         embed: false
@@ -35,7 +37,11 @@ targets:
     type: application
     platform: macOS
     sources:
+      # Per-directory AGENTS.md docs would otherwise be copied into
+      # Resources/ and collide on a single filename.
       - path: Toki
+        excludes:
+          - "**/*.md"
     info:
       path: Toki/Info.plist
       properties:
