@@ -429,11 +429,12 @@ final class OpenCodeReaderDatabaseTests: XCTestCase {
                 to: tokiTestISODate("2026-04-11T00:00:00Z"))
             XCTFail("Expected OpenCodeReader to throw for a database open failure")
         } catch {
-            XCTAssertTrue(error.localizedDescription.contains("OpenCode SQLite open failed"))
+            XCTAssertEqual(error as? OpenCodeReaderError, .unreadableSource)
+            XCTAssertFalse(error.localizedDescription.contains(tempDir.path))
         }
     }
 
-    func test_openCodeReader_readUsage_throwsForPrepareFailure() async throws {
+    func test_openCodeReader_readUsage_throwsForUnsupportedSchema() async throws {
         let tempDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: tempDir) }
@@ -448,7 +449,8 @@ final class OpenCodeReaderDatabaseTests: XCTestCase {
                 to: tokiTestISODate("2026-04-11T00:00:00Z"))
             XCTFail("Expected OpenCodeReader to throw for a statement prepare failure")
         } catch {
-            XCTAssertTrue(error.localizedDescription.contains("OpenCode SQLite prepare failed"))
+            XCTAssertEqual(error as? OpenCodeReaderError, .unsupportedSchema)
+            XCTAssertFalse(error.localizedDescription.contains(dbURL.path))
         }
     }
 
