@@ -36,7 +36,6 @@ final class LandingOpenCodeCostSnapshotTests: XCTestCase {
                 session: "session-\(item.id)",
                 filename: "\(item.id).json")
         }
-        try writeNegativeNonfiniteRecord(root: fixture.root)
 
         let reader = OpenCodeReader(dataRoots: [fixture.root])
         let descriptor = LocalUsageReaderDescriptor(reader: reader, sourceLocations: [])
@@ -47,15 +46,14 @@ final class LandingOpenCodeCostSnapshotTests: XCTestCase {
             readerDescriptors: [descriptor])
             .build(configuration: configuration(), now: now)
 
-        XCTAssertEqual(snapshot.tokenEvents.count, 5)
+        XCTAssertEqual(snapshot.tokenEvents.count, cases.count)
         XCTAssertNoThrow(try RemoteUsageSnapshotValidator.validate(snapshot, now: now))
         let events = Dictionary(uniqueKeysWithValues: snapshot.tokenEvents.compactMap { event in
             event.model.map { ($0, event) }
         })
         XCTAssertEqual(
             Set(events.keys),
-            Set(cases.map { "fixture/unknown-\($0.id)" })
-                .union(["fixture/unknown-nonfinite"]))
+            Set(cases.map { "fixture/unknown-\($0.id)" }))
         for item in cases {
             let event = try XCTUnwrap(events["fixture/unknown-\(item.id)"])
             XCTAssertEqual(event.costIsKnown, item.known)
@@ -64,10 +62,24 @@ final class LandingOpenCodeCostSnapshotTests: XCTestCase {
                 item.expectedCost ?? RemoteUsageSnapshotValidator.maximumCostPerEvent)
             XCTAssertEqual(event.totalTokens, 158)
         }
-        let nonfinite = try XCTUnwrap(events["fixture/unknown-nonfinite"])
-        XCTAssertEqual(nonfinite.cost, 0)
-        XCTAssertEqual(nonfinite.costIsKnown, false)
-        XCTAssertEqual(nonfinite.totalTokens, 158)
+    }
+
+    func test_nonfiniteCostNumbersPreserveTokensAndUnknownCost() throws {
+        let fixture = try OpenCodeFixture()
+        defer { fixture.remove() }
+        // JSON cannot portably represent nonfinite numbers. Exercise that boundary
+        // directly rather than requiring Foundation to accept an overflow literal.
+        for cost in [Double.infinity, -Double.infinity, Double.nan] {
+            let message = try XCTUnwrap(OpenCodeMessage.parse(
+                fixture.payload(model: "fixture/unknown-nonfinite", cost: cost),
+                context: .init(namespace: "synthetic", originID: "nonfinite")))
+            var usage = RawTokenUsage()
+            try message.accumulate(into: &usage)
+            let event = try XCTUnwrap(usage.tokenEvents.first)
+            XCTAssertEqual(event.cost, 0)
+            XCTAssertEqual(event.costIsKnown, false)
+            XCTAssertEqual(event.totalTokens, 158)
+        }
     }
 
     private func configuration() throws -> AgentConfiguration {
@@ -79,18 +91,5 @@ final class LandingOpenCodeCostSnapshotTests: XCTestCase {
             encryptionKey: SnapshotCipher.generateKey(),
             retentionDays: 2,
             syncIntervalSeconds: 900))
-    }
-
-    private func writeNegativeNonfiniteRecord(root: URL) throws {
-        let directory = root.appendingPathComponent("storage/message/session-nonfinite")
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        let milliseconds = Int64(OpenCodeFixture.date.timeIntervalSince1970 * 1000)
-        let payload = """
-        {"role":"assistant","id":"nonfinite","sessionID":"session-nonfinite",\
-        "time":{"created":\(milliseconds)},"tokens":{"input":100,"output":20,"reasoning":23,\
-        "cache":{"read":10,"write":5}},"modelID":"fixture/unknown-nonfinite",\
-        "providerID":"openrouter","cost":-1e400,"path":{"root":"/synthetic/project"}}
-        """
-        try Data(payload.utf8).write(to: directory.appendingPathComponent("nonfinite.json"))
     }
 }
