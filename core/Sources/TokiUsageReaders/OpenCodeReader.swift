@@ -103,8 +103,16 @@ public struct OpenCodeReader: TokenReader {
         var messages: [OpenCodeMessage] = []
         for root in roots {
             var legacyIDs: Set<OpenCodeMessageIdentity> = []
+            var hasDecodedRecords = false
+            var hasUndecodableRecords = false
             for file in try OpenCodeLegacyReader.files(in: root, budget: budget) {
-                guard var message = try OpenCodeLegacyReader.read(file, root: root, budget: budget) else { continue }
+                let record = try OpenCodeLegacyReader.read(file, root: root, budget: budget)
+                guard case let .decoded(decodedMessage) = record else {
+                    hasUndecodableRecords = true
+                    continue
+                }
+                hasDecodedRecords = true
+                guard var message = decodedMessage else { continue }
                 if let identity = message.migrationIdentity, databaseIDs[root]?.contains(identity) == true { continue }
                 guard legacyIDs.insert(message.identity).inserted else { continue }
                 // JSON-only turns in a partially migrated session keep the database's
@@ -113,6 +121,9 @@ public struct OpenCodeReader: TokenReader {
                 if let namespaces = sessionNamespaces[root]?[message.sessionID], namespaces.count == 1,
                    let namespace = namespaces.first { message.namespace = namespace }
                 messages.append(message)
+            }
+            if hasUndecodableRecords, !hasDecodedRecords {
+                throw OpenCodeReaderError.unreadableSource
             }
         }
         return messages

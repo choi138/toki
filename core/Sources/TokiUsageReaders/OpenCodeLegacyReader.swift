@@ -1,6 +1,11 @@
 import Foundation
 
 enum OpenCodeLegacyReader {
+    enum Record {
+        case decoded(OpenCodeMessage?)
+        case undecodable
+    }
+
     static func files(in root: URL, budget: OpenCodeReadBudget) throws -> [URL] {
         let directory = root.appendingPathComponent("storage/message")
         // Roots may explicitly be aliases; nested legacy trees may not escape the requested root.
@@ -38,7 +43,7 @@ enum OpenCodeLegacyReader {
         return files.sorted { $0.path < $1.path }
     }
 
-    static func read(_ url: URL, root: URL, budget: OpenCodeReadBudget) throws -> OpenCodeMessage? {
+    static func read(_ url: URL, root: URL, budget: OpenCodeReadBudget) throws -> Record {
         try Task.checkCancellation()
         let handle: FileHandle
         do {
@@ -70,6 +75,9 @@ enum OpenCodeLegacyReader {
         if url.deletingLastPathComponent().path != root.appendingPathComponent("storage/message").path {
             context.fallbackSessionID = url.deletingLastPathComponent().lastPathComponent
         }
-        return OpenCodeMessage.parse(data, context: context)
+        guard let payload = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else {
+            return .undecodable
+        }
+        return .decoded(OpenCodeMessage.parse(payload, context: context))
     }
 }

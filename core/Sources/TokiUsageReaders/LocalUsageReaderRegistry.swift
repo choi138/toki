@@ -417,16 +417,31 @@ public enum LocalUsageReaderRegistry {
                 sourceSignatureStrategy: .allFiles),
         ] + piFamilyDescriptors(paths: paths) + additionalDescriptors(
             paths: paths,
+            environment: environment,
             copilotSourceLocations: copilotSourceLocations)
     }
+}
 
+extension LocalUsageReaderRegistry {
     private static func additionalDescriptors(
         paths: LocalUsageReaderPaths,
+        environment: [String: String],
         copilotSourceLocations: [LocalUsageSourceLocation]) -> [LocalUsageReaderDescriptor] {
-        [
+        var openCodeSourceLocations: [LocalUsageSourceLocation] = [
+            .file(paths.openCodeDatabase, includesSQLiteSidecars: true),
+        ]
+        if let path = environment["OPENCODE_DB"],
+           NSString(string: path).isAbsolutePath,
+           !path.contains("\0") {
+            let explicitDatabase = URL(fileURLWithPath: path)
+            if explicitDatabase.standardizedFileURL != paths.openCodeDatabase.standardizedFileURL {
+                openCodeSourceLocations.append(.file(explicitDatabase, includesSQLiteSidecars: true))
+            }
+        }
+        return [
             LocalUsageReaderDescriptor(
-                reader: OpenCodeReader(dbPathOverride: paths.openCodeDatabase.path),
-                sourceLocations: [.file(paths.openCodeDatabase, includesSQLiteSidecars: true)]),
+                reader: OpenCodeReader(homeDirectory: paths.homeDirectory, environment: environment),
+                sourceLocations: openCodeSourceLocations),
             LocalUsageReaderDescriptor(
                 reader: OpenClawReader(agentsURLOverride: paths.openClawAgents),
                 sourceLocations: [.directory(paths.openClawAgents, extensions: ["jsonl"])]),

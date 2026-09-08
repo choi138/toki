@@ -89,7 +89,7 @@ struct OpenCodeMessage {
         let known: Bool
         // Upstream treats positive reported cost as authoritative. Zero usually means
         // OpenCode had no price, so preserve unknown state unless local pricing exists.
-        if let reported, reported.isFinite, reported > 0 {
+        if let reported = boundedRecordedUsageCost(reported), reported > 0 {
             cost = reported
             known = true
         } else if let model, let price = modelPrice(for: model, at: timestamp) {
@@ -100,10 +100,11 @@ struct OpenCodeMessage {
             known = false
         }
         let embeddedPath = (payload["path"] as? [String: Any])?["root"]
+        let rawSessionID = context.sessionID ?? text(payload["sessionID"])
+            ?? text(context.fallbackSessionID)
         return OpenCodeMessage(
             messageID: text(payload["id"]) ?? context.rowID,
-            sessionID: context.sessionID ?? text(payload["sessionID"])
-                ?? context.fallbackSessionID ?? "anonymous:\(context.originID)",
+            sessionID: rawSessionID ?? "anonymous:\(context.originID)",
             originID: context.originID,
             namespace: context.namespace,
             timestamp: timestamp,
@@ -117,7 +118,7 @@ struct OpenCodeMessage {
             cost: cost,
             costIsKnown: known,
             projectPath: text(context.projectPath) ?? text(embeddedPath),
-            sessionLabel: text(context.sessionLabel))
+            sessionLabel: text(context.sessionLabel) ?? rawSessionID)
     }
 
     func accumulate(into usage: inout RawTokenUsage) throws {
