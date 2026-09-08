@@ -229,7 +229,9 @@ private func hermesProfileEntries(
         guard entries.count < maximumCount else {
             throw HermesProfileCollectionError.tooManyProfiles(entries.count + 1)
         }
-        entries.append(entry)
+        // Foundation may enumerate /var through /private/var on Darwin. Keep
+        // the canonical root spelling without resolving a profile's alias name.
+        entries.append(directory.appendingPathComponent(entry.lastPathComponent))
     }
     guard !inspectionFailed else { throw HermesProfileCollectionError.discoveryFailed }
     return entries.sorted { $0.path < $1.path }

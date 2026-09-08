@@ -20,6 +20,10 @@ final class HermesAliasOwnershipTests: XCTestCase {
         try await assertCompetingOwners(defaultOwner: false, symbolic: true)
     }
 
+    func test_twoNamedDirectorySymlinkTransitionRejectsCompetingHistory() async throws {
+        try await assertCompetingOwners(defaultOwner: false, symbolic: true, directoryAlias: true)
+    }
+
     func test_namedOnlyOwnerPromotedToDefaultKeepsNamespace() async throws {
         for symbolic in [false, true] {
             let fixture = try HermesM1Fixture()
@@ -96,7 +100,8 @@ final class HermesAliasOwnershipTests: XCTestCase {
         XCTAssertEqual(try hermesLedgerBytes(fixture), bytes)
     }
 
-    private func assertCompetingOwners(defaultOwner: Bool, symbolic: Bool) async throws {
+    private func assertCompetingOwners(
+        defaultOwner: Bool, symbolic: Bool, directoryAlias: Bool = false) async throws {
         let fixture = try HermesM1Fixture()
         defer { fixture.remove() }
         let first = fixture.database(defaultOwner ? nil : "first")
@@ -118,8 +123,10 @@ final class HermesAliasOwnershipTests: XCTestCase {
         XCTAssertEqual(Set(original.tokenEvents.compactMap { $0.attribution?.sessionID }).count, 2)
         let bytes = try hermesLedgerBytes(fixture)
         // Replace the lower baseline with the higher one: refreshing it again dates duplicate growth.
-        try FileManager.default.removeItem(at: first)
-        try link(second, to: first, symbolic: symbolic)
+        let aliasURL = directoryAlias ? first.deletingLastPathComponent() : first
+        let targetURL = directoryAlias ? second.deletingLastPathComponent() : second
+        try FileManager.default.removeItem(at: aliasURL)
+        try link(targetURL, to: aliasURL, symbolic: symbolic)
         for current in [reader, reader, fixture.reader()] {
             do {
                 let usage = try await current.readUsage(from: fixture.start, to: fixture.end)
@@ -128,7 +135,7 @@ final class HermesAliasOwnershipTests: XCTestCase {
             XCTAssertEqual(try hermesLedgerBytes(fixture), bytes, "Rejected aliases must not refresh or rewrite keys")
         }
         // Recover the original physical layout and prove retained events/namespaces are unchanged.
-        try FileManager.default.removeItem(at: first)
+        try FileManager.default.removeItem(at: aliasURL)
         try fixture.createDatabase(at: first)
         try fixture.insert(at: first, tokens: 10)
         let restored = try await fixture.reader().readUsage(from: fixture.start, to: fixture.end)
