@@ -1,6 +1,68 @@
 import XCTest
 @testable import Toki
 
+final class SecurityAuditScannerDiscoveryTests: SecurityAuditScannerTestCase {
+    func testSymlinkedClaudeRootsAreScannedOnce() async throws {
+        let config = tempRoot.appendingPathComponent("aliased-claude")
+        let projects = config.appendingPathComponent("projects")
+        let file = projects.appendingPathComponent("project/session.jsonl")
+        try FileManager.default.createDirectory(
+            at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try "cache-secret-ABCDEFGHIJKLMNOP".write(to: file, atomically: true, encoding: .utf8)
+        try FileManager.default.createSymbolicLink(
+            at: config.appendingPathComponent("transcripts"), withDestinationURL: projects)
+        let counter = SecurityAuditValidatorCounter()
+        let store = cache()
+        let scanner = SecurityAuditScanner(
+            sources: SecurityAuditScanner.defaultSources(
+                homeDirectory: tempRoot, environment: ["CLAUDE_CONFIG_DIR": config.path]),
+            rules: [countingRule(counter: counter)], cacheStore: store)
+
+        for _ in 0..<2 {
+            let result = await scanner.scan()
+            XCTAssertEqual(result.scannedFileCount, 1)
+            XCTAssertEqual(result.findings.count, 1)
+            XCTAssertEqual(store.load().entriesByPath.count, 1)
+        }
+        XCTAssertEqual(counter.count, 1)
+    }
+
+    func testCustomClaudeTranscriptsAreScannedAndCachedWithProjects() async throws {
+        let config = tempRoot.appendingPathComponent("custom-claude")
+        let paths = ["projects/project/session.jsonl", "transcripts/nested/session.jsonl"]
+        let files = try paths.map { path in
+            let file = config.appendingPathComponent(path)
+            try FileManager.default.createDirectory(
+                at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try "cache-secret-ABCDEFGHIJKLMNOP".write(to: file, atomically: true, encoding: .utf8)
+            return file.standardizedFileURL.path
+        }
+        let counter = SecurityAuditValidatorCounter()
+        let store = cache()
+        let scanner = SecurityAuditScanner(
+            sources: SecurityAuditScanner.defaultSources(
+                homeDirectory: tempRoot, environment: ["CLAUDE_CONFIG_DIR": config.path]),
+            rules: [countingRule(counter: counter)],
+            cacheStore: store)
+
+        for _ in 0..<2 {
+            let result = await scanner.scan()
+            XCTAssertEqual(result.scannedFileCount, 2, "Both Claude roots must be scanned")
+            XCTAssertEqual(Set(result.findings.map(\.location.filePath)), Set(files))
+            XCTAssertEqual(result.findings.count, 2)
+            XCTAssertTrue(result.findings.allSatisfy { $0.sourceName == "Claude Code" })
+            XCTAssertFalse(String(describing: result.findings).contains("cache-secret-ABCDEFGHIJKLMNOP"))
+            XCTAssertEqual(Set(store.load().entriesByPath.keys), Set(files))
+        }
+        XCTAssertEqual(counter.count, 2, "Same-name roots must both survive cache reconciliation")
+        let disabled = await scanner.scan(request: SecurityAuditRequest(enabledSourceNames: ["Claude Code": false]))
+        XCTAssertEqual(disabled.scannedFileCount, 0)
+        XCTAssertTrue(disabled.findings.isEmpty)
+        XCTAssertEqual(disabled.skippedSourceNames, ["Claude Code"])
+        XCTAssertEqual(Set(store.load().entriesByPath.keys), Set(files))
+    }
+}
+
 final class SecurityAuditScannerCacheTests: SecurityAuditScannerTestCase {
     func testScannerReusesCachedFindingsForUnchangedFiles() async throws {
         let counter = SecurityAuditValidatorCounter()

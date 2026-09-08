@@ -11,7 +11,8 @@ extension SecurityAuditScanner {
             SecurityAuditFileSource(
                 name: "Claude Code",
                 rootURL: paths.claudeProjects,
-                allowedExtensions: ["jsonl"]),
+                allowedExtensions: ["jsonl"],
+                additionalRootURLs: [paths.claudeTranscripts]),
             SecurityAuditFileSource(
                 name: "Codex",
                 rootURL: paths.codexSessions.deletingLastPathComponent(),
@@ -26,7 +27,7 @@ extension SecurityAuditScanner {
             SecurityAuditFileSource(
                 name: "Gemini CLI",
                 rootURL: paths.geminiChats,
-                allowedExtensions: ["json"]),
+                allowedExtensions: ["json", "jsonl"]),
             SecurityAuditFileSource(
                 name: "OpenCode",
                 rootURL: paths.openCodeDatabase.deletingLastPathComponent(),

@@ -1,21 +1,26 @@
 import Foundation
 import TokiUsageCore
 
-/// Reads ~/.claude/projects/**/*.jsonl
+/// Reads selected Claude projects and transcripts JSONL roots.
 /// Deduplicates by requestId, keeps max token counts per message
 public struct ClaudeCodeReader: TokenReader {
     public let name = "Claude Code"
     private let projectsURLOverride: URL?
+    private let transcriptsURLOverride: URL?
     private let usageCache: ClaudeUsageCache
     private let attributionHomeDirectory: URL
 
     public init(
         projectsURLOverride: URL? = nil,
-        usageCache: ClaudeUsageCache = .shared) {
+        usageCache: ClaudeUsageCache = .shared,
+        transcriptsURLOverride: URL? = nil,
+        attributionHomeDirectory: URL? = nil) {
         self.projectsURLOverride = projectsURLOverride
+        self.transcriptsURLOverride = transcriptsURLOverride
+            ?? (projectsURLOverride == nil ? homeDir().appendingPathComponent(".claude/transcripts") : nil)
         self.usageCache = usageCache
-        attributionHomeDirectory = Self.resolveAttributionHomeDirectory(
-            projectsURLOverride: projectsURLOverride)
+        self.attributionHomeDirectory = attributionHomeDirectory
+            ?? Self.resolveAttributionHomeDirectory(projectsURLOverride: projectsURLOverride)
     }
 
     private var projectsURL: URL {
@@ -23,26 +28,63 @@ public struct ClaudeCodeReader: TokenReader {
     }
 
     public func readUsage(from startDate: Date, to endDate: Date) async throws -> RawTokenUsage {
-        guard FileManager.default.fileExists(atPath: projectsURL.path) else {
-            return RawTokenUsage()
+        let limits = PiCompatibleReadLimits.default
+        var visitedEntryCount = 0
+        var files = Set<URL>()
+        var seenRoots = Set<URL>()
+        var transcriptStreamIDs = Set<String>()
+        let transcriptRoot = transcriptsURLOverride?.resolvingSymlinksInPath().standardizedFileURL
+        for root in [projectsURL] + [transcriptsURLOverride].compactMap({ $0 }) {
+            let canonical = root.resolvingSymlinksInPath().standardizedFileURL
+            guard seenRoots.insert(canonical).inserted else { continue }
+            do {
+                let discovered = try findUsageFiles(
+                    in: canonical,
+                    withExtension: "jsonl",
+                    maximumFileCount: limits.maximumFileCount + 1,
+                    maximumEntryCount: limits.maximumEntryCount,
+                    visitedEntryCount: &visitedEntryCount)
+                files.formUnion(discovered)
+                if canonical == transcriptRoot {
+                    transcriptStreamIDs.formUnion(discovered.map(\.path))
+                }
+            } catch {
+                throw ClaudeReadDiagnostic.redactingPaths(in: error)
+            }
+            guard files.count <= limits.maximumFileCount else {
+                throw PiCompatibleReaderError.tooManyFiles(files.count)
+            }
         }
-
-        let files = findFiles(in: projectsURL, withExtension: "jsonl", modifiedAfter: startDate)
         await usageCache.beginBatch()
         var sessions: [(streamID: String, records: [ClaudeCachedUsageRecord])] = []
-
-        for file in files {
-            await sessions.append(
-                (streamID: file.path, records: cachedUsageRecords(at: file)))
+        var recordCount = 0
+        do {
+            for file in files.sorted(by: { $0.path < $1.path }) {
+                try Task.checkCancellation()
+                let records = try await cachedUsageRecords(at: file)
+                try recordUsageEvents(
+                    records.count, total: &recordCount, maximum: limits.maximumUnreconciledEventCount)
+                sessions.append((streamID: file.path, records: records))
+            }
+            try Task.checkCancellation()
+        } catch {
+            await usageCache.endBatch()
+            throw ClaudeReadDiagnostic.redactingPaths(in: error)
         }
 
         await usageCache.endBatch()
-        return Self.usage(
+        let result = Self.usage(
             fromSessions: sessions,
             from: startDate,
             to: endDate,
             source: name,
-            attributionHomeDirectory: attributionHomeDirectory)
+            attributionHomeDirectory: attributionHomeDirectory,
+            transcriptStreamIDs: transcriptStreamIDs)
+        try Task.checkCancellation()
+        guard result.tokenEvents.count <= limits.maximumEventCount else {
+            throw PiCompatibleReaderError.tooManyEvents(result.tokenEvents.count)
+        }
+        return result
     }
 }
 
@@ -75,12 +117,12 @@ extension ClaudeCodeReader {
             attributionHomeDirectory: attributionHomeDirectory)
     }
 
-    private func cachedUsageRecords(at url: URL) async -> [ClaudeCachedUsageRecord] {
+    private func cachedUsageRecords(at url: URL) async throws -> [ClaudeCachedUsageRecord] {
         if let cached = await usageCache.records(for: url) {
             return cached
         }
 
-        let parsed = Self.parseUsageRecords(at: url)
+        let parsed = try Self.parseUsageRecords(at: url)
         await usageCache.store(records: parsed, for: url)
         return parsed
     }
@@ -92,7 +134,8 @@ extension ClaudeCodeReader {
         to endDate: Date,
         dedup: inout [String: Entry],
         activityByKey: inout [String: ActivitySeries],
-        attributionHomeDirectory: URL) {
+        attributionHomeDirectory: URL,
+        inferProjectFromStream: Bool) {
         for record in records {
             let date = Date(timeIntervalSince1970: record.timestamp)
             guard date >= startDate, date < endDate else { continue }
@@ -112,7 +155,8 @@ extension ClaudeCodeReader {
                 attribution: attribution(
                     for: record,
                     streamID: streamID,
-                    homeDirectory: attributionHomeDirectory))
+                    homeDirectory: attributionHomeDirectory,
+                    inferProjectFromStream: inferProjectFromStream))
 
             if let existing = dedup[key] {
                 dedup[key] = existing.mergedMax(with: entry)
@@ -139,7 +183,8 @@ extension ClaudeCodeReader {
         from startDate: Date,
         to endDate: Date,
         source: String,
-        attributionHomeDirectory: URL) -> RawTokenUsage {
+        attributionHomeDirectory: URL,
+        transcriptStreamIDs: Set<String> = []) -> RawTokenUsage {
         var dedup: [String: Entry] = [:]
         var activityByKey: [String: ActivitySeries] = [:]
 
@@ -151,7 +196,8 @@ extension ClaudeCodeReader {
                 to: endDate,
                 dedup: &dedup,
                 activityByKey: &activityByKey,
-                attributionHomeDirectory: attributionHomeDirectory)
+                attributionHomeDirectory: attributionHomeDirectory,
+                inferProjectFromStream: !transcriptStreamIDs.contains(session.streamID))
         }
 
         return usage(
@@ -215,37 +261,60 @@ extension ClaudeCodeReader {
         return result
     }
 
-    private static func parseUsageRecords(at url: URL) -> [ClaudeCachedUsageRecord] {
-        parseUsageRecords(from: readJSONLLines(at: url))
+    private static func parseUsageRecords(at url: URL) throws -> [ClaudeCachedUsageRecord] {
+        var records: [ClaudeCachedUsageRecord] = []
+        let decoder = JSONDecoder()
+        try forEachBoundedJSONLLine(at: url, limits: .default) { line, index in
+            guard let data = line.data(using: .utf8),
+                  let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  object["type"] is String else {
+                throw LocalUsageReaderDiagnosticError.decodeFailed(source: "Claude Code", stage: "session")
+            }
+            // The cache's line indices must remain file-relative for id-less records.
+            if let record = parseUsageRecord(line: line, index: index, decoder: decoder) {
+                guard records.count < PiCompatibleReadLimits.default.maximumEventCount else {
+                    throw PiCompatibleReaderError.tooManyEvents(records.count + 1)
+                }
+                records.append(record)
+            } else if object["type"] as? String == "assistant",
+                      let message = object["message"] as? [String: Any],
+                      let usage = message["usage"], !(usage is NSNull) {
+                throw LocalUsageReaderDiagnosticError.decodeFailed(source: "Claude Code", stage: "session usage")
+            }
+        }
+        return records
     }
 
     private static func parseUsageRecords(from lines: [String]) -> [ClaudeCachedUsageRecord] {
         let decoder = JSONDecoder()
         return lines.enumerated().compactMap { item -> ClaudeCachedUsageRecord? in
-            let (index, line) = item
-            guard let data = line.data(using: .utf8),
-                  let msg = try? decoder.decode(RawMessage.self, from: data),
-                  msg.type == "assistant",
-                  let tsStr = msg.timestamp,
-                  let date = DateParser.parse(tsStr),
-                  let usage = msg.message?.usage else { return nil }
-
-            let cacheWrite = cacheWriteTokens(for: usage)
-
-            return ClaudeCachedUsageRecord(
-                lineIndex: index,
-                timestamp: date.timeIntervalSince1970,
-                requestId: msg.requestId,
-                sessionID: msg.sessionID,
-                cwd: msg.cwd,
-                messageID: msg.message?.id,
-                model: msg.message?.model,
-                input: usage.inputTokens ?? 0,
-                output: usage.outputTokens ?? 0,
-                cacheRead: usage.cacheReadInputTokens ?? 0,
-                cacheWrite: cacheWrite.total,
-                cacheWriteOneHour: cacheWrite.oneHour)
+            parseUsageRecord(line: item.element, index: item.offset, decoder: decoder)
         }
+    }
+
+    private static func parseUsageRecord(line: String, index: Int, decoder: JSONDecoder) -> ClaudeCachedUsageRecord? {
+        guard let data = line.data(using: .utf8),
+              let msg = try? decoder.decode(RawMessage.self, from: data),
+              msg.type == "assistant",
+              let tsStr = msg.timestamp,
+              let date = DateParser.parse(tsStr),
+              let usage = msg.message?.usage else { return nil }
+
+        let cacheWrite = cacheWriteTokens(for: usage)
+
+        return ClaudeCachedUsageRecord(
+            lineIndex: index,
+            timestamp: date.timeIntervalSince1970,
+            requestId: msg.requestId,
+            sessionID: msg.sessionID,
+            cwd: msg.cwd,
+            messageID: msg.message?.id,
+            model: msg.message?.model,
+            input: usage.inputTokens ?? 0,
+            output: usage.outputTokens ?? 0,
+            cacheRead: usage.cacheReadInputTokens ?? 0,
+            cacheWrite: cacheWrite.total,
+            cacheWriteOneHour: cacheWrite.oneHour)
     }
 
     private static func cacheWriteTokens(for usage: RawMessage.Message.Usage) -> (total: Int, oneHour: Int) {
@@ -276,6 +345,28 @@ extension ClaudeCodeReader {
 }
 
 // MARK: - Private Types
+
+private struct ClaudeReadDiagnostic: LocalizedError {
+    let errorDescription: String?
+
+    static func redactingPaths(in error: Error) -> Error {
+        guard let sourceError = error as? PiCompatibleReaderError else { return error }
+        let description: String
+        switch sourceError {
+        case .unreadableFile:
+            description = "Claude Code source could not be read."
+        case .fileTooLarge:
+            description = "Claude Code source exceeds the supported size."
+        case .lineTooLong:
+            description = "Claude Code source contains an oversized record."
+        case let .invalidUTF8(_, line):
+            description = "Claude Code source contains invalid UTF-8 at line \(line + 1)."
+        case .tooManyFiles, .tooManyEvents, .tooManyEntries:
+            return error
+        }
+        return Self(errorDescription: description)
+    }
+}
 
 private struct Entry {
     let timestamp: Date
@@ -344,7 +435,8 @@ private struct ActivitySeries {
 private func attribution(
     for record: ClaudeCachedUsageRecord,
     streamID: String,
-    homeDirectory: URL) -> UsageAttribution {
+    homeDirectory: URL,
+    inferProjectFromStream: Bool) -> UsageAttribution {
     let sessionID = record.sessionID
         ?? usageSessionID(fromPath: streamID).trimmedNonEmpty
         ?? record.requestId
@@ -356,7 +448,7 @@ private func attribution(
             quality: .exact)
     }
 
-    if let attribution = inferredAttributionFromClaudeStreamID(
+    if inferProjectFromStream, let attribution = inferredAttributionFromClaudeStreamID(
         streamID,
         sessionID: sessionID,
         homeDirectory: homeDirectory) {

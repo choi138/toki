@@ -72,10 +72,16 @@ private extension SecurityAuditFileDiscovery {
     }
 
     func discoverFiles(for source: SecurityAuditFileSource, modifiedAfter: Date?) -> [URL] {
+        let roots = [source.rootURL] + source.additionalRootURLs
+        let files = roots.flatMap { discoverFiles(at: $0, for: source, modifiedAfter: modifiedAfter) }
+        return Array(Set(files.map(\.standardizedFileURL))).sorted { $0.path < $1.path }
+    }
+
+    func discoverFiles(at rootURL: URL, for source: SecurityAuditFileSource, modifiedAfter: Date?) -> [URL] {
         let keys: [URLResourceKey] = [.isRegularFileKey, .contentModificationDateKey]
-        guard fileManager.fileExists(atPath: source.rootURL.path),
+        guard fileManager.fileExists(atPath: rootURL.path),
               let enumerator = fileManager.enumerator(
-                  at: source.rootURL,
+                  at: rootURL,
                   includingPropertiesForKeys: keys,
                   options: [.skipsPackageDescendants]) else {
             return []

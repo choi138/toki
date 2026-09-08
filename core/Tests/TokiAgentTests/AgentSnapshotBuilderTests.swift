@@ -282,20 +282,19 @@ extension AgentSnapshotBuilderTests {
         defer { fixture.remove() }
         let claudeProjects = fixture.root.appendingPathComponent(".claude/projects")
         try FileManager.default.createDirectory(at: claudeProjects, withIntermediateDirectories: true)
-        let builder = AgentSnapshotBuilder(home: fixture.root)
-        let before = try await builder.sourceSignature(
-            configuration: fixture.configuration,
-            now: fixture.now)
-
+        // Generic standard retention stays unchanged; actual Claude old-mtime discovery has a separate regression.
+        let builder = AgentSnapshotBuilder(home: fixture.root, environment: [:], readerDescriptors: [
+            LocalUsageReaderDescriptor(
+                reader: FixedTokenReader(name: "Generic", usage: RawTokenUsage()),
+                sourceLocations: [.directory(claudeProjects, extensions: ["jsonl"])]),
+        ])
+        let before = try await builder.sourceSignature(configuration: fixture.configuration, now: fixture.now)
         let oldLog = claudeProjects.appendingPathComponent("old.jsonl")
         try Data("{}\n".utf8).write(to: oldLog)
         try FileManager.default.setAttributes(
             [.modificationDate: Date(timeIntervalSince1970: 978_307_200)],
             ofItemAtPath: oldLog.path)
-        let after = try await builder.sourceSignature(
-            configuration: fixture.configuration,
-            now: fixture.now)
-
+        let after = try await builder.sourceSignature(configuration: fixture.configuration, now: fixture.now)
         XCTAssertEqual(before, after)
     }
 }
