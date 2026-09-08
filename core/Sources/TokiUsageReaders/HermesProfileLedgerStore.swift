@@ -66,8 +66,8 @@ actor HermesProfileLedgerStore {
             .resolvingSymlinksInPath().standardizedFileURL
         // Explicit selection controls profile discovery, not ownership of the old default ledger.
         // Capture ownership with this collection so a live alias retarget cannot carry it elsewhere.
-        let ownsDefaultLedger = includesDefaultLedger && (legacyDefaultDatabaseURL.map {
-            $0.resolvingSymlinksInPath().standardizedFileURL == canonicalDatabase
+        let ownsDefaultLedger = try includesDefaultLedger && (legacyDefaultDatabaseURL.map {
+            try hermesDatabasesShareIdentity(canonicalDatabase, $0)
         } ?? true)
         let collectionIdentifier = SnapshotCipher.digest(
             "toki.hermes.profile-collection.v1:\(includesProfiles):\(ownsDefaultLedger):\(canonicalHome.path)")
@@ -75,14 +75,18 @@ actor HermesProfileLedgerStore {
             hermesHome: canonicalHome,
             includesProfiles: includesProfiles,
             preferredLedgerIdentifiers: readMembership(for: collectionIdentifier),
-            defaultDatabaseURL: canonicalDatabase)
+            hasDefaultLedger: ownsDefaultLedger && hermesSourceExists(at: defaultLedger.fileURL),
+            ledgerDirectory: directory,
+            defaultDatabaseURL: canonicalDatabase,
+            defaultDatabaseAliases: ownsDefaultLedger ? legacyDefaultDatabaseURL.map { [$0] } ?? [] : [])
         return HermesProfileCollection(
             canonicalHome: canonicalHome,
             identifier: collectionIdentifier,
             includesDefaultLedger: ownsDefaultLedger,
             sources: ownsDefaultLedger ? sources : sources.map {
                 HermesDatabaseSource(
-                    databaseURL: $0.databaseURL, isDefault: false, ledgerIdentifier: $0.ledgerIdentifier)
+                    databaseURL: $0.databaseURL, isDefault: false, ledgerIdentifier: $0.ledgerIdentifier,
+                    inspectionFailed: $0.inspectionFailed)
             })
     }
 

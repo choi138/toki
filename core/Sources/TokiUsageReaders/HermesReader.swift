@@ -95,6 +95,7 @@ public struct HermesReader: TokenReader {
         for source in sources {
             try Task.checkCancellation()
             do {
+                guard !source.inspectionFailed else { throw HermesProfileCollectionError.discoveryFailed }
                 guard let coverage = try readDatabaseSnapshot(atPath: source.databaseURL.path, { database in
                     // A valid SQLite file without the Hermes session schema is not empty coverage.
                     let statement = try preparedUsageStatement(in: database)
@@ -127,6 +128,9 @@ public struct HermesReader: TokenReader {
     }
 
     private func databaseSources() throws -> [HermesDatabaseSource] {
+        if let profileLedgerStore {
+            return try profileLedgerStore.discoverCollection().sources
+        }
         guard let hermesHomeOverride else {
             return [HermesDatabaseSource(
                 databaseURL: URL(fileURLWithPath: dbPath),
@@ -141,7 +145,8 @@ public struct HermesReader: TokenReader {
             HermesDatabaseSource(
                 databaseURL: $0.databaseURL,
                 isDefault: false,
-                ledgerIdentifier: $0.ledgerIdentifier)
+                ledgerIdentifier: $0.ledgerIdentifier,
+                inspectionFailed: $0.inspectionFailed)
         }
     }
 
@@ -159,6 +164,7 @@ public struct HermesReader: TokenReader {
         for source in sources {
             try Task.checkCancellation()
             do {
+                guard !source.inspectionFailed else { throw HermesProfileCollectionError.discoveryFailed }
                 guard let observations = try readDatabaseSnapshot(
                     atPath: source.databaseURL.path,
                     { database in
