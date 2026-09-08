@@ -1,44 +1,6 @@
 import Foundation
 import TokiUsageCore
 
-package enum LocalUsageSourceLocation: Equatable {
-    case file(URL, includesSQLiteSidecars: Bool)
-    case directory(URL, extensions: Set<String>)
-
-    package var url: URL {
-        switch self {
-        case let .file(url, _), let .directory(url, _):
-            url
-        }
-    }
-}
-
-package enum LocalUsageSourceSignatureStrategy {
-    case standard
-    case allFiles
-    case boundedAllFiles(maximumFileCount: Int, maximumEntryCount: Int)
-    case codexRollouts
-}
-
-package struct LocalUsageReaderDescriptor {
-    package let reader: any TokenReader
-    package let sourceLocations: [LocalUsageSourceLocation]
-    package let sourceSignatureStrategy: LocalUsageSourceSignatureStrategy
-
-    package init(
-        reader: any TokenReader,
-        sourceLocations: [LocalUsageSourceLocation],
-        sourceSignatureStrategy: LocalUsageSourceSignatureStrategy = .standard) {
-        self.reader = reader
-        self.sourceLocations = sourceLocations
-        self.sourceSignatureStrategy = sourceSignatureStrategy
-    }
-
-    package var name: String {
-        reader.name
-    }
-}
-
 public enum LocalUsageCacheScope {
     case application
     case agent
@@ -77,7 +39,7 @@ public enum LocalUsageReaderRegistry {
             legacySessionsURL: paths.homeDirectory.appendingPathComponent(".gjc/agent/sessions"),
             sharedOMPSessionRoots: paths.ompSessionRoots,
             sharedPiSessionRoots: [paths.piSessions])
-        return primaryDescriptors(
+        let descriptors = primaryDescriptors(
             paths: paths, codexCache: resolvedCodexRolloutUsageCache,
             claudeCache: resolvedClaudeUsageCache, hermesLedger: resolvedHermesUsageLedger,
             cacheScope: cacheScope) + [
@@ -92,7 +54,14 @@ public enum LocalUsageReaderRegistry {
                 sourceLocations: paths.gjcSessionRoots.map { .directory($0, extensions: ["jsonl"]) },
                 sourceSignatureStrategy: .boundedAllFiles(
                     maximumFileCount: PiCompatibleReadLimits.default.maximumFileCount,
-                    maximumEntryCount: PiCompatibleReadLimits.default.maximumEntryCount)),
+                    maximumEntryCount: PiCompatibleReadLimits.default.maximumEntryCount),
+                collectorRevision: 1,
+                sourceLocationsResolver: {
+                    let identity = gjcReader.sharedSelectionIdentity()
+                    return gjcReader.selectedSessionRoots().map {
+                        .directory($0, extensions: ["jsonl"], selectionIdentity: identity)
+                    }
+                }),
             LocalUsageReaderDescriptor(
                 reader: FactoryDroidReader(sessionsURLOverride: paths.factoryDroidSessions),
                 sourceLocations: [.directory(paths.factoryDroidSessions, extensions: ["json", "jsonl"])],
@@ -111,6 +80,20 @@ public enum LocalUsageReaderRegistry {
             paths: paths,
             environment: environment,
             copilotSourceLocations: copilotSourceLocations)
+        return descriptors.map { descriptor in
+            // Changing this local revision invalidates the agent's persisted source signature
+            // once after upgrade. It never changes the remote snapshot schema or Hermes history.
+            guard ["Claude Code", "Codex", "Gemini CLI", "Kimchi"].contains(descriptor.name) else {
+                return descriptor
+            }
+            return LocalUsageReaderDescriptor(
+                reader: descriptor.reader, sourceLocations: descriptor.sourceLocations,
+                sourceSignatureStrategy: descriptor.sourceSignatureStrategy,
+                collectorRevision: 1,
+                sourceLocationsResolver: {
+                    try descriptor.resolvedSourceLocations().map(\.canonicalSelectedLocation)
+                })
+        }
     }
 }
 
@@ -156,24 +139,21 @@ extension LocalUsageReaderRegistry {
         paths: LocalUsageReaderPaths,
         environment: [String: String],
         copilotSourceLocations: [LocalUsageSourceLocation]) -> [LocalUsageReaderDescriptor] {
-        var openCodeSourceLocations: [LocalUsageSourceLocation] = [
-            .file(paths.openCodeDatabase, includesSQLiteSidecars: true),
-        ]
-        if let path = environment["OPENCODE_DB"],
-           NSString(string: path).isAbsolutePath,
-           !path.contains("\0") {
-            let explicitDatabase = URL(fileURLWithPath: path)
-            if explicitDatabase.standardizedFileURL != paths.openCodeDatabase.standardizedFileURL {
-                openCodeSourceLocations.append(.file(explicitDatabase, includesSQLiteSidecars: true))
-            }
-        }
+        let openCode = OpenCodeReader(homeDirectory: paths.homeDirectory, environment: environment)
+        let openClaw = OpenClawReader(agentsRoots: OpenClawReader.defaultAgentsRoots(home: paths.homeDirectory))
         return [
             LocalUsageReaderDescriptor(
-                reader: OpenCodeReader(homeDirectory: paths.homeDirectory, environment: environment),
-                sourceLocations: openCodeSourceLocations),
+                reader: openCode,
+                sourceLocations: [.directoryPresence(paths.openCodeDatabase.deletingLastPathComponent())],
+                sourceSignatureStrategy: .allFiles,
+                collectorRevision: 1,
+                sourceLocationsResolver: openCode.selectedSourceLocations),
             LocalUsageReaderDescriptor(
-                reader: OpenClawReader(agentsURLOverride: paths.openClawAgents),
-                sourceLocations: [.directory(paths.openClawAgents, extensions: ["jsonl"])]),
+                reader: openClaw,
+                sourceLocations: openClaw.agentsRoots.map { .directoryPresence($0) },
+                sourceSignatureStrategy: .allFiles,
+                collectorRevision: 1,
+                sourceLocationsResolver: openClaw.selectedSourceLocations),
             LocalUsageReaderDescriptor(
                 reader: CopilotCLIReader(
                     otelDirectoryURLOverride: paths.copilotOTELDirectory,

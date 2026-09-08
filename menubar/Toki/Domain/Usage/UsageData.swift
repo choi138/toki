@@ -284,13 +284,14 @@ struct SessionUsageStat: Identifiable, Equatable {
 
 enum ReaderStatusState: String {
     case loaded
+    case partial
     case empty
     case disabled
     case failed
 }
 
 func readerFailureNames(from statuses: [ReaderStatus]) -> [String] {
-    statuses.filter { $0.state == .failed }.map(\.name)
+    statuses.filter(\.hasReadError).map(\.name)
 }
 
 struct ReaderStatus: Identifiable, Equatable {
@@ -300,6 +301,10 @@ struct ReaderStatus: Identifiable, Equatable {
     let lastReadAt: Date?
     let totalTokens: Int
     let isOriginPartitioned: Bool
+
+    var hasReadError: Bool {
+        state == .failed || state == .partial
+    }
 
     var id: String {
         name

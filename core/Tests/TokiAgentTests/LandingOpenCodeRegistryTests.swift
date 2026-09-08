@@ -35,10 +35,12 @@ final class LandingOpenCodeRegistryTests: XCTestCase {
 
         XCTAssertEqual(usage.inputTokens, 300)
         XCTAssertEqual(usage.tokenEvents.count, 2)
-        XCTAssertTrue(descriptor.sourceLocations.contains(
-            .file(xdgData.appendingPathComponent("opencode/opencode.db"), includesSQLiteSidecars: true)))
-        XCTAssertTrue(descriptor.sourceLocations.contains(
-            .file(explicit.url, includesSQLiteSidecars: true)))
+        let selectedFiles = try descriptor.resolvedSourceLocations().compactMap { location -> URL? in
+            guard case let .file(url, true, _) = location else { return nil }
+            return url
+        }
+        XCTAssertTrue(selectedFiles.contains(channel.url))
+        XCTAssertTrue(selectedFiles.contains(explicit.url))
     }
 
     func test_directDatabaseOverrideRemainsExclusive() async throws {

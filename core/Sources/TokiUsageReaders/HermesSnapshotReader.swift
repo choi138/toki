@@ -19,12 +19,10 @@ func hermesReaderDescriptor(
     }
     return LocalUsageReaderDescriptor(
         reader: scopedReader,
-        sourceLocations: [.file(paths.hermesDatabase, includesSQLiteSidecars: true)]
-            + (paths.hermesDiscoversProfiles
-                ? [.directory(paths.hermesProfiles, extensions: ["db", "db-wal", "db-shm", "db-journal"])]
-                : []),
-        sourceSignatureStrategy: paths.hermesDiscoversProfiles
-            ? .boundedAllFiles(maximumFileCount: 4096, maximumEntryCount: 8192) : .standard)
+        sourceLocations: [.file(paths.hermesDatabase, includesSQLiteSidecars: true)],
+        sourceSignatureStrategy: .allFiles,
+        collectorRevision: 1,
+        sourceLocationsResolver: reader.selectedSourceLocations)
 }
 
 /// Snapshot consumers currently have no partial-coverage field. Block incomplete exports

@@ -41,7 +41,7 @@ struct TokenTotalAggregationResult: Equatable {
     let readerStatuses: [ReaderStatus]
 
     var hasReaderFailures: Bool {
-        readerStatuses.contains { $0.state == .failed }
+        readerStatuses.contains(where: \.hasReadError)
     }
 }
 
@@ -368,14 +368,15 @@ private func readerFetchResult(
                 sourceStats: sourceStats)]
             fallbackSourceStats = []
         }
-        let statusState: ReaderStatusState = usage.hasReportableData ? .loaded : .empty
+        let message = readerPartialUsageMessage(usage)
+        let statusState: ReaderStatusState = message != nil ? .partial : (usage.hasReportableData ? .loaded : .empty)
         return ReaderFetchResult(
             index: index,
             usage: usage,
             status: ReaderStatus(
                 name: reader.name,
                 state: statusState,
-                message: nil,
+                message: message,
                 lastReadAt: readAt,
                 totalTokens: usage.totalTokens,
                 isOriginPartitioned: reader is any OriginPartitionedTokenReader),

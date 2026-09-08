@@ -26,6 +26,10 @@ final class HermesExplicitDefaultHomeTests: XCTestCase {
                 let usage = try await reader.readUsage(from: fixture.start, to: fixture.end)
                 assertDatedUsage(usage, equals: original)
             }
+            let locations = try descriptor.resolvedSourceLocations()
+            XCTAssertTrue(locations.contains(.file(fixture.ledgerURL(), includesSQLiteSidecars: false)))
+            XCTAssertFalse(locations.contains(.file(
+                fixture.ledgerURL(for: fixture.database("named")), includesSQLiteSidecars: false)))
         }
         XCTAssertEqual(try Data(contentsOf: keyURL), originalKey)
 
@@ -123,6 +127,10 @@ final class HermesExplicitDefaultRetargetTests: XCTestCase {
                     let usage = try await reader.readUsage(from: fixture.start, to: fixture.end)
                     assertDatedUsage(usage, equals: expected)
                 }
+                let locations = try descriptor.resolvedSourceLocations()
+                XCTAssertEqual(
+                    locations.contains(.file(fixture.ledgerURL(scope: scope), includesSQLiteSidecars: false)),
+                    selectedHome == fixture.hermesHome)
                 let snapshot = try await builder.build(configuration: configuration, now: fixture.now)
                 XCTAssertEqual(snapshot.tokenEvents.map(\.totalTokens), [expected.totalTokens])
                 if selectedHome == fixture.hermesHome {

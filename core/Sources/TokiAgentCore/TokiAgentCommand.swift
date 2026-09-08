@@ -141,22 +141,27 @@ package enum TokiAgentCommand {
         let configuration = try AgentConfigurationStore(paths: paths).load()
         let state = try AgentStateStore(paths: paths).load()
         let pendingCount = try AgentSpool(paths: paths).pendingEnvelopes().count
-        let hermesStatus = try await HermesUsageLedger(
-            fileURL: paths.stateDirectory.appendingPathComponent("hermes-usage-ledger.json"))
-            .status()
         let usagePaths = LocalUsageReaderPaths(
             homeDirectory: home,
             environment: environment)
-        let hermesCoverage = try HermesReader(
-            dbPathOverride: usagePaths.hermesDatabase.path)
-            .coverageStatus()
+        let hermesReader = HermesReader(
+            hermesHomeURL: usagePaths.hermesHome,
+            includesProfiles: usagePaths.hermesDiscoversProfiles,
+            usesLegacyDefaultLedger: true,
+            usageLedger: HermesUsageLedger(
+                fileURL: paths.stateDirectory.appendingPathComponent("hermes-usage-ledger.json")),
+            profileLedgerDirectory: paths.stateDirectory.appendingPathComponent("hermes-profile-ledgers"),
+            legacyDefaultDatabaseURL: usagePaths.hermesDefaultDatabase)
+        let hermesCoverage = try hermesReader.coverageStatus()
+        let hermesHistory = try await hermesReader.collectionHistoryStatus()
 
         for line in statusLines(
             configuration: configuration,
             state: state,
             pendingCount: pendingCount,
-            hermesStatus: hermesStatus,
-            hermesCoverage: hermesCoverage) {
+            hermesStatus: hermesHistory.profiles.first(where: \.isDefault)?.status,
+            hermesCoverage: hermesCoverage,
+            hermesHistory: hermesHistory) {
             AgentConsole.write(line)
         }
     }
@@ -166,7 +171,8 @@ package enum TokiAgentCommand {
         state: AgentRuntimeState,
         pendingCount: Int,
         hermesStatus: HermesUsageLedgerStatus? = nil,
-        hermesCoverage: HermesUsageCoverageStatus? = nil) -> [String] {
+        hermesCoverage: HermesUsageCoverageStatus? = nil,
+        hermesHistory: HermesCollectionHistoryStatus? = nil) -> [String] {
         var lines = [
             "Device: \(configuration.deviceName)",
             "Hub: configured",
@@ -177,6 +183,7 @@ package enum TokiAgentCommand {
             "Last success: \(state.lastSuccessfulSyncAt.map(iso8601) ?? "never")",
         ]
         if let hermesStatus {
+            if hermesHistory != nil { lines.append("Hermes legacy default ledger (only):") }
             lines.append("Hermes accurate since: \(hermesStatus.accurateSince.map(iso8601) ?? "not initialized")")
             lines.append(
                 "Hermes unattributed: \(hermesStatus.unattributedSessionCount) sessions, "
@@ -184,9 +191,32 @@ package enum TokiAgentCommand {
         }
         if let hermesCoverage {
             lines.append("Hermes unmetered main calls: \(hermesCoverage.unmeteredMainAPICallCount)")
+            lines.append("Hermes profile read errors: \(hermesCoverage.profileReadErrorCount)")
+        }
+        if let hermesHistory {
+            lines += hermesHistoryLines(hermesHistory)
         }
         if state.lastError != nil {
             lines.append("Last error: present")
+        }
+        return lines
+    }
+
+    private static func hermesHistoryLines(_ history: HermesCollectionHistoryStatus) -> [String] {
+        var lines = [
+            "Hermes collection history: \(history.profiles.count) profiles, "
+                + "\(history.initializedProfileCount) initialized, \(history.profileReadErrorCount) read errors",
+        ]
+        for (index, profile) in history.profiles.enumerated() {
+            let label = profile.isDefault ? "default" : "\(index + 1)"
+            guard let status = profile.status else {
+                lines.append("Hermes profile \(label) history: unreadable")
+                continue
+            }
+            let accurateSince = status.accurateSince.map(iso8601) ?? "not initialized"
+            lines.append("Hermes profile \(label) accurate since: \(accurateSince)")
+            lines.append("Hermes profile \(label) unattributed: \(status.unattributedSessionCount) sessions, "
+                + "\(status.unattributedTokens) tokens")
         }
         return lines
     }
@@ -261,11 +291,15 @@ extension TokiAgentCommand {
         home: URL,
         environment: [String: String]) -> [AgentSourceDiagnostic] {
         LocalUsageReaderRegistry.agentDescriptors(home: home, environment: environment).map { descriptor in
-            AgentSourceDiagnostic(
-                name: descriptor.name,
-                status: sourceDiagnosticStatus(
-                    locations: descriptor.sourceLocations,
-                    fileManager: .default))
+            do {
+                return try AgentSourceDiagnostic(
+                    name: descriptor.name,
+                    status: sourceDiagnosticStatus(
+                        locations: descriptor.resolvedSourceLocations(),
+                        fileManager: .default))
+            } catch {
+                return AgentSourceDiagnostic(name: descriptor.name, status: .error)
+            }
         }
     }
 
@@ -292,7 +326,7 @@ extension TokiAgentCommand {
 
         for location in locations {
             switch location {
-            case let .file(url, includesSQLiteSidecars):
+            case let .file(url, includesSQLiteSidecars, _):
                 inspect(url, expectsDirectory: false, countsAsReadable: true)
                 if includesSQLiteSidecars {
                     inspect(
@@ -304,7 +338,7 @@ extension TokiAgentCommand {
                         expectsDirectory: false,
                         countsAsReadable: false)
                 }
-            case let .directory(url, _):
+            case let .directory(url, _, _), let .directoryPresence(url):
                 inspect(url, expectsDirectory: true, countsAsReadable: true)
             }
         }

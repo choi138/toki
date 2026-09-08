@@ -120,9 +120,8 @@ final class OpenCodeUndecodableStoreTests: XCTestCase {
                 schema: v2 ? OpenCodeTestDatabase.v2Schema : OpenCodeTestDatabase.v1Schema)
             try insertRawRecord(database, v2: v2, payloadSQL: "'{private-synthetic-message'")
             let environment = ["OPENCODE_DB": database.url.path]
-            let descriptor = LocalUsageReaderDescriptor(
-                reader: OpenCodeReader(databaseURLs: [database.url]),
-                sourceLocations: [.file(database.url, includesSQLiteSidecars: true)])
+            let descriptor = try XCTUnwrap(LocalUsageReaderRegistry.agentDescriptors(
+                home: fixture.root, environment: environment).first { $0.name == "OpenCode" })
             let builder = AgentSnapshotBuilder(
                 home: fixture.root, environment: environment, readerDescriptors: [descriptor])
             do {

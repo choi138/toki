@@ -43,7 +43,7 @@ func panelUsageSelectionRequiresFallback(
         return !participatingStatuses.isEmpty
             && participatingStatuses.allSatisfy { $0.state == .failed }
     case .model:
-        return participatingStatuses.contains { $0.state == .failed }
+        return participatingStatuses.contains(where: \.hasReadError)
     }
 }
 
@@ -249,7 +249,7 @@ final class UsagePanelViewModel: ObservableObject {
             fetchedAt: fetchedAt,
             previousTotalTokens: previousTotalTokens,
             currentUsageWindow: selectedCurrentUsageWindow)
-        if let cacheKey, !result.readerStatuses.contains(where: { $0.state == .failed }) {
+        if let cacheKey, !result.readerStatuses.contains(where: \.hasReadError) {
             usageWindowResultCache.store(
                 UsageWindowResultCacheEntry(
                     request: request,
@@ -441,7 +441,7 @@ private extension UsagePanelViewModel {
         _ result: UsageAggregationResult,
         for identity: UsageRefreshIdentity,
         fetchedAt: Date) {
-        guard !result.readerStatuses.contains(where: { $0.state == .failed }) else { return }
+        guard !result.readerStatuses.contains(where: \.hasReadError) else { return }
         lastSuccessfulUsageIdentity = identity
         lastSuccessfulUsage = LastSuccessfulUsage(result: result, fetchedAt: fetchedAt)
     }
@@ -728,7 +728,7 @@ private extension UsagePanelViewModel {
             let participatingStatuses = panelReaderStatuses(
                 previousResult.readerStatuses,
                 for: scope)
-            guard !participatingStatuses.contains(where: { $0.state == .failed }) else {
+            guard !participatingStatuses.contains(where: \.hasReadError) else {
                 yesterdayComparisonTask = nil
                 return
             }

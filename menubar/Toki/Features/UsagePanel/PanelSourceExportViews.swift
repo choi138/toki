@@ -330,6 +330,8 @@ private struct ReaderStatusRowView: View, Equatable {
             }
         case .empty:
             "No local data"
+        case .partial:
+            "Partial usage; some profiles could not be read"
         case .disabled:
             "Off"
         case .failed:
@@ -343,6 +345,8 @@ private struct ReaderStatusRowView: View, Equatable {
             Color(red: 0.4, green: 0.9, blue: 0.6)
         case .empty:
             Color.white.opacity(0.35)
+        case .partial:
+            Color(red: 1.0, green: 0.8, blue: 0.35)
         case .disabled:
             Color(red: 1.0, green: 0.8, blue: 0.35)
         case .failed:

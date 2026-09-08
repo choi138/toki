@@ -24,7 +24,10 @@ separate from macOS compilation.
 For performance fix the dataset hash, event window/timezone, root/file counts,
 bytes, cache state and iteration count. Record samples and median wall time and
 peak memory for both revisions. Diagnose a warm regression above 20%. Memory
-counters that return zero are unavailable evidence, not zero allocation.
+counters that return zero are unavailable evidence, not zero allocation. Preserve
+failed baseline-equivalence checks and validate intended semantic changes against
+independent fixture arithmetic. Record every measured mode, including regressions,
+and distinguish measured source hashes from later nonsemantic organization changes.
 
 Update manifest statuses only for the exact verified fixture/path/format/OS
 scope. Retain explicit product variants and later milestones as deferred.
