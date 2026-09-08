@@ -46,6 +46,8 @@ public enum LocalUsageCacheScope {
 
 public struct LocalUsageReaderPaths: Equatable {
     public let homeDirectory: URL
+    public let hermesHome: URL
+    public let hermesDiscoversProfiles: Bool
     public let xdgConfigDirectory: URL
     public let xdgDataDirectory: URL
     public let xdgStateDirectory: URL
@@ -65,6 +67,12 @@ public struct LocalUsageReaderPaths: Equatable {
         homeDirectory: URL = homeDir(),
         environment: [String: String] = ProcessInfo.processInfo.environment) {
         self.homeDirectory = homeDirectory
+        let explicitHermesHome = Self.absoluteEnvironmentDirectory(
+            key: "HERMES_HOME",
+            environment: environment)
+        hermesHome = explicitHermesHome
+            ?? homeDirectory.appendingPathComponent(".hermes")
+        hermesDiscoversProfiles = explicitHermesHome == nil
         xdgConfigDirectory = Self.absoluteEnvironmentDirectory(
             key: "XDG_CONFIG_HOME",
             environment: environment)
@@ -154,7 +162,11 @@ public struct LocalUsageReaderPaths: Equatable {
     }
 
     public var hermesDatabase: URL {
-        homeDirectory.appendingPathComponent(".hermes/state.db")
+        hermesHome.appendingPathComponent("state.db")
+    }
+
+    public var hermesProfiles: URL {
+        hermesHome.appendingPathComponent("profiles", isDirectory: true)
     }
 
     public var cursorDatabase: URL {
@@ -375,11 +387,7 @@ public enum LocalUsageReaderRegistry {
                     .directory(paths.codexArchivedSessions, extensions: ["jsonl"]),
                 ],
                 sourceSignatureStrategy: .codexRollouts),
-            LocalUsageReaderDescriptor(
-                reader: HermesReader(
-                    dbPathOverride: paths.hermesDatabase.path,
-                    usageLedger: resolvedHermesUsageLedger),
-                sourceLocations: [.file(paths.hermesDatabase, includesSQLiteSidecars: true)]),
+            hermesReaderDescriptor(paths: paths, usageLedger: resolvedHermesUsageLedger, cacheScope: cacheScope),
             LocalUsageReaderDescriptor(
                 reader: CursorReader(dbPathOverride: paths.cursorDatabase.path),
                 sourceLocations: [.file(paths.cursorDatabase, includesSQLiteSidecars: true)]),

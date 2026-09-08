@@ -33,7 +33,7 @@ final class HermesSQLiteConnection {
     static func open(
         atPath path: String,
         fileManager: FileManager = .default) throws -> HermesSQLiteConnection? {
-        guard fileManager.fileExists(atPath: path) else { return nil }
+        guard try hermesSourceExists(at: URL(fileURLWithPath: path)) else { return nil }
 
         do {
             return try openValidatedDatabase(

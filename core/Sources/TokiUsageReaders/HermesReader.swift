@@ -15,7 +15,11 @@ public struct HermesReader: TokenReader {
     public let name = Self.sourceName
 
     private let dbPathOverride: String?
+    private let hermesHomeOverride: URL?
+    private let includesProfiles: Bool
+    private let usesLegacyDefaultLedger: Bool
     private let usageLedger: HermesUsageLedger
+    private let profileLedgerStore: HermesProfileLedgerStore?
     private let now: @Sendable () -> Date
 
     public init(
@@ -23,7 +27,32 @@ public struct HermesReader: TokenReader {
         usageLedger: HermesUsageLedger = .shared,
         now: @escaping @Sendable () -> Date = { Date() }) {
         self.dbPathOverride = dbPathOverride
+        hermesHomeOverride = nil
+        includesProfiles = false
+        usesLegacyDefaultLedger = true
         self.usageLedger = usageLedger
+        profileLedgerStore = nil
+        self.now = now
+    }
+
+    public init(
+        hermesHomeURL: URL,
+        includesProfiles: Bool,
+        usesLegacyDefaultLedger: Bool,
+        usageLedger: HermesUsageLedger,
+        profileLedgerDirectory: URL,
+        now: @escaping @Sendable () -> Date = { Date() }) {
+        dbPathOverride = nil
+        hermesHomeOverride = hermesHomeURL.standardizedFileURL
+        self.includesProfiles = includesProfiles
+        self.usesLegacyDefaultLedger = usesLegacyDefaultLedger
+        self.usageLedger = usageLedger
+        profileLedgerStore = HermesProfileLedgerStore(
+            defaultLedger: usageLedger,
+            includesDefaultLedger: usesLegacyDefaultLedger,
+            directory: profileLedgerDirectory.standardizedFileURL,
+            hermesHome: hermesHomeURL,
+            includesProfiles: includesProfiles)
         self.now = now
     }
 
@@ -32,8 +61,15 @@ public struct HermesReader: TokenReader {
     }
 
     public func readUsage(from startDate: Date, to endDate: Date) async throws -> RawTokenUsage {
+        try Task.checkCancellation()
+        if let profileLedgerStore {
+            return try await readProfileUsage(
+                profileLedgerStore: profileLedgerStore,
+                from: startDate,
+                to: endDate)
+        }
         let modelPricingTimestamp = now()
-        if let observations = try readDatabaseSnapshot({ database in
+        if let observations = try readDatabaseSnapshot(atPath: dbPath, { database in
             try readSessionObservations(
                 from: database,
                 modelPricingTimestamp: modelPricingTimestamp)
@@ -50,17 +86,133 @@ public struct HermesReader: TokenReader {
 
     public func coverageStatus() throws -> HermesUsageCoverageStatus {
         let modelPricingTimestamp = now()
-        return try readDatabaseSnapshot { database in
-            try readSessionModelUsage(
-                from: database,
-                modelPricingTimestamp: modelPricingTimestamp).coverage
-        } ?? HermesUsageCoverageStatus(unmeteredMainAPICallCount: 0)
+        let sources = try databaseSources()
+        var total = 0
+        var successfulSourceCount = 0
+        var failures: [Error] = []
+        for source in sources {
+            try Task.checkCancellation()
+            do {
+                guard let coverage = try readDatabaseSnapshot(atPath: source.databaseURL.path, { database in
+                    // A valid SQLite file without the Hermes session schema is not empty coverage.
+                    let statement = try preparedUsageStatement(in: database)
+                    defer { sqlite3_finalize(statement) }
+                    return try readSessionModelUsage(
+                        from: database,
+                        modelPricingTimestamp: modelPricingTimestamp).coverage
+                }) else { continue }
+                total = saturatedTokenSum(total, coverage.unmeteredMainAPICallCount)
+                successfulSourceCount += 1
+            } catch is CancellationError {
+                throw CancellationError()
+            } catch {
+                failures.append(error)
+            }
+        }
+        if successfulSourceCount == 0, let failure = failures.first { throw failure }
+        return HermesUsageCoverageStatus(
+            unmeteredMainAPICallCount: total,
+            profileReadErrorCount: failures.count)
+    }
+
+    public func collectionHistoryStatus() async throws -> HermesCollectionHistoryStatus {
+        if let profileLedgerStore {
+            let collection = try profileLedgerStore.discoverCollection()
+            return try await profileLedgerStore.historyStatus(collection: collection)
+        }
+        let status = try await usageLedger.status()
+        return HermesCollectionHistoryStatus(profiles: [.init(isDefault: true, status: status)])
+    }
+
+    private func databaseSources() throws -> [HermesDatabaseSource] {
+        guard let hermesHomeOverride else {
+            return [HermesDatabaseSource(
+                databaseURL: URL(fileURLWithPath: dbPath),
+                isDefault: true,
+                ledgerIdentifier: "")]
+        }
+        let sources = try discoverHermesDatabaseSources(
+            hermesHome: hermesHomeOverride,
+            includesProfiles: includesProfiles)
+        guard !usesLegacyDefaultLedger else { return sources }
+        return sources.map {
+            HermesDatabaseSource(
+                databaseURL: $0.databaseURL,
+                isDefault: false,
+                ledgerIdentifier: $0.ledgerIdentifier)
+        }
+    }
+
+    private func readProfileUsage(
+        profileLedgerStore: HermesProfileLedgerStore,
+        from startDate: Date,
+        to endDate: Date) async throws -> RawTokenUsage {
+        let collection = try profileLedgerStore.discoverCollection()
+        let sources = collection.sources
+        let ledgers = try await profileLedgerStore.selectedLedgers(collection: collection)
+        let modelPricingTimestamp = now()
+        var successfulSourceCount = 0
+        var failures: [String: Error] = [:]
+
+        for source in sources {
+            try Task.checkCancellation()
+            do {
+                guard let observations = try readDatabaseSnapshot(
+                    atPath: source.databaseURL.path,
+                    { database in
+                        try readSessionObservations(
+                            from: database,
+                            modelPricingTimestamp: modelPricingTimestamp)
+                    }) else { continue }
+                let observedAt = max(modelPricingTimestamp, now())
+                let ledger = await profileLedgerStore.ledger(for: source)
+                try await ledger.refresh(observations: observations, observedAt: observedAt)
+                successfulSourceCount += 1
+            } catch is CancellationError {
+                throw CancellationError()
+            } catch {
+                failures[source.isDefault ? "default" : source.ledgerIdentifier] = error
+            }
+        }
+
+        var events: [HermesUsageLedgerEvent] = []
+        for ledger in ledgers {
+            try Task.checkCancellation()
+            do {
+                try await events.append(contentsOf: ledger.events(from: startDate, to: endDate))
+            } catch is CancellationError {
+                throw CancellationError()
+            } catch {
+                failures[ledger.failureIdentifier] = error
+            }
+        }
+        if successfulSourceCount == 0, events.isEmpty,
+           let identifier = failures.keys.sorted().first, let failure = failures[identifier] {
+            throw failure
+        }
+
+        try Task.checkCancellation()
+        var result = accumulate(events: events, clippingEndDate: endDate)
+        if !failures.isEmpty {
+            result.supplemental.append(SupplementalUsage(
+                id: "hermes-profile-read-errors",
+                label: "Hermes profile read errors",
+                value: failures.count,
+                unit: .count,
+                source: name,
+                model: nil,
+                includedInTotals: false,
+                quality: .exact))
+        }
+        return result
     }
 
     private func readDatabaseSnapshot<Value>(
+        atPath path: String,
         _ read: (OpaquePointer) throws -> Value) throws -> Value? {
         for attempt in 0..<2 {
-            guard let connection = try HermesSQLiteConnection.open(atPath: dbPath) else {
+            try Task.checkCancellation()
+            guard let connection = try HermesSQLiteConnection.open(atPath: path) else {
                 return nil
             }
             let value = try read(connection.database)
@@ -109,6 +261,7 @@ public struct HermesReader: TokenReader {
         var observations: [HermesSessionObservation] = []
         var stepStatus = sqlite3_step(statement)
         while stepStatus == SQLITE_ROW {
+            try Task.checkCancellation()
             let session = HermesSessionUsageRow(statement: statement).observation
             let observation = try HermesUsageResolver.resolve(
                 session: session,
@@ -183,6 +336,7 @@ public struct HermesReader: TokenReader {
             "actual_cost_usd",
         ]
         guard try table("session_model_usage", hasColumns: requiredColumns, in: database) else {
+            // Older Hermes schemas still expose supported session totals.
             return .empty
         }
 
@@ -210,6 +364,7 @@ public struct HermesReader: TokenReader {
         var unmeteredMainAPICallCount = 0
         var stepStatus = sqlite3_step(statement)
         while stepStatus == SQLITE_ROW {
+            try Task.checkCancellation()
             let sessionID = hermesSQLiteText(statement, at: 0)
             let model = normalizedModelID(hermesSQLiteText(statement, at: 1))
             let task = hermesSQLiteText(statement, at: 2)
@@ -392,99 +547,4 @@ private struct HermesActivityEventIdentity: Hashable {
     let timestamp: Date
 }
 
-private struct HermesSessionUsageRow {
-    let sessionID: String
-    let startedAt: Date
-    let earliestActivityAt: Date?
-    let latestActivityAt: Date?
-    let model: String?
-    let inputTokens: Int
-    let outputTokens: Int
-    let cacheReadTokens: Int
-    let cacheWriteTokens: Int
-    let reasoningTokens: Int
-    let cost: Double
-    let costIsDerivedFromModelPricing: Bool
-    let modelPricingTimestamp: Date?
-    let projectName: String?
-    let attributionQuality: AttributionQuality
-
-    init(statement: OpaquePointer) {
-        sessionID = hermesSQLiteText(statement, at: 0).nilIfBlank ?? "hermes"
-        startedAt = Date(timeIntervalSince1970: sqlite3_column_double(statement, 1))
-        model = normalizedModelID(hermesSQLiteText(statement, at: 2))
-        let cwd = hermesSQLiteText(statement, at: 3).nilIfBlank
-        let gitRepoRoot = hermesSQLiteText(statement, at: 4).nilIfBlank
-        inputTokens = max(0, Int(sqlite3_column_int64(statement, 5)))
-        outputTokens = max(0, Int(sqlite3_column_int64(statement, 6)))
-        cacheReadTokens = max(0, Int(sqlite3_column_int64(statement, 7)))
-        cacheWriteTokens = max(0, Int(sqlite3_column_int64(statement, 8)))
-        reasoningTokens = max(0, Int(sqlite3_column_int64(statement, 9)))
-
-        let estimatedCost = max(0, sqlite3_column_double(statement, 10))
-        let actualCost = max(0, sqlite3_column_double(statement, 11))
-        let resolvedCost = hermesUsageCost(
-            model: model,
-            counters: HermesTokenCounters(
-                inputTokens: inputTokens,
-                outputTokens: outputTokens,
-                cacheReadTokens: cacheReadTokens,
-                cacheWriteTokens: cacheWriteTokens,
-                reasoningTokens: reasoningTokens),
-            estimatedCost: estimatedCost,
-            actualCost: actualCost,
-            timestamp: startedAt)
-        cost = resolvedCost.value
-        costIsDerivedFromModelPricing = resolvedCost.isDerivedFromModelPricing
-        modelPricingTimestamp = resolvedCost.modelPricingTimestamp
-
-        if sqlite3_column_type(statement, 12) == SQLITE_NULL {
-            earliestActivityAt = nil
-        } else {
-            earliestActivityAt = Date(timeIntervalSince1970: sqlite3_column_double(statement, 12))
-        }
-        if sqlite3_column_type(statement, 13) == SQLITE_NULL {
-            latestActivityAt = nil
-        } else {
-            latestActivityAt = Date(timeIntervalSince1970: sqlite3_column_double(statement, 13))
-        }
-        let attribution = UsageAttribution(
-            projectPath: cwd ?? gitRepoRoot,
-            quality: cwd == nil && gitRepoRoot != nil ? .inferred : .exact)
-        projectName = attribution.projectName
-        attributionQuality = attribution.quality
-    }
-
-    var observation: HermesSessionObservation {
-        HermesSessionObservation(
-            sessionID: sessionID,
-            startedAt: startedAt,
-            earliestActivityAt: earliestActivityAt,
-            latestActivityAt: latestActivityAt,
-            model: model,
-            counters: HermesTokenCounters(
-                inputTokens: inputTokens,
-                outputTokens: outputTokens,
-                cacheReadTokens: cacheReadTokens,
-                cacheWriteTokens: cacheWriteTokens,
-                reasoningTokens: reasoningTokens),
-            cost: cost,
-            costIsDerivedFromModelPricing: costIsDerivedFromModelPricing,
-            modelPricingTimestamp: modelPricingTimestamp,
-            projectName: projectName,
-            attributionQuality: attributionQuality)
-    }
-}
-
 private let hermesSQLiteTransient = unsafeBitCast(-1, to: sqlite3_destructor_type.self)
-
-private func hermesSQLiteText(_ statement: OpaquePointer?, at index: Int32) -> String {
-    sqlite3_column_text(statement, index).map { String(cString: $0) } ?? ""
-}
-
-private extension String {
-    var nilIfBlank: String? {
-        let trimmed = trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty ? nil : trimmed
-    }
-}

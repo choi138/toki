@@ -10,7 +10,7 @@ public actor HermesUsageLedger {
         fileURL: hermesUsageLedgerURL(),
         automaticallyMigrateLegacy: true)
 
-    private let fileURL: URL
+    nonisolated let fileURL: URL
     private let automaticallyMigrateLegacy: Bool
     private let privateFileWriter: (Data, URL) throws -> Void
     private let legacyMigrationHandler: HermesUsageLedgerMigrationHandler
@@ -44,6 +44,7 @@ public actor HermesUsageLedger {
     func refresh(
         observations: [HermesSessionObservation],
         observedAt: Date) throws {
+        try Task.checkCancellation()
         try loadIfNeeded()
         guard hermesDateIsValid(observedAt) else {
             throw HermesUsageLedgerError.invalidObservation
@@ -69,6 +70,7 @@ public actor HermesUsageLedger {
         let sortedObservations = observations.sorted(by: { $0.sessionID < $1.sessionID })
         var changed = document == nil
         for observation in sortedObservations {
+            try Task.checkCancellation()
             let observationChanged = try apply(
                 observation,
                 observedAt: effectiveObservedAt,
@@ -94,10 +96,12 @@ public actor HermesUsageLedger {
             return
         }
         try validate(candidate)
+        try Task.checkCancellation()
         try persist(candidate)
     }
 
     func events(from startDate: Date, to endDate: Date) throws -> [HermesUsageLedgerEvent] {
+        try Task.checkCancellation()
         try loadIfNeeded()
         guard startDate < endDate else { return [] }
         return (document?.events ?? [])
@@ -375,6 +379,8 @@ private extension HermesUsageLedger {
             try persistIdentifierKeyIfNeeded(candidate.identifierKey)
         } catch DurableFileIOError.replacementCommittedDirectorySyncFailed {
             throw HermesUsageLedgerError.durabilityNotConfirmed
+        } catch is CancellationError {
+            throw CancellationError()
         } catch {
             throw HermesUsageLedgerError.couldNotPersist
         }
@@ -387,6 +393,8 @@ private extension HermesUsageLedger {
             document = candidate
             isLoaded = true
             throw HermesUsageLedgerError.durabilityNotConfirmed
+        } catch is CancellationError {
+            throw CancellationError()
         } catch {
             throw HermesUsageLedgerError.couldNotPersist
         }
