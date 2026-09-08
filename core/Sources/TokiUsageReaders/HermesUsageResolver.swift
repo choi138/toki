@@ -3,9 +3,11 @@ import TokiUsageCore
 
 public struct HermesUsageCoverageStatus: Equatable, Sendable {
     public let unmeteredMainAPICallCount: Int
+    public let profileReadErrorCount: Int
 
-    public init(unmeteredMainAPICallCount: Int) {
+    public init(unmeteredMainAPICallCount: Int, profileReadErrorCount: Int = 0) {
         self.unmeteredMainAPICallCount = unmeteredMainAPICallCount
+        self.profileReadErrorCount = profileReadErrorCount
     }
 }
 
