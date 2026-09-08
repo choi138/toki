@@ -1,185 +1,127 @@
 import Foundation
 import TokiUsageCore
 
-#if os(Linux)
-    import CSQLite
-#else
-    import SQLite3
-#endif
-
-/// Reads ~/.local/share/opencode/opencode.db (SQLite)
-/// Queries assistant messages with token data
+/// Reads OpenCode's default/channel SQLite databases and legacy storage/message JSON.
+/// Sources are rediscovered on each call; no source writes or migration-complete cache are used.
 public struct OpenCodeReader: TokenReader {
     public let name = "OpenCode"
-    private let dbPathOverride: String?
+    private let dataRoots: [URL]
+    private let databaseURLs: [URL]
+    private let limits: OpenCodeReadLimits
 
+    /// Compatibility API: an override selects that database plus adjacent legacy messages.
+    /// A nil override discovers the current home/XDG root and any explicit OPENCODE_DB path.
     public init(dbPathOverride: String? = nil) {
-        self.dbPathOverride = dbPathOverride
+        if let dbPathOverride {
+            self.init(databaseURLs: [URL(fileURLWithPath: dbPathOverride)])
+        } else {
+            self.init(homeDirectory: homeDir(), environment: ProcessInfo.processInfo.environment)
+        }
     }
 
-    private var dbPath: String {
-        dbPathOverride ?? LocalUsageReaderPaths().openCodeDatabase.path
+    /// Roots are OpenCode data directories, not home directories. Only allowlisted database
+    /// names are discovered there. Explicit files are schema-checked and may have custom names.
+    public init(dataRoots: [URL], databaseURLs: [URL] = [], limits: OpenCodeReadLimits = .default) {
+        self.dataRoots = dataRoots
+        self.databaseURLs = databaseURLs
+        self.limits = limits
+    }
+
+    public init(databaseURLs: [URL], limits: OpenCodeReadLimits = .default) {
+        self.init(dataRoots: [], databaseURLs: databaseURLs, limits: limits)
+    }
+
+    /// Inject an empty environment for an isolated home. No config, credential or session
+    /// files are consulted to resolve roots. Relative environment overrides are ignored.
+    public init(
+        homeDirectory: URL,
+        environment: [String: String] = [:],
+        limits: OpenCodeReadLimits = .default) {
+        let dataHome = Self.absolutePath(environment["XDG_DATA_HOME"])
+            ?? homeDirectory.appendingPathComponent(".local/share")
+        self.init(
+            dataRoots: [dataHome.appendingPathComponent("opencode")],
+            databaseURLs: Self.absolutePath(environment["OPENCODE_DB"]).map { [$0] } ?? [],
+            limits: limits)
+    }
+
+    public func sourceLocations() throws -> OpenCodeSourceLocations {
+        try OpenCodeDiscovery.collect(
+            dataRoots: dataRoots, databaseURLs: databaseURLs, budget: OpenCodeReadBudget(limits)).locations
     }
 
     public func readUsage(from startDate: Date, to endDate: Date) async throws -> RawTokenUsage {
-        guard let database = try openDatabase() else {
-            return RawTokenUsage()
+        try Task.checkCancellation()
+        guard startDate.timeIntervalSince1970.isFinite, endDate.timeIntervalSince1970.isFinite else {
+            throw OpenCodeReaderError.invalidDateRange
         }
-        defer { sqlite3_close(database) }
-
-        let statement = try preparedUsageStatement(in: database, from: startDate, to: endDate)
-        defer { sqlite3_finalize(statement) }
-
-        return try accumulateUsageRows(from: statement, clippingEndDate: endDate)
-    }
-
-    private func openDatabase() throws -> OpaquePointer? {
-        guard FileManager.default.fileExists(atPath: dbPath) else { return nil }
-
-        var database: OpaquePointer?
-        guard sqlite3_open_v2(dbPath, &database, SQLITE_OPEN_READONLY, nil) == SQLITE_OK else {
-            let error = OpenCodeSQLiteError(operation: "open", database: database)
-            sqlite3_close(database)
-            throw error
-        }
-
-        sqlite3_busy_timeout(database, 2000)
-        return database
-    }
-
-    private func preparedUsageStatement(
-        in database: OpaquePointer,
-        from startDate: Date,
-        to endDate: Date) throws -> OpaquePointer {
-        let startEpoch = startDate.timeIntervalSince1970 * 1000
-        let endEpoch = endDate.timeIntervalSince1970 * 1000
-        let query = """
-            SELECT
-                session_id,
-                time_created,
-                COALESCE(CAST(json_extract(data, '$.tokens.input') AS INTEGER), 0),
-                COALESCE(CAST(json_extract(data, '$.tokens.output') AS INTEGER), 0),
-                COALESCE(CAST(json_extract(data, '$.tokens.cache.read') AS INTEGER), 0),
-                COALESCE(CAST(json_extract(data, '$.tokens.cache.write') AS INTEGER), 0),
-                COALESCE(CAST(json_extract(data, '$.tokens.reasoning') AS INTEGER), 0),
-                COALESCE(json_extract(data, '$.modelID'), '')
-            FROM message
-            WHERE json_extract(data, '$.role') = 'assistant'
-            AND json_extract(data, '$.tokens') IS NOT NULL
-            AND time_created >= ?
-            AND time_created < ?
-        """
-
-        var statement: OpaquePointer?
-        guard sqlite3_prepare_v2(database, query, -1, &statement, nil) == SQLITE_OK else {
-            throw OpenCodeSQLiteError(operation: "prepare", database: database)
-        }
-        guard let statement else {
-            throw OpenCodeSQLiteError(operation: "prepare", database: database)
-        }
-
-        guard sqlite3_bind_int64(statement, 1, Int64(startEpoch)) == SQLITE_OK,
-              sqlite3_bind_int64(statement, 2, Int64(endEpoch)) == SQLITE_OK else {
-            let error = OpenCodeSQLiteError(operation: "bind", database: database)
-            sqlite3_finalize(statement)
-            throw error
-        }
-
-        return statement
-    }
-
-    private func accumulateUsageRows(
-        from statement: OpaquePointer,
-        clippingEndDate: Date) throws -> RawTokenUsage {
-        var result = RawTokenUsage()
-        var activityEvents: [ActivityTimeEvent<String>] = []
-
-        var stepStatus = sqlite3_step(statement)
-        while stepStatus == SQLITE_ROW {
-            let sessionID = sqlite3_column_text(statement, 0).map { String(cString: $0) } ?? ""
-            let attribution = UsageAttribution(
-                sessionID: sessionID.isEmpty ? nil : sessionID,
-                quality: .unknown)
-            let timestamp = sqlite3_column_int64(statement, 1)
-            let input = Int(sqlite3_column_int64(statement, 2))
-            let output = Int(sqlite3_column_int64(statement, 3))
-            let cacheRead = Int(sqlite3_column_int64(statement, 4))
-            let cacheWrite = Int(sqlite3_column_int64(statement, 5))
-            let reasoning = Int(sqlite3_column_int64(statement, 6))
-            let modelID = sqlite3_column_text(statement, 7).map { String(cString: $0) } ?? ""
-
-            result.inputTokens += input
-            result.outputTokens += output
-            result.cacheReadTokens += cacheRead
-            result.cacheWriteTokens += cacheWrite
-            result.reasoningTokens += reasoning
-
-            let messageDate = Date(timeIntervalSince1970: TimeInterval(timestamp) / 1000)
-            activityEvents.append(
-                ActivityTimeEvent(
-                    streamID: sessionID.isEmpty ? "opencode" : sessionID,
-                    timestamp: messageDate,
-                    key: UsageModelGrouping.groupingKey(for: normalizedModelID(modelID))))
-
-            let normalizedModel = normalizedModelID(modelID)
-            let messageCost: Double
-            if let priceLookupKey = normalizedModel ?? (!modelID.isEmpty ? modelID : nil),
-               let price = modelPrice(for: priceLookupKey, at: messageDate) {
-                messageCost = price.cost(
-                    input: input,
-                    output: output + reasoning,
-                    cacheRead: cacheRead,
-                    cacheWrite: cacheWrite)
-                result.cost += messageCost
-            } else {
-                messageCost = 0
+        guard startDate < endDate else { return RawTokenUsage() }
+        let budget = try OpenCodeReadBudget(limits)
+        let discovery = try OpenCodeDiscovery.collect(dataRoots: dataRoots, databaseURLs: databaseURLs, budget: budget)
+        var messages: [OpenCodeMessage] = []
+        var databaseIDs: [URL: Set<OpenCodeMessageIdentity>] = [:]
+        var sessionNamespaces: [URL: [String: Set<String>]] = [:]
+        for store in discovery.stores {
+            try Task.checkCancellation()
+            let databaseMessages = try OpenCodeSQLiteReader(url: store.url, budget: budget).read(store: store)
+            messages.append(contentsOf: databaseMessages)
+            for message in databaseMessages {
+                try Task.checkCancellation()
+                for root in store.migrationRoots {
+                    if let identity = message.migrationIdentity { databaseIDs[root, default: []].insert(identity) }
+                    sessionNamespaces[root, default: [:]][message.sessionID, default: []].insert(message.namespace)
+                }
             }
-
-            result.accumulatePerModelUsage(
-                model: normalizedModel,
-                source: name,
-                totalTokens: input + output + cacheRead + cacheWrite + reasoning,
-                cost: messageCost)
-
-            result.recordTokenEvent(
-                timestamp: Date(timeIntervalSince1970: TimeInterval(timestamp) / 1000),
-                source: name,
-                model: normalizedModel,
-                inputTokens: input,
-                outputTokens: output,
-                cacheReadTokens: cacheRead,
-                cacheWriteTokens: cacheWrite,
-                reasoningTokens: reasoning,
-                cost: messageCost,
-                attribution: attribution)
-
-            stepStatus = sqlite3_step(statement)
         }
-
-        guard stepStatus == SQLITE_DONE else {
-            throw OpenCodeSQLiteError(operation: "query", database: sqlite3_db_handle(statement))
+        try messages.append(contentsOf: legacyMessages(
+            roots: discovery.legacyRoots, databaseIDs: databaseIDs,
+            sessionNamespaces: sessionNamespaces, budget: budget))
+        // Dedup precedes date filtering: a stale JSON timestamp cannot resurrect a
+        // database message whose authoritative timestamp moved out of this window.
+        messages.sort {
+            if $0.timestamp != $1.timestamp { return $0.timestamp < $1.timestamp }
+            if $0.namespace != $1.namespace { return $0.namespace < $1.namespace }
+            if $0.sessionID != $1.sessionID { return $0.sessionID < $1.sessionID }
+            return $0.identity.message < $1.identity.message
         }
-
-        result.mergeActivityEvents(activityEvents, source: name, clippingEndDate: clippingEndDate)
-
-        return result
-    }
-}
-
-private struct OpenCodeSQLiteError: LocalizedError {
-    let operation: String
-    let message: String
-
-    init(operation: String, database: OpaquePointer?) {
-        self.operation = operation
-        if let database, let errorMessage = sqlite3_errmsg(database) {
-            message = String(cString: errorMessage)
-        } else {
-            message = "unknown SQLite error"
+        var usage = RawTokenUsage()
+        for message in messages {
+            try Task.checkCancellation()
+            guard message.timestamp >= startDate, message.timestamp < endDate else { continue }
+            try message.accumulate(into: &usage)
         }
+        usage.recomputeMergedActiveEstimate(source: name, clippingEndDate: endDate)
+        try Task.checkCancellation()
+        return usage
     }
 
-    var errorDescription: String? {
-        "OpenCode SQLite \(operation) failed: \(message)"
+    private func legacyMessages(
+        roots: [URL],
+        databaseIDs: [URL: Set<OpenCodeMessageIdentity>],
+        sessionNamespaces: [URL: [String: Set<String>]],
+        budget: OpenCodeReadBudget) throws -> [OpenCodeMessage] {
+        var messages: [OpenCodeMessage] = []
+        for root in roots {
+            var legacyIDs: Set<OpenCodeMessageIdentity> = []
+            for file in try OpenCodeLegacyReader.files(in: root, budget: budget) {
+                guard var message = try OpenCodeLegacyReader.read(file, root: root, budget: budget) else { continue }
+                if let identity = message.migrationIdentity, databaseIDs[root]?.contains(identity) == true { continue }
+                guard legacyIDs.insert(message.identity).inserted else { continue }
+                // JSON-only turns in a partially migrated session keep the database's
+                // stream when exactly one store claims it. Independent channel streams
+                // remain distinct when session IDs conflict.
+                if let namespaces = sessionNamespaces[root]?[message.sessionID], namespaces.count == 1,
+                   let namespace = namespaces.first { message.namespace = namespace }
+                messages.append(message)
+            }
+        }
+        return messages
+    }
+
+    private static func absolutePath(_ value: String?) -> URL? {
+        guard let value, value.hasPrefix("/"), !value.contains("\0") else { return nil }
+        // Preserve filename bytes and the selected alias. Foundation on Linux may
+        // resolve a symlink during standardization; discovery must resolve it afresh.
+        return URL(fileURLWithPath: value)
     }
 }
