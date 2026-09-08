@@ -39,6 +39,7 @@ actor HermesProfileLedgerStore {
     private let directory: URL
     private let hermesHome: URL
     private let includesProfiles: Bool
+    private let legacyDefaultDatabaseURL: URL?
     private var profileLedgers: [String: HermesUsageLedger] = [:]
 
     init(
@@ -46,12 +47,14 @@ actor HermesProfileLedgerStore {
         includesDefaultLedger: Bool,
         directory: URL,
         hermesHome: URL,
-        includesProfiles: Bool) {
+        includesProfiles: Bool,
+        legacyDefaultDatabaseURL: URL? = nil) {
         self.defaultLedger = defaultLedger
         self.includesDefaultLedger = includesDefaultLedger
         self.directory = directory
         self.hermesHome = hermesHome
         self.includesProfiles = includesProfiles
+        self.legacyDefaultDatabaseURL = legacyDefaultDatabaseURL
     }
 
     nonisolated func discoverCollection() throws -> HermesProfileCollection {
@@ -59,16 +62,25 @@ actor HermesProfileLedgerStore {
         // Capture once before reading membership or discovering sources. A later root
         // retarget must not register this collection's identifiers in another collection.
         let canonicalHome = hermesHome.resolvingSymlinksInPath().standardizedFileURL
+        let canonicalDatabase = canonicalHome.appendingPathComponent("state.db")
+            .resolvingSymlinksInPath().standardizedFileURL
+        // Explicit selection controls profile discovery, not ownership of the old default ledger.
+        // Capture ownership with this collection so a live alias retarget cannot carry it elsewhere.
+        let ownsDefaultLedger = includesDefaultLedger && (legacyDefaultDatabaseURL.map {
+            $0.resolvingSymlinksInPath().standardizedFileURL == canonicalDatabase
+        } ?? true)
         let collectionIdentifier = SnapshotCipher.digest(
-            "toki.hermes.profile-collection.v1:\(includesProfiles):\(includesDefaultLedger):\(canonicalHome.path)")
+            "toki.hermes.profile-collection.v1:\(includesProfiles):\(ownsDefaultLedger):\(canonicalHome.path)")
         let sources = try discoverHermesDatabaseSources(
             hermesHome: canonicalHome,
             includesProfiles: includesProfiles,
-            preferredLedgerIdentifiers: readMembership(for: collectionIdentifier))
+            preferredLedgerIdentifiers: readMembership(for: collectionIdentifier),
+            defaultDatabaseURL: canonicalDatabase)
         return HermesProfileCollection(
             canonicalHome: canonicalHome,
             identifier: collectionIdentifier,
-            sources: includesDefaultLedger ? sources : sources.map {
+            includesDefaultLedger: ownsDefaultLedger,
+            sources: ownsDefaultLedger ? sources : sources.map {
                 HermesDatabaseSource(
                     databaseURL: $0.databaseURL, isDefault: false, ledgerIdentifier: $0.ledgerIdentifier)
             })
@@ -95,7 +107,7 @@ actor HermesProfileLedgerStore {
             try DurableFileIO.writePrivate(
                 JSONEncoder().encode(document), to: membershipURL(for: collection.identifier))
         }
-        let defaults = includesDefaultLedger
+        let defaults = collection.includesDefaultLedger
             ? [HermesProfileLedger(profileIdentifier: nil, ledger: defaultLedger)] : []
         return defaults + identifiers.sorted().map {
             HermesProfileLedger(profileIdentifier: $0, ledger: profileLedger(identifier: $0))
@@ -108,7 +120,7 @@ actor HermesProfileLedgerStore {
         guard identifiers.count <= Self.maximumMembershipCount else {
             throw HermesProfileCollectionError.invalidMembership
         }
-        let ledgers = (includesDefaultLedger ? [(true, defaultLedger)] : [])
+        let ledgers = (collection.includesDefaultLedger ? [(true, defaultLedger)] : [])
             + identifiers.sorted().map { (false, profileLedger(identifier: $0)) }
         var profiles: [HermesCollectionHistoryStatus.Profile] = []
         for (isDefault, ledger) in ledgers {
@@ -131,7 +143,7 @@ actor HermesProfileLedgerStore {
         guard identifiers.count <= Self.maximumMembershipCount else {
             throw HermesProfileCollectionError.invalidMembership
         }
-        let ledgerURLs = (includesDefaultLedger ? [defaultLedger.fileURL] : []) + identifiers.sorted().map {
+        let ledgerURLs = (collection.includesDefaultLedger ? [defaultLedger.fileURL] : []) + identifiers.sorted().map {
             directory.appendingPathComponent("hermes-usage-ledger-profile-\($0).json")
         }
         var locations: [LocalUsageSourceLocation] = [

@@ -41,6 +41,7 @@ public struct HermesReader: TokenReader {
         usesLegacyDefaultLedger: Bool,
         usageLedger: HermesUsageLedger,
         profileLedgerDirectory: URL,
+        legacyDefaultDatabaseURL: URL? = nil,
         now: @escaping @Sendable () -> Date = { Date() }) {
         dbPathOverride = nil
         hermesHomeOverride = hermesHomeURL.standardizedFileURL
@@ -52,7 +53,8 @@ public struct HermesReader: TokenReader {
             includesDefaultLedger: usesLegacyDefaultLedger,
             directory: profileLedgerDirectory.standardizedFileURL,
             hermesHome: hermesHomeURL,
-            includesProfiles: includesProfiles)
+            includesProfiles: includesProfiles,
+            legacyDefaultDatabaseURL: legacyDefaultDatabaseURL)
         self.now = now
     }
 

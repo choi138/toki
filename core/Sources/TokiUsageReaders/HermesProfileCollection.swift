@@ -17,6 +17,7 @@ struct HermesDatabaseSource: Equatable {
 struct HermesProfileCollection {
     let canonicalHome: URL
     let identifier: String
+    let includesDefaultLedger: Bool
     let sources: [HermesDatabaseSource]
 }
 
@@ -45,11 +46,12 @@ func discoverHermesDatabaseSources(
     includesProfiles: Bool,
     fileManager: FileManager = .default,
     maximumProfileCount: Int = 1024,
-    preferredLedgerIdentifiers: Set<String> = []) throws -> [HermesDatabaseSource] {
+    preferredLedgerIdentifiers: Set<String> = [],
+    defaultDatabaseURL: URL? = nil) throws -> [HermesDatabaseSource] {
     try Task.checkCancellation()
     let canonicalHome = hermesHome.resolvingSymlinksInPath().standardizedFileURL
     var candidates: [(url: URL, isDefault: Bool)] = [
-        (canonicalHome.appendingPathComponent("state.db"), true),
+        (defaultDatabaseURL ?? canonicalHome.appendingPathComponent("state.db"), true),
     ]
 
     if includesProfiles {

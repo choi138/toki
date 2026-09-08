@@ -8,10 +8,11 @@ func hermesReaderDescriptor(
     let reader = HermesReader(
         hermesHomeURL: paths.hermesHome,
         includesProfiles: paths.hermesDiscoversProfiles,
-        usesLegacyDefaultLedger: paths.hermesDiscoversProfiles,
+        usesLegacyDefaultLedger: true,
         usageLedger: usageLedger,
         profileLedgerDirectory: paths.cacheDirectory(for: cacheScope)
-            .appendingPathComponent("hermes-profile-ledgers", isDirectory: true))
+            .appendingPathComponent("hermes-profile-ledgers", isDirectory: true),
+        legacyDefaultDatabaseURL: paths.hermesDefaultDatabase)
     let scopedReader: any TokenReader = switch cacheScope {
     case .application: reader
     case .agent: HermesSnapshotReader(reader: reader)

@@ -165,6 +165,10 @@ public struct LocalUsageReaderPaths: Equatable {
         hermesHome.appendingPathComponent("state.db")
     }
 
+    public var hermesDefaultDatabase: URL {
+        homeDirectory.appendingPathComponent(".hermes/state.db")
+    }
+
     public var hermesProfiles: URL {
         hermesHome.appendingPathComponent("profiles", isDirectory: true)
     }
