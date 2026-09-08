@@ -1,3 +1,4 @@
+import Foundation
 import TokiUsageCore
 import XCTest
 @testable import Toki
@@ -28,7 +29,7 @@ final class OpenClawReaderTests: XCTestCase {
             ])
     }
 
-    /// OpenClaw never names a model. Without a per-model row its usage is dropped from the model
+    /// Model-less OpenClaw usage needs a per-model row or it is dropped from the model
     /// breakdown as soon as another source reports the same mixed/unattributed key.
     func test_openClawReader_recordsUnattributedUsageUnderTheMixedModelKey() throws {
         let usage = OpenClawReader.usage(
@@ -72,6 +73,40 @@ final class OpenClawReaderTests: XCTestCase {
         XCTAssertEqual(modelUsage.activeSeconds, usage.activeSeconds, accuracy: 0.001)
         XCTAssertEqual(row.activeSeconds, usage.activeSeconds, accuracy: 0.001)
         XCTAssertGreaterThan(row.wallClockSeconds, 0)
+    }
+
+    /// Synthetic nested envelope derived from the pinned upstream OpenClaw parser.
+    /// This exercises the public reader through the native model-report consumer.
+    func test_openClawReader_nestedModelAndUnknownPriceReachReportRows() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("toki-openclaw-report-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let sessions = root.appendingPathComponent("main/sessions")
+        try FileManager.default.createDirectory(at: sessions, withIntermediateDirectories: true)
+        let lines = [
+            #"{"type":"message","id":"priced","message":{"role":"assistant","model":"claude-opus-4-6","#
+                + #""provider":"anthropic","timestamp":"2026-04-10T12:00:00Z","usage":{"input":100,"output":50,"#
+                + #""reasoningTokens":20,"cost":{"total":0.25}}}}"#,
+            #"{"type":"message","id":"unknown","message":{"role":"assistant","model":"fixture-unpriced-model","#
+                + #""timestamp":"2026-04-10T12:01:00Z","usage":{"input":7,"output":3}}}"#,
+        ]
+        try Data(lines.joined(separator: "\n").utf8).write(to: sessions.appendingPathComponent("session.jsonl"))
+        let start = tokiTestISODate("2026-04-10T00:00:00Z")
+        let end = tokiTestISODate("2026-04-11T00:00:00Z")
+        let usage = try await OpenClawReader(agentsURLOverride: root).readUsage(from: start, to: end)
+        let rows = UsageReportBuilder.buildModelStats(from: usage, startDate: start, endDate: end)
+        let known = try XCTUnwrap(rows.first { $0.modelID == "claude-opus-4-6" })
+        let unknown = try XCTUnwrap(rows.first { $0.modelID == "fixture-unpriced-model" })
+        XCTAssertEqual(known.totalTokens, 150)
+        XCTAssertEqual(known.cost, 0.25, accuracy: 0.000001)
+        XCTAssertEqual(known.providers, ["anthropic"])
+        XCTAssertTrue(known.isPriceKnown)
+        XCTAssertGreaterThan(known.activeSeconds, 0)
+        XCTAssertGreaterThan(known.wallClockSeconds, 0)
+        XCTAssertEqual(unknown.totalTokens, 10)
+        XCTAssertFalse(unknown.isPriceKnown)
+        XCTAssertEqual(rows.reduce(0) { $0 + $1.totalTokens }, usage.totalTokens)
+        XCTAssertFalse(rows.contains { $0.modelID == UsageModelGrouping.mixedOrUnattributedKey })
     }
 }
 

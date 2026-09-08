@@ -1,137 +1,151 @@
 import Foundation
+import TokiSyncProtocol
 import TokiUsageCore
 
-/// Reads ~/.openclaw/agents/**/*.jsonl
+/// Reads OpenClaw agent SQLite stores and retained JSONL transcripts.
 public struct OpenClawReader: TokenReader {
     public static let sourceName = "OpenClaw"
 
     public let name = Self.sourceName
-    private let agentsURLOverride: URL?
+    public let agentsRoots: [URL]
+    private let limits: OpenClawReadLimits
+    private let beforeTranscriptRead: ((URL) throws -> Void)?
 
+    /// An override selects only that agents directory, preserving the legacy API.
     public init(agentsURLOverride: URL? = nil) {
-        self.agentsURLOverride = agentsURLOverride
+        self.init(agentsRoots: agentsURLOverride.map { [$0] } ?? Self.defaultAgentsRoots())
     }
 
-    private var agentsURL: URL {
-        agentsURLOverride ?? homeDir().appendingPathComponent(".openclaw/agents")
+    /// Explicit roots are agents directories, not state directories or HOME.
+    public init(agentsRoots: [URL]) {
+        self.init(agentsRoots: agentsRoots, limits: OpenClawReadLimits())
+    }
+
+    init(agentsRoots: [URL], limits: OpenClawReadLimits) {
+        self.init(agentsRoots: agentsRoots, limits: limits, beforeTranscriptRead: nil)
+    }
+
+    init(
+        agentsRoots: [URL],
+        limits: OpenClawReadLimits,
+        beforeTranscriptRead: ((URL) throws -> Void)?) {
+        self.agentsRoots = agentsRoots
+        self.limits = limits
+        self.beforeTranscriptRead = beforeTranscriptRead
+    }
+
+    public static func defaultAgentsRoots(home: URL = homeDir()) -> [URL] {
+        [".openclaw", ".clawdbot", ".moltbot", ".moldbot"].map {
+            home.appendingPathComponent("\($0)/agents")
+        }
     }
 
     public func readUsage(from startDate: Date, to endDate: Date) async throws -> RawTokenUsage {
-        guard FileManager.default.fileExists(atPath: agentsURL.path) else {
-            return RawTokenUsage()
+        try Task.checkCancellation()
+        guard startDate < endDate else { return RawTokenUsage() }
+        let budget = OpenClawReadBudget(limits: limits)
+        let sources = try OpenClawSourceDiscovery.sources(in: agentsRoots, budget: budget)
+        var accumulator = OpenClawUsageAccumulator(start: startDate, end: endDate)
+        // A database is authoritative when a retained transcript contains the same event.
+        for (sourceIndex, source) in sources.enumerated() {
+            try Task.checkCancellation()
+            switch source.kind {
+            case .database:
+                try OpenClawSQLiteReader.read(source: source, budget: budget) {
+                    accumulator.append($0, agent: source.agentID)
+                }
+            case .transcript:
+                var parser = OpenClawMessageParser(sessionID: source.sessionID, acceptsSessionHeader: true)
+                try OpenClawTranscriptIO.forEachLine(
+                    at: source.url,
+                    budget: budget,
+                    beforeRead: { try beforeTranscriptRead?(source.url) }) { data, readModifiedAt in
+                        if let event = parser.parse(data, fallbackDate: readModifiedAt) {
+                            accumulator.append(event, agent: source.agentID, transcriptSource: sourceIndex)
+                        }
+                    }
+                try parser.validate()
+            }
         }
-
-        let files = findFiles(in: agentsURL, withExtension: "jsonl", modifiedAfter: startDate)
-        var result = RawTokenUsage()
-        for file in files {
-            result += Self.usage(
-                fromJSONLLines: readJSONLLines(at: file),
-                streamID: file.path,
-                from: startDate,
-                to: endDate)
-        }
-        return result
+        try Task.checkCancellation()
+        return accumulator.finish()
     }
 
+    /// Kept for the existing macOS reader tests; timestamp-less legacy rows remain excluded.
     static func usage(
         fromJSONLLines lines: [String],
         streamID: String,
         from startDate: Date,
         to endDate: Date) -> RawTokenUsage {
-        usage(
-            fromJSONLSessions: [(streamID: streamID, lines: lines)],
-            from: startDate,
-            to: endDate)
-    }
-
-    private static func usage(
-        fromJSONLSessions sessions: [(streamID: String, lines: [String])],
-        from startDate: Date,
-        to endDate: Date) -> RawTokenUsage {
-        let decoder = JSONDecoder()
-
-        var result = RawTokenUsage()
-        var activityEvents: [ActivityTimeEvent<String>] = []
-
-        for session in sessions {
-            for line in session.lines {
-                guard let data = line.data(using: .utf8),
-                      let msg = try? decoder.decode(RawMessage.self, from: data),
-                      msg.role == "assistant",
-                      let tsStr = msg.timestamp ?? msg.createdAt,
-                      let eventDate = DateParser.parse(tsStr),
-                      eventDate >= startDate,
-                      eventDate < endDate,
-                      let usage = msg.usage else { continue }
-
-                let input = usage.inputTokens ?? usage.promptTokens ?? 0
-                let output = usage.outputTokens ?? usage.completionTokens ?? 0
-                let cacheRead = usage.cacheReadInputTokens ?? 0
-                let cacheWrite = usage.cacheCreationInputTokens ?? 0
-
-                result.inputTokens += input
-                result.outputTokens += output
-                result.cacheReadTokens += cacheRead
-                result.cacheWriteTokens += cacheWrite
-                // OpenClaw never names a model, so this usage groups under the shared
-                // mixed/unattributed key.
-                result.accumulatePerModelUsage(
-                    model: nil,
-                    source: sourceName,
-                    totalTokens: input + output + cacheRead + cacheWrite)
-                activityEvents.append(
-                    ActivityTimeEvent(
-                        streamID: session.streamID,
-                        timestamp: eventDate,
-                        key: UsageModelGrouping.groupingKey(for: nil)))
-                result.recordTokenEvent(
-                    timestamp: eventDate,
-                    source: sourceName,
-                    model: nil,
-                    inputTokens: input,
-                    outputTokens: output,
-                    cacheReadTokens: cacheRead,
-                    cacheWriteTokens: cacheWrite,
-                    attribution: UsageAttribution(
-                        sessionID: usageSessionID(fromPath: session.streamID),
-                        quality: .unknown))
+        var parser = OpenClawMessageParser(sessionID: usageSessionID(fromPath: streamID))
+        var accumulator = OpenClawUsageAccumulator(start: startDate, end: endDate)
+        for line in lines {
+            if let event = parser.parse(Data(line.utf8)) {
+                accumulator.append(event, agent: SnapshotCipher.digest(streamID))
             }
         }
-
-        result.mergeActivityEvents(activityEvents, source: sourceName, clippingEndDate: endDate)
-
-        return result
+        return accumulator.finish()
     }
 }
 
-// MARK: - Private Types
-
-private struct RawMessage: Decodable {
-    let role: String?
-    let timestamp: String?
-    let createdAt: String?
-    let usage: Usage?
-
-    enum CodingKeys: String, CodingKey {
-        case role, timestamp, usage
-        case createdAt = "created_at"
+private struct OpenClawUsageAccumulator {
+    private struct SourceOccurrence: Hashable {
+        let source: Int
+        let event: OpenClawFallbackEventKey
     }
 
-    struct Usage: Decodable {
-        let inputTokens: Int?
-        let outputTokens: Int?
-        let promptTokens: Int?
-        let completionTokens: Int?
-        let cacheReadInputTokens: Int?
-        let cacheCreationInputTokens: Int?
+    let start: Date
+    let end: Date
+    private var seen: Set<OpenClawEventIdentity> = []
+    private var seenFallbacks: Set<OpenClawFallbackEventIdentity> = []
+    private var sourceOccurrences: [SourceOccurrence: Int] = [:]
+    private var result = RawTokenUsage()
+    private var activity: [ActivityTimeEvent<String>] = []
 
-        enum CodingKeys: String, CodingKey {
-            case inputTokens = "input_tokens"
-            case outputTokens = "output_tokens"
-            case promptTokens = "prompt_tokens"
-            case completionTokens = "completion_tokens"
-            case cacheReadInputTokens = "cache_read_input_tokens"
-            case cacheCreationInputTokens = "cache_creation_input_tokens"
+    init(start: Date, end: Date) {
+        self.start = start
+        self.end = end
+    }
+
+    mutating func append(_ event: OpenClawUsageEvent, agent: String, transcriptSource: Int? = nil) {
+        if let identity = event.identity(agent: agent) {
+            guard seen.insert(identity).inserted else { return }
+        } else if let transcriptSource {
+            let eventKey = event.fallbackIdentityKey(agent: agent)
+            let sourceOccurrence = SourceOccurrence(source: transcriptSource, event: eventKey)
+            let occurrence = sourceOccurrences[sourceOccurrence, default: 0]
+            sourceOccurrences[sourceOccurrence] = occurrence + 1
+            let identity = OpenClawFallbackEventIdentity(event: eventKey, occurrence: occurrence)
+            guard seenFallbacks.insert(identity).inserted else { return }
         }
+        guard event.date >= start, event.date < end else { return }
+        let tokens = event.tokens
+        guard let total = result.accumulateTokenCounts(
+            input: tokens.input, output: tokens.output, cacheRead: tokens.cacheRead,
+            cacheWrite: tokens.cacheWrite, reasoning: tokens.reasoning) else { return }
+        let price = event.model.flatMap { modelPrice(for: $0, at: event.date) }
+        let estimatedCost = price?.cost(
+            input: tokens.input, output: tokens.output + tokens.reasoning,
+            cacheRead: tokens.cacheRead, cacheWrite: tokens.cacheWrite)
+        let cost = event.reportedCost ?? estimatedCost ?? 0
+        guard total > 0 || cost > 0 else { return }
+        let sessionID = "openclaw:" + SnapshotCipher.digest(agent + "\u{0}" + event.sessionID)
+        result.cost += cost
+        result.accumulatePerModelUsage(
+            model: event.model, source: OpenClawReader.sourceName, totalTokens: total, cost: cost)
+        result.recordTokenEvent(
+            timestamp: event.date, source: OpenClawReader.sourceName, model: event.model, provider: event.provider,
+            inputTokens: tokens.input, outputTokens: tokens.output, cacheReadTokens: tokens.cacheRead,
+            cacheWriteTokens: tokens.cacheWrite, reasoningTokens: tokens.reasoning, cost: cost,
+            costIsKnown: event.reportedCost != nil || price != nil,
+            attribution: UsageAttribution(sessionID: sessionID))
+        activity.append(ActivityTimeEvent(
+            streamID: sessionID, timestamp: event.date, key: UsageModelGrouping.groupingKey(for: event.model)))
+    }
+
+    mutating func finish() -> RawTokenUsage {
+        result.tokenEvents.sort { $0.timestamp < $1.timestamp }
+        result.mergeActivityEvents(activity, source: OpenClawReader.sourceName, clippingEndDate: end)
+        return result
     }
 }
