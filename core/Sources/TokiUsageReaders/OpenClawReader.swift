@@ -40,6 +40,16 @@ public struct OpenClawReader: TokenReader {
         }
     }
 
+    package func selectedSourceLocations() throws -> [LocalUsageSourceLocation] {
+        let sources = try OpenClawSourceDiscovery.sources(
+            in: agentsRoots, budget: OpenClawReadBudget(limits: limits))
+        let roots = agentsRoots.map { LocalUsageSourceLocation.directoryPresence($0).canonicalSelectedLocation }
+        return roots + sources.map {
+            LocalUsageSourceLocation.file($0.url, includesSQLiteSidecars: $0.kind == .database)
+                .canonicalSelectedLocation
+        }
+    }
+
     public func readUsage(from startDate: Date, to endDate: Date) async throws -> RawTokenUsage {
         try Task.checkCancellation()
         guard startDate < endDate else { return RawTokenUsage() }

@@ -41,7 +41,7 @@ func menuBarUsageContainsUnpricedModels(_ models: [ModelStat], totalTokens: Int)
 }
 
 func menuBarUsageContainsReaderFailures(_ statuses: [ReaderStatus]) -> Bool {
-    statuses.contains { $0.state == .failed }
+    statuses.contains(where: \.hasReadError)
 }
 
 enum MenuBarUsageSummaryPresentationPolicy {

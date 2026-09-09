@@ -118,6 +118,32 @@ public struct HermesReader: TokenReader {
             profileReadErrorCount: failures.count)
     }
 
+    package func selectedSourceLocations() throws -> [LocalUsageSourceLocation] {
+        let collection = try profileLedgerStore?.discoverCollection()
+        let sources = try collection?.sources ?? databaseSources()
+        // Collection can retain healthy siblings after an access error; signatures
+        // must fail so an inaccessible source cannot reuse a complete cached snapshot.
+        for source in sources {
+            _ = try hermesSourceExists(at: source.databaseURL)
+        }
+        var locations = sources.map { LocalUsageSourceLocation.file($0.databaseURL, includesSQLiteSidecars: true) }
+        if let selectedHome = collection?.canonicalHome ?? hermesHomeOverride {
+            locations.append(.directoryPresence(selectedHome))
+            if includesProfiles {
+                locations.append(.directoryPresence(selectedHome.appendingPathComponent("profiles")))
+            }
+        }
+        if let profileLedgerStore, let collection {
+            locations += try profileLedgerStore.sourceLocations(collection: collection)
+        } else {
+            locations += [
+                .file(usageLedger.fileURL, includesSQLiteSidecars: false),
+                .file(hermesUsageLedgerIdentifierKeyURL(for: usageLedger.fileURL), includesSQLiteSidecars: false),
+            ]
+        }
+        return locations.map(\.canonicalSelectedLocation)
+    }
+
     public func collectionHistoryStatus() async throws -> HermesCollectionHistoryStatus {
         if let profileLedgerStore {
             let collection = try profileLedgerStore.discoverCollection()

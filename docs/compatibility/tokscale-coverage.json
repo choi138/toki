@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "pinnedSHA": "3bd6dceb98925edab4e149c9bb1cf3fec9123f17",
   "baselineTokiSHA": "7fe0c4b485d0fcfdc65a971bba4932c9a0116fd0",
-  "scope": "M0–M2 reader and common-path implementation; app/agent integration follows in stack step 5",
+  "scope": "Assembled M0–M2 integration for 17 common clients / 18 readers; correctness gates passed for listed fixtures; performance acceptance and complete parity are not claimed",
   "counts": {
     "upstreamClients": 53,
     "commonClients": 17,
@@ -25,7 +25,7 @@
           "macOS",
           "Linux"
         ],
-        "executionEvidence": "See execution record for intermediate stack scope; Linux integration pending step 5",
+        "executionEvidence": "macOS assembled suites and Linux core suite passed; only named platform-applicable fixtures count, not unsupported variants",
         "upstreamRootKind": "XdgData",
         "upstreamWindows": "Not a Toki target; no Windows runtime claim"
       },
@@ -70,9 +70,13 @@
         "core/Tests/TokiAgentTests/OpenCodeDiscoveryTests.swift",
         "core/Tests/TokiAgentTests/OpenCodeRobustnessTests.swift",
         "core/Tests/TokiAgentTests/OpenCodeSnapshotTests.swift",
+        "core/Tests/TokiAgentTests/ReaderCoverageIntegrationTests.swift",
+        "core/Tests/TokiAgentTests/SourceCoverageIntegrationTests.swift",
         "core/Tests/TokiAgentTests/OpenCodeReadBudgetRegressionTests.swift",
         "menubar/TokiTests/CursorReaderTests.swift",
-        "core/Tests/TokiAgentTests/OpenCodeUndecodableStoreTests.swift"
+        "core/Tests/TokiAgentTests/OpenCodeUndecodableStoreTests.swift",
+        "core/Tests/TokiAgentTests/OpenCodeJournalTests.swift",
+        "core/Tests/TokiAgentTests/OpenCodeAliasSignatureTests.swift"
       ],
       "reader": [
         "core/Sources/TokiUsageReaders/OpenCodeReader.swift"
@@ -86,14 +90,23 @@
         "Only allowlisted channel filenames are discovered automatically",
         "Recognized legacy depth/schema only; arbitrary future schemas are diagnosed",
         "No root-relocation or unrestricted replica-identity guarantee; no pricing expansion",
-        "Entirely undecodable selected SQLite stores fail with sanitized errors; empty, user-only and mixed valid/invalid stores retain compatibility."
+        "Entirely undecodable selected SQLite stores fail with sanitized errors; valid empty, user-only and mixed stores retain compatibility.",
+        "Measured warm runtime +217.9% on 2048-row baseline-compatible fixture; performance acceptance remains open."
       ],
       "verification": {
-        "green": "524 macOS core tests passed; evidence is limited to listed existing synthetic fixtures",
-        "integration": "Pending stack step 5",
-        "executionRecord": "docs/compatibility/verification-20260908.md"
+        "worker": "source inspection only",
+        "green": "verified",
+        "consumer": "Reader and assembled snapshot/consumer regression suites passed on macOS",
+        "nativeUI": "unverified",
+        "linux": "Core suite passed on Swift 5.9.2 aarch64; macOS-only fixtures and unsupported variants are not Linux evidence",
+        "performance": "Measured synthetic warm runtime +217.9%; full cold/restart/warm and RSS in execution record; no blanket acceptance",
+        "parentLane": "14 baseline-compatible RED regressions; final 37 pass",
+        "integration": "macOS core 549 / native 700 and Linux core 549 passed; only named platform-applicable fixtures establish scope",
+        "independentReview": "Three bounded static rounds completed. Round 3 had three P2 findings, all reproduced and fixed; no fourth round or independent post-fix approval. Testing lane reached 16-batch cap with some truncated output.",
+        "executionRecord": "docs/compatibility/verification-20260908.md",
+        "macOSRegression": "Full core and native suites passed; only existing listed test coverage, no extra format claim"
       },
-      "fixtureEvidenceStatus": "Named synthetic regression fixtures available at this stack step; no production evidence",
+      "fixtureEvidenceStatus": "Listed synthetic fixtures executed in applicable macOS/core suites; see execution record for Linux scope and no production claim",
       "upstreamParser": "crates/tokscale-core/src/sessions/opencode.rs"
     },
     {
@@ -104,7 +117,7 @@
           "macOS",
           "Linux"
         ],
-        "executionEvidence": "See execution record for intermediate stack scope; Linux integration pending step 5",
+        "executionEvidence": "macOS assembled suites and Linux core suite passed; only named platform-applicable fixtures count, not unsupported variants",
         "upstreamRootKind": "EnvVar",
         "upstreamWindows": "Not a Toki target; no Windows runtime claim"
       },
@@ -147,7 +160,8 @@
       "fixtureEvidence": [
         "core/Tests/TokiAgentTests/ExistingSourcePathCompatibilityTests.swift",
         "menubar/TokiTests/ClaudeCodeReaderActivityTests.swift",
-        "core/Tests/TokiAgentTests/ClaudeDiagnosticPrivacyTests.swift"
+        "core/Tests/TokiAgentTests/ClaudeDiagnosticPrivacyTests.swift",
+        "core/Tests/TokiAgentTests/ReaderCoverageReproductionTests.swift"
       ],
       "reader": [
         "core/Sources/TokiUsageReaders/ClaudeCodeReader.swift"
@@ -161,14 +175,22 @@
         "cc-mirror variants/config discovery deferred; no cross-profile scanning behind explicit override",
         "No new upstream request/message dedup policy; existing Toki requestId max policy retained",
         "Strict file decode diagnostics do not provide partial per-file success",
-        "Discovery and JSONL failures use fixed diagnostics without project or file names; cancellation remains distinct."
+        "Fixed discovery/JSONL diagnostics omit encoded project and file names; cancellation and malformed/oversized inputs remain failed reads."
       ],
       "verification": {
-        "green": "524 macOS core tests passed; evidence is limited to listed existing synthetic fixtures",
-        "integration": "Pending stack step 5",
-        "executionRecord": "docs/compatibility/verification-20260908.md"
+        "worker": "source inspection only",
+        "green": "verified",
+        "consumer": "unverified",
+        "nativeUI": "unverified",
+        "linux": "Core suite passed on Swift 5.9.2 aarch64; macOS-only fixtures and unsupported variants are not Linux evidence",
+        "performance": "No separate client timing measurement; aggregate benchmark covers Hermes/OpenCode/OpenClaw only",
+        "parentCoverageLane": "25 strengthened RED tests / 73 assertions; candidate 25 pass",
+        "integration": "macOS core 549 / native 700 and Linux core 549 passed; only named platform-applicable fixtures establish scope",
+        "executionRecord": "docs/compatibility/verification-20260908.md",
+        "macOSRegression": "Full core and native suites passed; only existing listed test coverage, no extra format claim",
+        "independentReview": "Three bounded static rounds completed. Round 3 had three P2 findings, all reproduced and fixed; no fourth round or independent post-fix approval. Testing lane reached 16-batch cap with some truncated output."
       },
-      "fixtureEvidenceStatus": "Named synthetic regression fixtures available at this stack step; no production evidence",
+      "fixtureEvidenceStatus": "Listed synthetic fixtures executed in applicable macOS/core suites; see execution record for Linux scope and no production claim",
       "upstreamParser": "crates/tokscale-core/src/sessions/claudecode.rs"
     },
     {
@@ -179,7 +201,7 @@
           "macOS",
           "Linux"
         ],
-        "executionEvidence": "See execution record for intermediate stack scope; Linux integration pending step 5",
+        "executionEvidence": "macOS assembled suites and Linux core suite passed; only named platform-applicable fixtures count, not unsupported variants",
         "upstreamRootKind": "EnvVar",
         "upstreamWindows": "Not a Toki target; no Windows runtime claim"
       },
@@ -240,11 +262,19 @@
         "OpenClaw app-server reassignment/fork semantics are not added in this lane"
       ],
       "verification": {
-        "green": "524 macOS core tests passed; evidence is limited to listed existing synthetic fixtures",
-        "integration": "Pending stack step 5",
-        "executionRecord": "docs/compatibility/verification-20260908.md"
+        "worker": "source inspection only",
+        "green": "verified",
+        "consumer": "unverified",
+        "nativeUI": "unverified",
+        "linux": "Core suite passed on Swift 5.9.2 aarch64; macOS-only fixtures and unsupported variants are not Linux evidence",
+        "performance": "No separate client timing measurement; aggregate benchmark covers Hermes/OpenCode/OpenClaw only",
+        "parentCoverageLane": "25 strengthened RED tests / 73 assertions; candidate 25 pass",
+        "integration": "macOS core 549 / native 700 and Linux core 549 passed; only named platform-applicable fixtures establish scope",
+        "executionRecord": "docs/compatibility/verification-20260908.md",
+        "macOSRegression": "Full core and native suites passed; only existing listed test coverage, no extra format claim",
+        "independentReview": "Three bounded static rounds completed. Round 3 had three P2 findings, all reproduced and fixed; no fourth round or independent post-fix approval. Testing lane reached 16-batch cap with some truncated output."
       },
-      "fixtureEvidenceStatus": "Named synthetic regression fixtures available at this stack step; no production evidence",
+      "fixtureEvidenceStatus": "Listed synthetic fixtures executed in applicable macOS/core suites; see execution record for Linux scope and no production claim",
       "upstreamParser": "crates/tokscale-core/src/sessions/codex.rs"
     },
     {
@@ -255,7 +285,7 @@
           "macOS",
           "Linux"
         ],
-        "executionEvidence": "See execution record for intermediate stack scope; Linux integration pending step 5",
+        "executionEvidence": "macOS assembled suites and Linux core suite passed; only named platform-applicable fixtures count, not unsupported variants",
         "upstreamRootKind": "Home",
         "upstreamWindows": "Not a Toki target; no Windows runtime claim"
       },
@@ -305,11 +335,18 @@
         "Registry client overlap is not a statement of data/format equivalence"
       ],
       "verification": {
-        "green": "524 macOS core tests passed; evidence is limited to listed existing synthetic fixtures",
-        "integration": "Pending stack step 5",
-        "executionRecord": "docs/compatibility/verification-20260908.md"
+        "worker": "source inspection only",
+        "green": "unverified",
+        "consumer": "unverified",
+        "nativeUI": "unverified",
+        "linux": "Core suite passed on Swift 5.9.2 aarch64; macOS-only fixtures and unsupported variants are not Linux evidence",
+        "performance": "No separate client timing measurement; aggregate benchmark covers Hermes/OpenCode/OpenClaw only",
+        "executionRecord": "docs/compatibility/verification-20260908.md",
+        "macOSRegression": "Full core and native suites passed; only existing listed test coverage, no extra format claim",
+        "integration": "macOS core 549 / native 700 and Linux core 549 passed; only named platform-applicable fixtures establish scope",
+        "independentReview": "Three bounded static rounds completed. Round 3 had three P2 findings, all reproduced and fixed; no fourth round or independent post-fix approval. Testing lane reached 16-batch cap with some truncated output."
       },
-      "fixtureEvidenceStatus": "Named synthetic regression fixtures available at this stack step; no production evidence",
+      "fixtureEvidenceStatus": "Listed synthetic fixtures executed in applicable macOS/core suites; see execution record for Linux scope and no production claim",
       "upstreamParser": "crates/tokscale-core/src/sessions/cursor.rs"
     },
     {
@@ -320,7 +357,7 @@
           "macOS",
           "Linux"
         ],
-        "executionEvidence": "See execution record for intermediate stack scope; Linux integration pending step 5",
+        "executionEvidence": "macOS assembled suites and Linux core suite passed; only named platform-applicable fixtures count, not unsupported variants",
         "upstreamRootKind": "EnvVar",
         "upstreamWindows": "Not a Toki target; no Windows runtime claim"
       },
@@ -363,7 +400,8 @@
       "pricingStatus": "Existing modelPrice lookup; JSONL unknown model explicitly unpriced",
       "fixtureEvidence": [
         "core/Tests/TokiAgentTests/ExistingSourcePathCompatibilityTests.swift",
-        "menubar/TokiTests/ReaderUnattributedModelTests.swift"
+        "menubar/TokiTests/ReaderUnattributedModelTests.swift",
+        "core/Tests/TokiAgentTests/ReaderCoverageReproductionTests.swift"
       ],
       "reader": [
         "core/Sources/TokiUsageReaders/GeminiReader.swift"
@@ -380,11 +418,19 @@
         "JSONL malformed/truncated or unsupported usage schema fails the read; no partial success"
       ],
       "verification": {
-        "green": "524 macOS core tests passed; evidence is limited to listed existing synthetic fixtures",
-        "integration": "Pending stack step 5",
-        "executionRecord": "docs/compatibility/verification-20260908.md"
+        "worker": "source inspection only",
+        "green": "verified",
+        "consumer": "unverified",
+        "nativeUI": "unverified",
+        "linux": "Core suite passed on Swift 5.9.2 aarch64; macOS-only fixtures and unsupported variants are not Linux evidence",
+        "performance": "No separate client timing measurement; aggregate benchmark covers Hermes/OpenCode/OpenClaw only",
+        "parentCoverageLane": "25 strengthened RED tests / 73 assertions; candidate 25 pass",
+        "integration": "macOS core 549 / native 700 and Linux core 549 passed; only named platform-applicable fixtures establish scope",
+        "executionRecord": "docs/compatibility/verification-20260908.md",
+        "macOSRegression": "Full core and native suites passed; only existing listed test coverage, no extra format claim",
+        "independentReview": "Three bounded static rounds completed. Round 3 had three P2 findings, all reproduced and fixed; no fourth round or independent post-fix approval. Testing lane reached 16-batch cap with some truncated output."
       },
-      "fixtureEvidenceStatus": "Named synthetic regression fixtures available at this stack step; no production evidence",
+      "fixtureEvidenceStatus": "Listed synthetic fixtures executed in applicable macOS/core suites; see execution record for Linux scope and no production claim",
       "upstreamParser": "crates/tokscale-core/src/sessions/gemini.rs"
     },
     {
@@ -395,7 +441,7 @@
           "macOS",
           "Linux"
         ],
-        "executionEvidence": "See execution record for intermediate stack scope; Linux integration pending step 5",
+        "executionEvidence": "macOS assembled suites and Linux core suite passed; only named platform-applicable fixtures count, not unsupported variants",
         "upstreamRootKind": "XdgData",
         "upstreamWindows": "Not a Toki target; no Windows runtime claim"
       },
@@ -448,11 +494,18 @@
         "No additional client-specific env root in pinned scanner; no full parser parity claim"
       ],
       "verification": {
-        "green": "524 macOS core tests passed; evidence is limited to listed existing synthetic fixtures",
-        "integration": "Pending stack step 5",
-        "executionRecord": "docs/compatibility/verification-20260908.md"
+        "worker": "source inspection only",
+        "green": "unverified",
+        "consumer": "unverified",
+        "nativeUI": "unverified",
+        "linux": "Core suite passed on Swift 5.9.2 aarch64; macOS-only fixtures and unsupported variants are not Linux evidence",
+        "performance": "No separate client timing measurement; aggregate benchmark covers Hermes/OpenCode/OpenClaw only",
+        "executionRecord": "docs/compatibility/verification-20260908.md",
+        "macOSRegression": "Full core and native suites passed; only existing listed test coverage, no extra format claim",
+        "integration": "macOS core 549 / native 700 and Linux core 549 passed; only named platform-applicable fixtures establish scope",
+        "independentReview": "Three bounded static rounds completed. Round 3 had three P2 findings, all reproduced and fixed; no fourth round or independent post-fix approval. Testing lane reached 16-batch cap with some truncated output."
       },
-      "fixtureEvidenceStatus": "Named synthetic regression fixtures available at this stack step; no production evidence",
+      "fixtureEvidenceStatus": "Listed synthetic fixtures executed in applicable macOS/core suites; see execution record for Linux scope and no production claim",
       "upstreamParser": "crates/tokscale-core/src/sessions/amp.rs"
     },
     {
@@ -463,7 +516,7 @@
           "macOS",
           "Linux"
         ],
-        "executionEvidence": "See execution record for intermediate stack scope; Linux integration pending step 5",
+        "executionEvidence": "macOS assembled suites and Linux core suite passed; only named platform-applicable fixtures count, not unsupported variants",
         "upstreamRootKind": "Home",
         "upstreamWindows": "Not a Toki target; no Windows runtime claim"
       },
@@ -513,11 +566,18 @@
         "No client-specific root override in pinned registry/scanner; generic extra dirs excluded"
       ],
       "verification": {
-        "green": "524 macOS core tests passed; evidence is limited to listed existing synthetic fixtures",
-        "integration": "Pending stack step 5",
-        "executionRecord": "docs/compatibility/verification-20260908.md"
+        "worker": "source inspection only",
+        "green": "unverified",
+        "consumer": "unverified",
+        "nativeUI": "unverified",
+        "linux": "Core suite passed on Swift 5.9.2 aarch64; macOS-only fixtures and unsupported variants are not Linux evidence",
+        "performance": "No separate client timing measurement; aggregate benchmark covers Hermes/OpenCode/OpenClaw only",
+        "executionRecord": "docs/compatibility/verification-20260908.md",
+        "macOSRegression": "Full core and native suites passed; only existing listed test coverage, no extra format claim",
+        "integration": "macOS core 549 / native 700 and Linux core 549 passed; only named platform-applicable fixtures establish scope",
+        "independentReview": "Three bounded static rounds completed. Round 3 had three P2 findings, all reproduced and fixed; no fourth round or independent post-fix approval. Testing lane reached 16-batch cap with some truncated output."
       },
-      "fixtureEvidenceStatus": "Named synthetic regression fixtures available at this stack step; no production evidence",
+      "fixtureEvidenceStatus": "Listed synthetic fixtures executed in applicable macOS/core suites; see execution record for Linux scope and no production claim",
       "upstreamParser": "crates/tokscale-core/src/sessions/droid.rs"
     },
     {
@@ -528,7 +588,7 @@
           "macOS",
           "Linux"
         ],
-        "executionEvidence": "See execution record for intermediate stack scope; Linux integration pending step 5",
+        "executionEvidence": "macOS assembled suites and Linux core suite passed; only named platform-applicable fixtures count, not unsupported variants",
         "upstreamRootKind": "Home",
         "upstreamWindows": "Not a Toki target; no Windows runtime claim"
       },
@@ -574,7 +634,12 @@
         "core/Tests/TokiAgentTests/OpenClawDiscoveryTests.swift",
         "core/Tests/TokiAgentTests/OpenClawSQLiteTests.swift",
         "core/Tests/TokiAgentTests/OpenClawSnapshotTests.swift",
-        "core/Tests/TokiAgentTests/OpenClawReadRegressionTests.swift"
+        "core/Tests/TokiAgentTests/ReaderCoverageIntegrationTests.swift",
+        "menubar/TokiTests/UsageCoverageIntegrationTests.swift",
+        "core/Tests/TokiAgentTests/SourceCoverageIntegrationTests.swift",
+        "core/Tests/TokiAgentTests/OpenClawReadRegressionTests.swift",
+        "core/Tests/TokiAgentTests/OpenClawJournalRegressionTests.swift",
+        "core/Tests/TokiAgentTests/OpenClawNullAliasRegressionTests.swift"
       ],
       "reader": [
         "core/Sources/TokiUsageReaders/OpenClawReader.swift"
@@ -587,14 +652,23 @@
       "limitations": [
         "Compressed archives including zstd/gzip/zip remain unsupported and diagnosed",
         "Embedded Codex home/app-server and shared-harness reassignment remain deferred",
-        "No account/network configuration discovery or complete historical schema parity"
+        "No account/network configuration discovery or complete historical schema parity",
+        "Measured warm runtime +23.1% on legacy JSONL fixture; OpenClaw wall-time union differs from the baseline sum. Performance/baseline-equivalence acceptance is not claimed."
       ],
       "verification": {
-        "green": "524 macOS core tests passed; evidence is limited to listed existing synthetic fixtures",
-        "integration": "Pending stack step 5",
-        "executionRecord": "docs/compatibility/verification-20260908.md"
+        "worker": "source inspection only",
+        "green": "verified",
+        "consumer": "Reader and assembled snapshot/consumer regression suites passed on macOS",
+        "nativeUI": "unverified",
+        "linux": "Core suite passed on Swift 5.9.2 aarch64; macOS-only fixtures and unsupported variants are not Linux evidence",
+        "performance": "Measured synthetic warm runtime +23.1%; full cold/restart/warm and RSS in execution record; no blanket acceptance",
+        "parentLane": "3 initial RED cases; final 39 pass",
+        "integration": "macOS core 549 / native 700 and Linux core 549 passed; only named platform-applicable fixtures establish scope",
+        "independentReview": "Three bounded static rounds completed. Round 3 had three P2 findings, all reproduced and fixed; no fourth round or independent post-fix approval. Testing lane reached 16-batch cap with some truncated output.",
+        "executionRecord": "docs/compatibility/verification-20260908.md",
+        "macOSRegression": "Full core and native suites passed; only existing listed test coverage, no extra format claim"
       },
-      "fixtureEvidenceStatus": "Named synthetic regression fixtures available at this stack step; no production evidence",
+      "fixtureEvidenceStatus": "Listed synthetic fixtures executed in applicable macOS/core suites; see execution record for Linux scope and no production claim",
       "upstreamParser": "crates/tokscale-core/src/sessions/openclaw.rs"
     },
     {
@@ -605,7 +679,7 @@
           "macOS",
           "Linux"
         ],
-        "executionEvidence": "See execution record for intermediate stack scope; Linux integration pending step 5",
+        "executionEvidence": "macOS assembled suites and Linux core suite passed; only named platform-applicable fixtures count, not unsupported variants",
         "upstreamRootKind": "Home",
         "upstreamWindows": "Not a Toki target; no Windows runtime claim"
       },
@@ -659,11 +733,18 @@
         "Alias relationships established after registry construction require descriptor refresh"
       ],
       "verification": {
-        "green": "524 macOS core tests passed; evidence is limited to listed existing synthetic fixtures",
-        "integration": "Pending stack step 5",
-        "executionRecord": "docs/compatibility/verification-20260908.md"
+        "worker": "source inspection only",
+        "green": "unverified",
+        "consumer": "unverified",
+        "nativeUI": "unverified",
+        "linux": "Core suite passed on Swift 5.9.2 aarch64; macOS-only fixtures and unsupported variants are not Linux evidence",
+        "performance": "No separate client timing measurement; aggregate benchmark covers Hermes/OpenCode/OpenClaw only",
+        "executionRecord": "docs/compatibility/verification-20260908.md",
+        "macOSRegression": "Full core and native suites passed; only existing listed test coverage, no extra format claim",
+        "integration": "macOS core 549 / native 700 and Linux core 549 passed; only named platform-applicable fixtures establish scope",
+        "independentReview": "Three bounded static rounds completed. Round 3 had three P2 findings, all reproduced and fixed; no fourth round or independent post-fix approval. Testing lane reached 16-batch cap with some truncated output."
       },
-      "fixtureEvidenceStatus": "Named synthetic regression fixtures available at this stack step; no production evidence",
+      "fixtureEvidenceStatus": "Listed synthetic fixtures executed in applicable macOS/core suites; see execution record for Linux scope and no production claim",
       "upstreamParser": "crates/tokscale-core/src/sessions/pi.rs"
     },
     {
@@ -674,7 +755,7 @@
           "macOS",
           "Linux"
         ],
-        "executionEvidence": "See execution record for intermediate stack scope; Linux integration pending step 5",
+        "executionEvidence": "macOS assembled suites and Linux core suite passed; only named platform-applicable fixtures count, not unsupported variants",
         "upstreamRootKind": "Home",
         "upstreamWindows": "Not a Toki target; no Windows runtime claim"
       },
@@ -733,11 +814,18 @@
         "No Windows Kimi paths or no-Linux desktop support claim"
       ],
       "verification": {
-        "green": "524 macOS core tests passed; evidence is limited to listed existing synthetic fixtures",
-        "integration": "Pending stack step 5",
-        "executionRecord": "docs/compatibility/verification-20260908.md"
+        "worker": "source inspection only",
+        "green": "unverified",
+        "consumer": "unverified",
+        "nativeUI": "unverified",
+        "linux": "Core suite passed on Swift 5.9.2 aarch64; macOS-only fixtures and unsupported variants are not Linux evidence",
+        "performance": "No separate client timing measurement; aggregate benchmark covers Hermes/OpenCode/OpenClaw only",
+        "executionRecord": "docs/compatibility/verification-20260908.md",
+        "macOSRegression": "Full core and native suites passed; only existing listed test coverage, no extra format claim",
+        "integration": "macOS core 549 / native 700 and Linux core 549 passed; only named platform-applicable fixtures establish scope",
+        "independentReview": "Three bounded static rounds completed. Round 3 had three P2 findings, all reproduced and fixed; no fourth round or independent post-fix approval. Testing lane reached 16-batch cap with some truncated output."
       },
-      "fixtureEvidenceStatus": "Named synthetic regression fixtures available at this stack step; no production evidence",
+      "fixtureEvidenceStatus": "Listed synthetic fixtures executed in applicable macOS/core suites; see execution record for Linux scope and no production claim",
       "upstreamParser": "crates/tokscale-core/src/sessions/kimi.rs"
     },
     {
@@ -748,7 +836,7 @@
           "macOS",
           "Linux"
         ],
-        "executionEvidence": "See execution record for intermediate stack scope; Linux integration pending step 5",
+        "executionEvidence": "macOS assembled suites and Linux core suite passed; only named platform-applicable fixtures count, not unsupported variants",
         "upstreamRootKind": "Home",
         "upstreamWindows": "Not a Toki target; no Windows runtime claim"
       },
@@ -803,11 +891,18 @@
         "No generic extra paths protocol"
       ],
       "verification": {
-        "green": "524 macOS core tests passed; evidence is limited to listed existing synthetic fixtures",
-        "integration": "Pending stack step 5",
-        "executionRecord": "docs/compatibility/verification-20260908.md"
+        "worker": "source inspection only",
+        "green": "unverified",
+        "consumer": "unverified",
+        "nativeUI": "unverified",
+        "linux": "Core suite passed on Swift 5.9.2 aarch64; macOS-only fixtures and unsupported variants are not Linux evidence",
+        "performance": "No separate client timing measurement; aggregate benchmark covers Hermes/OpenCode/OpenClaw only",
+        "executionRecord": "docs/compatibility/verification-20260908.md",
+        "macOSRegression": "Full core and native suites passed; only existing listed test coverage, no extra format claim",
+        "integration": "macOS core 549 / native 700 and Linux core 549 passed; only named platform-applicable fixtures establish scope",
+        "independentReview": "Three bounded static rounds completed. Round 3 had three P2 findings, all reproduced and fixed; no fourth round or independent post-fix approval. Testing lane reached 16-batch cap with some truncated output."
       },
-      "fixtureEvidenceStatus": "Named synthetic regression fixtures available at this stack step; no production evidence",
+      "fixtureEvidenceStatus": "Listed synthetic fixtures executed in applicable macOS/core suites; see execution record for Linux scope and no production claim",
       "upstreamParser": "crates/tokscale-core/src/sessions/qwen.rs"
     },
     {
@@ -815,7 +910,7 @@
       "clientID": "roocode",
       "os": {
         "tokiTarget": [],
-        "executionEvidence": "See execution record for intermediate stack scope; Linux integration pending step 5",
+        "executionEvidence": "unverified",
         "upstreamRootKind": "Home",
         "upstreamWindows": "Not a Toki target; no Windows runtime claim"
       },
@@ -870,7 +965,7 @@
       "clientID": "kilocode",
       "os": {
         "tokiTarget": [],
-        "executionEvidence": "See execution record for intermediate stack scope; Linux integration pending step 5",
+        "executionEvidence": "unverified",
         "upstreamRootKind": "Home",
         "upstreamWindows": "Not a Toki target; no Windows runtime claim"
       },
@@ -925,7 +1020,7 @@
       "clientID": "mux",
       "os": {
         "tokiTarget": [],
-        "executionEvidence": "See execution record for intermediate stack scope; Linux integration pending step 5",
+        "executionEvidence": "unverified",
         "upstreamRootKind": "Home",
         "upstreamWindows": "Not a Toki target; no Windows runtime claim"
       },
@@ -980,7 +1075,7 @@
       "clientID": "kilo",
       "os": {
         "tokiTarget": [],
-        "executionEvidence": "See execution record for intermediate stack scope; Linux integration pending step 5",
+        "executionEvidence": "unverified",
         "upstreamRootKind": "XdgData",
         "upstreamWindows": "Not a Toki target; no Windows runtime claim"
       },
@@ -1035,7 +1130,7 @@
       "clientID": "crush",
       "os": {
         "tokiTarget": [],
-        "executionEvidence": "See execution record for intermediate stack scope; Linux integration pending step 5",
+        "executionEvidence": "unverified",
         "upstreamRootKind": "XdgData",
         "upstreamWindows": "Not a Toki target; no Windows runtime claim"
       },
@@ -1093,7 +1188,7 @@
           "macOS",
           "Linux"
         ],
-        "executionEvidence": "See execution record for intermediate stack scope; Linux integration pending step 5",
+        "executionEvidence": "macOS assembled suites and Linux core suite passed; only named platform-applicable fixtures count, not unsupported variants",
         "upstreamRootKind": "EnvVar",
         "upstreamWindows": "Not a Toki target; no Windows runtime claim"
       },
@@ -1131,13 +1226,19 @@
         ]
       },
       "modelStatus": "Per-session/per-model task attribution and independent profile namespaces retained",
-      "tokenStatus": "Healthy profiles and durable collection history are preserved; app partial status, CLI reporting and agent collection rejection are integrated in step 5.",
+      "tokenStatus": "Healthy profiles conserved; app partial warning, snapshot rejects incomplete collection; CLI reports selected coverage/history",
       "pricingStatus": "Existing curated catalog only; reported costs retained, unknown models not treated as free",
       "fixtureEvidence": [
         "core/Tests/TokiAgentTests/HermesProfileBoundaryTests.swift",
         "core/Tests/TokiAgentTests/HermesProfileConsumerTests.swift",
         "core/Tests/TokiAgentTests/HermesProfileCollectionTests.swift",
-        "core/Tests/TokiAgentTests/HermesReviewReproductionTests.swift"
+        "core/Tests/TokiAgentTests/HermesStatusCoverageIntegrationTests.swift",
+        "menubar/TokiTests/UsageCoverageIntegrationTests.swift",
+        "core/Tests/TokiAgentTests/SourceCoverageIntegrationTests.swift",
+        "core/Tests/TokiAgentTests/HermesReviewReproductionTests.swift",
+        "core/Tests/TokiAgentTests/HermesSourceAccessIntegrationTests.swift",
+        "core/Tests/TokiAgentTests/HermesCollectionRetargetTests.swift",
+        "core/Tests/TokiAgentTests/HermesExplicitDefaultHomeTests.swift"
       ],
       "reader": [
         "core/Sources/TokiUsageReaders/HermesReader.swift"
@@ -1149,14 +1250,23 @@
       "disposition": "common-existing-client",
       "limitations": [
         "Unmapped flat historical ledgers are not scanned or assigned to a collection",
-        "History before a ledger baseline remains unattributed; no invented timing"
+        "History before a ledger baseline remains unattributed; no invented timing",
+        "Native evidence covers one synthetic partial-result source view; Linux core fixtures passed; live production behavior unverified"
       ],
       "verification": {
-        "green": "524 macOS core tests passed; evidence is limited to listed existing synthetic fixtures",
-        "integration": "Pending stack step 5",
-        "executionRecord": "docs/compatibility/verification-20260908.md"
+        "worker": "source inspection only",
+        "green": "verified",
+        "consumer": "Verified partial fetch result, healthy totals, snapshot rejection and CLI history fixtures",
+        "nativeUI": "Verified synthetic Hermes partial-result source view; 132 tokens/$0.25/30s retained beside warning",
+        "linux": "Core suite passed on Swift 5.9.2 aarch64; macOS-only fixtures and unsupported variants are not Linux evidence",
+        "performance": "Measured synthetic warm runtime -0.5%; full cold/restart/warm and RSS in execution record; no blanket acceptance",
+        "parentLane": "18 RED regressions / 69 failed assertions; final 48 pass and copied integration 48 pass",
+        "integration": "macOS core 549 / native 700 and Linux core 549 passed; only named platform-applicable fixtures establish scope",
+        "independentReview": "Three bounded static rounds completed. Round 3 had three P2 findings, all reproduced and fixed; no fourth round or independent post-fix approval. Testing lane reached 16-batch cap with some truncated output.",
+        "executionRecord": "docs/compatibility/verification-20260908.md",
+        "macOSRegression": "Full core and native suites passed; only existing listed test coverage, no extra format claim"
       },
-      "fixtureEvidenceStatus": "Named synthetic regression fixtures available at this stack step; no production evidence",
+      "fixtureEvidenceStatus": "Listed synthetic fixtures executed in applicable macOS/core suites; see execution record for Linux scope and no production claim",
       "upstreamParser": "crates/tokscale-core/src/sessions/hermes.rs"
     },
     {
@@ -1167,7 +1277,7 @@
           "macOS",
           "Linux"
         ],
-        "executionEvidence": "See execution record for intermediate stack scope; Linux integration pending step 5",
+        "executionEvidence": "macOS assembled suites and Linux core suite passed; only named platform-applicable fixtures count, not unsupported variants",
         "upstreamRootKind": "Home",
         "upstreamWindows": "Not a Toki target; no Windows runtime claim"
       },
@@ -1221,11 +1331,18 @@
         "Exporter extension restriction retained; extensionless files unsupported by Toki"
       ],
       "verification": {
-        "green": "524 macOS core tests passed; evidence is limited to listed existing synthetic fixtures",
-        "integration": "Pending stack step 5",
-        "executionRecord": "docs/compatibility/verification-20260908.md"
+        "worker": "source inspection only",
+        "green": "unverified",
+        "consumer": "unverified",
+        "nativeUI": "unverified",
+        "linux": "Core suite passed on Swift 5.9.2 aarch64; macOS-only fixtures and unsupported variants are not Linux evidence",
+        "performance": "No separate client timing measurement; aggregate benchmark covers Hermes/OpenCode/OpenClaw only",
+        "executionRecord": "docs/compatibility/verification-20260908.md",
+        "macOSRegression": "Full core and native suites passed; only existing listed test coverage, no extra format claim",
+        "integration": "macOS core 549 / native 700 and Linux core 549 passed; only named platform-applicable fixtures establish scope",
+        "independentReview": "Three bounded static rounds completed. Round 3 had three P2 findings, all reproduced and fixed; no fourth round or independent post-fix approval. Testing lane reached 16-batch cap with some truncated output."
       },
-      "fixtureEvidenceStatus": "Named synthetic regression fixtures available at this stack step; no production evidence",
+      "fixtureEvidenceStatus": "Listed synthetic fixtures executed in applicable macOS/core suites; see execution record for Linux scope and no production claim",
       "upstreamParser": "crates/tokscale-core/src/sessions/copilot.rs"
     },
     {
@@ -1233,7 +1350,7 @@
       "clientID": "goose",
       "os": {
         "tokiTarget": [],
-        "executionEvidence": "See execution record for intermediate stack scope; Linux integration pending step 5",
+        "executionEvidence": "unverified",
         "upstreamRootKind": "XdgData",
         "upstreamWindows": "Not a Toki target; no Windows runtime claim"
       },
@@ -1288,7 +1405,7 @@
       "clientID": "codebuff",
       "os": {
         "tokiTarget": [],
-        "executionEvidence": "See execution record for intermediate stack scope; Linux integration pending step 5",
+        "executionEvidence": "unverified",
         "upstreamRootKind": "EnvVar",
         "upstreamWindows": "Not a Toki target; no Windows runtime claim"
       },
@@ -1345,7 +1462,7 @@
       "clientID": "antigravity",
       "os": {
         "tokiTarget": [],
-        "executionEvidence": "See execution record for intermediate stack scope; Linux integration pending step 5",
+        "executionEvidence": "unverified",
         "upstreamRootKind": "Config",
         "upstreamWindows": "Not a Toki target; no Windows runtime claim"
       },
@@ -1400,7 +1517,7 @@
       "clientID": "zed",
       "os": {
         "tokiTarget": [],
-        "executionEvidence": "See execution record for intermediate stack scope; Linux integration pending step 5",
+        "executionEvidence": "unverified",
         "upstreamRootKind": "XdgData",
         "upstreamWindows": "Not a Toki target; no Windows runtime claim"
       },
@@ -1455,7 +1572,7 @@
       "clientID": "kiro",
       "os": {
         "tokiTarget": [],
-        "executionEvidence": "See execution record for intermediate stack scope; Linux integration pending step 5",
+        "executionEvidence": "unverified",
         "upstreamRootKind": "Home",
         "upstreamWindows": "Not a Toki target; no Windows runtime claim"
       },
@@ -1510,7 +1627,7 @@
       "clientID": "trae",
       "os": {
         "tokiTarget": [],
-        "executionEvidence": "See execution record for intermediate stack scope; Linux integration pending step 5",
+        "executionEvidence": "unverified",
         "upstreamRootKind": "Config",
         "upstreamWindows": "Not a Toki target; no Windows runtime claim"
       },
@@ -1565,7 +1682,7 @@
       "clientID": "warp",
       "os": {
         "tokiTarget": [],
-        "executionEvidence": "See execution record for intermediate stack scope; Linux integration pending step 5",
+        "executionEvidence": "unverified",
         "upstreamRootKind": "Config",
         "upstreamWindows": "Not a Toki target; no Windows runtime claim"
       },
@@ -1620,7 +1737,7 @@
       "clientID": "cline",
       "os": {
         "tokiTarget": [],
-        "executionEvidence": "See execution record for intermediate stack scope; Linux integration pending step 5",
+        "executionEvidence": "unverified",
         "upstreamRootKind": "Home",
         "upstreamWindows": "Not a Toki target; no Windows runtime claim"
       },
@@ -1678,7 +1795,7 @@
           "macOS",
           "Linux"
         ],
-        "executionEvidence": "See execution record for intermediate stack scope; Linux integration pending step 5",
+        "executionEvidence": "macOS assembled suites and Linux core suite passed; only named platform-applicable fixtures count, not unsupported variants",
         "upstreamRootKind": "EnvVar",
         "upstreamWindows": "Not a Toki target; no Windows runtime claim"
       },
@@ -1725,7 +1842,9 @@
         "core/Tests/TokiAgentTests/ExistingSourcePathCompatibilityTests.swift",
         "core/Tests/TokiAgentTests/GJCPricingFallbackTests.swift",
         "menubar/TokiTests/GJCReaderTests.swift",
-        "core/Tests/TokiAgentTests/GJCSharedRootRegressionTests.swift"
+        "core/Tests/TokiAgentTests/ReaderCoverageIntegrationTests.swift",
+        "core/Tests/TokiAgentTests/GJCSharedRootRegressionTests.swift",
+        "core/Tests/TokiAgentTests/GJCSharedRootSignatureTests.swift"
       ],
       "reader": [
         "core/Sources/TokiUsageReaders/GJCReader.swift"
@@ -1740,14 +1859,22 @@
         "Copies with different physical roots are treated as independent even if embedded IDs coincide",
         "Canonical-path aliases supported; hard-link replicas across independent roots are not reconciled",
         "New-root session IDs are gjc:<canonical-root SHA256>:<sessionID>; legacy default and the original single-root initializer preserve existing IDs. Moving a root changes its namespace; no persistent relocation identity is introduced",
-        "Shared Pi/OMP roots keep GJC-only headerless, model-less and task records; common rows count once through the existing owner. Dynamic source-signature ownership follows in step 5."
+        "Shared Pi/OMP roots retain GJC-only records and count common records once through the actual owner; source signatures include separate canonical Pi/OMP ownership and track live alias retargeting."
       ],
       "verification": {
-        "green": "524 macOS core tests passed; evidence is limited to listed existing synthetic fixtures",
-        "integration": "Pending stack step 5",
-        "executionRecord": "docs/compatibility/verification-20260908.md"
+        "worker": "source inspection only",
+        "green": "verified",
+        "consumer": "Shared-root conservation 45 tokens/4 events and ownership signature 12 -> 0 -> 12 fixtures passed",
+        "nativeUI": "unverified",
+        "linux": "Core suite passed on Swift 5.9.2 aarch64; macOS-only fixtures and unsupported variants are not Linux evidence",
+        "performance": "No separate client timing measurement; aggregate benchmark covers Hermes/OpenCode/OpenClaw only",
+        "parentCoverageLane": "25 strengthened RED tests / 73 assertions; candidate 25 pass",
+        "integration": "macOS core 549 / native 700 and Linux core 549 passed; only named platform-applicable fixtures establish scope",
+        "executionRecord": "docs/compatibility/verification-20260908.md",
+        "macOSRegression": "Full core and native suites passed; only existing listed test coverage, no extra format claim",
+        "independentReview": "Three bounded static rounds completed. Round 3 had three P2 findings, all reproduced and fixed; no fourth round or independent post-fix approval. Testing lane reached 16-batch cap with some truncated output."
       },
-      "fixtureEvidenceStatus": "Named synthetic regression fixtures available at this stack step; no production evidence",
+      "fixtureEvidenceStatus": "Listed synthetic fixtures executed in applicable macOS/core suites; see execution record for Linux scope and no production claim",
       "upstreamParser": "crates/tokscale-core/src/sessions/gjc.rs"
     },
     {
@@ -1755,7 +1882,7 @@
       "clientID": "grok",
       "os": {
         "tokiTarget": [],
-        "executionEvidence": "See execution record for intermediate stack scope; Linux integration pending step 5",
+        "executionEvidence": "unverified",
         "upstreamRootKind": "EnvVar",
         "upstreamWindows": "Not a Toki target; no Windows runtime claim"
       },
@@ -1812,7 +1939,7 @@
       "clientID": "jcode",
       "os": {
         "tokiTarget": [],
-        "executionEvidence": "See execution record for intermediate stack scope; Linux integration pending step 5",
+        "executionEvidence": "unverified",
         "upstreamRootKind": "EnvVar",
         "upstreamWindows": "Not a Toki target; no Windows runtime claim"
       },
@@ -1869,7 +1996,7 @@
       "clientID": "commandcode",
       "os": {
         "tokiTarget": [],
-        "executionEvidence": "See execution record for intermediate stack scope; Linux integration pending step 5",
+        "executionEvidence": "unverified",
         "upstreamRootKind": "Home",
         "upstreamWindows": "Not a Toki target; no Windows runtime claim"
       },
@@ -1924,7 +2051,7 @@
       "clientID": "micode",
       "os": {
         "tokiTarget": [],
-        "executionEvidence": "See execution record for intermediate stack scope; Linux integration pending step 5",
+        "executionEvidence": "unverified",
         "upstreamRootKind": "XdgData",
         "upstreamWindows": "Not a Toki target; no Windows runtime claim"
       },
@@ -1979,7 +2106,7 @@
       "clientID": "antigravity-cli",
       "os": {
         "tokiTarget": [],
-        "executionEvidence": "See execution record for intermediate stack scope; Linux integration pending step 5",
+        "executionEvidence": "unverified",
         "upstreamRootKind": "EnvVar",
         "upstreamWindows": "Not a Toki target; no Windows runtime claim"
       },
@@ -2036,7 +2163,7 @@
       "clientID": "junie",
       "os": {
         "tokiTarget": [],
-        "executionEvidence": "See execution record for intermediate stack scope; Linux integration pending step 5",
+        "executionEvidence": "unverified",
         "upstreamRootKind": "Home",
         "upstreamWindows": "Not a Toki target; no Windows runtime claim"
       },
@@ -2091,7 +2218,7 @@
       "clientID": "zcode",
       "os": {
         "tokiTarget": [],
-        "executionEvidence": "See execution record for intermediate stack scope; Linux integration pending step 5",
+        "executionEvidence": "unverified",
         "upstreamRootKind": "Home",
         "upstreamWindows": "Not a Toki target; no Windows runtime claim"
       },
@@ -2146,7 +2273,7 @@
       "clientID": "opencodereview",
       "os": {
         "tokiTarget": [],
-        "executionEvidence": "See execution record for intermediate stack scope; Linux integration pending step 5",
+        "executionEvidence": "unverified",
         "upstreamRootKind": "Home",
         "upstreamWindows": "Not a Toki target; no Windows runtime claim"
       },
@@ -2201,7 +2328,7 @@
       "clientID": "codebuddy",
       "os": {
         "tokiTarget": [],
-        "executionEvidence": "See execution record for intermediate stack scope; Linux integration pending step 5",
+        "executionEvidence": "unverified",
         "upstreamRootKind": "Home",
         "upstreamWindows": "Not a Toki target; no Windows runtime claim"
       },
@@ -2256,7 +2383,7 @@
       "clientID": "workbuddy",
       "os": {
         "tokiTarget": [],
-        "executionEvidence": "See execution record for intermediate stack scope; Linux integration pending step 5",
+        "executionEvidence": "unverified",
         "upstreamRootKind": "Home",
         "upstreamWindows": "Not a Toki target; no Windows runtime claim"
       },
@@ -2311,7 +2438,7 @@
       "clientID": "devin-cli",
       "os": {
         "tokiTarget": [],
-        "executionEvidence": "See execution record for intermediate stack scope; Linux integration pending step 5",
+        "executionEvidence": "unverified",
         "upstreamRootKind": "XdgData",
         "upstreamWindows": "Not a Toki target; no Windows runtime claim"
       },
@@ -2366,7 +2493,7 @@
       "clientID": "devin-desktop",
       "os": {
         "tokiTarget": [],
-        "executionEvidence": "See execution record for intermediate stack scope; Linux integration pending step 5",
+        "executionEvidence": "unverified",
         "upstreamRootKind": "Home",
         "upstreamWindows": "Not a Toki target; no Windows runtime claim"
       },
@@ -2424,7 +2551,7 @@
           "macOS",
           "Linux"
         ],
-        "executionEvidence": "See execution record for intermediate stack scope; Linux integration pending step 5",
+        "executionEvidence": "macOS assembled suites and Linux core suite passed; only named platform-applicable fixtures count, not unsupported variants",
         "upstreamRootKind": "EnvVar",
         "upstreamWindows": "Not a Toki target; no Windows runtime claim"
       },
@@ -2484,11 +2611,18 @@
         "No implicit process cwd or filesystem config reads added; injected environment remains authoritative"
       ],
       "verification": {
-        "green": "524 macOS core tests passed; evidence is limited to listed existing synthetic fixtures",
-        "integration": "Pending stack step 5",
-        "executionRecord": "docs/compatibility/verification-20260908.md"
+        "worker": "source inspection only",
+        "green": "unverified",
+        "consumer": "unverified",
+        "nativeUI": "unverified",
+        "linux": "Core suite passed on Swift 5.9.2 aarch64; macOS-only fixtures and unsupported variants are not Linux evidence",
+        "performance": "No separate client timing measurement; aggregate benchmark covers Hermes/OpenCode/OpenClaw only",
+        "executionRecord": "docs/compatibility/verification-20260908.md",
+        "macOSRegression": "Full core and native suites passed; only existing listed test coverage, no extra format claim",
+        "integration": "macOS core 549 / native 700 and Linux core 549 passed; only named platform-applicable fixtures establish scope",
+        "independentReview": "Three bounded static rounds completed. Round 3 had three P2 findings, all reproduced and fixed; no fourth round or independent post-fix approval. Testing lane reached 16-batch cap with some truncated output."
       },
-      "fixtureEvidenceStatus": "Named synthetic regression fixtures available at this stack step; no production evidence",
+      "fixtureEvidenceStatus": "Listed synthetic fixtures executed in applicable macOS/core suites; see execution record for Linux scope and no production claim",
       "upstreamParser": "crates/tokscale-core/src/sessions/senpi.rs"
     },
     {
@@ -2496,7 +2630,7 @@
       "clientID": "augment",
       "os": {
         "tokiTarget": [],
-        "executionEvidence": "See execution record for intermediate stack scope; Linux integration pending step 5",
+        "executionEvidence": "unverified",
         "upstreamRootKind": "Home",
         "upstreamWindows": "Not a Toki target; no Windows runtime claim"
       },
@@ -2554,7 +2688,7 @@
           "macOS",
           "Linux"
         ],
-        "executionEvidence": "See execution record for intermediate stack scope; Linux integration pending step 5",
+        "executionEvidence": "macOS assembled suites and Linux core suite passed; only named platform-applicable fixtures count, not unsupported variants",
         "upstreamRootKind": "EnvVar",
         "upstreamWindows": "Not a Toki target; no Windows runtime claim"
       },
@@ -2610,11 +2744,19 @@
         "No parser expansion in this lane"
       ],
       "verification": {
-        "green": "524 macOS core tests passed; evidence is limited to listed existing synthetic fixtures",
-        "integration": "Pending stack step 5",
-        "executionRecord": "docs/compatibility/verification-20260908.md"
+        "worker": "source inspection only",
+        "green": "verified",
+        "consumer": "unverified",
+        "nativeUI": "unverified",
+        "linux": "Core suite passed on Swift 5.9.2 aarch64; macOS-only fixtures and unsupported variants are not Linux evidence",
+        "performance": "No separate client timing measurement; aggregate benchmark covers Hermes/OpenCode/OpenClaw only",
+        "parentCoverageLane": "25 strengthened RED tests / 73 assertions; candidate 25 pass",
+        "integration": "macOS core 549 / native 700 and Linux core 549 passed; only named platform-applicable fixtures establish scope",
+        "executionRecord": "docs/compatibility/verification-20260908.md",
+        "macOSRegression": "Full core and native suites passed; only existing listed test coverage, no extra format claim",
+        "independentReview": "Three bounded static rounds completed. Round 3 had three P2 findings, all reproduced and fixed; no fourth round or independent post-fix approval. Testing lane reached 16-batch cap with some truncated output."
       },
-      "fixtureEvidenceStatus": "Named synthetic regression fixtures available at this stack step; no production evidence",
+      "fixtureEvidenceStatus": "Listed synthetic fixtures executed in applicable macOS/core suites; see execution record for Linux scope and no production claim",
       "upstreamParser": "crates/tokscale-core/src/sessions/kimchi.rs"
     },
     {
@@ -2622,7 +2764,7 @@
       "clientID": "reasonix",
       "os": {
         "tokiTarget": [],
-        "executionEvidence": "See execution record for intermediate stack scope; Linux integration pending step 5",
+        "executionEvidence": "unverified",
         "upstreamRootKind": "ReasonixHome",
         "upstreamWindows": "Not a Toki target; no Windows runtime claim"
       },
@@ -2677,7 +2819,7 @@
       "clientID": "prime-agent",
       "os": {
         "tokiTarget": [],
-        "executionEvidence": "See execution record for intermediate stack scope; Linux integration pending step 5",
+        "executionEvidence": "unverified",
         "upstreamRootKind": "EnvVar",
         "upstreamWindows": "Not a Toki target; no Windows runtime claim"
       },
@@ -2734,7 +2876,7 @@
       "clientID": "freebuff",
       "os": {
         "tokiTarget": [],
-        "executionEvidence": "See execution record for intermediate stack scope; Linux integration pending step 5",
+        "executionEvidence": "unverified",
         "upstreamRootKind": "EnvVar",
         "upstreamWindows": "Not a Toki target; no Windows runtime claim"
       },
@@ -2791,7 +2933,7 @@
       "clientID": "cherrystudio",
       "os": {
         "tokiTarget": [],
-        "executionEvidence": "See execution record for intermediate stack scope; Linux integration pending step 5",
+        "executionEvidence": "unverified",
         "upstreamRootKind": "AppData",
         "upstreamWindows": "Not a Toki target; no Windows runtime claim"
       },
@@ -2846,7 +2988,7 @@
       "clientID": "dsh",
       "os": {
         "tokiTarget": [],
-        "executionEvidence": "See execution record for intermediate stack scope; Linux integration pending step 5",
+        "executionEvidence": "unverified",
         "upstreamRootKind": "EnvVar",
         "upstreamWindows": "Not a Toki target; no Windows runtime claim"
       },
@@ -2903,7 +3045,7 @@
       "clientID": "mcode",
       "os": {
         "tokiTarget": [],
-        "executionEvidence": "See execution record for intermediate stack scope; Linux integration pending step 5",
+        "executionEvidence": "unverified",
         "upstreamRootKind": "Config",
         "upstreamWindows": "Not a Toki target; no Windows runtime claim"
       },
@@ -2958,7 +3100,7 @@
       "clientID": "fx",
       "os": {
         "tokiTarget": [],
-        "executionEvidence": "See execution record for intermediate stack scope; Linux integration pending step 5",
+        "executionEvidence": "unverified",
         "upstreamRootKind": "Home",
         "upstreamWindows": "Not a Toki target; no Windows runtime claim"
       },
@@ -3016,7 +3158,7 @@
           "macOS",
           "Linux"
         ],
-        "executionEvidence": "See execution record for intermediate stack scope; Linux integration pending step 5",
+        "executionEvidence": "macOS assembled suites and Linux core suite passed; only named platform-applicable fixtures count, not unsupported variants",
         "upstreamRootKind": "Home",
         "upstreamWindows": "Not a Toki target; no Windows runtime claim"
       },
@@ -3072,11 +3214,18 @@
         "No expansion of PI_CODING_AGENT_DIR to a second reader"
       ],
       "verification": {
-        "green": "524 macOS core tests passed; evidence is limited to listed existing synthetic fixtures",
-        "integration": "Pending stack step 5",
-        "executionRecord": "docs/compatibility/verification-20260908.md"
+        "worker": "source inspection only",
+        "green": "unverified",
+        "consumer": "unverified",
+        "nativeUI": "unverified",
+        "linux": "Core suite passed on Swift 5.9.2 aarch64; macOS-only fixtures and unsupported variants are not Linux evidence",
+        "performance": "No separate client timing measurement; aggregate benchmark covers Hermes/OpenCode/OpenClaw only",
+        "executionRecord": "docs/compatibility/verification-20260908.md",
+        "macOSRegression": "Full core and native suites passed; only existing listed test coverage, no extra format claim",
+        "integration": "macOS core 549 / native 700 and Linux core 549 passed; only named platform-applicable fixtures establish scope",
+        "independentReview": "Three bounded static rounds completed. Round 3 had three P2 findings, all reproduced and fixed; no fourth round or independent post-fix approval. Testing lane reached 16-batch cap with some truncated output."
       },
-      "fixtureEvidenceStatus": "Named synthetic regression fixtures available at this stack step; no production evidence",
+      "fixtureEvidenceStatus": "Listed synthetic fixtures executed in applicable macOS/core suites; see execution record for Linux scope and no production claim",
       "upstreamParser": "crates/tokscale-core/src/sessions/omp.rs"
     },
     {
@@ -3084,7 +3233,7 @@
       "clientID": "lmstudio",
       "os": {
         "tokiTarget": [],
-        "executionEvidence": "See execution record for intermediate stack scope; Linux integration pending step 5",
+        "executionEvidence": "unverified",
         "upstreamRootKind": "EnvVar",
         "upstreamWindows": "Not a Toki target; no Windows runtime claim"
       },
@@ -3141,7 +3290,7 @@
       "clientID": "unsloth",
       "os": {
         "tokiTarget": [],
-        "executionEvidence": "See execution record for intermediate stack scope; Linux integration pending step 5",
+        "executionEvidence": "unverified",
         "upstreamRootKind": "EnvVar",
         "upstreamWindows": "Not a Toki target; no Windows runtime claim"
       },
@@ -3198,7 +3347,7 @@
       "clientID": "hindsight",
       "os": {
         "tokiTarget": [],
-        "executionEvidence": "See execution record for intermediate stack scope; Linux integration pending step 5",
+        "executionEvidence": "unverified",
         "upstreamRootKind": "EnvVar",
         "upstreamWindows": "Not a Toki target; no Windows runtime claim"
       },
@@ -3263,7 +3412,7 @@
   ],
   "evidence": {
     "red": {
-      "artifact": "coverage-parent-red-fixed.log (parent sibling verification directory)",
+      "artifact": "coverage-parent-red-fixed.log (historical task verification directory)",
       "testCount": 14,
       "assertionFailures": 47,
       "unexpectedFailures": 3,
@@ -3271,15 +3420,171 @@
       "exitCode": null,
       "exitCodeNote": "Log does not record shell exit status; do not infer an exact code."
     },
-    "candidate": "Intermediate common-path stack: 524 macOS core tests passed; app/agent integration verification follows in step 5.",
-    "executionRecord": "docs/compatibility/verification-20260908.md"
+    "candidate": "macOS core 549, native app 700 and hub 25 passed; Linux core 549 passed; three bounded review rounds completed; OpenCode/OpenClaw performance regressions retained",
+    "executionRecord": "docs/compatibility/verification-20260908.md",
+    "performance": {
+      "status": "measured-regressions-not-accepted",
+      "subprocesses": 72,
+      "samples": 216,
+      "candidateArithmeticSamplesPassed": 108,
+      "baselineEquality": "failed: OpenClaw overall/per-model wall time 10640 -> 665 seconds; other normalized fields conserved",
+      "fixtureBytes": 1038336,
+      "fixtureSHA256": "dfba9d003242ace096813660cbb87f3a65a7042f5cfc36d83d9fa727c472874c",
+      "measurements": [
+        {
+          "scenario": "Hermes",
+          "mode": "cold",
+          "samplesPerRevision": 3,
+          "baselineMedianMs": 44.897666,
+          "candidateMedianMs": 45.463958,
+          "runtimeChangePercent": 1.261294963528825,
+          "medianProcessPeakRSSChangePercent": 0.585838003056538
+        },
+        {
+          "scenario": "Hermes",
+          "mode": "restart",
+          "samplesPerRevision": 3,
+          "baselineMedianMs": 40.455375,
+          "candidateMedianMs": 39.127292,
+          "runtimeChangePercent": -3.2828344812030563,
+          "medianProcessPeakRSSChangePercent": 0.4951785248892282
+        },
+        {
+          "scenario": "Hermes",
+          "mode": "warm",
+          "samplesPerRevision": 21,
+          "baselineMedianMs": 23.527667,
+          "candidateMedianMs": 23.399,
+          "runtimeChangePercent": -0.5468753021708461,
+          "medianProcessPeakRSSChangePercent": 0.549682875264268
+        },
+        {
+          "scenario": "OpenCode",
+          "mode": "cold",
+          "samplesPerRevision": 3,
+          "baselineMedianMs": 23.534791,
+          "candidateMedianMs": 74.590834,
+          "runtimeChangePercent": 216.93858679263397,
+          "medianProcessPeakRSSChangePercent": 5.939226519337026
+        },
+        {
+          "scenario": "OpenCode",
+          "mode": "restart",
+          "samplesPerRevision": 3,
+          "baselineMedianMs": 23.8065,
+          "candidateMedianMs": 73.184209,
+          "runtimeChangePercent": 207.41271921534033,
+          "medianProcessPeakRSSChangePercent": 6.235618959963185
+        },
+        {
+          "scenario": "OpenCode",
+          "mode": "warm",
+          "samplesPerRevision": 21,
+          "baselineMedianMs": 21.608,
+          "candidateMedianMs": 68.693042,
+          "runtimeChangePercent": 217.90559977786006,
+          "medianProcessPeakRSSChangePercent": 8.895393229829462
+        },
+        {
+          "scenario": "OpenClaw",
+          "mode": "cold",
+          "samplesPerRevision": 3,
+          "baselineMedianMs": 329.39175,
+          "candidateMedianMs": 404.014708,
+          "runtimeChangePercent": 22.65477444410795,
+          "medianProcessPeakRSSChangePercent": 4.017347637525681
+        },
+        {
+          "scenario": "OpenClaw",
+          "mode": "restart",
+          "samplesPerRevision": 3,
+          "baselineMedianMs": 325.87025,
+          "candidateMedianMs": 408.507709,
+          "runtimeChangePercent": 25.359006843981604,
+          "medianProcessPeakRSSChangePercent": 4.15620004567252
+        },
+        {
+          "scenario": "OpenClaw",
+          "mode": "warm",
+          "samplesPerRevision": 21,
+          "baselineMedianMs": 318.634167,
+          "candidateMedianMs": 392.355167,
+          "runtimeChangePercent": 23.136564635894818,
+          "medianProcessPeakRSSChangePercent": 9.436601805926493
+        },
+        {
+          "scenario": "Snapshot",
+          "mode": "cold",
+          "samplesPerRevision": 3,
+          "baselineMedianMs": 622.814,
+          "candidateMedianMs": 718.28125,
+          "runtimeChangePercent": 15.328372515710953,
+          "medianProcessPeakRSSChangePercent": 3.549312792629511
+        },
+        {
+          "scenario": "Snapshot",
+          "mode": "restart",
+          "samplesPerRevision": 3,
+          "baselineMedianMs": 621.682,
+          "candidateMedianMs": 725.799958,
+          "runtimeChangePercent": 16.747783915249272,
+          "medianProcessPeakRSSChangePercent": 4.957316159952074
+        },
+        {
+          "scenario": "Snapshot",
+          "mode": "warm",
+          "samplesPerRevision": 21,
+          "baselineMedianMs": 620.414042,
+          "candidateMedianMs": 707.376209,
+          "runtimeChangePercent": 14.016795416116645,
+          "medianProcessPeakRSSChangePercent": 5.688789737869482
+        }
+      ]
+    },
+    "independentReview": "Three bounded static rounds completed. Round 3 had three P2 findings, all reproduced and fixed; no fourth round or independent post-fix approval. Testing lane reached 16-batch cap with some truncated output.",
+    "finalSourceManifestSHA256": "de6055f8d28064cc58fd3e20f943afb480cf2d728d7e458191e469070c5d069a",
+    "finalCoreSourceManifestSHA256": "deec2648b705bdcdf303655505f252934a6cf8a5a18f8337ad6b79c9ef9335f3",
+    "measuredCoreSourceManifestSHA256": "777f3dcd27da70eff2daa1d06fe7c4487ea7ed21b41577b7c118e422ac75ed9c",
+    "sourceDifference": "Only unchanged GJC sharedSelectionIdentity method moved into same-file package extension after measurement; see execution record.",
+    "linux": {
+      "toolchain": "Swift 5.9.2 / aarch64 / SQLite 3.37.2",
+      "coreTests": 549,
+      "coreFailures": 0,
+      "round3FocusedTests": 19,
+      "release": "passed",
+      "cli": "synthetic status/privacy assertions passed",
+      "packageLock": "unchanged",
+      "testUID": 1000,
+      "cliUID": 1001
+    },
+    "sqliteSorterMutation": {
+      "result": "RED/GREEN passed on Linux SQLite 3.37.2",
+      "regressionTests": 1,
+      "redAssertionFailures": 1,
+      "greenFailures": 0,
+      "assertedLimitBytes": 524288,
+      "oldUnindexedDeltaBytes": 1259344,
+      "oldIndexedDeltaBytes": 123424,
+      "correctedUnindexedDeltaBytes": 187968,
+      "correctedIndexedDeltaBytes": 116672,
+      "scope": "Synthetic 256-event public-reader fixture; original source untouched"
+    }
   },
   "parentEvidence": {
-    "scope": "Historical lane RED/GREEN evidence, not verification of this intermediate stack",
-    "hermes": "59 standalone tests passed",
-    "opencode": "51 standalone tests passed",
-    "openclaw": "58 standalone tests passed",
-    "integration": "Pending stack step 5"
+    "scope": "Historical lane RED/GREEN plus assembled verification; final execution record distinguishes all scopes",
+    "hermes": "18 RED regressions / 69 failed assertions; final 48 pass and copied integration 48 pass",
+    "opencode": "14 baseline-compatible RED regressions; final 37 pass",
+    "openclaw": "3 initial RED cases; final 39 pass",
+    "coverage": "25 strengthened RED tests / 73 assertions; candidate 25 pass",
+    "threeReaderCore": "443 pass; sibling verification/core-three-readers.log",
+    "fourLaneCore": "468 executed, one failure in old actual-Claude-as-generic retention expectation; sibling verification/core-four-lanes.log",
+    "integration": "macOS core 549 tests, zero failures; final-core-7.log",
+    "nativeUI": "Native app 700 tests, zero failures; synthetic Hermes partial source view rendered and inspected",
+    "linuxSwift592": "549 core and 19 final-fix focused tests passed; release build, isolated CLI assertions and lockfile preservation passed; mutation/final-style evidence in execution record",
+    "independentReview": "Three bounded static rounds completed. Round 3 had three P2 findings, all reproduced and fixed; no fourth round or independent post-fix approval. Testing lane reached 16-batch cap with some truncated output.",
+    "hub": "25 tests, zero failures; final-hub.log",
+    "agentRelease": "macOS release toki-agent build passed; final-agent-release-6.log",
+    "formatLint": "SwiftFormat 349 files and strict SwiftLint passed"
   },
   "originalLaneBaseSHA": "62538f45d98c167ef34b5e26e343b5ce0ef803f1"
 }

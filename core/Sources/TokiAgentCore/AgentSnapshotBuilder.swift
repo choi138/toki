@@ -74,18 +74,6 @@ struct AgentSnapshotBuilder: AgentSnapshotBuilding {
                 codexRolloutUsageCache: resolvedRolloutUsageCache,
                 claudeUsageCache: resolvedClaudeUsageCache,
                 hermesUsageLedger: resolvedHermesUsageLedger)
-                .map { descriptor in
-                    guard descriptor.name == HermesReader.sourceName else { return descriptor }
-                    return LocalUsageReaderDescriptor(
-                        reader: descriptor.reader,
-                        sourceLocations: descriptor.sourceLocations + [
-                            .file(agentLedgerURL, includesSQLiteSidecars: false),
-                            .file(
-                                hermesUsageLedgerIdentifierKeyURL(for: agentLedgerURL),
-                                includesSQLiteSidecars: false),
-                        ],
-                        sourceSignatureStrategy: descriptor.sourceSignatureStrategy)
-                }
         }
         self.readerDescriptors = resolvedReaderDescriptors
         self.eventLimits = eventLimits
@@ -128,14 +116,14 @@ struct AgentSnapshotBuilder: AgentSnapshotBuilding {
     }
 
     func prepareForSync() async throws {
-        try sourceMountMonitor.validate()
+        try validateSourceMounts()
         _ = try HermesUsageLedgerMigrator.migrate(
             fileURL: agentHermesLedgerURL,
             mode: .apply)
     }
 
     func validateSourceMounts() throws {
-        try sourceMountMonitor.validate()
+        try sourceMountMonitor.validate(sourceLocations: readerDescriptors.flatMap { try $0.resolvedSourceLocations() })
     }
 
     func resetCaches() async throws {
@@ -150,21 +138,25 @@ struct AgentSnapshotBuilder: AgentSnapshotBuilding {
     func sourceSignature(configuration: AgentConfiguration, now: Date) async throws -> String? {
         try Task.checkCancellation()
         let window = try retentionWindow(configuration: configuration, now: now)
+        // A single fresh discovery feeds both mount validation and this signature. Resolver
+        // failures propagate; an unreadable selection must never masquerade as empty usage.
+        let selections = try readerDescriptors.map { try ($0, $0.resolvedSourceLocations()) }
+        try sourceMountMonitor.validate(sourceLocations: selections.flatMap(\.1))
         var sources: [AgentSourceSignature.Source] = []
-        for descriptor in readerDescriptors {
+        for (descriptor, locations) in selections {
             try Task.checkCancellation()
             let records: [String] = switch descriptor.sourceSignatureStrategy {
             case .standard:
                 try standardSourceRecords(
-                    locations: descriptor.sourceLocations,
+                    locations: locations,
                     modifiedOnOrAfter: window.start)
             case .allFiles:
                 try standardSourceRecords(
-                    locations: descriptor.sourceLocations,
+                    locations: locations,
                     modifiedOnOrAfter: .distantPast)
             case let .boundedAllFiles(maximumFileCount, maximumEntryCount):
                 try standardSourceRecords(
-                    locations: descriptor.sourceLocations,
+                    locations: locations,
                     modifiedOnOrAfter: .distantPast,
                     maximumFileCount: maximumFileCount,
                     maximumEntryCount: maximumEntryCount)
@@ -173,7 +165,8 @@ struct AgentSnapshotBuilder: AgentSnapshotBuilding {
             }
             sources.append(AgentSourceSignature.Source(
                 reader: descriptor.name,
-                records: records.sorted()))
+                records: records.sorted(),
+                collectorRevision: descriptor.collectorRevision))
         }
         sources.sort { $0.reader < $1.reader }
 
@@ -240,14 +233,22 @@ private extension AgentSnapshotBuilder {
         for location in locations {
             try Task.checkCancellation()
             switch location {
-            case let .file(url, includesSQLiteSidecars):
+            case let .file(url, includesSQLiteSidecars, selectionIdentity):
                 try records.append(fileSignatureRecord(url))
+                if let selectionIdentity {
+                    records.append("selection:\(SnapshotCipher.digest(selectionIdentity))")
+                }
                 if includesSQLiteSidecars {
                     try records.append(fileSignatureRecord(URL(fileURLWithPath: url.path + "-wal")))
                     try records.append(fileSignatureRecord(URL(fileURLWithPath: url.path + "-shm")))
                 }
-            case let .directory(url, extensions):
+            case let .directoryPresence(url):
                 try records.append(directoryPresenceRecord(url))
+            case let .directory(url, extensions, selectionIdentity):
+                try records.append(directoryPresenceRecord(url))
+                if let selectionIdentity {
+                    records.append("selection:\(SnapshotCipher.digest(selectionIdentity))")
+                }
                 try records.append(contentsOf: retainedFiles(
                     in: url,
                     extensions: extensions,
@@ -297,8 +298,7 @@ private extension AgentSnapshotBuilder {
         return (Array(-3..<0) + Array(0...max(0, retainedDayCount))).compactMap { offset in
             guard let day = calendar.date(byAdding: .day, value: offset, to: startDay) else { return nil }
             let components = calendar.dateComponents([.year, .month, .day], from: day)
-            return homeDirectory
-                .appendingPathComponent(".codex/sessions")
+            return LocalUsageReaderPaths(homeDirectory: homeDirectory, environment: environment).codexSessions
                 .appendingPathComponent(String(format: "%04d", components.year ?? 0))
                 .appendingPathComponent(String(format: "%02d", components.month ?? 0))
                 .appendingPathComponent(String(format: "%02d", components.day ?? 0))

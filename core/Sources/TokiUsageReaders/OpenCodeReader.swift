@@ -50,6 +50,27 @@ public struct OpenCodeReader: TokenReader {
             dataRoots: dataRoots, databaseURLs: databaseURLs, budget: OpenCodeReadBudget(limits)).locations
     }
 
+    package func selectedSourceLocations() throws -> [LocalUsageSourceLocation] {
+        let budget = try OpenCodeReadBudget(limits)
+        let discovery = try OpenCodeDiscovery.collect(dataRoots: dataRoots, databaseURLs: databaseURLs, budget: budget)
+        var locations = discovery.locations.dataRoots.map { LocalUsageSourceLocation.directoryPresence($0) }
+        let selectedURLs = Set(discovery.stores.map(\.url))
+        locations += discovery.locations.databaseURLs.filter { !selectedURLs.contains($0) }
+            .map { .file($0, includesSQLiteSidecars: true) }
+        // Alias ownership affects deduplication and stream identity even when the WAL
+        // read path is unchanged. Carry that selection into the local signature.
+        locations += discovery.stores.map {
+            .file($0.url, includesSQLiteSidecars: true, selectionIdentity: $0.selectionIdentity)
+        }
+        for root in discovery.legacyRoots {
+            try Task.checkCancellation()
+            // Use exactly the reader's depth, symlink and file classifier, sharing its entry/file budget.
+            locations += try OpenCodeLegacyReader.files(in: root, budget: budget)
+                .map { .file($0, includesSQLiteSidecars: false) }
+        }
+        return locations.map(\.canonicalSelectedLocation)
+    }
+
     public func readUsage(from startDate: Date, to endDate: Date) async throws -> RawTokenUsage {
         try Task.checkCancellation()
         guard startDate.timeIntervalSince1970.isFinite, endDate.timeIntervalSince1970.isFinite else {

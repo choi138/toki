@@ -216,3 +216,13 @@ public struct GJCReader: TokenReader {
             to: endDate)
     }
 }
+
+package extension GJCReader {
+    func sharedSelectionIdentity() -> String {
+        func identity(_ roots: [URL]) -> String {
+            roots.map { $0.resolvingSymlinksInPath().standardizedFileURL.path }.sorted()
+                .map { "\($0.utf8.count):\($0)" }.joined()
+        }
+        return "pi:\(identity(sharedPiSessionRoots)):omp:\(identity(sharedOMPSessionRoots))"
+    }
+}

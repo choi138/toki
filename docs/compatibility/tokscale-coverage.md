@@ -1,7 +1,8 @@
 # Pinned Tokscale coverage candidate
 
-This is step 4 of the M0–M2 stack: reader and common-path implementation for
-existing common clients. App/agent integration follows in step 5. Full parity is not claimed. Comparison source is
+This is the assembled M0–M2 integration candidate for existing common clients.
+macOS reader/consumer/native gates and Linux core tests passed. Performance
+acceptance remains open for OpenCode and OpenClaw; see the execution record. Full parity is not claimed. Comparison source is
 [`junhoyeo/tokscale@3bd6dceb98925edab4e149c9bb1cf3fec9123f17`](https://github.com/junhoyeo/tokscale/tree/3bd6dceb98925edab4e149c9bb1cf3fec9123f17).
 The task supplied the source archive; its local copy has no Git metadata.
 Registry/scanner content hashes and all 53 registry entries are retained in
@@ -30,10 +31,10 @@ rules remain in their dedicated resolver.
 
 | ID → Toki reader | Candidate discovery / format contract | Remaining gap or scope boundary |
 | --- | --- | --- |
-| `claude` → Claude Code | `CLAUDE_CONFIG_DIR` selects `{projects,transcripts}` exclusively; default `~/.claude`. Both recursively read assistant `message.usage` JSONL, including old-mtime files. | cc-mirror variant/config discovery deferred. Existing Toki request/message max merge retained. Strict malformed-record diagnostics fail the read rather than return a partial result. |
+| `claude` → Claude Code | `CLAUDE_CONFIG_DIR` selects `{projects,transcripts}` exclusively; default `~/.claude`. Both recursively read assistant `message.usage` JSONL, including old-mtime files. | cc-mirror variant/config discovery deferred. Existing Toki request/message max merge retained. Malformed-record diagnostics fail the read with fixed messages that omit project/file names; cancellation remains distinct. |
 | `codex` → Codex | `CODEX_HOME` selects `state_5.sqlite`, `sessions`, `archived_sessions` exclusively; default `~/.codex`. Existing rollout discovery runs even without the DB. | Date-directory/lookback and flat archive discovery retained. Arbitrarily nested or undated rollouts, Tokscale headless roots, `TOKSCALE_HEADLESS_DIR`, and OpenClaw harness reassignment deferred. |
 | `gemini` → Gemini CLI | `GEMINI_CLI_HOME/tmp`, default `~/.gemini/tmp`; JSON chat `messages[]`, direct canonical-token JSONL, existing legacy `usageMetadata` JSON. | Headless `stats`/`result.stats`, alternate token keys, timestamp fallback and cache-inclusive normalization deferred. Unsupported recording data is diagnosed. |
-| `gjc` → GJC | All of `GJC_CODING_AGENT_DIR/sessions`, `{GJC_CONFIG_DIR,PI_CONFIG_DIR}/agent/sessions`, explicitly configured `XDG_DATA_HOME/gjc/sessions`, and `~/.gjc/agent/sessions`. Includes nested children. | Canonical aliases/overlapping roots collapse; independent roots stay separate. Hard-link copies and root relocation identity are not reconciled. No 9Router source-label override. Shared Pi/OMP storage keeps GJC-only headerless, model-less and task records; common rows count once through Pi/OMP. Synthetic conservation and live alias-retarget tests passed on macOS. |
+| `gjc` → GJC | All of `GJC_CODING_AGENT_DIR/sessions`, `{GJC_CONFIG_DIR,PI_CONFIG_DIR}/agent/sessions`, explicitly configured `XDG_DATA_HOME/gjc/sessions`, and `~/.gjc/agent/sessions`. Includes nested children. | Canonical aliases/overlapping roots collapse; independent roots stay separate. Hard-link copies and root relocation identity are not reconciled. No 9Router source-label override. Shared Pi/OMP storage retains GJC-only headerless, model-less and task records; common records count once through their existing owner. Canonical shared ownership participates in fresh source signatures, including alias retargeting. |
 | `kimchi` → Kimchi | `KIMCHI_CODING_AGENT_DIR/sessions` exclusive; otherwise existing `${XDG_CONFIG_HOME:-~/.config}/kimchi/harness/sessions`; existing Pi-compatible parser. | Upstream's fallback is literal `~/.config`; Toki's XDG extension is retained. No parser expansion. |
 | `pi` → Pi | Existing `PI_CODING_AGENT_SESSION_DIR`, then `PI_CODING_AGENT_DIR/sessions`, default `~/.pi/agent/sessions`; existing Pi/OMP shared-root ownership. | Pinned upstream uses a fixed root to avoid duplicate Pi/OMP scans. Toki's preexisting overrides are retained; no extra reader is registered. |
 | `omp` → Oh My Pi | Existing `PI_CONFIG_DIR`, `OMP_PROFILE`/`PI_PROFILE`, `~/.omp` and XDG profile/session roots. | Pinned upstream uses fixed `~/.omp/agent/sessions`; Toki profile/XDG behavior is retained. |
@@ -43,9 +44,9 @@ rules remain in their dedicated resolver.
 | `amp` → Amp | Existing `${XDG_DATA_HOME:-~/.local/share}/amp/threads`; JSON. | Root aligns; no blanket parser/replica parity claim. |
 | `droid` → Factory Droid | Existing `~/.factory/sessions`; settings JSON and JSONL. | No client-specific root override in pinned registry/scanner. Generic extra directories excluded. |
 | `copilot` → GitHub Copilot CLI | Existing `~/.copilot/otel` plus absolute `.jsonl` `COPILOT_OTEL_FILE_EXPORTER_PATH`. | Copilot Desktop `~/.copilot/data.db`, VS Code workspaceStorage chatSessions, and extensionless exporter files deferred. |
-| `hermes` → Hermes | Default `~/.hermes/state.db` plus bounded named profiles; explicit `HERMES_HOME` remains exclusive. Canonical DB/sidecar selection and durable profile history are implemented. | Unmapped flat ledgers are not guessed into membership. App partial-result display, CLI collection status and agent completeness integration follow in step 5. |
-| `opencode` → OpenCode | Reader discovers default/channel databases and legacy `storage/message` JSON, with bounded v1/v2 schemas and migration reconciliation. | Injected registry selection and fresh signature/mount paths follow in step 5. Entirely undecodable stores fail; valid unmetered and mixed stores retain compatibility. |
-| `openclaw` → OpenClaw | Four home roots, nested JSONL, deleted/reset suffixes and SQLite transcript events are supported by the bounded source classifier. | Fresh agent signature/mount integration follows in step 5. Compressed archives and embedded Codex/app-server reassignment remain deferred; explicit root initializers remain exclusive. |
+| `hermes` → Hermes | Default `~/.hermes/state.db` plus bounded named profiles; explicit `HERMES_HOME` remains exclusive. Fresh canonical DB/sidecar and selected membership/ledger/key paths feed signatures and mount validation. App retains healthy usage with partial status; CLI reports selected collection history. | Unmapped flat ledgers are not guessed into membership. Snapshot exports reject incomplete collections. The synthetic native partial-result source view and Linux core fixtures passed. |
+| `opencode` → OpenCode | Registry uses injected home/environment: default and channel DBs, additive `OPENCODE_DB`, legacy `storage/message` JSON; fresh classifier-selected DB/sidecars/JSON feed signatures and mount validation. | Bounded v1/v2/legacy schemas; unknown schemas and wholly undecodable stores fail. Empty, user-only and mixed valid/invalid stores retain compatibility. No arbitrary replica relocation or pricing expansion. |
+| `openclaw` → OpenClaw | All four injected-home agents roots: `.openclaw`, `.clawdbot`, `.moltbot`, `.moldbot`; nested JSONL, arbitrary deleted/reset suffixes and SQLite transcript events. Same fresh bounded classifier supplies canonical mount/signature paths without mtime cutoff. | Compressed archives and embedded Codex/app-server reassignment remain deferred. Explicit root initializers remain exclusive. |
 | `cursor` → Cursor | Unmodified baseline OS-specific local Cursor SQLite reader. | Explicitly excluded. Upstream account-cache JSON/CSV is a different data surface; registry overlap does not imply equivalence. |
 
 The audit includes the full pinned `clients.rs` registry and `scanner.rs`
@@ -61,7 +62,8 @@ integration is added.
   attribution and activity merging across projects/transcript replicas. Id-less
   records retain file/line identity; raw request-ID merge policy is not redesigned.
   Parser cache version 4 rejects older entries for bounded reparse; ledger schemas
-  are unchanged.
+  are unchanged. Discovery and cached JSONL diagnostics retain no URL-bearing error
+  object and omit encoded project names, including denied and oversized files.
 - Codex retains cumulative/delta reconciliation, cache/reasoning inclusion,
   `session_meta` identity and pricing. The removed DB-presence gate permits existing
   current/archive rollout fallback. SQLite error/fallback policy is unchanged.
@@ -80,7 +82,11 @@ integration is added.
   independent canonical root. New roots use `gjc:<root SHA256>:<sessionID>` for
   token attribution and activity identity. The legacy root and old single-root
   initializer keep their existing IDs. A digest avoids placing the raw new root
-  path in that namespace; it is not a persistent identity across root moves.
+  path in that namespace; it is not a persistent identity across root moves. Shared
+  Pi/OMP files are streamed through the actual owning parser and GJC parser; GJC
+  keeps only records the owner rejects. All observed GJC records consume budgets,
+  including filtered common rows. Owner-specific selection identities invalidate
+  signatures when aliases retarget even if GJC file membership is unchanged.
 
 Claude/Gemini/GJC discovery reuses bounded readers: 50,000 files, 500,000 visited
 entries, 256 MiB per file, 4 MiB per JSONL line, existing protocol event limits and
@@ -103,12 +109,24 @@ cherrystudio dsh mcode fx lmstudio unsloth hindsight
 
 ## Evidence and remaining gates
 
-This is stack step 4: reader implementations, common path resolution and the
-53-client compatibility inventory. App/agent dynamic selected-source signatures,
-mount refresh, partial-result presentation and integration verification follow
-in step 5. Those behaviors described above identify the assembled target; this
-intermediate branch does not claim their completion.
+The macOS candidate passed 549 core, 700 native app and 25 hub tests, plus release
+builds, SwiftFormat and strict SwiftLint. Linux Swift 5.9.2 passed 549 core tests.
+The Hermes partial source view was rendered and inspected using synthetic usage.
+The bounded independent review completed three rounds; all actionable findings
+were reproduced and fixed, without a fourth-round or blanket approval claim.
+See [the execution record](verification-20260908.md) for exact evidence, limitations
+and the separate final Linux release/CLI/mutation results.
 
-Standalone macOS reader gates passed: Hermes 59, OpenCode 51, OpenClaw 58 tests.
-The common-path stack passed 524 core tests; its scoped evidence is recorded in [the execution record](verification-20260908.md).
-Runtime fixtures are synthetic/source-derived; no production data is included.
+Collector revision 1 changes local agent signatures once for changed collectors;
+Claude parser cache version 4 invalidates old parsed entries. Unchanged parser
+caches, Hermes accounting ledgers and the snapshot wire schema are preserved.
+Mount validation refreshes canonical selected paths on each check and compares
+late paths to the original mount table, including nearest ancestor mounts.
+
+Performance measurements completed 72 successful subprocesses / 216 samples.
+OpenCode warm runtime increased 217.9%, OpenClaw 23.1%, and aggregate snapshot 14.0%;
+all modes and memory figures are in the execution record. Baseline equality fails
+for OpenClaw's corrected overlapping-session wall time (10,640 → 665 seconds).
+Independent arithmetic validates all 108 candidate samples. These are measured
+limitations, not performance acceptance or complete parity. All fixtures are
+synthetic/source-derived, never production evidence.
