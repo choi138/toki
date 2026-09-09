@@ -18,6 +18,7 @@
 		107B19A86A1C04A01E4BE104 /* UsageFormatting.swift in Sources */ = {isa = PBXBuildFile; fileRef = 22C432D6251366821B5F63D3 /* UsageFormatting.swift */; };
 		1329E9A5945F16ABA700B7B1 /* UsagePanelSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7F68C6A061A6818D3C208326 /* UsagePanelSettings.swift */; };
 		169510540648DD23B98C563A /* TokiSyncProtocol in Frameworks */ = {isa = PBXBuildFile; productRef = B8BE2632DDEDA7401F4FC828 /* TokiSyncProtocol */; };
+		17CA4D2B1E238E9826AB34F5 /* Gpt56ModelPricingBehaviorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 825B9D9574F2C7DA1F01258E /* Gpt56ModelPricingBehaviorTests.swift */; };
 		17E65D8056985DD86AC402D8 /* RemoteTransportValidation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3D76C08F8D117A64CB1829CB /* RemoteTransportValidation.swift */; };
 		187A94A7422CB21663B9214F /* CodexReaderBehaviorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 744538423BE5FD3B64B2E8A0 /* CodexReaderBehaviorTests.swift */; };
 		19158307E719CB6441DD8841 /* SecurityAuditSQLiteScanner.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4CEBBC19D10BB66820B603F3 /* SecurityAuditSQLiteScanner.swift */; };
@@ -292,6 +293,7 @@
 		7F86B5EDB3229DEF60E5E955 /* SecurityAuditRules.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SecurityAuditRules.swift; sourceTree = "<group>"; };
 		814D22BDC30A67D430752FC0 /* RemoteUsageReaderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteUsageReaderTests.swift; sourceTree = "<group>"; };
 		818F5EF951A97C968090318D /* RemoteUsageMapper.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteUsageMapper.swift; sourceTree = "<group>"; };
+		825B9D9574F2C7DA1F01258E /* Gpt56ModelPricingBehaviorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Gpt56ModelPricingBehaviorTests.swift; sourceTree = "<group>"; };
 		831875CB342E2B92B39884E6 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
 		833C08507E264C58FFDC50CC /* UsageReportExport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UsageReportExport.swift; sourceTree = "<group>"; };
 		837F35C1D7999DD0AD1401EE /* ActivityTimeEstimatorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActivityTimeEstimatorTests.swift; sourceTree = "<group>"; };
@@ -675,6 +677,7 @@
 				557BF6BDA123C204DA4DBE1A /* DroidAmpIntegrationTests.swift */,
 				1B0A428E0D3E973E6F4EA84A /* FactoryDroidReaderTests.swift */,
 				62EA09E68E4376A474428CB6 /* GJCReaderTests.swift */,
+				825B9D9574F2C7DA1F01258E /* Gpt56ModelPricingBehaviorTests.swift */,
 				2BE1C427456BB8200627AEE4 /* HermesPricingRefreshTests.swift */,
 				69D48CA6EC643C2709E6D33B /* HermesReaderTests.swift */,
 				49A389CCF7078D7AC751E73B /* HermesUsageLedgerTests.swift */,
@@ -958,6 +961,7 @@
 				5A04C5F3A301AC45D753865B /* DroidAmpIntegrationTests.swift in Sources */,
 				6CB284FB3E39C5144377BBE1 /* FactoryDroidReaderTests.swift in Sources */,
 				BBBA1E0981491A3D5D6000B8 /* GJCReaderTests.swift in Sources */,
+				17CA4D2B1E238E9826AB34F5 /* Gpt56ModelPricingBehaviorTests.swift in Sources */,
 				E71545EEA12908D204F6C4B3 /* HermesPricingRefreshTests.swift in Sources */,
 				7DC42416F57E69C032FD29A9 /* HermesReaderTests.swift in Sources */,
 				3104187E8985A798DED36814 /* HermesUsageLedgerTests.swift in Sources */,
