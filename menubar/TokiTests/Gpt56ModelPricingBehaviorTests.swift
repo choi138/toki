@@ -125,6 +125,30 @@ final class Gpt56ModelPricingBehaviorTests: XCTestCase {
         }
     }
 
+    func test_modelPrice_matchesGpt56Cyber() throws {
+        let lookup = modelPriceLookup(for: "gpt-5.6-cyber")
+        let price = try XCTUnwrap(lookup.price)
+
+        XCTAssertEqual(lookup.match, .exact(modelId: "gpt-5.6-cyber"))
+        assertRates(price, match: ModelPrice(
+            inputPerMillion: 12.50,
+            outputPerMillion: 75.0,
+            cacheReadPerMillion: 1.25,
+            cacheWritePerMillion: 15.625))
+        XCTAssertEqual(millionOfEachTokenCost(price), 104.375, accuracy: 0.0001)
+    }
+
+    func test_modelPrice_keepsGpt56CyberRateAcrossCutDates() throws {
+        // Cyber was not part of either cut, so it must keep one rate instead of
+        // picking up a scheduled change from the Sol, Terra, or Luna keys.
+        let launch = try XCTUnwrap(modelPrice(for: "gpt-5.6-cyber", at: Self.launchPricingDate))
+        let afterTerraLunaCut = try XCTUnwrap(modelPrice(for: "gpt-5.6-cyber", at: Self.terraLunaCutDate))
+        let afterSolCut = try XCTUnwrap(modelPrice(for: "gpt-5.6-cyber", at: Self.solCutDate))
+
+        assertRates(afterTerraLunaCut, match: launch)
+        assertRates(afterSolCut, match: launch)
+    }
+
     private func assertRates(
         _ price: ModelPrice,
         match expected: ModelPrice,

@@ -119,6 +119,11 @@ private let exactPricingTable: [String: ModelPrice] = [
     "gpt-5.6-sol": price(5.0, 30.0, 0.50, 6.25),
     "gpt-5.6-terra": price(2.50, 15.0, 0.25, 3.125),
     "gpt-5.6-luna": price(1.0, 6.0, 0.10, 1.25),
+    // GPT-5.6 Cyber is provisioned separately through the Daybreak program and
+    // has not been repriced since release. Prompts above 272K input tokens bill
+    // at 2x input/cache and 1.5x output under the same model ID, so that path is
+    // under-estimated here.
+    "gpt-5.6-cyber": price(12.50, 75.0, 1.25, 15.625),
     "gpt-5.5-pro": price(30.0, 180.0, 0.0),
     "gpt-5.5": price(5.0, 30.0, 0.50),
     "gpt-5.4": price(2.50, 15.0, 0.25),
