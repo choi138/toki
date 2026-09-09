@@ -113,9 +113,11 @@ jobs:
         run: diff -u "$RUNNER_TEMP/toki-agent-Package.resolved" core/Package.resolved
 
   remote-linux-hub:
-    name: Linux Hub (Swift 5.9.2)
+    name: Linux Hub (Swift 6.2.4)
     runs-on: ubuntu-24.04
-    container: swift:5.9.2-jammy
+    # The patched SwiftNIO releases all declare swift-tools-version 6.1, so
+    # Swift 5.9.2 silently resolves the Hub back to the vulnerable versions.
+    container: swift:6.2.4-noble
     timeout-minutes: 60
 
     steps:
@@ -128,7 +130,7 @@ jobs:
       - name: Verify Swift version
         run: |
           swift --version
-          swift --version | grep -q "Swift version 5.9.2"
+          swift --version | grep -q "Swift version 6.2.4"
 
       - name: Run Hub tests
         run: swift test --package-path hub

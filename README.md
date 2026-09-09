@@ -261,7 +261,9 @@ when they exist and reports context-window metrics separately when they do not.
 - [SwiftLint](https://github.com/realm/SwiftLint) (`brew install swiftlint`)
 - [SwiftFormat](https://github.com/nicklockwood/SwiftFormat) (`brew install swiftformat`)
 - Apple Developer account only when producing signed/notarized release builds
-- Optional Linux Agent/Hub: Swift 5.9.2 or later and `libsqlite3-dev`
+- Optional Linux Agent: Swift 5.9.2 or later and `libsqlite3-dev`
+- Optional Linux Hub: Swift 6.2.4 or later (patched SwiftNIO requires
+  swift-tools-version 6.1)
 
 Remote Agent and Hub builds use SwiftPM:
 
