@@ -1,0 +1,3285 @@
+{
+  "schemaVersion": 1,
+  "pinnedSHA": "3bd6dceb98925edab4e149c9bb1cf3fec9123f17",
+  "baselineTokiSHA": "7fe0c4b485d0fcfdc65a971bba4932c9a0116fd0",
+  "scope": "M0–M2 reader and common-path implementation; app/agent integration follows in stack step 5",
+  "counts": {
+    "upstreamClients": 53,
+    "commonClients": 17,
+    "defaultRegisteredReaders": 18,
+    "deferredNewClients": 36
+  },
+  "statusMeaning": {
+    "existing": "Baseline reader declaration/source only, not verification",
+    "implemented": "Scoped source edits; execution gates and remaining limitations are stated per client",
+    "planned": "Explicitly deferred, no reader implemented",
+    "verified": "Only the explicit fixture/path/format/OS scope has execution evidence; not a full parity claim",
+    "blocked": "Reserved for an observed blocking gate; not inferred from a missing feature"
+  },
+  "clients": [
+    {
+      "pinnedSHA": "3bd6dceb98925edab4e149c9bb1cf3fec9123f17",
+      "clientID": "opencode",
+      "os": {
+        "tokiTarget": [
+          "macOS",
+          "Linux"
+        ],
+        "executionEvidence": "See execution record for intermediate stack scope; Linux integration pending step 5",
+        "upstreamRootKind": "XdgData",
+        "upstreamWindows": "Not a Toki target; no Windows runtime claim"
+      },
+      "upstreamRegistry": {
+        "clientID": "opencode",
+        "index": 0,
+        "displayName": "OpenCode",
+        "root": "XdgData",
+        "relativePath": "opencode/storage/message",
+        "pattern": "*.json",
+        "environmentVariable": null,
+        "fallbackRelative": null
+      },
+      "defaultPaths": {
+        "upstreamRegistry": [
+          "${XDG_DATA_HOME:-~/.local/share}/opencode/storage/message"
+        ],
+        "toki": [
+          "${XDG_DATA_HOME:-~/.local/share}/opencode/opencode.db",
+          "${XDG_DATA_HOME:-~/.local/share}/opencode/opencode-<channel>.db",
+          "${XDG_DATA_HOME:-~/.local/share}/opencode/storage/message/<session>/*.json"
+        ]
+      },
+      "overridePaths": {
+        "upstreamRegistry": [],
+        "toki": [
+          "XDG_DATA_HOME selects data root; OPENCODE_DB adds an explicit database",
+          "Explicit database initializer remains scoped to requested stores and adjacent legacy JSON"
+        ]
+      },
+      "formats": {
+        "upstreamRegistryPattern": "*.json",
+        "toki": [
+          "SQLite message v1 and session_message/session_v2; legacy message JSON; SQLite/JSON migration reconciliation"
+        ]
+      },
+      "modelStatus": "Known v1/v2 model/provider envelopes retained; unknown price stays unknown",
+      "tokenStatus": "DB/JSON migration identity reconciled before date filtering; independent stores preserved",
+      "pricingStatus": "Existing curated catalog only; reported costs retained, unknown models not treated as free",
+      "fixtureEvidence": [
+        "core/Tests/TokiAgentTests/OpenCodeReaderRegressionTests.swift",
+        "core/Tests/TokiAgentTests/OpenCodeDiscoveryTests.swift",
+        "core/Tests/TokiAgentTests/OpenCodeRobustnessTests.swift",
+        "core/Tests/TokiAgentTests/OpenCodeSnapshotTests.swift",
+        "core/Tests/TokiAgentTests/OpenCodeReadBudgetRegressionTests.swift",
+        "menubar/TokiTests/CursorReaderTests.swift",
+        "core/Tests/TokiAgentTests/OpenCodeUndecodableStoreTests.swift"
+      ],
+      "reader": [
+        "core/Sources/TokiUsageReaders/OpenCodeReader.swift"
+      ],
+      "readerNames": [
+        "OpenCode"
+      ],
+      "status": "implemented",
+      "disposition": "common-existing-client",
+      "limitations": [
+        "Only allowlisted channel filenames are discovered automatically",
+        "Recognized legacy depth/schema only; arbitrary future schemas are diagnosed",
+        "No root-relocation or unrestricted replica-identity guarantee; no pricing expansion",
+        "Entirely undecodable selected SQLite stores fail with sanitized errors; empty, user-only and mixed valid/invalid stores retain compatibility."
+      ],
+      "verification": {
+        "green": "524 macOS core tests passed; evidence is limited to listed existing synthetic fixtures",
+        "integration": "Pending stack step 5",
+        "executionRecord": "docs/compatibility/verification-20260908.md"
+      },
+      "fixtureEvidenceStatus": "Named synthetic regression fixtures available at this stack step; no production evidence",
+      "upstreamParser": "crates/tokscale-core/src/sessions/opencode.rs"
+    },
+    {
+      "pinnedSHA": "3bd6dceb98925edab4e149c9bb1cf3fec9123f17",
+      "clientID": "claude",
+      "os": {
+        "tokiTarget": [
+          "macOS",
+          "Linux"
+        ],
+        "executionEvidence": "See execution record for intermediate stack scope; Linux integration pending step 5",
+        "upstreamRootKind": "EnvVar",
+        "upstreamWindows": "Not a Toki target; no Windows runtime claim"
+      },
+      "upstreamRegistry": {
+        "clientID": "claude",
+        "index": 1,
+        "displayName": "Claude Code",
+        "root": "EnvVar",
+        "relativePath": "projects",
+        "pattern": "*.jsonl",
+        "environmentVariable": "CLAUDE_CONFIG_DIR",
+        "fallbackRelative": ".claude"
+      },
+      "defaultPaths": {
+        "upstreamRegistry": [
+          "~/.claude/projects"
+        ],
+        "toki": [
+          "~/.claude/projects",
+          "~/.claude/transcripts"
+        ]
+      },
+      "overridePaths": {
+        "upstreamRegistry": [
+          "CLAUDE_CONFIG_DIR"
+        ],
+        "toki": [
+          "CLAUDE_CONFIG_DIR/{projects,transcripts} (exclusive; absolute non-NUL path)"
+        ]
+      },
+      "formats": {
+        "upstreamRegistryPattern": "*.jsonl",
+        "toki": [
+          "assistant message.usage JSONL in projects and transcripts"
+        ]
+      },
+      "modelStatus": "message.model; existing normalization",
+      "tokenStatus": "Existing max-per-request/message and cache-write TTL contract retained",
+      "pricingStatus": "Existing dated modelPrice lookup; no new catalog",
+      "fixtureEvidence": [
+        "core/Tests/TokiAgentTests/ExistingSourcePathCompatibilityTests.swift",
+        "menubar/TokiTests/ClaudeCodeReaderActivityTests.swift",
+        "core/Tests/TokiAgentTests/ClaudeDiagnosticPrivacyTests.swift"
+      ],
+      "reader": [
+        "core/Sources/TokiUsageReaders/ClaudeCodeReader.swift"
+      ],
+      "readerNames": [
+        "Claude Code"
+      ],
+      "status": "implemented",
+      "disposition": "common-existing-client",
+      "limitations": [
+        "cc-mirror variants/config discovery deferred; no cross-profile scanning behind explicit override",
+        "No new upstream request/message dedup policy; existing Toki requestId max policy retained",
+        "Strict file decode diagnostics do not provide partial per-file success",
+        "Discovery and JSONL failures use fixed diagnostics without project or file names; cancellation remains distinct."
+      ],
+      "verification": {
+        "green": "524 macOS core tests passed; evidence is limited to listed existing synthetic fixtures",
+        "integration": "Pending stack step 5",
+        "executionRecord": "docs/compatibility/verification-20260908.md"
+      },
+      "fixtureEvidenceStatus": "Named synthetic regression fixtures available at this stack step; no production evidence",
+      "upstreamParser": "crates/tokscale-core/src/sessions/claudecode.rs"
+    },
+    {
+      "pinnedSHA": "3bd6dceb98925edab4e149c9bb1cf3fec9123f17",
+      "clientID": "codex",
+      "os": {
+        "tokiTarget": [
+          "macOS",
+          "Linux"
+        ],
+        "executionEvidence": "See execution record for intermediate stack scope; Linux integration pending step 5",
+        "upstreamRootKind": "EnvVar",
+        "upstreamWindows": "Not a Toki target; no Windows runtime claim"
+      },
+      "upstreamRegistry": {
+        "clientID": "codex",
+        "index": 2,
+        "displayName": "Codex CLI",
+        "root": "EnvVar",
+        "relativePath": "sessions",
+        "pattern": "*.jsonl",
+        "environmentVariable": "CODEX_HOME",
+        "fallbackRelative": ".codex"
+      },
+      "defaultPaths": {
+        "upstreamRegistry": [
+          "~/.codex/sessions"
+        ],
+        "toki": [
+          "~/.codex/state_5.sqlite",
+          "~/.codex/sessions/YYYY/MM/DD/*.jsonl",
+          "~/.codex/archived_sessions/*.jsonl"
+        ]
+      },
+      "overridePaths": {
+        "upstreamRegistry": [
+          "CODEX_HOME"
+        ],
+        "toki": [
+          "CODEX_HOME/{state_5.sqlite,sessions,archived_sessions} (exclusive)"
+        ]
+      },
+      "formats": {
+        "upstreamRegistryPattern": "*.jsonl",
+        "toki": [
+          "Existing SQLite threads plus token_count rollout JSONL; DB absence now allows rollout fallback"
+        ]
+      },
+      "modelStatus": "DB/turn_context attribution preserved",
+      "tokenStatus": "Existing cumulative/delta, cache/reasoning and session_meta identity retained",
+      "pricingStatus": "Existing dated pricing and cache unchanged",
+      "fixtureEvidence": [
+        "core/Tests/TokiAgentTests/ExistingSourcePathCompatibilityTests.swift",
+        "menubar/TokiTests/CodexReaderBehaviorTests.swift"
+      ],
+      "reader": [
+        "core/Sources/TokiUsageReaders/CodexReader.swift",
+        "core/Sources/TokiUsageReaders/CodexSessionDiscovery.swift"
+      ],
+      "readerNames": [
+        "Codex"
+      ],
+      "status": "implemented",
+      "disposition": "common-existing-client",
+      "limitations": [
+        "Tokscale headless roots/TOKSCALE_HEADLESS_DIR and generic extra dirs not implemented",
+        "Existing date-directory lookback and flat archive discovery retained; no full recursive or undated rollout parity",
+        "Existing DB error fallback/rollout parser diagnostics remain; this is not a DB-error hardening change",
+        "OpenClaw app-server reassignment/fork semantics are not added in this lane"
+      ],
+      "verification": {
+        "green": "524 macOS core tests passed; evidence is limited to listed existing synthetic fixtures",
+        "integration": "Pending stack step 5",
+        "executionRecord": "docs/compatibility/verification-20260908.md"
+      },
+      "fixtureEvidenceStatus": "Named synthetic regression fixtures available at this stack step; no production evidence",
+      "upstreamParser": "crates/tokscale-core/src/sessions/codex.rs"
+    },
+    {
+      "pinnedSHA": "3bd6dceb98925edab4e149c9bb1cf3fec9123f17",
+      "clientID": "cursor",
+      "os": {
+        "tokiTarget": [
+          "macOS",
+          "Linux"
+        ],
+        "executionEvidence": "See execution record for intermediate stack scope; Linux integration pending step 5",
+        "upstreamRootKind": "Home",
+        "upstreamWindows": "Not a Toki target; no Windows runtime claim"
+      },
+      "upstreamRegistry": {
+        "clientID": "cursor",
+        "index": 3,
+        "displayName": "Cursor IDE",
+        "root": "Home",
+        "relativePath": ".config/tokscale/cursor-cache",
+        "pattern": "usage*.json|usage*.csv",
+        "environmentVariable": null,
+        "fallbackRelative": null
+      },
+      "defaultPaths": {
+        "upstreamRegistry": [
+          "~/.config/tokscale/cursor-cache"
+        ],
+        "toki": [
+          "macOS ~/Library/Application Support/Cursor/User/globalStorage/state.vscdb",
+          "Linux $XDG_CONFIG_HOME/Cursor/User/globalStorage/state.vscdb"
+        ]
+      },
+      "overridePaths": {
+        "upstreamRegistry": [],
+        "toki": []
+      },
+      "formats": {
+        "upstreamRegistryPattern": "usage*.json|usage*.csv",
+        "toki": [
+          "Existing local SQLite context data; not Tokscale account usage exports"
+        ]
+      },
+      "modelStatus": "Baseline local context models",
+      "tokenStatus": "No account usage parity claim",
+      "pricingStatus": "No account/API/pricing work authorized",
+      "fixtureEvidence": [],
+      "reader": [
+        "core/Sources/TokiUsageReaders/CursorReader.swift"
+      ],
+      "readerNames": [
+        "Cursor"
+      ],
+      "status": "existing",
+      "disposition": "common-existing-client",
+      "limitations": [
+        "Explicitly excluded: account usage JSON/CSV cache, API/credentials, pricing changes",
+        "Registry client overlap is not a statement of data/format equivalence"
+      ],
+      "verification": {
+        "green": "524 macOS core tests passed; evidence is limited to listed existing synthetic fixtures",
+        "integration": "Pending stack step 5",
+        "executionRecord": "docs/compatibility/verification-20260908.md"
+      },
+      "fixtureEvidenceStatus": "Named synthetic regression fixtures available at this stack step; no production evidence",
+      "upstreamParser": "crates/tokscale-core/src/sessions/cursor.rs"
+    },
+    {
+      "pinnedSHA": "3bd6dceb98925edab4e149c9bb1cf3fec9123f17",
+      "clientID": "gemini",
+      "os": {
+        "tokiTarget": [
+          "macOS",
+          "Linux"
+        ],
+        "executionEvidence": "See execution record for intermediate stack scope; Linux integration pending step 5",
+        "upstreamRootKind": "EnvVar",
+        "upstreamWindows": "Not a Toki target; no Windows runtime claim"
+      },
+      "upstreamRegistry": {
+        "clientID": "gemini",
+        "index": 4,
+        "displayName": "Gemini CLI",
+        "root": "EnvVar",
+        "relativePath": "tmp",
+        "pattern": "*.json|*.jsonl",
+        "environmentVariable": "GEMINI_CLI_HOME",
+        "fallbackRelative": ".gemini"
+      },
+      "defaultPaths": {
+        "upstreamRegistry": [
+          "~/.gemini/tmp"
+        ],
+        "toki": [
+          "~/.gemini/tmp"
+        ]
+      },
+      "overridePaths": {
+        "upstreamRegistry": [
+          "GEMINI_CLI_HOME"
+        ],
+        "toki": [
+          "GEMINI_CLI_HOME/tmp (exclusive)"
+        ]
+      },
+      "formats": {
+        "upstreamRegistryPattern": "*.json|*.jsonl",
+        "toki": [
+          "JSON messages[] chat recordings",
+          "Direct tokens JSONL with init/sessionId/session_id headers",
+          "Legacy usageMetadata JSON (mtime attribution)"
+        ]
+      },
+      "modelStatus": "message.model plus JSONL model hint; absent model remains unattributed",
+      "tokenStatus": "Toki buckets preserved: input + output + tool + cached + thoughts; no speculative cache subtraction",
+      "pricingStatus": "Existing modelPrice lookup; JSONL unknown model explicitly unpriced",
+      "fixtureEvidence": [
+        "core/Tests/TokiAgentTests/ExistingSourcePathCompatibilityTests.swift",
+        "menubar/TokiTests/ReaderUnattributedModelTests.swift"
+      ],
+      "reader": [
+        "core/Sources/TokiUsageReaders/GeminiReader.swift"
+      ],
+      "readerNames": [
+        "Gemini CLI"
+      ],
+      "status": "implemented",
+      "disposition": "common-existing-client",
+      "limitations": [
+        "Headless stats/result.stats, token alias fields, missing-date fallback and cache-inclusive normalization deferred",
+        "No merge of id-less JSON/JSONL copies without a proven shared identity",
+        "Same explicit session/message selects last line in file; across files newest message timestamp then JSONL then lexical path",
+        "JSONL malformed/truncated or unsupported usage schema fails the read; no partial success"
+      ],
+      "verification": {
+        "green": "524 macOS core tests passed; evidence is limited to listed existing synthetic fixtures",
+        "integration": "Pending stack step 5",
+        "executionRecord": "docs/compatibility/verification-20260908.md"
+      },
+      "fixtureEvidenceStatus": "Named synthetic regression fixtures available at this stack step; no production evidence",
+      "upstreamParser": "crates/tokscale-core/src/sessions/gemini.rs"
+    },
+    {
+      "pinnedSHA": "3bd6dceb98925edab4e149c9bb1cf3fec9123f17",
+      "clientID": "amp",
+      "os": {
+        "tokiTarget": [
+          "macOS",
+          "Linux"
+        ],
+        "executionEvidence": "See execution record for intermediate stack scope; Linux integration pending step 5",
+        "upstreamRootKind": "XdgData",
+        "upstreamWindows": "Not a Toki target; no Windows runtime claim"
+      },
+      "upstreamRegistry": {
+        "clientID": "amp",
+        "index": 5,
+        "displayName": "Amp",
+        "root": "XdgData",
+        "relativePath": "amp/threads",
+        "pattern": "T-*.json",
+        "environmentVariable": null,
+        "fallbackRelative": null
+      },
+      "defaultPaths": {
+        "upstreamRegistry": [
+          "${XDG_DATA_HOME:-~/.local/share}/amp/threads"
+        ],
+        "toki": [
+          "$XDG_DATA_HOME/amp/threads (fallback ~/.local/share)"
+        ]
+      },
+      "overridePaths": {
+        "upstreamRegistry": [],
+        "toki": [
+          "XDG_DATA_HOME (existing)"
+        ]
+      },
+      "formats": {
+        "upstreamRegistryPattern": "T-*.json",
+        "toki": [
+          "JSON usageLedger and message fallback"
+        ]
+      },
+      "modelStatus": "Existing model and credit attribution",
+      "tokenStatus": "Existing ledger/message replica selection retained",
+      "pricingStatus": "Existing credits/recorded cost and model lookup retained",
+      "fixtureEvidence": [
+        "menubar/TokiTests/AmpReaderTests.swift",
+        "menubar/TokiTests/AmpReaderReplicaTests.swift"
+      ],
+      "reader": [
+        "core/Sources/TokiUsageReaders/AmpReader.swift"
+      ],
+      "readerNames": [
+        "Amp"
+      ],
+      "status": "existing",
+      "disposition": "common-existing-client",
+      "limitations": [
+        "No additional client-specific env root in pinned scanner; no full parser parity claim"
+      ],
+      "verification": {
+        "green": "524 macOS core tests passed; evidence is limited to listed existing synthetic fixtures",
+        "integration": "Pending stack step 5",
+        "executionRecord": "docs/compatibility/verification-20260908.md"
+      },
+      "fixtureEvidenceStatus": "Named synthetic regression fixtures available at this stack step; no production evidence",
+      "upstreamParser": "crates/tokscale-core/src/sessions/amp.rs"
+    },
+    {
+      "pinnedSHA": "3bd6dceb98925edab4e149c9bb1cf3fec9123f17",
+      "clientID": "droid",
+      "os": {
+        "tokiTarget": [
+          "macOS",
+          "Linux"
+        ],
+        "executionEvidence": "See execution record for intermediate stack scope; Linux integration pending step 5",
+        "upstreamRootKind": "Home",
+        "upstreamWindows": "Not a Toki target; no Windows runtime claim"
+      },
+      "upstreamRegistry": {
+        "clientID": "droid",
+        "index": 6,
+        "displayName": "Droid",
+        "root": "Home",
+        "relativePath": ".factory/sessions",
+        "pattern": "*.settings.json",
+        "environmentVariable": null,
+        "fallbackRelative": null
+      },
+      "defaultPaths": {
+        "upstreamRegistry": [
+          "~/.factory/sessions"
+        ],
+        "toki": [
+          "~/.factory/sessions"
+        ]
+      },
+      "overridePaths": {
+        "upstreamRegistry": [],
+        "toki": []
+      },
+      "formats": {
+        "upstreamRegistryPattern": "*.settings.json",
+        "toki": [
+          "*.settings.json tokenUsage and existing companion JSONL"
+        ]
+      },
+      "modelStatus": "Existing provider/model selection",
+      "tokenStatus": "Existing token snapshot reconciliation retained",
+      "pricingStatus": "Existing reported/estimated cost retained",
+      "fixtureEvidence": [
+        "menubar/TokiTests/FactoryDroidReaderTests.swift"
+      ],
+      "reader": [
+        "core/Sources/TokiUsageReaders/FactoryDroidReader.swift"
+      ],
+      "readerNames": [
+        "Factory Droid"
+      ],
+      "status": "existing",
+      "disposition": "common-existing-client",
+      "limitations": [
+        "No client-specific root override in pinned registry/scanner; generic extra dirs excluded"
+      ],
+      "verification": {
+        "green": "524 macOS core tests passed; evidence is limited to listed existing synthetic fixtures",
+        "integration": "Pending stack step 5",
+        "executionRecord": "docs/compatibility/verification-20260908.md"
+      },
+      "fixtureEvidenceStatus": "Named synthetic regression fixtures available at this stack step; no production evidence",
+      "upstreamParser": "crates/tokscale-core/src/sessions/droid.rs"
+    },
+    {
+      "pinnedSHA": "3bd6dceb98925edab4e149c9bb1cf3fec9123f17",
+      "clientID": "openclaw",
+      "os": {
+        "tokiTarget": [
+          "macOS",
+          "Linux"
+        ],
+        "executionEvidence": "See execution record for intermediate stack scope; Linux integration pending step 5",
+        "upstreamRootKind": "Home",
+        "upstreamWindows": "Not a Toki target; no Windows runtime claim"
+      },
+      "upstreamRegistry": {
+        "clientID": "openclaw",
+        "index": 7,
+        "displayName": "OpenClaw",
+        "root": "Home",
+        "relativePath": ".openclaw/agents",
+        "pattern": "*.jsonl*",
+        "environmentVariable": null,
+        "fallbackRelative": null
+      },
+      "defaultPaths": {
+        "upstreamRegistry": [
+          "~/.openclaw/agents"
+        ],
+        "toki": [
+          "~/.openclaw/agents",
+          "~/.clawdbot/agents",
+          "~/.moltbot/agents",
+          "~/.moldbot/agents"
+        ]
+      },
+      "overridePaths": {
+        "upstreamRegistry": [],
+        "toki": [
+          "Explicit agentsURLOverride or agentsRoots remains exclusive; registry uses all four roots under injected home"
+        ]
+      },
+      "formats": {
+        "upstreamRegistryPattern": "*.jsonl*",
+        "toki": [
+          "Nested message JSONL and arbitrary deleted/reset archive suffixes",
+          "<agent>/agent/openclaw-agent.sqlite transcript_events and SQLite sidecars"
+        ]
+      },
+      "modelStatus": "Session/message context, model aliases, provider and reported/known/unknown cost retained",
+      "tokenStatus": "SQLite-authoritative transcript reconciliation with independent agent/session namespaces",
+      "pricingStatus": "Existing curated catalog only; reported costs retained, unknown models not treated as free",
+      "fixtureEvidence": [
+        "core/Tests/TokiAgentTests/OpenClawCompatibilityTests.swift",
+        "core/Tests/TokiAgentTests/OpenClawDiscoveryTests.swift",
+        "core/Tests/TokiAgentTests/OpenClawSQLiteTests.swift",
+        "core/Tests/TokiAgentTests/OpenClawSnapshotTests.swift",
+        "core/Tests/TokiAgentTests/OpenClawReadRegressionTests.swift"
+      ],
+      "reader": [
+        "core/Sources/TokiUsageReaders/OpenClawReader.swift"
+      ],
+      "readerNames": [
+        "OpenClaw"
+      ],
+      "status": "implemented",
+      "disposition": "common-existing-client",
+      "limitations": [
+        "Compressed archives including zstd/gzip/zip remain unsupported and diagnosed",
+        "Embedded Codex home/app-server and shared-harness reassignment remain deferred",
+        "No account/network configuration discovery or complete historical schema parity"
+      ],
+      "verification": {
+        "green": "524 macOS core tests passed; evidence is limited to listed existing synthetic fixtures",
+        "integration": "Pending stack step 5",
+        "executionRecord": "docs/compatibility/verification-20260908.md"
+      },
+      "fixtureEvidenceStatus": "Named synthetic regression fixtures available at this stack step; no production evidence",
+      "upstreamParser": "crates/tokscale-core/src/sessions/openclaw.rs"
+    },
+    {
+      "pinnedSHA": "3bd6dceb98925edab4e149c9bb1cf3fec9123f17",
+      "clientID": "pi",
+      "os": {
+        "tokiTarget": [
+          "macOS",
+          "Linux"
+        ],
+        "executionEvidence": "See execution record for intermediate stack scope; Linux integration pending step 5",
+        "upstreamRootKind": "Home",
+        "upstreamWindows": "Not a Toki target; no Windows runtime claim"
+      },
+      "upstreamRegistry": {
+        "clientID": "pi",
+        "index": 8,
+        "displayName": "Pi",
+        "root": "Home",
+        "relativePath": ".pi/agent/sessions",
+        "pattern": "*.jsonl",
+        "environmentVariable": null,
+        "fallbackRelative": null
+      },
+      "defaultPaths": {
+        "upstreamRegistry": [
+          "~/.pi/agent/sessions"
+        ],
+        "toki": [
+          "~/.pi/agent/sessions"
+        ]
+      },
+      "overridePaths": {
+        "upstreamRegistry": [],
+        "toki": [
+          "PI_CODING_AGENT_SESSION_DIR then PI_CODING_AGENT_DIR/sessions (existing Toki extensions)"
+        ]
+      },
+      "formats": {
+        "upstreamRegistryPattern": "*.jsonl",
+        "toki": [
+          "Pi session/message JSONL"
+        ]
+      },
+      "modelStatus": "Existing per-message models",
+      "tokenStatus": "Existing Pi/OMP shared-storage ownership prevents duplicate reader output",
+      "pricingStatus": "Existing price/cost handling",
+      "fixtureEvidence": [
+        "core/Tests/TokiAgentTests/PiFamilyReaderTests.swift",
+        "core/Tests/TokiAgentTests/PiFamilyReaderDiscoveryTests.swift"
+      ],
+      "reader": [
+        "core/Sources/TokiUsageReaders/PiFamilyReaders.swift"
+      ],
+      "readerNames": [
+        "Pi"
+      ],
+      "status": "existing",
+      "disposition": "common-existing-client",
+      "limitations": [
+        "Pinned upstream deliberately uses fixed root to avoid Pi/OMP override duplication; preserve Toki partitioning",
+        "Alias relationships established after registry construction require descriptor refresh"
+      ],
+      "verification": {
+        "green": "524 macOS core tests passed; evidence is limited to listed existing synthetic fixtures",
+        "integration": "Pending stack step 5",
+        "executionRecord": "docs/compatibility/verification-20260908.md"
+      },
+      "fixtureEvidenceStatus": "Named synthetic regression fixtures available at this stack step; no production evidence",
+      "upstreamParser": "crates/tokscale-core/src/sessions/pi.rs"
+    },
+    {
+      "pinnedSHA": "3bd6dceb98925edab4e149c9bb1cf3fec9123f17",
+      "clientID": "kimi",
+      "os": {
+        "tokiTarget": [
+          "macOS",
+          "Linux"
+        ],
+        "executionEvidence": "See execution record for intermediate stack scope; Linux integration pending step 5",
+        "upstreamRootKind": "Home",
+        "upstreamWindows": "Not a Toki target; no Windows runtime claim"
+      },
+      "upstreamRegistry": {
+        "clientID": "kimi",
+        "index": 9,
+        "displayName": "Kimi CLI",
+        "root": "Home",
+        "relativePath": ".kimi/sessions",
+        "pattern": "wire.jsonl",
+        "environmentVariable": null,
+        "fallbackRelative": null
+      },
+      "defaultPaths": {
+        "upstreamRegistry": [
+          "~/.kimi/sessions"
+        ],
+        "toki": [
+          "~/.kimi/sessions",
+          "~/.kimi-code/sessions"
+        ]
+      },
+      "overridePaths": {
+        "upstreamRegistry": [],
+        "toki": [
+          "KIMI_SHARE_DIR/sessions (Toki additive extension)",
+          "KIMI_CODE_HOME/sessions (Toki preexisting additive policy)"
+        ]
+      },
+      "formats": {
+        "upstreamRegistryPattern": "wire.jsonl",
+        "toki": [
+          "wire.jsonl StatusUpdate (CLI)",
+          "wire.jsonl usage.record (Code)"
+        ]
+      },
+      "modelStatus": "Existing context/header and usage.record model handling",
+      "tokenStatus": "Existing wire request/delta/copy identity retained",
+      "pricingStatus": "Existing recorded/fallback pricing retained",
+      "fixtureEvidence": [
+        "core/Tests/TokiAgentTests/KimiReaderTests.swift",
+        "core/Tests/TokiAgentTests/ChineseCLIAgentIntegrationTests.swift"
+      ],
+      "reader": [
+        "core/Sources/TokiUsageReaders/KimiReader.swift"
+      ],
+      "readerNames": [
+        "Kimi CLI",
+        "Kimi Code"
+      ],
+      "status": "existing",
+      "disposition": "common-existing-client",
+      "limitations": [
+        "Kimi Work/Desktop app-data discovery and config-directed share_dir explicitly deferred; not a new registry ID",
+        "Toki preserves default plus explicit CLI/Code roots; upstream Code override selects its root",
+        "No Windows Kimi paths or no-Linux desktop support claim"
+      ],
+      "verification": {
+        "green": "524 macOS core tests passed; evidence is limited to listed existing synthetic fixtures",
+        "integration": "Pending stack step 5",
+        "executionRecord": "docs/compatibility/verification-20260908.md"
+      },
+      "fixtureEvidenceStatus": "Named synthetic regression fixtures available at this stack step; no production evidence",
+      "upstreamParser": "crates/tokscale-core/src/sessions/kimi.rs"
+    },
+    {
+      "pinnedSHA": "3bd6dceb98925edab4e149c9bb1cf3fec9123f17",
+      "clientID": "qwen",
+      "os": {
+        "tokiTarget": [
+          "macOS",
+          "Linux"
+        ],
+        "executionEvidence": "See execution record for intermediate stack scope; Linux integration pending step 5",
+        "upstreamRootKind": "Home",
+        "upstreamWindows": "Not a Toki target; no Windows runtime claim"
+      },
+      "upstreamRegistry": {
+        "clientID": "qwen",
+        "index": 10,
+        "displayName": "Qwen CLI",
+        "root": "Home",
+        "relativePath": ".qwen/projects",
+        "pattern": "*.jsonl",
+        "environmentVariable": null,
+        "fallbackRelative": null
+      },
+      "defaultPaths": {
+        "upstreamRegistry": [
+          "~/.qwen/projects"
+        ],
+        "toki": [
+          "~/.qwen/projects"
+        ]
+      },
+      "overridePaths": {
+        "upstreamRegistry": [],
+        "toki": [
+          "QWEN_HOME/projects",
+          "QWEN_RUNTIME_DIR/projects (both additive Toki extensions)"
+        ]
+      },
+      "formats": {
+        "upstreamRegistryPattern": "*.jsonl",
+        "toki": [
+          "assistant usageMetadata JSONL"
+        ]
+      },
+      "modelStatus": "Existing per-message model/session/path identity",
+      "tokenStatus": "Existing cache/reasoning handling retained",
+      "pricingStatus": "Existing model lookup, unknown remains unknown",
+      "fixtureEvidence": [
+        "core/Tests/TokiAgentTests/QwenReaderTests.swift",
+        "core/Tests/TokiAgentTests/ChineseCLIAgentIntegrationTests.swift"
+      ],
+      "reader": [
+        "core/Sources/TokiUsageReaders/QwenCLIReader.swift"
+      ],
+      "readerNames": [
+        "Qwen CLI"
+      ],
+      "status": "existing",
+      "disposition": "common-existing-client",
+      "limitations": [
+        "No client env override in pinned registry; Toki additive overrides retained",
+        "No generic extra paths protocol"
+      ],
+      "verification": {
+        "green": "524 macOS core tests passed; evidence is limited to listed existing synthetic fixtures",
+        "integration": "Pending stack step 5",
+        "executionRecord": "docs/compatibility/verification-20260908.md"
+      },
+      "fixtureEvidenceStatus": "Named synthetic regression fixtures available at this stack step; no production evidence",
+      "upstreamParser": "crates/tokscale-core/src/sessions/qwen.rs"
+    },
+    {
+      "pinnedSHA": "3bd6dceb98925edab4e149c9bb1cf3fec9123f17",
+      "clientID": "roocode",
+      "os": {
+        "tokiTarget": [],
+        "executionEvidence": "See execution record for intermediate stack scope; Linux integration pending step 5",
+        "upstreamRootKind": "Home",
+        "upstreamWindows": "Not a Toki target; no Windows runtime claim"
+      },
+      "upstreamRegistry": {
+        "clientID": "roocode",
+        "index": 11,
+        "displayName": "Roo Code",
+        "root": "Home",
+        "relativePath": ".config/Code/User/globalStorage/rooveterinaryinc.roo-cline/tasks",
+        "pattern": "ui_messages.json",
+        "environmentVariable": null,
+        "fallbackRelative": null
+      },
+      "defaultPaths": {
+        "upstreamRegistry": [
+          "~/.config/Code/User/globalStorage/rooveterinaryinc.roo-cline/tasks"
+        ],
+        "toki": []
+      },
+      "overridePaths": {
+        "upstreamRegistry": [],
+        "toki": []
+      },
+      "formats": {
+        "upstreamRegistryPattern": "ui_messages.json",
+        "toki": []
+      },
+      "modelStatus": "not implemented",
+      "tokenStatus": "not implemented",
+      "pricingStatus": "not implemented; no catalog expansion",
+      "fixtureEvidence": [],
+      "reader": [],
+      "readerNames": [],
+      "status": "planned",
+      "disposition": "deferred-new-client",
+      "limitations": [
+        "Not implemented in this M0–M2 candidate; separate client spec/fixture/authorization required.",
+        "Registry metadata is provenance, not exhaustive product support or execution evidence."
+      ],
+      "verification": {
+        "worker": "source inspection only",
+        "green": "unverified",
+        "consumer": "unverified",
+        "nativeUI": "unverified",
+        "linux": "unverified",
+        "performance": "unverified"
+      },
+      "fixtureEvidenceStatus": "No scoped fixture evidence listed; source inventory only"
+    },
+    {
+      "pinnedSHA": "3bd6dceb98925edab4e149c9bb1cf3fec9123f17",
+      "clientID": "kilocode",
+      "os": {
+        "tokiTarget": [],
+        "executionEvidence": "See execution record for intermediate stack scope; Linux integration pending step 5",
+        "upstreamRootKind": "Home",
+        "upstreamWindows": "Not a Toki target; no Windows runtime claim"
+      },
+      "upstreamRegistry": {
+        "clientID": "kilocode",
+        "index": 12,
+        "displayName": "Kilo Code",
+        "root": "Home",
+        "relativePath": ".config/Code/User/globalStorage/kilocode.kilo-code/tasks",
+        "pattern": "ui_messages.json",
+        "environmentVariable": null,
+        "fallbackRelative": null
+      },
+      "defaultPaths": {
+        "upstreamRegistry": [
+          "~/.config/Code/User/globalStorage/kilocode.kilo-code/tasks"
+        ],
+        "toki": []
+      },
+      "overridePaths": {
+        "upstreamRegistry": [],
+        "toki": []
+      },
+      "formats": {
+        "upstreamRegistryPattern": "ui_messages.json",
+        "toki": []
+      },
+      "modelStatus": "not implemented",
+      "tokenStatus": "not implemented",
+      "pricingStatus": "not implemented; no catalog expansion",
+      "fixtureEvidence": [],
+      "reader": [],
+      "readerNames": [],
+      "status": "planned",
+      "disposition": "deferred-new-client",
+      "limitations": [
+        "Not implemented in this M0–M2 candidate; separate client spec/fixture/authorization required.",
+        "Registry metadata is provenance, not exhaustive product support or execution evidence."
+      ],
+      "verification": {
+        "worker": "source inspection only",
+        "green": "unverified",
+        "consumer": "unverified",
+        "nativeUI": "unverified",
+        "linux": "unverified",
+        "performance": "unverified"
+      },
+      "fixtureEvidenceStatus": "No scoped fixture evidence listed; source inventory only"
+    },
+    {
+      "pinnedSHA": "3bd6dceb98925edab4e149c9bb1cf3fec9123f17",
+      "clientID": "mux",
+      "os": {
+        "tokiTarget": [],
+        "executionEvidence": "See execution record for intermediate stack scope; Linux integration pending step 5",
+        "upstreamRootKind": "Home",
+        "upstreamWindows": "Not a Toki target; no Windows runtime claim"
+      },
+      "upstreamRegistry": {
+        "clientID": "mux",
+        "index": 13,
+        "displayName": "Mux",
+        "root": "Home",
+        "relativePath": ".mux/sessions",
+        "pattern": "session-usage.json",
+        "environmentVariable": null,
+        "fallbackRelative": null
+      },
+      "defaultPaths": {
+        "upstreamRegistry": [
+          "~/.mux/sessions"
+        ],
+        "toki": []
+      },
+      "overridePaths": {
+        "upstreamRegistry": [],
+        "toki": []
+      },
+      "formats": {
+        "upstreamRegistryPattern": "session-usage.json",
+        "toki": []
+      },
+      "modelStatus": "not implemented",
+      "tokenStatus": "not implemented",
+      "pricingStatus": "not implemented; no catalog expansion",
+      "fixtureEvidence": [],
+      "reader": [],
+      "readerNames": [],
+      "status": "planned",
+      "disposition": "deferred-new-client",
+      "limitations": [
+        "Not implemented in this M0–M2 candidate; separate client spec/fixture/authorization required.",
+        "Registry metadata is provenance, not exhaustive product support or execution evidence."
+      ],
+      "verification": {
+        "worker": "source inspection only",
+        "green": "unverified",
+        "consumer": "unverified",
+        "nativeUI": "unverified",
+        "linux": "unverified",
+        "performance": "unverified"
+      },
+      "fixtureEvidenceStatus": "No scoped fixture evidence listed; source inventory only"
+    },
+    {
+      "pinnedSHA": "3bd6dceb98925edab4e149c9bb1cf3fec9123f17",
+      "clientID": "kilo",
+      "os": {
+        "tokiTarget": [],
+        "executionEvidence": "See execution record for intermediate stack scope; Linux integration pending step 5",
+        "upstreamRootKind": "XdgData",
+        "upstreamWindows": "Not a Toki target; no Windows runtime claim"
+      },
+      "upstreamRegistry": {
+        "clientID": "kilo",
+        "index": 14,
+        "displayName": "Kilo CLI",
+        "root": "XdgData",
+        "relativePath": "kilo/kilo.db",
+        "pattern": "kilo.db",
+        "environmentVariable": null,
+        "fallbackRelative": null
+      },
+      "defaultPaths": {
+        "upstreamRegistry": [
+          "${XDG_DATA_HOME:-~/.local/share}/kilo/kilo.db"
+        ],
+        "toki": []
+      },
+      "overridePaths": {
+        "upstreamRegistry": [],
+        "toki": []
+      },
+      "formats": {
+        "upstreamRegistryPattern": "kilo.db",
+        "toki": []
+      },
+      "modelStatus": "not implemented",
+      "tokenStatus": "not implemented",
+      "pricingStatus": "not implemented; no catalog expansion",
+      "fixtureEvidence": [],
+      "reader": [],
+      "readerNames": [],
+      "status": "planned",
+      "disposition": "deferred-new-client",
+      "limitations": [
+        "Not implemented in this M0–M2 candidate; separate client spec/fixture/authorization required.",
+        "Registry metadata is provenance, not exhaustive product support or execution evidence."
+      ],
+      "verification": {
+        "worker": "source inspection only",
+        "green": "unverified",
+        "consumer": "unverified",
+        "nativeUI": "unverified",
+        "linux": "unverified",
+        "performance": "unverified"
+      },
+      "fixtureEvidenceStatus": "No scoped fixture evidence listed; source inventory only"
+    },
+    {
+      "pinnedSHA": "3bd6dceb98925edab4e149c9bb1cf3fec9123f17",
+      "clientID": "crush",
+      "os": {
+        "tokiTarget": [],
+        "executionEvidence": "See execution record for intermediate stack scope; Linux integration pending step 5",
+        "upstreamRootKind": "XdgData",
+        "upstreamWindows": "Not a Toki target; no Windows runtime claim"
+      },
+      "upstreamRegistry": {
+        "clientID": "crush",
+        "index": 15,
+        "displayName": "Crush",
+        "root": "XdgData",
+        "relativePath": "crush/projects.json",
+        "pattern": "projects.json",
+        "environmentVariable": null,
+        "fallbackRelative": null
+      },
+      "defaultPaths": {
+        "upstreamRegistry": [
+          "${XDG_DATA_HOME:-~/.local/share}/crush/projects.json"
+        ],
+        "toki": []
+      },
+      "overridePaths": {
+        "upstreamRegistry": [],
+        "toki": []
+      },
+      "formats": {
+        "upstreamRegistryPattern": "projects.json",
+        "toki": []
+      },
+      "modelStatus": "not implemented",
+      "tokenStatus": "not implemented",
+      "pricingStatus": "not implemented; no catalog expansion",
+      "fixtureEvidence": [],
+      "reader": [],
+      "readerNames": [],
+      "status": "planned",
+      "disposition": "deferred-new-client",
+      "limitations": [
+        "Not implemented in this M0–M2 candidate; separate client spec/fixture/authorization required.",
+        "Registry metadata is provenance, not exhaustive product support or execution evidence."
+      ],
+      "verification": {
+        "worker": "source inspection only",
+        "green": "unverified",
+        "consumer": "unverified",
+        "nativeUI": "unverified",
+        "linux": "unverified",
+        "performance": "unverified"
+      },
+      "fixtureEvidenceStatus": "No scoped fixture evidence listed; source inventory only"
+    },
+    {
+      "pinnedSHA": "3bd6dceb98925edab4e149c9bb1cf3fec9123f17",
+      "clientID": "hermes",
+      "os": {
+        "tokiTarget": [
+          "macOS",
+          "Linux"
+        ],
+        "executionEvidence": "See execution record for intermediate stack scope; Linux integration pending step 5",
+        "upstreamRootKind": "EnvVar",
+        "upstreamWindows": "Not a Toki target; no Windows runtime claim"
+      },
+      "upstreamRegistry": {
+        "clientID": "hermes",
+        "index": 16,
+        "displayName": "Hermes Agent",
+        "root": "EnvVar",
+        "relativePath": "state.db",
+        "pattern": "state.db",
+        "environmentVariable": "HERMES_HOME",
+        "fallbackRelative": ".hermes"
+      },
+      "defaultPaths": {
+        "upstreamRegistry": [
+          "~/.hermes/state.db"
+        ],
+        "toki": [
+          "~/.hermes/state.db",
+          "~/.hermes/profiles/*/state.db"
+        ]
+      },
+      "overridePaths": {
+        "upstreamRegistry": [
+          "HERMES_HOME"
+        ],
+        "toki": [
+          "HERMES_HOME/state.db exclusive; profiles below default home only"
+        ]
+      },
+      "formats": {
+        "upstreamRegistryPattern": "state.db",
+        "toki": [
+          "Hermes SQLite sessions/session_model_usage; bounded canonical profiles; durable default/profile ledgers and scoped membership"
+        ]
+      },
+      "modelStatus": "Per-session/per-model task attribution and independent profile namespaces retained",
+      "tokenStatus": "Healthy profiles and durable collection history are preserved; app partial status, CLI reporting and agent collection rejection are integrated in step 5.",
+      "pricingStatus": "Existing curated catalog only; reported costs retained, unknown models not treated as free",
+      "fixtureEvidence": [
+        "core/Tests/TokiAgentTests/HermesProfileBoundaryTests.swift",
+        "core/Tests/TokiAgentTests/HermesProfileConsumerTests.swift",
+        "core/Tests/TokiAgentTests/HermesProfileCollectionTests.swift",
+        "core/Tests/TokiAgentTests/HermesReviewReproductionTests.swift"
+      ],
+      "reader": [
+        "core/Sources/TokiUsageReaders/HermesReader.swift"
+      ],
+      "readerNames": [
+        "Hermes"
+      ],
+      "status": "implemented",
+      "disposition": "common-existing-client",
+      "limitations": [
+        "Unmapped flat historical ledgers are not scanned or assigned to a collection",
+        "History before a ledger baseline remains unattributed; no invented timing"
+      ],
+      "verification": {
+        "green": "524 macOS core tests passed; evidence is limited to listed existing synthetic fixtures",
+        "integration": "Pending stack step 5",
+        "executionRecord": "docs/compatibility/verification-20260908.md"
+      },
+      "fixtureEvidenceStatus": "Named synthetic regression fixtures available at this stack step; no production evidence",
+      "upstreamParser": "crates/tokscale-core/src/sessions/hermes.rs"
+    },
+    {
+      "pinnedSHA": "3bd6dceb98925edab4e149c9bb1cf3fec9123f17",
+      "clientID": "copilot",
+      "os": {
+        "tokiTarget": [
+          "macOS",
+          "Linux"
+        ],
+        "executionEvidence": "See execution record for intermediate stack scope; Linux integration pending step 5",
+        "upstreamRootKind": "Home",
+        "upstreamWindows": "Not a Toki target; no Windows runtime claim"
+      },
+      "upstreamRegistry": {
+        "clientID": "copilot",
+        "index": 17,
+        "displayName": "Copilot CLI",
+        "root": "Home",
+        "relativePath": ".copilot/otel",
+        "pattern": "*.jsonl",
+        "environmentVariable": null,
+        "fallbackRelative": null
+      },
+      "defaultPaths": {
+        "upstreamRegistry": [
+          "~/.copilot/otel"
+        ],
+        "toki": [
+          "~/.copilot/otel"
+        ]
+      },
+      "overridePaths": {
+        "upstreamRegistry": [],
+        "toki": [
+          "COPILOT_OTEL_FILE_EXPORTER_PATH (absolute .jsonl file, existing)"
+        ]
+      },
+      "formats": {
+        "upstreamRegistryPattern": "*.jsonl",
+        "toki": [
+          "Existing OTEL JSONL chat/inference/agent fallback records"
+        ]
+      },
+      "modelStatus": "Existing trace/model attribution",
+      "tokenStatus": "Existing priority/dedup contract retained",
+      "pricingStatus": "Existing recorded/fallback behavior",
+      "fixtureEvidence": [
+        "core/Tests/TokiAgentTests/CopilotCLIAgentIntegrationTests.swift",
+        "menubar/TokiTests/CopilotCLIReaderTests.swift"
+      ],
+      "reader": [
+        "core/Sources/TokiUsageReaders/CopilotCLIReader.swift"
+      ],
+      "readerNames": [
+        "GitHub Copilot CLI"
+      ],
+      "status": "existing",
+      "disposition": "common-existing-client",
+      "limitations": [
+        "Upstream also supports Copilot Desktop SQLite and VS Code workspaceStorage chatSessions; product subfeatures explicitly deferred",
+        "Exporter extension restriction retained; extensionless files unsupported by Toki"
+      ],
+      "verification": {
+        "green": "524 macOS core tests passed; evidence is limited to listed existing synthetic fixtures",
+        "integration": "Pending stack step 5",
+        "executionRecord": "docs/compatibility/verification-20260908.md"
+      },
+      "fixtureEvidenceStatus": "Named synthetic regression fixtures available at this stack step; no production evidence",
+      "upstreamParser": "crates/tokscale-core/src/sessions/copilot.rs"
+    },
+    {
+      "pinnedSHA": "3bd6dceb98925edab4e149c9bb1cf3fec9123f17",
+      "clientID": "goose",
+      "os": {
+        "tokiTarget": [],
+        "executionEvidence": "See execution record for intermediate stack scope; Linux integration pending step 5",
+        "upstreamRootKind": "XdgData",
+        "upstreamWindows": "Not a Toki target; no Windows runtime claim"
+      },
+      "upstreamRegistry": {
+        "clientID": "goose",
+        "index": 18,
+        "displayName": "Goose",
+        "root": "XdgData",
+        "relativePath": "goose/sessions/sessions.db",
+        "pattern": "sessions.db",
+        "environmentVariable": null,
+        "fallbackRelative": null
+      },
+      "defaultPaths": {
+        "upstreamRegistry": [
+          "${XDG_DATA_HOME:-~/.local/share}/goose/sessions/sessions.db"
+        ],
+        "toki": []
+      },
+      "overridePaths": {
+        "upstreamRegistry": [],
+        "toki": []
+      },
+      "formats": {
+        "upstreamRegistryPattern": "sessions.db",
+        "toki": []
+      },
+      "modelStatus": "not implemented",
+      "tokenStatus": "not implemented",
+      "pricingStatus": "not implemented; no catalog expansion",
+      "fixtureEvidence": [],
+      "reader": [],
+      "readerNames": [],
+      "status": "planned",
+      "disposition": "deferred-new-client",
+      "limitations": [
+        "Not implemented in this M0–M2 candidate; separate client spec/fixture/authorization required.",
+        "Registry metadata is provenance, not exhaustive product support or execution evidence."
+      ],
+      "verification": {
+        "worker": "source inspection only",
+        "green": "unverified",
+        "consumer": "unverified",
+        "nativeUI": "unverified",
+        "linux": "unverified",
+        "performance": "unverified"
+      },
+      "fixtureEvidenceStatus": "No scoped fixture evidence listed; source inventory only"
+    },
+    {
+      "pinnedSHA": "3bd6dceb98925edab4e149c9bb1cf3fec9123f17",
+      "clientID": "codebuff",
+      "os": {
+        "tokiTarget": [],
+        "executionEvidence": "See execution record for intermediate stack scope; Linux integration pending step 5",
+        "upstreamRootKind": "EnvVar",
+        "upstreamWindows": "Not a Toki target; no Windows runtime claim"
+      },
+      "upstreamRegistry": {
+        "clientID": "codebuff",
+        "index": 19,
+        "displayName": "Codebuff",
+        "root": "EnvVar",
+        "relativePath": "projects",
+        "pattern": "chat-messages.json",
+        "environmentVariable": "CODEBUFF_DATA_DIR",
+        "fallbackRelative": ".config/manicode"
+      },
+      "defaultPaths": {
+        "upstreamRegistry": [
+          "~/.config/manicode/projects"
+        ],
+        "toki": []
+      },
+      "overridePaths": {
+        "upstreamRegistry": [
+          "CODEBUFF_DATA_DIR"
+        ],
+        "toki": []
+      },
+      "formats": {
+        "upstreamRegistryPattern": "chat-messages.json",
+        "toki": []
+      },
+      "modelStatus": "not implemented",
+      "tokenStatus": "not implemented",
+      "pricingStatus": "not implemented; no catalog expansion",
+      "fixtureEvidence": [],
+      "reader": [],
+      "readerNames": [],
+      "status": "planned",
+      "disposition": "deferred-new-client",
+      "limitations": [
+        "Not implemented in this M0–M2 candidate; separate client spec/fixture/authorization required.",
+        "Registry metadata is provenance, not exhaustive product support or execution evidence."
+      ],
+      "verification": {
+        "worker": "source inspection only",
+        "green": "unverified",
+        "consumer": "unverified",
+        "nativeUI": "unverified",
+        "linux": "unverified",
+        "performance": "unverified"
+      },
+      "fixtureEvidenceStatus": "No scoped fixture evidence listed; source inventory only"
+    },
+    {
+      "pinnedSHA": "3bd6dceb98925edab4e149c9bb1cf3fec9123f17",
+      "clientID": "antigravity",
+      "os": {
+        "tokiTarget": [],
+        "executionEvidence": "See execution record for intermediate stack scope; Linux integration pending step 5",
+        "upstreamRootKind": "Config",
+        "upstreamWindows": "Not a Toki target; no Windows runtime claim"
+      },
+      "upstreamRegistry": {
+        "clientID": "antigravity",
+        "index": 20,
+        "displayName": "Antigravity",
+        "root": "Config",
+        "relativePath": "antigravity-cache/sessions",
+        "pattern": "*.jsonl",
+        "environmentVariable": null,
+        "fallbackRelative": null
+      },
+      "defaultPaths": {
+        "upstreamRegistry": [
+          "Tokscale config directory (OS-specific)/antigravity-cache/sessions"
+        ],
+        "toki": []
+      },
+      "overridePaths": {
+        "upstreamRegistry": [],
+        "toki": []
+      },
+      "formats": {
+        "upstreamRegistryPattern": "*.jsonl",
+        "toki": []
+      },
+      "modelStatus": "not implemented",
+      "tokenStatus": "not implemented",
+      "pricingStatus": "not implemented; no catalog expansion",
+      "fixtureEvidence": [],
+      "reader": [],
+      "readerNames": [],
+      "status": "planned",
+      "disposition": "deferred-new-client",
+      "limitations": [
+        "Not implemented in this M0–M2 candidate; separate client spec/fixture/authorization required.",
+        "Registry metadata is provenance, not exhaustive product support or execution evidence."
+      ],
+      "verification": {
+        "worker": "source inspection only",
+        "green": "unverified",
+        "consumer": "unverified",
+        "nativeUI": "unverified",
+        "linux": "unverified",
+        "performance": "unverified"
+      },
+      "fixtureEvidenceStatus": "No scoped fixture evidence listed; source inventory only"
+    },
+    {
+      "pinnedSHA": "3bd6dceb98925edab4e149c9bb1cf3fec9123f17",
+      "clientID": "zed",
+      "os": {
+        "tokiTarget": [],
+        "executionEvidence": "See execution record for intermediate stack scope; Linux integration pending step 5",
+        "upstreamRootKind": "XdgData",
+        "upstreamWindows": "Not a Toki target; no Windows runtime claim"
+      },
+      "upstreamRegistry": {
+        "clientID": "zed",
+        "index": 21,
+        "displayName": "Zed Agent",
+        "root": "XdgData",
+        "relativePath": "zed/threads/threads.db",
+        "pattern": "threads.db",
+        "environmentVariable": null,
+        "fallbackRelative": null
+      },
+      "defaultPaths": {
+        "upstreamRegistry": [
+          "${XDG_DATA_HOME:-~/.local/share}/zed/threads/threads.db"
+        ],
+        "toki": []
+      },
+      "overridePaths": {
+        "upstreamRegistry": [],
+        "toki": []
+      },
+      "formats": {
+        "upstreamRegistryPattern": "threads.db",
+        "toki": []
+      },
+      "modelStatus": "not implemented",
+      "tokenStatus": "not implemented",
+      "pricingStatus": "not implemented; no catalog expansion",
+      "fixtureEvidence": [],
+      "reader": [],
+      "readerNames": [],
+      "status": "planned",
+      "disposition": "deferred-new-client",
+      "limitations": [
+        "Not implemented in this M0–M2 candidate; separate client spec/fixture/authorization required.",
+        "Registry metadata is provenance, not exhaustive product support or execution evidence."
+      ],
+      "verification": {
+        "worker": "source inspection only",
+        "green": "unverified",
+        "consumer": "unverified",
+        "nativeUI": "unverified",
+        "linux": "unverified",
+        "performance": "unverified"
+      },
+      "fixtureEvidenceStatus": "No scoped fixture evidence listed; source inventory only"
+    },
+    {
+      "pinnedSHA": "3bd6dceb98925edab4e149c9bb1cf3fec9123f17",
+      "clientID": "kiro",
+      "os": {
+        "tokiTarget": [],
+        "executionEvidence": "See execution record for intermediate stack scope; Linux integration pending step 5",
+        "upstreamRootKind": "Home",
+        "upstreamWindows": "Not a Toki target; no Windows runtime claim"
+      },
+      "upstreamRegistry": {
+        "clientID": "kiro",
+        "index": 22,
+        "displayName": "Kiro",
+        "root": "Home",
+        "relativePath": ".kiro/sessions/cli",
+        "pattern": "*.json",
+        "environmentVariable": null,
+        "fallbackRelative": null
+      },
+      "defaultPaths": {
+        "upstreamRegistry": [
+          "~/.kiro/sessions/cli"
+        ],
+        "toki": []
+      },
+      "overridePaths": {
+        "upstreamRegistry": [],
+        "toki": []
+      },
+      "formats": {
+        "upstreamRegistryPattern": "*.json",
+        "toki": []
+      },
+      "modelStatus": "not implemented",
+      "tokenStatus": "not implemented",
+      "pricingStatus": "not implemented; no catalog expansion",
+      "fixtureEvidence": [],
+      "reader": [],
+      "readerNames": [],
+      "status": "planned",
+      "disposition": "deferred-new-client",
+      "limitations": [
+        "Not implemented in this M0–M2 candidate; separate client spec/fixture/authorization required.",
+        "Registry metadata is provenance, not exhaustive product support or execution evidence."
+      ],
+      "verification": {
+        "worker": "source inspection only",
+        "green": "unverified",
+        "consumer": "unverified",
+        "nativeUI": "unverified",
+        "linux": "unverified",
+        "performance": "unverified"
+      },
+      "fixtureEvidenceStatus": "No scoped fixture evidence listed; source inventory only"
+    },
+    {
+      "pinnedSHA": "3bd6dceb98925edab4e149c9bb1cf3fec9123f17",
+      "clientID": "trae",
+      "os": {
+        "tokiTarget": [],
+        "executionEvidence": "See execution record for intermediate stack scope; Linux integration pending step 5",
+        "upstreamRootKind": "Config",
+        "upstreamWindows": "Not a Toki target; no Windows runtime claim"
+      },
+      "upstreamRegistry": {
+        "clientID": "trae",
+        "index": 23,
+        "displayName": "Trae",
+        "root": "Config",
+        "relativePath": "trae-cache/sessions",
+        "pattern": "*.json",
+        "environmentVariable": null,
+        "fallbackRelative": null
+      },
+      "defaultPaths": {
+        "upstreamRegistry": [
+          "Tokscale config directory (OS-specific)/trae-cache/sessions"
+        ],
+        "toki": []
+      },
+      "overridePaths": {
+        "upstreamRegistry": [],
+        "toki": []
+      },
+      "formats": {
+        "upstreamRegistryPattern": "*.json",
+        "toki": []
+      },
+      "modelStatus": "not implemented",
+      "tokenStatus": "not implemented",
+      "pricingStatus": "not implemented; no catalog expansion",
+      "fixtureEvidence": [],
+      "reader": [],
+      "readerNames": [],
+      "status": "planned",
+      "disposition": "deferred-new-client",
+      "limitations": [
+        "Not implemented in this M0–M2 candidate; separate client spec/fixture/authorization required.",
+        "Registry metadata is provenance, not exhaustive product support or execution evidence."
+      ],
+      "verification": {
+        "worker": "source inspection only",
+        "green": "unverified",
+        "consumer": "unverified",
+        "nativeUI": "unverified",
+        "linux": "unverified",
+        "performance": "unverified"
+      },
+      "fixtureEvidenceStatus": "No scoped fixture evidence listed; source inventory only"
+    },
+    {
+      "pinnedSHA": "3bd6dceb98925edab4e149c9bb1cf3fec9123f17",
+      "clientID": "warp",
+      "os": {
+        "tokiTarget": [],
+        "executionEvidence": "See execution record for intermediate stack scope; Linux integration pending step 5",
+        "upstreamRootKind": "Config",
+        "upstreamWindows": "Not a Toki target; no Windows runtime claim"
+      },
+      "upstreamRegistry": {
+        "clientID": "warp",
+        "index": 24,
+        "displayName": "Warp",
+        "root": "Config",
+        "relativePath": "warp-cache",
+        "pattern": "usage*.json",
+        "environmentVariable": null,
+        "fallbackRelative": null
+      },
+      "defaultPaths": {
+        "upstreamRegistry": [
+          "Tokscale config directory (OS-specific)/warp-cache"
+        ],
+        "toki": []
+      },
+      "overridePaths": {
+        "upstreamRegistry": [],
+        "toki": []
+      },
+      "formats": {
+        "upstreamRegistryPattern": "usage*.json",
+        "toki": []
+      },
+      "modelStatus": "not implemented",
+      "tokenStatus": "not implemented",
+      "pricingStatus": "not implemented; no catalog expansion",
+      "fixtureEvidence": [],
+      "reader": [],
+      "readerNames": [],
+      "status": "planned",
+      "disposition": "deferred-new-client",
+      "limitations": [
+        "Not implemented in this M0–M2 candidate; separate client spec/fixture/authorization required.",
+        "Registry metadata is provenance, not exhaustive product support or execution evidence."
+      ],
+      "verification": {
+        "worker": "source inspection only",
+        "green": "unverified",
+        "consumer": "unverified",
+        "nativeUI": "unverified",
+        "linux": "unverified",
+        "performance": "unverified"
+      },
+      "fixtureEvidenceStatus": "No scoped fixture evidence listed; source inventory only"
+    },
+    {
+      "pinnedSHA": "3bd6dceb98925edab4e149c9bb1cf3fec9123f17",
+      "clientID": "cline",
+      "os": {
+        "tokiTarget": [],
+        "executionEvidence": "See execution record for intermediate stack scope; Linux integration pending step 5",
+        "upstreamRootKind": "Home",
+        "upstreamWindows": "Not a Toki target; no Windows runtime claim"
+      },
+      "upstreamRegistry": {
+        "clientID": "cline",
+        "index": 25,
+        "displayName": "Cline",
+        "root": "Home",
+        "relativePath": ".config/Code/User/globalStorage/saoudrizwan.claude-dev/tasks",
+        "pattern": "ui_messages.json",
+        "environmentVariable": null,
+        "fallbackRelative": null
+      },
+      "defaultPaths": {
+        "upstreamRegistry": [
+          "~/.config/Code/User/globalStorage/saoudrizwan.claude-dev/tasks"
+        ],
+        "toki": []
+      },
+      "overridePaths": {
+        "upstreamRegistry": [],
+        "toki": []
+      },
+      "formats": {
+        "upstreamRegistryPattern": "ui_messages.json",
+        "toki": []
+      },
+      "modelStatus": "not implemented",
+      "tokenStatus": "not implemented",
+      "pricingStatus": "not implemented; no catalog expansion",
+      "fixtureEvidence": [],
+      "reader": [],
+      "readerNames": [],
+      "status": "planned",
+      "disposition": "deferred-new-client",
+      "limitations": [
+        "Not implemented in this M0–M2 candidate; separate client spec/fixture/authorization required.",
+        "Registry metadata is provenance, not exhaustive product support or execution evidence."
+      ],
+      "verification": {
+        "worker": "source inspection only",
+        "green": "unverified",
+        "consumer": "unverified",
+        "nativeUI": "unverified",
+        "linux": "unverified",
+        "performance": "unverified"
+      },
+      "fixtureEvidenceStatus": "No scoped fixture evidence listed; source inventory only"
+    },
+    {
+      "pinnedSHA": "3bd6dceb98925edab4e149c9bb1cf3fec9123f17",
+      "clientID": "gjc",
+      "os": {
+        "tokiTarget": [
+          "macOS",
+          "Linux"
+        ],
+        "executionEvidence": "See execution record for intermediate stack scope; Linux integration pending step 5",
+        "upstreamRootKind": "EnvVar",
+        "upstreamWindows": "Not a Toki target; no Windows runtime claim"
+      },
+      "upstreamRegistry": {
+        "clientID": "gjc",
+        "index": 26,
+        "displayName": "Gajae-Code",
+        "root": "EnvVar",
+        "relativePath": "sessions",
+        "pattern": "*.jsonl",
+        "environmentVariable": "GJC_CODING_AGENT_DIR",
+        "fallbackRelative": ".gjc/agent"
+      },
+      "defaultPaths": {
+        "upstreamRegistry": [
+          "~/.gjc/agent/sessions"
+        ],
+        "toki": [
+          "~/.gjc/agent/sessions"
+        ]
+      },
+      "overridePaths": {
+        "upstreamRegistry": [
+          "GJC_CODING_AGENT_DIR"
+        ],
+        "toki": [
+          "GJC_CODING_AGENT_DIR/sessions",
+          "GJC_CONFIG_DIR/agent/sessions",
+          "PI_CONFIG_DIR/agent/sessions",
+          "XDG_DATA_HOME/gjc/sessions (only explicitly configured)",
+          "All valid roots plus legacy default; absent roots retained"
+        ]
+      },
+      "formats": {
+        "upstreamRegistryPattern": "*.jsonl",
+        "toki": [
+          "Pi-compatible message.usage JSONL, recursively including children"
+        ]
+      },
+      "modelStatus": "Existing message.model/provider parser reused",
+      "tokenStatus": "Independent canonical roots have separate dedup namespaces; aliases/overlap collapse. New-root token attribution and activity session IDs carry an opaque root digest; legacy-root IDs remain unchanged",
+      "pricingStatus": "Recorded finite cost preserved; absent cost retains existing unknown/fallback state",
+      "fixtureEvidence": [
+        "core/Tests/TokiAgentTests/ExistingSourcePathCompatibilityTests.swift",
+        "core/Tests/TokiAgentTests/GJCPricingFallbackTests.swift",
+        "menubar/TokiTests/GJCReaderTests.swift",
+        "core/Tests/TokiAgentTests/GJCSharedRootRegressionTests.swift"
+      ],
+      "reader": [
+        "core/Sources/TokiUsageReaders/GJCReader.swift"
+      ],
+      "readerNames": [
+        "GJC"
+      ],
+      "status": "implemented",
+      "disposition": "common-existing-client",
+      "limitations": [
+        "No 9Router source renaming; bridge records remain GJC",
+        "Copies with different physical roots are treated as independent even if embedded IDs coincide",
+        "Canonical-path aliases supported; hard-link replicas across independent roots are not reconciled",
+        "New-root session IDs are gjc:<canonical-root SHA256>:<sessionID>; legacy default and the original single-root initializer preserve existing IDs. Moving a root changes its namespace; no persistent relocation identity is introduced",
+        "Shared Pi/OMP roots keep GJC-only headerless, model-less and task records; common rows count once through the existing owner. Dynamic source-signature ownership follows in step 5."
+      ],
+      "verification": {
+        "green": "524 macOS core tests passed; evidence is limited to listed existing synthetic fixtures",
+        "integration": "Pending stack step 5",
+        "executionRecord": "docs/compatibility/verification-20260908.md"
+      },
+      "fixtureEvidenceStatus": "Named synthetic regression fixtures available at this stack step; no production evidence",
+      "upstreamParser": "crates/tokscale-core/src/sessions/gjc.rs"
+    },
+    {
+      "pinnedSHA": "3bd6dceb98925edab4e149c9bb1cf3fec9123f17",
+      "clientID": "grok",
+      "os": {
+        "tokiTarget": [],
+        "executionEvidence": "See execution record for intermediate stack scope; Linux integration pending step 5",
+        "upstreamRootKind": "EnvVar",
+        "upstreamWindows": "Not a Toki target; no Windows runtime claim"
+      },
+      "upstreamRegistry": {
+        "clientID": "grok",
+        "index": 27,
+        "displayName": "Grok Build",
+        "root": "EnvVar",
+        "relativePath": "sessions",
+        "pattern": "updates.jsonl",
+        "environmentVariable": "GROK_HOME",
+        "fallbackRelative": ".grok"
+      },
+      "defaultPaths": {
+        "upstreamRegistry": [
+          "~/.grok/sessions"
+        ],
+        "toki": []
+      },
+      "overridePaths": {
+        "upstreamRegistry": [
+          "GROK_HOME"
+        ],
+        "toki": []
+      },
+      "formats": {
+        "upstreamRegistryPattern": "updates.jsonl",
+        "toki": []
+      },
+      "modelStatus": "not implemented",
+      "tokenStatus": "not implemented",
+      "pricingStatus": "not implemented; no catalog expansion",
+      "fixtureEvidence": [],
+      "reader": [],
+      "readerNames": [],
+      "status": "planned",
+      "disposition": "deferred-new-client",
+      "limitations": [
+        "Not implemented in this M0–M2 candidate; separate client spec/fixture/authorization required.",
+        "Registry metadata is provenance, not exhaustive product support or execution evidence."
+      ],
+      "verification": {
+        "worker": "source inspection only",
+        "green": "unverified",
+        "consumer": "unverified",
+        "nativeUI": "unverified",
+        "linux": "unverified",
+        "performance": "unverified"
+      },
+      "fixtureEvidenceStatus": "No scoped fixture evidence listed; source inventory only"
+    },
+    {
+      "pinnedSHA": "3bd6dceb98925edab4e149c9bb1cf3fec9123f17",
+      "clientID": "jcode",
+      "os": {
+        "tokiTarget": [],
+        "executionEvidence": "See execution record for intermediate stack scope; Linux integration pending step 5",
+        "upstreamRootKind": "EnvVar",
+        "upstreamWindows": "Not a Toki target; no Windows runtime claim"
+      },
+      "upstreamRegistry": {
+        "clientID": "jcode",
+        "index": 28,
+        "displayName": "Jcode",
+        "root": "EnvVar",
+        "relativePath": "sessions",
+        "pattern": "session_*.json",
+        "environmentVariable": "JCODE_HOME",
+        "fallbackRelative": ".jcode"
+      },
+      "defaultPaths": {
+        "upstreamRegistry": [
+          "~/.jcode/sessions"
+        ],
+        "toki": []
+      },
+      "overridePaths": {
+        "upstreamRegistry": [
+          "JCODE_HOME"
+        ],
+        "toki": []
+      },
+      "formats": {
+        "upstreamRegistryPattern": "session_*.json",
+        "toki": []
+      },
+      "modelStatus": "not implemented",
+      "tokenStatus": "not implemented",
+      "pricingStatus": "not implemented; no catalog expansion",
+      "fixtureEvidence": [],
+      "reader": [],
+      "readerNames": [],
+      "status": "planned",
+      "disposition": "deferred-new-client",
+      "limitations": [
+        "Not implemented in this M0–M2 candidate; separate client spec/fixture/authorization required.",
+        "Registry metadata is provenance, not exhaustive product support or execution evidence."
+      ],
+      "verification": {
+        "worker": "source inspection only",
+        "green": "unverified",
+        "consumer": "unverified",
+        "nativeUI": "unverified",
+        "linux": "unverified",
+        "performance": "unverified"
+      },
+      "fixtureEvidenceStatus": "No scoped fixture evidence listed; source inventory only"
+    },
+    {
+      "pinnedSHA": "3bd6dceb98925edab4e149c9bb1cf3fec9123f17",
+      "clientID": "commandcode",
+      "os": {
+        "tokiTarget": [],
+        "executionEvidence": "See execution record for intermediate stack scope; Linux integration pending step 5",
+        "upstreamRootKind": "Home",
+        "upstreamWindows": "Not a Toki target; no Windows runtime claim"
+      },
+      "upstreamRegistry": {
+        "clientID": "commandcode",
+        "index": 29,
+        "displayName": "Command Code",
+        "root": "Home",
+        "relativePath": ".commandcode/projects",
+        "pattern": "*.jsonl",
+        "environmentVariable": null,
+        "fallbackRelative": null
+      },
+      "defaultPaths": {
+        "upstreamRegistry": [
+          "~/.commandcode/projects"
+        ],
+        "toki": []
+      },
+      "overridePaths": {
+        "upstreamRegistry": [],
+        "toki": []
+      },
+      "formats": {
+        "upstreamRegistryPattern": "*.jsonl",
+        "toki": []
+      },
+      "modelStatus": "not implemented",
+      "tokenStatus": "not implemented",
+      "pricingStatus": "not implemented; no catalog expansion",
+      "fixtureEvidence": [],
+      "reader": [],
+      "readerNames": [],
+      "status": "planned",
+      "disposition": "deferred-new-client",
+      "limitations": [
+        "Not implemented in this M0–M2 candidate; separate client spec/fixture/authorization required.",
+        "Registry metadata is provenance, not exhaustive product support or execution evidence."
+      ],
+      "verification": {
+        "worker": "source inspection only",
+        "green": "unverified",
+        "consumer": "unverified",
+        "nativeUI": "unverified",
+        "linux": "unverified",
+        "performance": "unverified"
+      },
+      "fixtureEvidenceStatus": "No scoped fixture evidence listed; source inventory only"
+    },
+    {
+      "pinnedSHA": "3bd6dceb98925edab4e149c9bb1cf3fec9123f17",
+      "clientID": "micode",
+      "os": {
+        "tokiTarget": [],
+        "executionEvidence": "See execution record for intermediate stack scope; Linux integration pending step 5",
+        "upstreamRootKind": "XdgData",
+        "upstreamWindows": "Not a Toki target; no Windows runtime claim"
+      },
+      "upstreamRegistry": {
+        "clientID": "micode",
+        "index": 30,
+        "displayName": "MiMo Code",
+        "root": "XdgData",
+        "relativePath": "mimocode",
+        "pattern": "*.db",
+        "environmentVariable": null,
+        "fallbackRelative": null
+      },
+      "defaultPaths": {
+        "upstreamRegistry": [
+          "${XDG_DATA_HOME:-~/.local/share}/mimocode"
+        ],
+        "toki": []
+      },
+      "overridePaths": {
+        "upstreamRegistry": [],
+        "toki": []
+      },
+      "formats": {
+        "upstreamRegistryPattern": "*.db",
+        "toki": []
+      },
+      "modelStatus": "not implemented",
+      "tokenStatus": "not implemented",
+      "pricingStatus": "not implemented; no catalog expansion",
+      "fixtureEvidence": [],
+      "reader": [],
+      "readerNames": [],
+      "status": "planned",
+      "disposition": "deferred-new-client",
+      "limitations": [
+        "Not implemented in this M0–M2 candidate; separate client spec/fixture/authorization required.",
+        "Registry metadata is provenance, not exhaustive product support or execution evidence."
+      ],
+      "verification": {
+        "worker": "source inspection only",
+        "green": "unverified",
+        "consumer": "unverified",
+        "nativeUI": "unverified",
+        "linux": "unverified",
+        "performance": "unverified"
+      },
+      "fixtureEvidenceStatus": "No scoped fixture evidence listed; source inventory only"
+    },
+    {
+      "pinnedSHA": "3bd6dceb98925edab4e149c9bb1cf3fec9123f17",
+      "clientID": "antigravity-cli",
+      "os": {
+        "tokiTarget": [],
+        "executionEvidence": "See execution record for intermediate stack scope; Linux integration pending step 5",
+        "upstreamRootKind": "EnvVar",
+        "upstreamWindows": "Not a Toki target; no Windows runtime claim"
+      },
+      "upstreamRegistry": {
+        "clientID": "antigravity-cli",
+        "index": 31,
+        "displayName": "Antigravity CLI",
+        "root": "EnvVar",
+        "relativePath": "antigravity-cli/conversations",
+        "pattern": "*.db",
+        "environmentVariable": "GEMINI_CLI_HOME",
+        "fallbackRelative": ".gemini"
+      },
+      "defaultPaths": {
+        "upstreamRegistry": [
+          "~/.gemini/antigravity-cli/conversations"
+        ],
+        "toki": []
+      },
+      "overridePaths": {
+        "upstreamRegistry": [
+          "GEMINI_CLI_HOME"
+        ],
+        "toki": []
+      },
+      "formats": {
+        "upstreamRegistryPattern": "*.db",
+        "toki": []
+      },
+      "modelStatus": "not implemented",
+      "tokenStatus": "not implemented",
+      "pricingStatus": "not implemented; no catalog expansion",
+      "fixtureEvidence": [],
+      "reader": [],
+      "readerNames": [],
+      "status": "planned",
+      "disposition": "deferred-new-client",
+      "limitations": [
+        "Not implemented in this M0–M2 candidate; separate client spec/fixture/authorization required.",
+        "Registry metadata is provenance, not exhaustive product support or execution evidence."
+      ],
+      "verification": {
+        "worker": "source inspection only",
+        "green": "unverified",
+        "consumer": "unverified",
+        "nativeUI": "unverified",
+        "linux": "unverified",
+        "performance": "unverified"
+      },
+      "fixtureEvidenceStatus": "No scoped fixture evidence listed; source inventory only"
+    },
+    {
+      "pinnedSHA": "3bd6dceb98925edab4e149c9bb1cf3fec9123f17",
+      "clientID": "junie",
+      "os": {
+        "tokiTarget": [],
+        "executionEvidence": "See execution record for intermediate stack scope; Linux integration pending step 5",
+        "upstreamRootKind": "Home",
+        "upstreamWindows": "Not a Toki target; no Windows runtime claim"
+      },
+      "upstreamRegistry": {
+        "clientID": "junie",
+        "index": 32,
+        "displayName": "Junie",
+        "root": "Home",
+        "relativePath": ".junie/sessions",
+        "pattern": "events.jsonl",
+        "environmentVariable": null,
+        "fallbackRelative": null
+      },
+      "defaultPaths": {
+        "upstreamRegistry": [
+          "~/.junie/sessions"
+        ],
+        "toki": []
+      },
+      "overridePaths": {
+        "upstreamRegistry": [],
+        "toki": []
+      },
+      "formats": {
+        "upstreamRegistryPattern": "events.jsonl",
+        "toki": []
+      },
+      "modelStatus": "not implemented",
+      "tokenStatus": "not implemented",
+      "pricingStatus": "not implemented; no catalog expansion",
+      "fixtureEvidence": [],
+      "reader": [],
+      "readerNames": [],
+      "status": "planned",
+      "disposition": "deferred-new-client",
+      "limitations": [
+        "Not implemented in this M0–M2 candidate; separate client spec/fixture/authorization required.",
+        "Registry metadata is provenance, not exhaustive product support or execution evidence."
+      ],
+      "verification": {
+        "worker": "source inspection only",
+        "green": "unverified",
+        "consumer": "unverified",
+        "nativeUI": "unverified",
+        "linux": "unverified",
+        "performance": "unverified"
+      },
+      "fixtureEvidenceStatus": "No scoped fixture evidence listed; source inventory only"
+    },
+    {
+      "pinnedSHA": "3bd6dceb98925edab4e149c9bb1cf3fec9123f17",
+      "clientID": "zcode",
+      "os": {
+        "tokiTarget": [],
+        "executionEvidence": "See execution record for intermediate stack scope; Linux integration pending step 5",
+        "upstreamRootKind": "Home",
+        "upstreamWindows": "Not a Toki target; no Windows runtime claim"
+      },
+      "upstreamRegistry": {
+        "clientID": "zcode",
+        "index": 33,
+        "displayName": "ZCode",
+        "root": "Home",
+        "relativePath": ".zcode/projects",
+        "pattern": "*.jsonl",
+        "environmentVariable": null,
+        "fallbackRelative": null
+      },
+      "defaultPaths": {
+        "upstreamRegistry": [
+          "~/.zcode/projects"
+        ],
+        "toki": []
+      },
+      "overridePaths": {
+        "upstreamRegistry": [],
+        "toki": []
+      },
+      "formats": {
+        "upstreamRegistryPattern": "*.jsonl",
+        "toki": []
+      },
+      "modelStatus": "not implemented",
+      "tokenStatus": "not implemented",
+      "pricingStatus": "not implemented; no catalog expansion",
+      "fixtureEvidence": [],
+      "reader": [],
+      "readerNames": [],
+      "status": "planned",
+      "disposition": "deferred-new-client",
+      "limitations": [
+        "Not implemented in this M0–M2 candidate; separate client spec/fixture/authorization required.",
+        "Registry metadata is provenance, not exhaustive product support or execution evidence."
+      ],
+      "verification": {
+        "worker": "source inspection only",
+        "green": "unverified",
+        "consumer": "unverified",
+        "nativeUI": "unverified",
+        "linux": "unverified",
+        "performance": "unverified"
+      },
+      "fixtureEvidenceStatus": "No scoped fixture evidence listed; source inventory only"
+    },
+    {
+      "pinnedSHA": "3bd6dceb98925edab4e149c9bb1cf3fec9123f17",
+      "clientID": "opencodereview",
+      "os": {
+        "tokiTarget": [],
+        "executionEvidence": "See execution record for intermediate stack scope; Linux integration pending step 5",
+        "upstreamRootKind": "Home",
+        "upstreamWindows": "Not a Toki target; no Windows runtime claim"
+      },
+      "upstreamRegistry": {
+        "clientID": "opencodereview",
+        "index": 34,
+        "displayName": "OpenCodeReview",
+        "root": "Home",
+        "relativePath": ".opencodereview/sessions",
+        "pattern": "*.jsonl",
+        "environmentVariable": null,
+        "fallbackRelative": null
+      },
+      "defaultPaths": {
+        "upstreamRegistry": [
+          "~/.opencodereview/sessions"
+        ],
+        "toki": []
+      },
+      "overridePaths": {
+        "upstreamRegistry": [],
+        "toki": []
+      },
+      "formats": {
+        "upstreamRegistryPattern": "*.jsonl",
+        "toki": []
+      },
+      "modelStatus": "not implemented",
+      "tokenStatus": "not implemented",
+      "pricingStatus": "not implemented; no catalog expansion",
+      "fixtureEvidence": [],
+      "reader": [],
+      "readerNames": [],
+      "status": "planned",
+      "disposition": "deferred-new-client",
+      "limitations": [
+        "Not implemented in this M0–M2 candidate; separate client spec/fixture/authorization required.",
+        "Registry metadata is provenance, not exhaustive product support or execution evidence."
+      ],
+      "verification": {
+        "worker": "source inspection only",
+        "green": "unverified",
+        "consumer": "unverified",
+        "nativeUI": "unverified",
+        "linux": "unverified",
+        "performance": "unverified"
+      },
+      "fixtureEvidenceStatus": "No scoped fixture evidence listed; source inventory only"
+    },
+    {
+      "pinnedSHA": "3bd6dceb98925edab4e149c9bb1cf3fec9123f17",
+      "clientID": "codebuddy",
+      "os": {
+        "tokiTarget": [],
+        "executionEvidence": "See execution record for intermediate stack scope; Linux integration pending step 5",
+        "upstreamRootKind": "Home",
+        "upstreamWindows": "Not a Toki target; no Windows runtime claim"
+      },
+      "upstreamRegistry": {
+        "clientID": "codebuddy",
+        "index": 35,
+        "displayName": "CodeBuddy",
+        "root": "Home",
+        "relativePath": ".codebuddy/projects",
+        "pattern": "*.jsonl",
+        "environmentVariable": null,
+        "fallbackRelative": null
+      },
+      "defaultPaths": {
+        "upstreamRegistry": [
+          "~/.codebuddy/projects"
+        ],
+        "toki": []
+      },
+      "overridePaths": {
+        "upstreamRegistry": [],
+        "toki": []
+      },
+      "formats": {
+        "upstreamRegistryPattern": "*.jsonl",
+        "toki": []
+      },
+      "modelStatus": "not implemented",
+      "tokenStatus": "not implemented",
+      "pricingStatus": "not implemented; no catalog expansion",
+      "fixtureEvidence": [],
+      "reader": [],
+      "readerNames": [],
+      "status": "planned",
+      "disposition": "deferred-new-client",
+      "limitations": [
+        "Not implemented in this M0–M2 candidate; separate client spec/fixture/authorization required.",
+        "Registry metadata is provenance, not exhaustive product support or execution evidence."
+      ],
+      "verification": {
+        "worker": "source inspection only",
+        "green": "unverified",
+        "consumer": "unverified",
+        "nativeUI": "unverified",
+        "linux": "unverified",
+        "performance": "unverified"
+      },
+      "fixtureEvidenceStatus": "No scoped fixture evidence listed; source inventory only"
+    },
+    {
+      "pinnedSHA": "3bd6dceb98925edab4e149c9bb1cf3fec9123f17",
+      "clientID": "workbuddy",
+      "os": {
+        "tokiTarget": [],
+        "executionEvidence": "See execution record for intermediate stack scope; Linux integration pending step 5",
+        "upstreamRootKind": "Home",
+        "upstreamWindows": "Not a Toki target; no Windows runtime claim"
+      },
+      "upstreamRegistry": {
+        "clientID": "workbuddy",
+        "index": 36,
+        "displayName": "WorkBuddy",
+        "root": "Home",
+        "relativePath": ".workbuddy",
+        "pattern": "workbuddy.db",
+        "environmentVariable": null,
+        "fallbackRelative": null
+      },
+      "defaultPaths": {
+        "upstreamRegistry": [
+          "~/.workbuddy"
+        ],
+        "toki": []
+      },
+      "overridePaths": {
+        "upstreamRegistry": [],
+        "toki": []
+      },
+      "formats": {
+        "upstreamRegistryPattern": "workbuddy.db",
+        "toki": []
+      },
+      "modelStatus": "not implemented",
+      "tokenStatus": "not implemented",
+      "pricingStatus": "not implemented; no catalog expansion",
+      "fixtureEvidence": [],
+      "reader": [],
+      "readerNames": [],
+      "status": "planned",
+      "disposition": "deferred-new-client",
+      "limitations": [
+        "Not implemented in this M0–M2 candidate; separate client spec/fixture/authorization required.",
+        "Registry metadata is provenance, not exhaustive product support or execution evidence."
+      ],
+      "verification": {
+        "worker": "source inspection only",
+        "green": "unverified",
+        "consumer": "unverified",
+        "nativeUI": "unverified",
+        "linux": "unverified",
+        "performance": "unverified"
+      },
+      "fixtureEvidenceStatus": "No scoped fixture evidence listed; source inventory only"
+    },
+    {
+      "pinnedSHA": "3bd6dceb98925edab4e149c9bb1cf3fec9123f17",
+      "clientID": "devin-cli",
+      "os": {
+        "tokiTarget": [],
+        "executionEvidence": "See execution record for intermediate stack scope; Linux integration pending step 5",
+        "upstreamRootKind": "XdgData",
+        "upstreamWindows": "Not a Toki target; no Windows runtime claim"
+      },
+      "upstreamRegistry": {
+        "clientID": "devin-cli",
+        "index": 37,
+        "displayName": "Devin CLI",
+        "root": "XdgData",
+        "relativePath": "devin/cli/sessions.db",
+        "pattern": "sessions.db",
+        "environmentVariable": null,
+        "fallbackRelative": null
+      },
+      "defaultPaths": {
+        "upstreamRegistry": [
+          "${XDG_DATA_HOME:-~/.local/share}/devin/cli/sessions.db"
+        ],
+        "toki": []
+      },
+      "overridePaths": {
+        "upstreamRegistry": [],
+        "toki": []
+      },
+      "formats": {
+        "upstreamRegistryPattern": "sessions.db",
+        "toki": []
+      },
+      "modelStatus": "not implemented",
+      "tokenStatus": "not implemented",
+      "pricingStatus": "not implemented; no catalog expansion",
+      "fixtureEvidence": [],
+      "reader": [],
+      "readerNames": [],
+      "status": "planned",
+      "disposition": "deferred-new-client",
+      "limitations": [
+        "Not implemented in this M0–M2 candidate; separate client spec/fixture/authorization required.",
+        "Registry metadata is provenance, not exhaustive product support or execution evidence."
+      ],
+      "verification": {
+        "worker": "source inspection only",
+        "green": "unverified",
+        "consumer": "unverified",
+        "nativeUI": "unverified",
+        "linux": "unverified",
+        "performance": "unverified"
+      },
+      "fixtureEvidenceStatus": "No scoped fixture evidence listed; source inventory only"
+    },
+    {
+      "pinnedSHA": "3bd6dceb98925edab4e149c9bb1cf3fec9123f17",
+      "clientID": "devin-desktop",
+      "os": {
+        "tokiTarget": [],
+        "executionEvidence": "See execution record for intermediate stack scope; Linux integration pending step 5",
+        "upstreamRootKind": "Home",
+        "upstreamWindows": "Not a Toki target; no Windows runtime claim"
+      },
+      "upstreamRegistry": {
+        "clientID": "devin-desktop",
+        "index": 38,
+        "displayName": "Devin Desktop",
+        "root": "Home",
+        "relativePath": "Library/Application Support/Devin/User/acp-events",
+        "pattern": "*.ndjson",
+        "environmentVariable": null,
+        "fallbackRelative": null
+      },
+      "defaultPaths": {
+        "upstreamRegistry": [
+          "~/Library/Application Support/Devin/User/acp-events"
+        ],
+        "toki": []
+      },
+      "overridePaths": {
+        "upstreamRegistry": [],
+        "toki": []
+      },
+      "formats": {
+        "upstreamRegistryPattern": "*.ndjson",
+        "toki": []
+      },
+      "modelStatus": "not implemented",
+      "tokenStatus": "not implemented",
+      "pricingStatus": "not implemented; no catalog expansion",
+      "fixtureEvidence": [],
+      "reader": [],
+      "readerNames": [],
+      "status": "planned",
+      "disposition": "deferred-new-client",
+      "limitations": [
+        "Not implemented in this M0–M2 candidate; separate client spec/fixture/authorization required.",
+        "Registry metadata is provenance, not exhaustive product support or execution evidence."
+      ],
+      "verification": {
+        "worker": "source inspection only",
+        "green": "unverified",
+        "consumer": "unverified",
+        "nativeUI": "unverified",
+        "linux": "unverified",
+        "performance": "unverified"
+      },
+      "fixtureEvidenceStatus": "No scoped fixture evidence listed; source inventory only"
+    },
+    {
+      "pinnedSHA": "3bd6dceb98925edab4e149c9bb1cf3fec9123f17",
+      "clientID": "senpi",
+      "os": {
+        "tokiTarget": [
+          "macOS",
+          "Linux"
+        ],
+        "executionEvidence": "See execution record for intermediate stack scope; Linux integration pending step 5",
+        "upstreamRootKind": "EnvVar",
+        "upstreamWindows": "Not a Toki target; no Windows runtime claim"
+      },
+      "upstreamRegistry": {
+        "clientID": "senpi",
+        "index": 39,
+        "displayName": "Senpi (OmO Native)",
+        "root": "EnvVar",
+        "relativePath": "sessions",
+        "pattern": "*.jsonl",
+        "environmentVariable": "SENPI_CODING_AGENT_DIR",
+        "fallbackRelative": ".senpi/agent"
+      },
+      "defaultPaths": {
+        "upstreamRegistry": [
+          "~/.senpi/agent/sessions"
+        ],
+        "toki": [
+          "~/.senpi/agent/sessions",
+          "~/.omo/agent/sessions",
+          "~/.omo/senpi-task/{children,sessions}"
+        ]
+      },
+      "overridePaths": {
+        "upstreamRegistry": [
+          "SENPI_CODING_AGENT_DIR"
+        ],
+        "toki": [
+          "SENPI_CODING_AGENT_DIR/sessions",
+          "SENPI_CODING_AGENT_SESSION_DIR",
+          "$PWD/.omo/senpi-task/{children,sessions} (injected absolute PWD)"
+        ]
+      },
+      "formats": {
+        "upstreamRegistryPattern": "*.jsonl",
+        "toki": [
+          "Pi-compatible JSONL and existing OmO child handling"
+        ]
+      },
+      "modelStatus": "Existing per-message attribution",
+      "tokenStatus": "Existing output/reasoning inclusion and child work time retained",
+      "pricingStatus": "Existing recorded cost behavior",
+      "fixtureEvidence": [
+        "core/Tests/TokiAgentTests/SenpiReaderTests.swift",
+        "core/Tests/TokiAgentTests/AgentSenpiSourceSignatureTests.swift"
+      ],
+      "reader": [
+        "core/Sources/TokiUsageReaders/SenpiReader.swift"
+      ],
+      "readerNames": [
+        "Senpi"
+      ],
+      "status": "existing",
+      "disposition": "common-existing-client",
+      "limitations": [
+        "Pinned upstream also probes global session cwd and .omo/omo.jsonc or omo.json task.state_dir; dynamic discovery deferred",
+        "No implicit process cwd or filesystem config reads added; injected environment remains authoritative"
+      ],
+      "verification": {
+        "green": "524 macOS core tests passed; evidence is limited to listed existing synthetic fixtures",
+        "integration": "Pending stack step 5",
+        "executionRecord": "docs/compatibility/verification-20260908.md"
+      },
+      "fixtureEvidenceStatus": "Named synthetic regression fixtures available at this stack step; no production evidence",
+      "upstreamParser": "crates/tokscale-core/src/sessions/senpi.rs"
+    },
+    {
+      "pinnedSHA": "3bd6dceb98925edab4e149c9bb1cf3fec9123f17",
+      "clientID": "augment",
+      "os": {
+        "tokiTarget": [],
+        "executionEvidence": "See execution record for intermediate stack scope; Linux integration pending step 5",
+        "upstreamRootKind": "Home",
+        "upstreamWindows": "Not a Toki target; no Windows runtime claim"
+      },
+      "upstreamRegistry": {
+        "clientID": "augment",
+        "index": 40,
+        "displayName": "Augment Code",
+        "root": "Home",
+        "relativePath": ".augment/sessions",
+        "pattern": "*.json",
+        "environmentVariable": null,
+        "fallbackRelative": null
+      },
+      "defaultPaths": {
+        "upstreamRegistry": [
+          "~/.augment/sessions"
+        ],
+        "toki": []
+      },
+      "overridePaths": {
+        "upstreamRegistry": [],
+        "toki": []
+      },
+      "formats": {
+        "upstreamRegistryPattern": "*.json",
+        "toki": []
+      },
+      "modelStatus": "not implemented",
+      "tokenStatus": "not implemented",
+      "pricingStatus": "not implemented; no catalog expansion",
+      "fixtureEvidence": [],
+      "reader": [],
+      "readerNames": [],
+      "status": "planned",
+      "disposition": "deferred-new-client",
+      "limitations": [
+        "Not implemented in this M0–M2 candidate; separate client spec/fixture/authorization required.",
+        "Registry metadata is provenance, not exhaustive product support or execution evidence."
+      ],
+      "verification": {
+        "worker": "source inspection only",
+        "green": "unverified",
+        "consumer": "unverified",
+        "nativeUI": "unverified",
+        "linux": "unverified",
+        "performance": "unverified"
+      },
+      "fixtureEvidenceStatus": "No scoped fixture evidence listed; source inventory only"
+    },
+    {
+      "pinnedSHA": "3bd6dceb98925edab4e149c9bb1cf3fec9123f17",
+      "clientID": "kimchi",
+      "os": {
+        "tokiTarget": [
+          "macOS",
+          "Linux"
+        ],
+        "executionEvidence": "See execution record for intermediate stack scope; Linux integration pending step 5",
+        "upstreamRootKind": "EnvVar",
+        "upstreamWindows": "Not a Toki target; no Windows runtime claim"
+      },
+      "upstreamRegistry": {
+        "clientID": "kimchi",
+        "index": 41,
+        "displayName": "Kimchi",
+        "root": "EnvVar",
+        "relativePath": "sessions",
+        "pattern": "*.jsonl",
+        "environmentVariable": "KIMCHI_CODING_AGENT_DIR",
+        "fallbackRelative": ".config/kimchi/harness"
+      },
+      "defaultPaths": {
+        "upstreamRegistry": [
+          "~/.config/kimchi/harness/sessions"
+        ],
+        "toki": [
+          "$XDG_CONFIG_HOME/kimchi/harness/sessions (fallback ~/.config)"
+        ]
+      },
+      "overridePaths": {
+        "upstreamRegistry": [
+          "KIMCHI_CODING_AGENT_DIR"
+        ],
+        "toki": [
+          "KIMCHI_CODING_AGENT_DIR/sessions (exclusive; added)"
+        ]
+      },
+      "formats": {
+        "upstreamRegistryPattern": "*.jsonl",
+        "toki": [
+          "Existing Pi-compatible JSONL"
+        ]
+      },
+      "modelStatus": "Existing Pi parser/normalization",
+      "tokenStatus": "Existing Pi bucket/dedup contract retained",
+      "pricingStatus": "Existing recorded/fallback cost behavior retained",
+      "fixtureEvidence": [
+        "core/Tests/TokiAgentTests/ExistingSourcePathCompatibilityTests.swift",
+        "core/Tests/TokiAgentTests/PiFamilyReaderTests.swift"
+      ],
+      "reader": [
+        "core/Sources/TokiUsageReaders/PiFamilyReaders.swift"
+      ],
+      "readerNames": [
+        "Kimchi"
+      ],
+      "status": "implemented",
+      "disposition": "common-existing-client",
+      "limitations": [
+        "Upstream registry fallback is literal ~/.config; Toki keeps its preexisting XDG_CONFIG_HOME fallback",
+        "No parser expansion in this lane"
+      ],
+      "verification": {
+        "green": "524 macOS core tests passed; evidence is limited to listed existing synthetic fixtures",
+        "integration": "Pending stack step 5",
+        "executionRecord": "docs/compatibility/verification-20260908.md"
+      },
+      "fixtureEvidenceStatus": "Named synthetic regression fixtures available at this stack step; no production evidence",
+      "upstreamParser": "crates/tokscale-core/src/sessions/kimchi.rs"
+    },
+    {
+      "pinnedSHA": "3bd6dceb98925edab4e149c9bb1cf3fec9123f17",
+      "clientID": "reasonix",
+      "os": {
+        "tokiTarget": [],
+        "executionEvidence": "See execution record for intermediate stack scope; Linux integration pending step 5",
+        "upstreamRootKind": "ReasonixHome",
+        "upstreamWindows": "Not a Toki target; no Windows runtime claim"
+      },
+      "upstreamRegistry": {
+        "clientID": "reasonix",
+        "index": 42,
+        "displayName": "Reasonix",
+        "root": "ReasonixHome",
+        "relativePath": "stats",
+        "pattern": "*.jsonl",
+        "environmentVariable": null,
+        "fallbackRelative": null
+      },
+      "defaultPaths": {
+        "upstreamRegistry": [
+          "Reasonix state home (OS/env-specific)/stats"
+        ],
+        "toki": []
+      },
+      "overridePaths": {
+        "upstreamRegistry": [],
+        "toki": []
+      },
+      "formats": {
+        "upstreamRegistryPattern": "*.jsonl",
+        "toki": []
+      },
+      "modelStatus": "not implemented",
+      "tokenStatus": "not implemented",
+      "pricingStatus": "not implemented; no catalog expansion",
+      "fixtureEvidence": [],
+      "reader": [],
+      "readerNames": [],
+      "status": "planned",
+      "disposition": "deferred-new-client",
+      "limitations": [
+        "Not implemented in this M0–M2 candidate; separate client spec/fixture/authorization required.",
+        "Registry metadata is provenance, not exhaustive product support or execution evidence."
+      ],
+      "verification": {
+        "worker": "source inspection only",
+        "green": "unverified",
+        "consumer": "unverified",
+        "nativeUI": "unverified",
+        "linux": "unverified",
+        "performance": "unverified"
+      },
+      "fixtureEvidenceStatus": "No scoped fixture evidence listed; source inventory only"
+    },
+    {
+      "pinnedSHA": "3bd6dceb98925edab4e149c9bb1cf3fec9123f17",
+      "clientID": "prime-agent",
+      "os": {
+        "tokiTarget": [],
+        "executionEvidence": "See execution record for intermediate stack scope; Linux integration pending step 5",
+        "upstreamRootKind": "EnvVar",
+        "upstreamWindows": "Not a Toki target; no Windows runtime claim"
+      },
+      "upstreamRegistry": {
+        "clientID": "prime-agent",
+        "index": 43,
+        "displayName": "Prime Agent",
+        "root": "EnvVar",
+        "relativePath": "sessions",
+        "pattern": "*.jsonl",
+        "environmentVariable": "PRIME_AGENT_CODING_AGENT_DIR",
+        "fallbackRelative": ".prime/agent"
+      },
+      "defaultPaths": {
+        "upstreamRegistry": [
+          "~/.prime/agent/sessions"
+        ],
+        "toki": []
+      },
+      "overridePaths": {
+        "upstreamRegistry": [
+          "PRIME_AGENT_CODING_AGENT_DIR"
+        ],
+        "toki": []
+      },
+      "formats": {
+        "upstreamRegistryPattern": "*.jsonl",
+        "toki": []
+      },
+      "modelStatus": "not implemented",
+      "tokenStatus": "not implemented",
+      "pricingStatus": "not implemented; no catalog expansion",
+      "fixtureEvidence": [],
+      "reader": [],
+      "readerNames": [],
+      "status": "planned",
+      "disposition": "deferred-new-client",
+      "limitations": [
+        "Not implemented in this M0–M2 candidate; separate client spec/fixture/authorization required.",
+        "Registry metadata is provenance, not exhaustive product support or execution evidence."
+      ],
+      "verification": {
+        "worker": "source inspection only",
+        "green": "unverified",
+        "consumer": "unverified",
+        "nativeUI": "unverified",
+        "linux": "unverified",
+        "performance": "unverified"
+      },
+      "fixtureEvidenceStatus": "No scoped fixture evidence listed; source inventory only"
+    },
+    {
+      "pinnedSHA": "3bd6dceb98925edab4e149c9bb1cf3fec9123f17",
+      "clientID": "freebuff",
+      "os": {
+        "tokiTarget": [],
+        "executionEvidence": "See execution record for intermediate stack scope; Linux integration pending step 5",
+        "upstreamRootKind": "EnvVar",
+        "upstreamWindows": "Not a Toki target; no Windows runtime claim"
+      },
+      "upstreamRegistry": {
+        "clientID": "freebuff",
+        "index": 44,
+        "displayName": "Freebuff",
+        "root": "EnvVar",
+        "relativePath": "projects",
+        "pattern": "chat-messages.json",
+        "environmentVariable": "FREEBUFF_DATA_DIR",
+        "fallbackRelative": ".config/manicode"
+      },
+      "defaultPaths": {
+        "upstreamRegistry": [
+          "~/.config/manicode/projects"
+        ],
+        "toki": []
+      },
+      "overridePaths": {
+        "upstreamRegistry": [
+          "FREEBUFF_DATA_DIR"
+        ],
+        "toki": []
+      },
+      "formats": {
+        "upstreamRegistryPattern": "chat-messages.json",
+        "toki": []
+      },
+      "modelStatus": "not implemented",
+      "tokenStatus": "not implemented",
+      "pricingStatus": "not implemented; no catalog expansion",
+      "fixtureEvidence": [],
+      "reader": [],
+      "readerNames": [],
+      "status": "planned",
+      "disposition": "deferred-new-client",
+      "limitations": [
+        "Not implemented in this M0–M2 candidate; separate client spec/fixture/authorization required.",
+        "Registry metadata is provenance, not exhaustive product support or execution evidence."
+      ],
+      "verification": {
+        "worker": "source inspection only",
+        "green": "unverified",
+        "consumer": "unverified",
+        "nativeUI": "unverified",
+        "linux": "unverified",
+        "performance": "unverified"
+      },
+      "fixtureEvidenceStatus": "No scoped fixture evidence listed; source inventory only"
+    },
+    {
+      "pinnedSHA": "3bd6dceb98925edab4e149c9bb1cf3fec9123f17",
+      "clientID": "cherrystudio",
+      "os": {
+        "tokiTarget": [],
+        "executionEvidence": "See execution record for intermediate stack scope; Linux integration pending step 5",
+        "upstreamRootKind": "AppData",
+        "upstreamWindows": "Not a Toki target; no Windows runtime claim"
+      },
+      "upstreamRegistry": {
+        "clientID": "cherrystudio",
+        "index": 45,
+        "displayName": "Cherry Studio",
+        "root": "AppData",
+        "relativePath": "CherryStudio/.claude/projects",
+        "pattern": "*.jsonl",
+        "environmentVariable": null,
+        "fallbackRelative": null
+      },
+      "defaultPaths": {
+        "upstreamRegistry": [
+          "OS app-data directory/CherryStudio/.claude/projects"
+        ],
+        "toki": []
+      },
+      "overridePaths": {
+        "upstreamRegistry": [],
+        "toki": []
+      },
+      "formats": {
+        "upstreamRegistryPattern": "*.jsonl",
+        "toki": []
+      },
+      "modelStatus": "not implemented",
+      "tokenStatus": "not implemented",
+      "pricingStatus": "not implemented; no catalog expansion",
+      "fixtureEvidence": [],
+      "reader": [],
+      "readerNames": [],
+      "status": "planned",
+      "disposition": "deferred-new-client",
+      "limitations": [
+        "Not implemented in this M0–M2 candidate; separate client spec/fixture/authorization required.",
+        "Registry metadata is provenance, not exhaustive product support or execution evidence."
+      ],
+      "verification": {
+        "worker": "source inspection only",
+        "green": "unverified",
+        "consumer": "unverified",
+        "nativeUI": "unverified",
+        "linux": "unverified",
+        "performance": "unverified"
+      },
+      "fixtureEvidenceStatus": "No scoped fixture evidence listed; source inventory only"
+    },
+    {
+      "pinnedSHA": "3bd6dceb98925edab4e149c9bb1cf3fec9123f17",
+      "clientID": "dsh",
+      "os": {
+        "tokiTarget": [],
+        "executionEvidence": "See execution record for intermediate stack scope; Linux integration pending step 5",
+        "upstreamRootKind": "EnvVar",
+        "upstreamWindows": "Not a Toki target; no Windows runtime claim"
+      },
+      "upstreamRegistry": {
+        "clientID": "dsh",
+        "index": 46,
+        "displayName": "DeepSeek Harness",
+        "root": "EnvVar",
+        "relativePath": "sessions",
+        "pattern": "dsh-session-log",
+        "environmentVariable": "DSH_HOME",
+        "fallbackRelative": ".dsh"
+      },
+      "defaultPaths": {
+        "upstreamRegistry": [
+          "~/.dsh/sessions"
+        ],
+        "toki": []
+      },
+      "overridePaths": {
+        "upstreamRegistry": [
+          "DSH_HOME"
+        ],
+        "toki": []
+      },
+      "formats": {
+        "upstreamRegistryPattern": "dsh-session-log",
+        "toki": []
+      },
+      "modelStatus": "not implemented",
+      "tokenStatus": "not implemented",
+      "pricingStatus": "not implemented; no catalog expansion",
+      "fixtureEvidence": [],
+      "reader": [],
+      "readerNames": [],
+      "status": "planned",
+      "disposition": "deferred-new-client",
+      "limitations": [
+        "Not implemented in this M0–M2 candidate; separate client spec/fixture/authorization required.",
+        "Registry metadata is provenance, not exhaustive product support or execution evidence."
+      ],
+      "verification": {
+        "worker": "source inspection only",
+        "green": "unverified",
+        "consumer": "unverified",
+        "nativeUI": "unverified",
+        "linux": "unverified",
+        "performance": "unverified"
+      },
+      "fixtureEvidenceStatus": "No scoped fixture evidence listed; source inventory only"
+    },
+    {
+      "pinnedSHA": "3bd6dceb98925edab4e149c9bb1cf3fec9123f17",
+      "clientID": "mcode",
+      "os": {
+        "tokiTarget": [],
+        "executionEvidence": "See execution record for intermediate stack scope; Linux integration pending step 5",
+        "upstreamRootKind": "Config",
+        "upstreamWindows": "Not a Toki target; no Windows runtime claim"
+      },
+      "upstreamRegistry": {
+        "clientID": "mcode",
+        "index": 47,
+        "displayName": "MiniMax Code",
+        "root": "Config",
+        "relativePath": "headless/mcode",
+        "pattern": "*.jsonl",
+        "environmentVariable": null,
+        "fallbackRelative": null
+      },
+      "defaultPaths": {
+        "upstreamRegistry": [
+          "Tokscale config directory (OS-specific)/headless/mcode"
+        ],
+        "toki": []
+      },
+      "overridePaths": {
+        "upstreamRegistry": [],
+        "toki": []
+      },
+      "formats": {
+        "upstreamRegistryPattern": "*.jsonl",
+        "toki": []
+      },
+      "modelStatus": "not implemented",
+      "tokenStatus": "not implemented",
+      "pricingStatus": "not implemented; no catalog expansion",
+      "fixtureEvidence": [],
+      "reader": [],
+      "readerNames": [],
+      "status": "planned",
+      "disposition": "deferred-new-client",
+      "limitations": [
+        "Not implemented in this M0–M2 candidate; separate client spec/fixture/authorization required.",
+        "Registry metadata is provenance, not exhaustive product support or execution evidence."
+      ],
+      "verification": {
+        "worker": "source inspection only",
+        "green": "unverified",
+        "consumer": "unverified",
+        "nativeUI": "unverified",
+        "linux": "unverified",
+        "performance": "unverified"
+      },
+      "fixtureEvidenceStatus": "No scoped fixture evidence listed; source inventory only"
+    },
+    {
+      "pinnedSHA": "3bd6dceb98925edab4e149c9bb1cf3fec9123f17",
+      "clientID": "fx",
+      "os": {
+        "tokiTarget": [],
+        "executionEvidence": "See execution record for intermediate stack scope; Linux integration pending step 5",
+        "upstreamRootKind": "Home",
+        "upstreamWindows": "Not a Toki target; no Windows runtime claim"
+      },
+      "upstreamRegistry": {
+        "clientID": "fx",
+        "index": 48,
+        "displayName": "Fx",
+        "root": "Home",
+        "relativePath": ".fx/sessions",
+        "pattern": "usage-v2.json",
+        "environmentVariable": null,
+        "fallbackRelative": null
+      },
+      "defaultPaths": {
+        "upstreamRegistry": [
+          "~/.fx/sessions"
+        ],
+        "toki": []
+      },
+      "overridePaths": {
+        "upstreamRegistry": [],
+        "toki": []
+      },
+      "formats": {
+        "upstreamRegistryPattern": "usage-v2.json",
+        "toki": []
+      },
+      "modelStatus": "not implemented",
+      "tokenStatus": "not implemented",
+      "pricingStatus": "not implemented; no catalog expansion",
+      "fixtureEvidence": [],
+      "reader": [],
+      "readerNames": [],
+      "status": "planned",
+      "disposition": "deferred-new-client",
+      "limitations": [
+        "Not implemented in this M0–M2 candidate; separate client spec/fixture/authorization required.",
+        "Registry metadata is provenance, not exhaustive product support or execution evidence."
+      ],
+      "verification": {
+        "worker": "source inspection only",
+        "green": "unverified",
+        "consumer": "unverified",
+        "nativeUI": "unverified",
+        "linux": "unverified",
+        "performance": "unverified"
+      },
+      "fixtureEvidenceStatus": "No scoped fixture evidence listed; source inventory only"
+    },
+    {
+      "pinnedSHA": "3bd6dceb98925edab4e149c9bb1cf3fec9123f17",
+      "clientID": "omp",
+      "os": {
+        "tokiTarget": [
+          "macOS",
+          "Linux"
+        ],
+        "executionEvidence": "See execution record for intermediate stack scope; Linux integration pending step 5",
+        "upstreamRootKind": "Home",
+        "upstreamWindows": "Not a Toki target; no Windows runtime claim"
+      },
+      "upstreamRegistry": {
+        "clientID": "omp",
+        "index": 49,
+        "displayName": "Oh My Pi",
+        "root": "Home",
+        "relativePath": ".omp/agent/sessions",
+        "pattern": "*.jsonl",
+        "environmentVariable": null,
+        "fallbackRelative": null
+      },
+      "defaultPaths": {
+        "upstreamRegistry": [
+          "~/.omp/agent/sessions"
+        ],
+        "toki": [
+          "~/.omp/agent/sessions",
+          "$XDG_DATA_HOME/omp/sessions"
+        ]
+      },
+      "overridePaths": {
+        "upstreamRegistry": [],
+        "toki": [
+          "PI_CONFIG_DIR (preexisting relative/absolute policy)",
+          "OMP_PROFILE then PI_PROFILE; profiles/<name>/agent/sessions and XDG omp/profiles/<name>/sessions"
+        ]
+      },
+      "formats": {
+        "upstreamRegistryPattern": "*.jsonl",
+        "toki": [
+          "Pi-compatible sessions, child/advisor JSONL"
+        ]
+      },
+      "modelStatus": "Existing per-message models",
+      "tokenStatus": "Existing delegated replica and Pi shared-root reconciliation retained",
+      "pricingStatus": "Existing cost behavior",
+      "fixtureEvidence": [
+        "core/Tests/TokiAgentTests/PiFamilyReaderTests.swift",
+        "core/Tests/TokiAgentTests/PiFamilyReaderCopyTests.swift"
+      ],
+      "reader": [
+        "core/Sources/TokiUsageReaders/PiFamilyReaders.swift"
+      ],
+      "readerNames": [
+        "Oh My Pi"
+      ],
+      "status": "existing",
+      "disposition": "common-existing-client",
+      "limitations": [
+        "Pinned scanner uses fixed .omp root; Toki profile/XDG support retained as extension",
+        "No expansion of PI_CODING_AGENT_DIR to a second reader"
+      ],
+      "verification": {
+        "green": "524 macOS core tests passed; evidence is limited to listed existing synthetic fixtures",
+        "integration": "Pending stack step 5",
+        "executionRecord": "docs/compatibility/verification-20260908.md"
+      },
+      "fixtureEvidenceStatus": "Named synthetic regression fixtures available at this stack step; no production evidence",
+      "upstreamParser": "crates/tokscale-core/src/sessions/omp.rs"
+    },
+    {
+      "pinnedSHA": "3bd6dceb98925edab4e149c9bb1cf3fec9123f17",
+      "clientID": "lmstudio",
+      "os": {
+        "tokiTarget": [],
+        "executionEvidence": "See execution record for intermediate stack scope; Linux integration pending step 5",
+        "upstreamRootKind": "EnvVar",
+        "upstreamWindows": "Not a Toki target; no Windows runtime claim"
+      },
+      "upstreamRegistry": {
+        "clientID": "lmstudio",
+        "index": 50,
+        "displayName": "LM Studio",
+        "root": "EnvVar",
+        "relativePath": "server-logs",
+        "pattern": "*.log",
+        "environmentVariable": "LM_STUDIO_HOME",
+        "fallbackRelative": ".lmstudio"
+      },
+      "defaultPaths": {
+        "upstreamRegistry": [
+          "~/.lmstudio/server-logs"
+        ],
+        "toki": []
+      },
+      "overridePaths": {
+        "upstreamRegistry": [
+          "LM_STUDIO_HOME"
+        ],
+        "toki": []
+      },
+      "formats": {
+        "upstreamRegistryPattern": "*.log",
+        "toki": []
+      },
+      "modelStatus": "not implemented",
+      "tokenStatus": "not implemented",
+      "pricingStatus": "not implemented; no catalog expansion",
+      "fixtureEvidence": [],
+      "reader": [],
+      "readerNames": [],
+      "status": "planned",
+      "disposition": "deferred-new-client",
+      "limitations": [
+        "Not implemented in this M0–M2 candidate; separate client spec/fixture/authorization required.",
+        "Registry metadata is provenance, not exhaustive product support or execution evidence."
+      ],
+      "verification": {
+        "worker": "source inspection only",
+        "green": "unverified",
+        "consumer": "unverified",
+        "nativeUI": "unverified",
+        "linux": "unverified",
+        "performance": "unverified"
+      },
+      "fixtureEvidenceStatus": "No scoped fixture evidence listed; source inventory only"
+    },
+    {
+      "pinnedSHA": "3bd6dceb98925edab4e149c9bb1cf3fec9123f17",
+      "clientID": "unsloth",
+      "os": {
+        "tokiTarget": [],
+        "executionEvidence": "See execution record for intermediate stack scope; Linux integration pending step 5",
+        "upstreamRootKind": "EnvVar",
+        "upstreamWindows": "Not a Toki target; no Windows runtime claim"
+      },
+      "upstreamRegistry": {
+        "clientID": "unsloth",
+        "index": 51,
+        "displayName": "Unsloth",
+        "root": "EnvVar",
+        "relativePath": "studio.db",
+        "pattern": "studio.db",
+        "environmentVariable": "UNSLOTH_STUDIO_HOME",
+        "fallbackRelative": ".unsloth/studio"
+      },
+      "defaultPaths": {
+        "upstreamRegistry": [
+          "~/.unsloth/studio/studio.db"
+        ],
+        "toki": []
+      },
+      "overridePaths": {
+        "upstreamRegistry": [
+          "UNSLOTH_STUDIO_HOME"
+        ],
+        "toki": []
+      },
+      "formats": {
+        "upstreamRegistryPattern": "studio.db",
+        "toki": []
+      },
+      "modelStatus": "not implemented",
+      "tokenStatus": "not implemented",
+      "pricingStatus": "not implemented; no catalog expansion",
+      "fixtureEvidence": [],
+      "reader": [],
+      "readerNames": [],
+      "status": "planned",
+      "disposition": "deferred-new-client",
+      "limitations": [
+        "Not implemented in this M0–M2 candidate; separate client spec/fixture/authorization required.",
+        "Registry metadata is provenance, not exhaustive product support or execution evidence."
+      ],
+      "verification": {
+        "worker": "source inspection only",
+        "green": "unverified",
+        "consumer": "unverified",
+        "nativeUI": "unverified",
+        "linux": "unverified",
+        "performance": "unverified"
+      },
+      "fixtureEvidenceStatus": "No scoped fixture evidence listed; source inventory only"
+    },
+    {
+      "pinnedSHA": "3bd6dceb98925edab4e149c9bb1cf3fec9123f17",
+      "clientID": "hindsight",
+      "os": {
+        "tokiTarget": [],
+        "executionEvidence": "See execution record for intermediate stack scope; Linux integration pending step 5",
+        "upstreamRootKind": "EnvVar",
+        "upstreamWindows": "Not a Toki target; no Windows runtime claim"
+      },
+      "upstreamRegistry": {
+        "clientID": "hindsight",
+        "index": 52,
+        "displayName": "Hindsight",
+        "root": "EnvVar",
+        "relativePath": "usage",
+        "pattern": "*.jsonl",
+        "environmentVariable": "HINDSIGHT_HOME",
+        "fallbackRelative": ".hindsight"
+      },
+      "defaultPaths": {
+        "upstreamRegistry": [
+          "~/.hindsight/usage"
+        ],
+        "toki": []
+      },
+      "overridePaths": {
+        "upstreamRegistry": [
+          "HINDSIGHT_HOME"
+        ],
+        "toki": []
+      },
+      "formats": {
+        "upstreamRegistryPattern": "*.jsonl",
+        "toki": []
+      },
+      "modelStatus": "not implemented",
+      "tokenStatus": "not implemented",
+      "pricingStatus": "not implemented; no catalog expansion",
+      "fixtureEvidence": [],
+      "reader": [],
+      "readerNames": [],
+      "status": "planned",
+      "disposition": "deferred-new-client",
+      "limitations": [
+        "Not implemented in this M0–M2 candidate; separate client spec/fixture/authorization required.",
+        "Registry metadata is provenance, not exhaustive product support or execution evidence."
+      ],
+      "verification": {
+        "worker": "source inspection only",
+        "green": "unverified",
+        "consumer": "unverified",
+        "nativeUI": "unverified",
+        "linux": "unverified",
+        "performance": "unverified"
+      },
+      "fixtureEvidenceStatus": "No scoped fixture evidence listed; source inventory only"
+    }
+  ],
+  "unregisteredSubfeatures": [
+    "Kimi Work/Desktop",
+    "Copilot Desktop/VS Code",
+    "Claude cc-mirror variants",
+    "Senpi config/cwd dynamic children",
+    "Codex Tokscale headless capture",
+    "Gemini headless stats and token aliases",
+    "Synthetic attribution/Octofriend",
+    "Tokscale generic scanner.extraScanPaths/TOKSCALE_EXTRA_DIRS"
+  ],
+  "evidence": {
+    "red": {
+      "artifact": "coverage-parent-red-fixed.log (parent sibling verification directory)",
+      "testCount": 14,
+      "assertionFailures": 47,
+      "unexpectedFailures": 3,
+      "result": "failed",
+      "exitCode": null,
+      "exitCodeNote": "Log does not record shell exit status; do not infer an exact code."
+    },
+    "candidate": "Intermediate common-path stack: 524 macOS core tests passed; app/agent integration verification follows in step 5.",
+    "executionRecord": "docs/compatibility/verification-20260908.md"
+  },
+  "parentEvidence": {
+    "scope": "Historical lane RED/GREEN evidence, not verification of this intermediate stack",
+    "hermes": "59 standalone tests passed",
+    "opencode": "51 standalone tests passed",
+    "openclaw": "58 standalone tests passed",
+    "integration": "Pending stack step 5"
+  },
+  "originalLaneBaseSHA": "62538f45d98c167ef34b5e26e343b5ce0ef803f1"
+}

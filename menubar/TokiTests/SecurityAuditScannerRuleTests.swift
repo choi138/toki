@@ -2,6 +2,33 @@ import XCTest
 @testable import Toki
 
 final class SecurityAuditScannerRuleTests: SecurityAuditScannerTestCase {
+    func testCustomGeminiJSONLAndJSONAreScannedButOtherExtensionsAreSkipped() async throws {
+        let config = tempRoot.appendingPathComponent("custom-gemini")
+        let extensions = ["jsonl", "json", "txt"]
+        for fileExtension in extensions {
+            let file = config.appendingPathComponent("tmp/project/chats/session.\(fileExtension)")
+            try FileManager.default.createDirectory(
+                at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try "cache-secret-ABCDEFGHIJKLMNOP".write(to: file, atomically: true, encoding: .utf8)
+        }
+        let scanner = SecurityAuditScanner(
+            sources: SecurityAuditScanner.defaultSources(
+                homeDirectory: tempRoot,
+                environment: ["GEMINI_CLI_HOME": config.path, "GEMINI_HOME": config.path]),
+            rules: [countingRule(counter: SecurityAuditValidatorCounter())],
+            cacheStore: nil)
+
+        let result = await scanner.scan()
+
+        XCTAssertEqual(result.scannedFileCount, 2, "Gemini JSON and JSONL must both be scanned")
+        XCTAssertEqual(result.findings.count, 2)
+        XCTAssertEqual(
+            Set(result.findings.map { URL(fileURLWithPath: $0.location.filePath).pathExtension }),
+            ["json", "jsonl"])
+        XCTAssertTrue(result.findings.allSatisfy { $0.sourceName == "Gemini CLI" })
+        XCTAssertFalse(String(describing: result.findings).contains("cache-secret-ABCDEFGHIJKLMNOP"))
+    }
+
     func testScannerDetectsAndMasksKnownSecretPatterns() async throws {
         let openAIKey = SecurityAuditTestSecret.openAIKey
         let anthropicKey = SecurityAuditTestSecret.anthropicKey

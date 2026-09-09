@@ -1,7 +1,8 @@
 import Foundation
 import TokiDurableStorage
 
-private let claudeUsageCacheParserVersion = 3
+// Reparse older entries through the bounded reader and its recording diagnostics.
+private let claudeUsageCacheParserVersion = 4
 public let maximumClaudeUsageCacheBytes = 64 * 1024 * 1024
 
 public actor ClaudeUsageCache {

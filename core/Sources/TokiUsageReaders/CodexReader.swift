@@ -22,8 +22,7 @@ public struct CodexReader: TokenReader {
     }
 
     public func readUsage(from startDate: Date, to endDate: Date) async throws -> RawTokenUsage {
-        guard !Task.isCancelled,
-              FileManager.default.fileExists(atPath: dbPath) else {
+        guard !Task.isCancelled else {
             return RawTokenUsage()
         }
 
@@ -92,8 +91,7 @@ public struct CodexReader: TokenReader {
         to endDate: Date,
         dailyValue: (CodexCachedDailyUsage) -> Int,
         fallbackValue: (RawTokenUsage) -> Int) async throws -> Int {
-        guard !Task.isCancelled,
-              FileManager.default.fileExists(atPath: dbPath) else {
+        guard !Task.isCancelled else {
             return 0
         }
 

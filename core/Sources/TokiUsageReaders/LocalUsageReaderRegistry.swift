@@ -44,300 +44,6 @@ public enum LocalUsageCacheScope {
     case agent
 }
 
-public struct LocalUsageReaderPaths: Equatable {
-    public let homeDirectory: URL
-    public let hermesHome: URL
-    public let hermesDiscoversProfiles: Bool
-    public let xdgConfigDirectory: URL
-    public let xdgDataDirectory: URL
-    public let xdgStateDirectory: URL
-    public let senpiSessions: [URL]
-    public let senpiSessionDirectories: [URL]
-    public let piSessions: URL
-    public let ompSessions: URL
-    public let ompSessionRoots: [URL]
-    public let kimchiSessions: URL
-    public let copilotOTELExporterFile: URL?
-    private let kimiCLIHomeOverride: URL?
-    private let kimiCodeHomeOverride: URL?
-    private let qwenHomeOverride: URL?
-    private let qwenRuntimeOverride: URL?
-
-    public init(
-        homeDirectory: URL = homeDir(),
-        environment: [String: String] = ProcessInfo.processInfo.environment) {
-        self.homeDirectory = homeDirectory
-        let explicitHermesHome = Self.absoluteEnvironmentDirectory(
-            key: "HERMES_HOME",
-            environment: environment)
-        hermesHome = explicitHermesHome
-            ?? homeDirectory.appendingPathComponent(".hermes")
-        hermesDiscoversProfiles = explicitHermesHome == nil
-        xdgConfigDirectory = Self.absoluteEnvironmentDirectory(
-            key: "XDG_CONFIG_HOME",
-            environment: environment)
-            ?? homeDirectory.appendingPathComponent(".config")
-        xdgDataDirectory = Self.absoluteEnvironmentDirectory(
-            key: "XDG_DATA_HOME",
-            environment: environment)
-            ?? homeDirectory.appendingPathComponent(".local/share")
-        xdgStateDirectory = Self.absoluteEnvironmentDirectory(
-            key: "XDG_STATE_HOME",
-            environment: environment)
-            ?? homeDirectory.appendingPathComponent(".local/state")
-        let senpiSessionOverride = Self.absoluteEnvironmentDirectory(
-            key: "SENPI_CODING_AGENT_SESSION_DIR",
-            environment: environment)
-        senpiSessions = senpiSessionOverride.map { [$0] } ?? [
-            homeDirectory.appendingPathComponent(".omo/agent/sessions"),
-            homeDirectory.appendingPathComponent(".senpi/agent/sessions"),
-        ]
-        var senpiDirectories = [
-            homeDirectory.appendingPathComponent(".omo/agent/sessions"),
-            homeDirectory.appendingPathComponent(".senpi/agent/sessions"),
-            homeDirectory.appendingPathComponent(".omo/senpi-task/children"),
-            homeDirectory.appendingPathComponent(".omo/senpi-task/sessions"),
-        ]
-        if let agentDirectory = Self.absoluteEnvironmentDirectory(
-            key: "SENPI_CODING_AGENT_DIR",
-            environment: environment) {
-            senpiDirectories.append(agentDirectory.appendingPathComponent("sessions"))
-        }
-        if let sessionDirectory = senpiSessionOverride {
-            senpiDirectories.append(sessionDirectory)
-        }
-        if let projectDirectory = Self.absoluteEnvironmentDirectory(
-            key: "PWD",
-            environment: environment) {
-            senpiDirectories.append(projectDirectory.appendingPathComponent(".omo/senpi-task/children"))
-            senpiDirectories.append(projectDirectory.appendingPathComponent(".omo/senpi-task/sessions"))
-        }
-        senpiSessionDirectories = Self.uniqueDirectories(senpiDirectories)
-        piSessions = Self.absoluteEnvironmentDirectory(
-            key: "PI_CODING_AGENT_SESSION_DIR",
-            environment: environment)
-            ?? Self.absoluteEnvironmentDirectory(
-                key: "PI_CODING_AGENT_DIR",
-                environment: environment)
-            .map { $0.appendingPathComponent("sessions") }
-            ?? homeDirectory.appendingPathComponent(".pi/agent/sessions")
-        ompSessionRoots = Self.ompSessionDirectories(
-            homeDirectory: homeDirectory,
-            xdgDataDirectory: xdgDataDirectory,
-            environment: environment)
-        ompSessions = ompSessionRoots[0]
-        kimchiSessions = xdgConfigDirectory.appendingPathComponent("kimchi/harness/sessions")
-        copilotOTELExporterFile = Self.absoluteEnvironmentDirectory(
-            key: "COPILOT_OTEL_FILE_EXPORTER_PATH",
-            environment: environment)
-            .flatMap { $0.pathExtension.lowercased() == "jsonl" ? $0 : nil }
-        kimiCLIHomeOverride = Self.absoluteEnvironmentDirectory(
-            key: "KIMI_SHARE_DIR",
-            environment: environment)
-        kimiCodeHomeOverride = Self.absoluteEnvironmentDirectory(
-            key: "KIMI_CODE_HOME",
-            environment: environment)
-        qwenHomeOverride = Self.absoluteEnvironmentDirectory(
-            key: "QWEN_HOME",
-            environment: environment)
-        qwenRuntimeOverride = Self.absoluteEnvironmentDirectory(
-            key: "QWEN_RUNTIME_DIR",
-            environment: environment)
-    }
-
-    public var claudeProjects: URL {
-        homeDirectory.appendingPathComponent(".claude/projects")
-    }
-
-    public var codexDatabase: URL {
-        homeDirectory.appendingPathComponent(".codex/state_5.sqlite")
-    }
-
-    public var codexSessions: URL {
-        homeDirectory.appendingPathComponent(".codex/sessions")
-    }
-
-    public var codexArchivedSessions: URL {
-        homeDirectory.appendingPathComponent(".codex/archived_sessions")
-    }
-
-    public var hermesDatabase: URL {
-        hermesHome.appendingPathComponent("state.db")
-    }
-
-    public var hermesDefaultDatabase: URL {
-        homeDirectory.appendingPathComponent(".hermes/state.db")
-    }
-
-    public var hermesProfiles: URL {
-        hermesHome.appendingPathComponent("profiles", isDirectory: true)
-    }
-
-    public var cursorDatabase: URL {
-        #if os(Linux)
-            xdgConfigDirectory.appendingPathComponent("Cursor/User/globalStorage/state.vscdb")
-        #else
-            homeDirectory.appendingPathComponent(
-                "Library/Application Support/Cursor/User/globalStorage/state.vscdb")
-        #endif
-    }
-
-    public var geminiChats: URL {
-        homeDirectory.appendingPathComponent(".gemini/tmp")
-    }
-
-    public var gjcSessions: URL {
-        homeDirectory.appendingPathComponent(".gjc/agent/sessions")
-    }
-
-    public var factoryDroidSessions: URL {
-        homeDirectory.appendingPathComponent(".factory/sessions")
-    }
-
-    public var ampThreads: URL {
-        xdgDataDirectory.appendingPathComponent("amp/threads")
-    }
-
-    public var openCodeDatabase: URL {
-        xdgDataDirectory.appendingPathComponent("opencode/opencode.db")
-    }
-
-    public var openClawAgents: URL {
-        homeDirectory.appendingPathComponent(".openclaw/agents")
-    }
-
-    public var copilotOTELDirectory: URL {
-        homeDirectory.appendingPathComponent(".copilot/otel")
-    }
-
-    public var kimiCLISessions: [URL] {
-        kimiCLIHomes.map { $0.appendingPathComponent("sessions") }
-    }
-
-    public var kimiCodeSessions: [URL] {
-        Self.uniqueDirectories(
-            [homeDirectory.appendingPathComponent(".kimi-code")]
-                + [kimiCodeHomeOverride].compactMap { $0 })
-            .map { $0.appendingPathComponent("sessions") }
-    }
-
-    public var qwenProjects: [URL] {
-        Self.uniqueDirectories(
-            [homeDirectory.appendingPathComponent(".qwen")]
-                + [qwenHomeOverride, qwenRuntimeOverride].compactMap { $0 })
-            .map { $0.appendingPathComponent("projects") }
-    }
-
-    public var agentCacheDirectory: URL {
-        xdgStateDirectory.appendingPathComponent("toki-agent")
-    }
-
-    public var applicationCacheDirectory: URL {
-        #if os(macOS)
-            homeDirectory
-                .appendingPathComponent("Library")
-                .appendingPathComponent("Application Support")
-                .appendingPathComponent("Toki")
-        #else
-            xdgStateDirectory.appendingPathComponent("toki")
-        #endif
-    }
-
-    public func cacheDirectory(for scope: LocalUsageCacheScope) -> URL {
-        switch scope {
-        case .application:
-            applicationCacheDirectory
-        case .agent:
-            agentCacheDirectory
-        }
-    }
-}
-
-private extension LocalUsageReaderPaths {
-    private var kimiCLIHomes: [URL] {
-        Self.uniqueDirectories(
-            [homeDirectory.appendingPathComponent(".kimi")]
-                + [kimiCLIHomeOverride].compactMap { $0 })
-    }
-
-    private static func absoluteEnvironmentDirectory(
-        key: String,
-        environment: [String: String]) -> URL? {
-        guard let value = environment[key],
-              NSString(string: value).isAbsolutePath else {
-            return nil
-        }
-        return URL(fileURLWithPath: value)
-    }
-
-    private static func uniqueDirectories(_ directories: [URL]) -> [URL] {
-        var seen = Set<String>()
-        return directories.compactMap { directory in
-            let standardized = directory.standardizedFileURL
-            return seen.insert(standardized.path).inserted ? standardized : nil
-        }
-    }
-
-    private static func ompSessionDirectories(
-        homeDirectory: URL,
-        xdgDataDirectory: URL,
-        environment: [String: String]) -> [URL] {
-        let profileValue = environment.keys.contains("OMP_PROFILE")
-            ? environment["OMP_PROFILE"]
-            : environment["PI_PROFILE"]
-        let profile = normalizedOMPProfile(profileValue)
-        let explicitConfigDirectory = normalizedConfigDirectory(environment["PI_CONFIG_DIR"])
-        let configRoot: URL = if let explicitConfigDirectory,
-                                 NSString(string: explicitConfigDirectory).isAbsolutePath {
-            URL(fileURLWithPath: explicitConfigDirectory)
-        } else {
-            homeDirectory.appendingPathComponent(explicitConfigDirectory ?? ".omp")
-        }
-
-        if let profile {
-            let configuredSessions = configRoot
-                .appendingPathComponent("profiles")
-                .appendingPathComponent(profile)
-                .appendingPathComponent("agent/sessions")
-            if explicitConfigDirectory != nil {
-                return [configuredSessions]
-            }
-            let xdgSessions = xdgDataDirectory
-                .appendingPathComponent("omp/profiles")
-                .appendingPathComponent(profile)
-                .appendingPathComponent("sessions")
-            return isExistingDirectory(xdgSessions)
-                ? uniqueDirectories([xdgSessions, configuredSessions])
-                : uniqueDirectories([configuredSessions, xdgSessions])
-        }
-
-        let configuredSessions = configRoot.appendingPathComponent("agent/sessions")
-        if explicitConfigDirectory != nil {
-            return [configuredSessions]
-        }
-        let xdgSessions = xdgDataDirectory.appendingPathComponent("omp/sessions")
-        return isExistingDirectory(xdgSessions)
-            ? uniqueDirectories([xdgSessions, configuredSessions])
-            : uniqueDirectories([configuredSessions, xdgSessions])
-    }
-
-    private static func normalizedOMPProfile(_ value: String?) -> String? {
-        guard let profile = value?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !profile.isEmpty,
-              profile != "default",
-              profile != ".",
-              profile != "..",
-              !profile.hasSuffix("."),
-              profile.utf8.count <= 64,
-              let first = profile.first,
-              first.isLowercase || first.isNumber,
-              profile.allSatisfy({ $0.isLowercase || $0.isNumber || "._-".contains($0) }) else {
-            return nil
-        }
-        return profile
-    }
-}
-
 public enum LocalUsageReaderRegistry {
     static func descriptors(
         home: URL = homeDir(),
@@ -347,17 +53,8 @@ public enum LocalUsageReaderRegistry {
         claudeUsageCache: ClaudeUsageCache? = nil,
         hermesUsageLedger: HermesUsageLedger? = nil) -> [LocalUsageReaderDescriptor] {
         let paths = LocalUsageReaderPaths(homeDirectory: home, environment: environment)
-        let resolvedCodexRolloutUsageCache: CodexRolloutUsageCache = if let codexRolloutUsageCache {
-            codexRolloutUsageCache
-        } else {
-            switch cacheScope {
-            case .application:
-                CodexRolloutUsageCache(
-                    cacheURL: codexRolloutUsageCacheURL(paths: paths, scope: .application))
-            case .agent:
-                CodexRolloutUsageCache(cacheURL: codexRolloutUsageCacheURL(paths: paths, scope: .agent))
-            }
-        }
+        let resolvedCodexRolloutUsageCache = codexRolloutUsageCache
+            ?? CodexRolloutUsageCache(cacheURL: codexRolloutUsageCacheURL(paths: paths, scope: cacheScope))
         let resolvedClaudeUsageCache = claudeUsageCache
             ?? ClaudeUsageCache(cacheURL: claudeUsageCacheURL(paths: paths, scope: cacheScope))
         let automaticallyMigrateLegacyHermesLedger = switch cacheScope {
@@ -375,32 +72,27 @@ public enum LocalUsageReaderRegistry {
                 + (paths.copilotOTELExporterFile.map {
                     [.file($0, includesSQLiteSidecars: false)]
                 } ?? [])
-        return [
-            LocalUsageReaderDescriptor(
-                reader: ClaudeCodeReader(
-                    projectsURLOverride: paths.claudeProjects,
-                    usageCache: resolvedClaudeUsageCache),
-                sourceLocations: [.directory(paths.claudeProjects, extensions: ["jsonl"])]),
-            LocalUsageReaderDescriptor(
-                reader: CodexReader(
-                    dbPath: paths.codexDatabase.path,
-                    rolloutUsageCache: resolvedCodexRolloutUsageCache),
-                sourceLocations: [
-                    .file(paths.codexDatabase, includesSQLiteSidecars: true),
-                    .directory(paths.codexSessions, extensions: ["jsonl"]),
-                    .directory(paths.codexArchivedSessions, extensions: ["jsonl"]),
-                ],
-                sourceSignatureStrategy: .codexRollouts),
-            hermesReaderDescriptor(paths: paths, usageLedger: resolvedHermesUsageLedger, cacheScope: cacheScope),
-            LocalUsageReaderDescriptor(
-                reader: CursorReader(dbPathOverride: paths.cursorDatabase.path),
-                sourceLocations: [.file(paths.cursorDatabase, includesSQLiteSidecars: true)]),
+        let gjcReader = GJCReader(
+            sessionRootsOverride: paths.gjcSessionRoots,
+            legacySessionsURL: paths.homeDirectory.appendingPathComponent(".gjc/agent/sessions"),
+            sharedOMPSessionRoots: paths.ompSessionRoots,
+            sharedPiSessionRoots: [paths.piSessions])
+        return primaryDescriptors(
+            paths: paths, codexCache: resolvedCodexRolloutUsageCache,
+            claudeCache: resolvedClaudeUsageCache, hermesLedger: resolvedHermesUsageLedger,
+            cacheScope: cacheScope) + [
             LocalUsageReaderDescriptor(
                 reader: GeminiReader(chatsBaseURLOverride: paths.geminiChats),
-                sourceLocations: [.directory(paths.geminiChats, extensions: ["json"])]),
+                sourceLocations: [.directory(paths.geminiChats, extensions: ["json", "jsonl"])],
+                sourceSignatureStrategy: .boundedAllFiles(
+                    maximumFileCount: PiCompatibleReadLimits.default.maximumFileCount,
+                    maximumEntryCount: PiCompatibleReadLimits.default.maximumEntryCount)),
             LocalUsageReaderDescriptor(
-                reader: GJCReader(sessionsURLOverride: paths.gjcSessions),
-                sourceLocations: [.directory(paths.gjcSessions, extensions: ["jsonl"])]),
+                reader: gjcReader,
+                sourceLocations: paths.gjcSessionRoots.map { .directory($0, extensions: ["jsonl"]) },
+                sourceSignatureStrategy: .boundedAllFiles(
+                    maximumFileCount: PiCompatibleReadLimits.default.maximumFileCount,
+                    maximumEntryCount: PiCompatibleReadLimits.default.maximumEntryCount)),
             LocalUsageReaderDescriptor(
                 reader: FactoryDroidReader(sessionsURLOverride: paths.factoryDroidSessions),
                 sourceLocations: [.directory(paths.factoryDroidSessions, extensions: ["json", "jsonl"])],
@@ -419,6 +111,43 @@ public enum LocalUsageReaderRegistry {
             paths: paths,
             environment: environment,
             copilotSourceLocations: copilotSourceLocations)
+    }
+}
+
+private extension LocalUsageReaderRegistry {
+    private static func primaryDescriptors(
+        paths: LocalUsageReaderPaths, codexCache: CodexRolloutUsageCache,
+        claudeCache: ClaudeUsageCache, hermesLedger: HermesUsageLedger,
+        cacheScope: LocalUsageCacheScope) -> [LocalUsageReaderDescriptor] {
+        [
+            LocalUsageReaderDescriptor(
+                reader: ClaudeCodeReader(
+                    projectsURLOverride: paths.claudeProjects,
+                    usageCache: claudeCache,
+                    transcriptsURLOverride: paths.claudeTranscripts,
+                    attributionHomeDirectory: paths.homeDirectory),
+                sourceLocations: [
+                    .directory(paths.claudeProjects, extensions: ["jsonl"]),
+                    .directory(paths.claudeTranscripts, extensions: ["jsonl"]),
+                ],
+                sourceSignatureStrategy: .boundedAllFiles(
+                    maximumFileCount: PiCompatibleReadLimits.default.maximumFileCount,
+                    maximumEntryCount: PiCompatibleReadLimits.default.maximumEntryCount)),
+            LocalUsageReaderDescriptor(
+                reader: CodexReader(
+                    dbPath: paths.codexDatabase.path,
+                    rolloutUsageCache: codexCache),
+                sourceLocations: [
+                    .file(paths.codexDatabase, includesSQLiteSidecars: true),
+                    .directory(paths.codexSessions, extensions: ["jsonl"]),
+                    .directory(paths.codexArchivedSessions, extensions: ["jsonl"]),
+                ],
+                sourceSignatureStrategy: .codexRollouts),
+            hermesReaderDescriptor(paths: paths, usageLedger: hermesLedger, cacheScope: cacheScope),
+            LocalUsageReaderDescriptor(
+                reader: CursorReader(dbPathOverride: paths.cursorDatabase.path),
+                sourceLocations: [.file(paths.cursorDatabase, includesSQLiteSidecars: true)]),
+        ]
     }
 }
 
@@ -531,7 +260,9 @@ extension LocalUsageReaderRegistry {
         }
         return LocalUsageDirectoryIdentity(systemNumber: systemNumber, fileNumber: fileNumber)
     }
+}
 
+extension LocalUsageReaderRegistry {
     public static func readers(
         home: URL = homeDir(),
         environment: [String: String] = ProcessInfo.processInfo.environment,
@@ -556,17 +287,6 @@ extension LocalUsageReaderRegistry {
             claudeUsageCache: claudeUsageCache,
             hermesUsageLedger: hermesUsageLedger)
     }
-}
-
-private func isExistingDirectory(_ url: URL) -> Bool {
-    var isDirectory: ObjCBool = false
-    return FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory)
-        && isDirectory.boolValue
-}
-
-private func normalizedConfigDirectory(_ value: String?) -> String? {
-    let configured = value?.trimmingCharacters(in: .whitespacesAndNewlines)
-    return configured.flatMap { $0.isEmpty ? nil : $0 }
 }
 
 private struct LocalUsageDirectoryIdentity: Equatable {

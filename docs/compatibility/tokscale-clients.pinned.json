@@ -1,0 +1,542 @@
+{
+  "pinnedSHA": "3bd6dceb98925edab4e149c9bb1cf3fec9123f17",
+  "repository": "https://github.com/junhoyeo/tokscale",
+  "source": "crates/tokscale-core/src/clients.rs:define_clients!",
+  "provenance": "Minimal registry facts extracted from the parent-supplied pinned source archive; archive has no .git directory. See fixture-provenance.md.",
+  "sourceSHA256": {
+    "clients.rs": "6bf5a754a8921d2f0260aa220d3564b58bdc22ca61a3f5efd9d801d2c177140c",
+    "scanner.rs": "3bd7b48350cdd1f202988f2cda3aace43967f508fda9844ac5898d2483b77550"
+  },
+  "clients": [
+    {
+      "clientID": "opencode",
+      "index": 0,
+      "displayName": "OpenCode",
+      "root": "XdgData",
+      "relativePath": "opencode/storage/message",
+      "pattern": "*.json",
+      "environmentVariable": null,
+      "fallbackRelative": null
+    },
+    {
+      "clientID": "claude",
+      "index": 1,
+      "displayName": "Claude Code",
+      "root": "EnvVar",
+      "relativePath": "projects",
+      "pattern": "*.jsonl",
+      "environmentVariable": "CLAUDE_CONFIG_DIR",
+      "fallbackRelative": ".claude"
+    },
+    {
+      "clientID": "codex",
+      "index": 2,
+      "displayName": "Codex CLI",
+      "root": "EnvVar",
+      "relativePath": "sessions",
+      "pattern": "*.jsonl",
+      "environmentVariable": "CODEX_HOME",
+      "fallbackRelative": ".codex"
+    },
+    {
+      "clientID": "cursor",
+      "index": 3,
+      "displayName": "Cursor IDE",
+      "root": "Home",
+      "relativePath": ".config/tokscale/cursor-cache",
+      "pattern": "usage*.json|usage*.csv",
+      "environmentVariable": null,
+      "fallbackRelative": null
+    },
+    {
+      "clientID": "gemini",
+      "index": 4,
+      "displayName": "Gemini CLI",
+      "root": "EnvVar",
+      "relativePath": "tmp",
+      "pattern": "*.json|*.jsonl",
+      "environmentVariable": "GEMINI_CLI_HOME",
+      "fallbackRelative": ".gemini"
+    },
+    {
+      "clientID": "amp",
+      "index": 5,
+      "displayName": "Amp",
+      "root": "XdgData",
+      "relativePath": "amp/threads",
+      "pattern": "T-*.json",
+      "environmentVariable": null,
+      "fallbackRelative": null
+    },
+    {
+      "clientID": "droid",
+      "index": 6,
+      "displayName": "Droid",
+      "root": "Home",
+      "relativePath": ".factory/sessions",
+      "pattern": "*.settings.json",
+      "environmentVariable": null,
+      "fallbackRelative": null
+    },
+    {
+      "clientID": "openclaw",
+      "index": 7,
+      "displayName": "OpenClaw",
+      "root": "Home",
+      "relativePath": ".openclaw/agents",
+      "pattern": "*.jsonl*",
+      "environmentVariable": null,
+      "fallbackRelative": null
+    },
+    {
+      "clientID": "pi",
+      "index": 8,
+      "displayName": "Pi",
+      "root": "Home",
+      "relativePath": ".pi/agent/sessions",
+      "pattern": "*.jsonl",
+      "environmentVariable": null,
+      "fallbackRelative": null
+    },
+    {
+      "clientID": "kimi",
+      "index": 9,
+      "displayName": "Kimi CLI",
+      "root": "Home",
+      "relativePath": ".kimi/sessions",
+      "pattern": "wire.jsonl",
+      "environmentVariable": null,
+      "fallbackRelative": null
+    },
+    {
+      "clientID": "qwen",
+      "index": 10,
+      "displayName": "Qwen CLI",
+      "root": "Home",
+      "relativePath": ".qwen/projects",
+      "pattern": "*.jsonl",
+      "environmentVariable": null,
+      "fallbackRelative": null
+    },
+    {
+      "clientID": "roocode",
+      "index": 11,
+      "displayName": "Roo Code",
+      "root": "Home",
+      "relativePath": ".config/Code/User/globalStorage/rooveterinaryinc.roo-cline/tasks",
+      "pattern": "ui_messages.json",
+      "environmentVariable": null,
+      "fallbackRelative": null
+    },
+    {
+      "clientID": "kilocode",
+      "index": 12,
+      "displayName": "Kilo Code",
+      "root": "Home",
+      "relativePath": ".config/Code/User/globalStorage/kilocode.kilo-code/tasks",
+      "pattern": "ui_messages.json",
+      "environmentVariable": null,
+      "fallbackRelative": null
+    },
+    {
+      "clientID": "mux",
+      "index": 13,
+      "displayName": "Mux",
+      "root": "Home",
+      "relativePath": ".mux/sessions",
+      "pattern": "session-usage.json",
+      "environmentVariable": null,
+      "fallbackRelative": null
+    },
+    {
+      "clientID": "kilo",
+      "index": 14,
+      "displayName": "Kilo CLI",
+      "root": "XdgData",
+      "relativePath": "kilo/kilo.db",
+      "pattern": "kilo.db",
+      "environmentVariable": null,
+      "fallbackRelative": null
+    },
+    {
+      "clientID": "crush",
+      "index": 15,
+      "displayName": "Crush",
+      "root": "XdgData",
+      "relativePath": "crush/projects.json",
+      "pattern": "projects.json",
+      "environmentVariable": null,
+      "fallbackRelative": null
+    },
+    {
+      "clientID": "hermes",
+      "index": 16,
+      "displayName": "Hermes Agent",
+      "root": "EnvVar",
+      "relativePath": "state.db",
+      "pattern": "state.db",
+      "environmentVariable": "HERMES_HOME",
+      "fallbackRelative": ".hermes"
+    },
+    {
+      "clientID": "copilot",
+      "index": 17,
+      "displayName": "Copilot CLI",
+      "root": "Home",
+      "relativePath": ".copilot/otel",
+      "pattern": "*.jsonl",
+      "environmentVariable": null,
+      "fallbackRelative": null
+    },
+    {
+      "clientID": "goose",
+      "index": 18,
+      "displayName": "Goose",
+      "root": "XdgData",
+      "relativePath": "goose/sessions/sessions.db",
+      "pattern": "sessions.db",
+      "environmentVariable": null,
+      "fallbackRelative": null
+    },
+    {
+      "clientID": "codebuff",
+      "index": 19,
+      "displayName": "Codebuff",
+      "root": "EnvVar",
+      "relativePath": "projects",
+      "pattern": "chat-messages.json",
+      "environmentVariable": "CODEBUFF_DATA_DIR",
+      "fallbackRelative": ".config/manicode"
+    },
+    {
+      "clientID": "antigravity",
+      "index": 20,
+      "displayName": "Antigravity",
+      "root": "Config",
+      "relativePath": "antigravity-cache/sessions",
+      "pattern": "*.jsonl",
+      "environmentVariable": null,
+      "fallbackRelative": null
+    },
+    {
+      "clientID": "zed",
+      "index": 21,
+      "displayName": "Zed Agent",
+      "root": "XdgData",
+      "relativePath": "zed/threads/threads.db",
+      "pattern": "threads.db",
+      "environmentVariable": null,
+      "fallbackRelative": null
+    },
+    {
+      "clientID": "kiro",
+      "index": 22,
+      "displayName": "Kiro",
+      "root": "Home",
+      "relativePath": ".kiro/sessions/cli",
+      "pattern": "*.json",
+      "environmentVariable": null,
+      "fallbackRelative": null
+    },
+    {
+      "clientID": "trae",
+      "index": 23,
+      "displayName": "Trae",
+      "root": "Config",
+      "relativePath": "trae-cache/sessions",
+      "pattern": "*.json",
+      "environmentVariable": null,
+      "fallbackRelative": null
+    },
+    {
+      "clientID": "warp",
+      "index": 24,
+      "displayName": "Warp",
+      "root": "Config",
+      "relativePath": "warp-cache",
+      "pattern": "usage*.json",
+      "environmentVariable": null,
+      "fallbackRelative": null
+    },
+    {
+      "clientID": "cline",
+      "index": 25,
+      "displayName": "Cline",
+      "root": "Home",
+      "relativePath": ".config/Code/User/globalStorage/saoudrizwan.claude-dev/tasks",
+      "pattern": "ui_messages.json",
+      "environmentVariable": null,
+      "fallbackRelative": null
+    },
+    {
+      "clientID": "gjc",
+      "index": 26,
+      "displayName": "Gajae-Code",
+      "root": "EnvVar",
+      "relativePath": "sessions",
+      "pattern": "*.jsonl",
+      "environmentVariable": "GJC_CODING_AGENT_DIR",
+      "fallbackRelative": ".gjc/agent"
+    },
+    {
+      "clientID": "grok",
+      "index": 27,
+      "displayName": "Grok Build",
+      "root": "EnvVar",
+      "relativePath": "sessions",
+      "pattern": "updates.jsonl",
+      "environmentVariable": "GROK_HOME",
+      "fallbackRelative": ".grok"
+    },
+    {
+      "clientID": "jcode",
+      "index": 28,
+      "displayName": "Jcode",
+      "root": "EnvVar",
+      "relativePath": "sessions",
+      "pattern": "session_*.json",
+      "environmentVariable": "JCODE_HOME",
+      "fallbackRelative": ".jcode"
+    },
+    {
+      "clientID": "commandcode",
+      "index": 29,
+      "displayName": "Command Code",
+      "root": "Home",
+      "relativePath": ".commandcode/projects",
+      "pattern": "*.jsonl",
+      "environmentVariable": null,
+      "fallbackRelative": null
+    },
+    {
+      "clientID": "micode",
+      "index": 30,
+      "displayName": "MiMo Code",
+      "root": "XdgData",
+      "relativePath": "mimocode",
+      "pattern": "*.db",
+      "environmentVariable": null,
+      "fallbackRelative": null
+    },
+    {
+      "clientID": "antigravity-cli",
+      "index": 31,
+      "displayName": "Antigravity CLI",
+      "root": "EnvVar",
+      "relativePath": "antigravity-cli/conversations",
+      "pattern": "*.db",
+      "environmentVariable": "GEMINI_CLI_HOME",
+      "fallbackRelative": ".gemini"
+    },
+    {
+      "clientID": "junie",
+      "index": 32,
+      "displayName": "Junie",
+      "root": "Home",
+      "relativePath": ".junie/sessions",
+      "pattern": "events.jsonl",
+      "environmentVariable": null,
+      "fallbackRelative": null
+    },
+    {
+      "clientID": "zcode",
+      "index": 33,
+      "displayName": "ZCode",
+      "root": "Home",
+      "relativePath": ".zcode/projects",
+      "pattern": "*.jsonl",
+      "environmentVariable": null,
+      "fallbackRelative": null
+    },
+    {
+      "clientID": "opencodereview",
+      "index": 34,
+      "displayName": "OpenCodeReview",
+      "root": "Home",
+      "relativePath": ".opencodereview/sessions",
+      "pattern": "*.jsonl",
+      "environmentVariable": null,
+      "fallbackRelative": null
+    },
+    {
+      "clientID": "codebuddy",
+      "index": 35,
+      "displayName": "CodeBuddy",
+      "root": "Home",
+      "relativePath": ".codebuddy/projects",
+      "pattern": "*.jsonl",
+      "environmentVariable": null,
+      "fallbackRelative": null
+    },
+    {
+      "clientID": "workbuddy",
+      "index": 36,
+      "displayName": "WorkBuddy",
+      "root": "Home",
+      "relativePath": ".workbuddy",
+      "pattern": "workbuddy.db",
+      "environmentVariable": null,
+      "fallbackRelative": null
+    },
+    {
+      "clientID": "devin-cli",
+      "index": 37,
+      "displayName": "Devin CLI",
+      "root": "XdgData",
+      "relativePath": "devin/cli/sessions.db",
+      "pattern": "sessions.db",
+      "environmentVariable": null,
+      "fallbackRelative": null
+    },
+    {
+      "clientID": "devin-desktop",
+      "index": 38,
+      "displayName": "Devin Desktop",
+      "root": "Home",
+      "relativePath": "Library/Application Support/Devin/User/acp-events",
+      "pattern": "*.ndjson",
+      "environmentVariable": null,
+      "fallbackRelative": null
+    },
+    {
+      "clientID": "senpi",
+      "index": 39,
+      "displayName": "Senpi (OmO Native)",
+      "root": "EnvVar",
+      "relativePath": "sessions",
+      "pattern": "*.jsonl",
+      "environmentVariable": "SENPI_CODING_AGENT_DIR",
+      "fallbackRelative": ".senpi/agent"
+    },
+    {
+      "clientID": "augment",
+      "index": 40,
+      "displayName": "Augment Code",
+      "root": "Home",
+      "relativePath": ".augment/sessions",
+      "pattern": "*.json",
+      "environmentVariable": null,
+      "fallbackRelative": null
+    },
+    {
+      "clientID": "kimchi",
+      "index": 41,
+      "displayName": "Kimchi",
+      "root": "EnvVar",
+      "relativePath": "sessions",
+      "pattern": "*.jsonl",
+      "environmentVariable": "KIMCHI_CODING_AGENT_DIR",
+      "fallbackRelative": ".config/kimchi/harness"
+    },
+    {
+      "clientID": "reasonix",
+      "index": 42,
+      "displayName": "Reasonix",
+      "root": "ReasonixHome",
+      "relativePath": "stats",
+      "pattern": "*.jsonl",
+      "environmentVariable": null,
+      "fallbackRelative": null
+    },
+    {
+      "clientID": "prime-agent",
+      "index": 43,
+      "displayName": "Prime Agent",
+      "root": "EnvVar",
+      "relativePath": "sessions",
+      "pattern": "*.jsonl",
+      "environmentVariable": "PRIME_AGENT_CODING_AGENT_DIR",
+      "fallbackRelative": ".prime/agent"
+    },
+    {
+      "clientID": "freebuff",
+      "index": 44,
+      "displayName": "Freebuff",
+      "root": "EnvVar",
+      "relativePath": "projects",
+      "pattern": "chat-messages.json",
+      "environmentVariable": "FREEBUFF_DATA_DIR",
+      "fallbackRelative": ".config/manicode"
+    },
+    {
+      "clientID": "cherrystudio",
+      "index": 45,
+      "displayName": "Cherry Studio",
+      "root": "AppData",
+      "relativePath": "CherryStudio/.claude/projects",
+      "pattern": "*.jsonl",
+      "environmentVariable": null,
+      "fallbackRelative": null
+    },
+    {
+      "clientID": "dsh",
+      "index": 46,
+      "displayName": "DeepSeek Harness",
+      "root": "EnvVar",
+      "relativePath": "sessions",
+      "pattern": "dsh-session-log",
+      "environmentVariable": "DSH_HOME",
+      "fallbackRelative": ".dsh"
+    },
+    {
+      "clientID": "mcode",
+      "index": 47,
+      "displayName": "MiniMax Code",
+      "root": "Config",
+      "relativePath": "headless/mcode",
+      "pattern": "*.jsonl",
+      "environmentVariable": null,
+      "fallbackRelative": null
+    },
+    {
+      "clientID": "fx",
+      "index": 48,
+      "displayName": "Fx",
+      "root": "Home",
+      "relativePath": ".fx/sessions",
+      "pattern": "usage-v2.json",
+      "environmentVariable": null,
+      "fallbackRelative": null
+    },
+    {
+      "clientID": "omp",
+      "index": 49,
+      "displayName": "Oh My Pi",
+      "root": "Home",
+      "relativePath": ".omp/agent/sessions",
+      "pattern": "*.jsonl",
+      "environmentVariable": null,
+      "fallbackRelative": null
+    },
+    {
+      "clientID": "lmstudio",
+      "index": 50,
+      "displayName": "LM Studio",
+      "root": "EnvVar",
+      "relativePath": "server-logs",
+      "pattern": "*.log",
+      "environmentVariable": "LM_STUDIO_HOME",
+      "fallbackRelative": ".lmstudio"
+    },
+    {
+      "clientID": "unsloth",
+      "index": 51,
+      "displayName": "Unsloth",
+      "root": "EnvVar",
+      "relativePath": "studio.db",
+      "pattern": "studio.db",
+      "environmentVariable": "UNSLOTH_STUDIO_HOME",
+      "fallbackRelative": ".unsloth/studio"
+    },
+    {
+      "clientID": "hindsight",
+      "index": 52,
+      "displayName": "Hindsight",
+      "root": "EnvVar",
+      "relativePath": "usage",
+      "pattern": "*.jsonl",
+      "environmentVariable": "HINDSIGHT_HOME",
+      "fallbackRelative": ".hindsight"
+    }
+  ]
+}

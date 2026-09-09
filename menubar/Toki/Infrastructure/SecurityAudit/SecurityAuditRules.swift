@@ -3,6 +3,7 @@ import Foundation
 struct SecurityAuditFileSource: Equatable {
     let name: String
     let rootURL: URL
+    let additionalRootURLs: [URL]
     let allowedExtensions: Set<String>
     let sqliteTextQueries: [String]
 
@@ -10,9 +11,11 @@ struct SecurityAuditFileSource: Equatable {
         name: String,
         rootURL: URL,
         allowedExtensions: Set<String>,
+        additionalRootURLs: [URL] = [],
         sqliteTextQueries: [String] = []) {
         self.name = name
         self.rootURL = rootURL
+        self.additionalRootURLs = additionalRootURLs
         self.allowedExtensions = allowedExtensions
         self.sqliteTextQueries = sqliteTextQueries
     }
