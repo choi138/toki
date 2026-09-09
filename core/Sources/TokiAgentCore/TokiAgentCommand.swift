@@ -338,8 +338,14 @@ extension TokiAgentCommand {
                         expectsDirectory: false,
                         countsAsReadable: false)
                 }
-            case let .directory(url, _, _), let .directoryPresence(url):
+            case let .directory(url, _, _):
                 inspect(url, expectsDirectory: true, countsAsReadable: true)
+            case let .directoryPresence(url):
+                // A discovery root only records that a client's home exists; the readable
+                // records inside it are selected separately by the reader's own resolver.
+                // Counting the root itself would let an empty home report a usable source
+                // and bypass `localUsageDataUnavailable`. Type and permission checks stay.
+                inspect(url, expectsDirectory: true, countsAsReadable: false)
             }
         }
 
