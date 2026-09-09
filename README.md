@@ -159,6 +159,7 @@ remote service is required for local readers.
 | **Kimi CLI** | `~/.kimi/sessions/**/*.jsonl` | Reads local Kimi CLI sessions. |
 | **Kimi Code** | `~/.kimi-code/**/*.jsonl` | Reads local Kimi Code sessions. |
 | **Qwen CLI** | `~/.qwen/**/*.jsonl` | Reads local Qwen CLI project sessions. |
+| **Grok CLI** | `~/.grok/sessions/**/usage.json` | Reads per-turn token deltas, per-model breakdown, and reported cost from per-session usage records. |
 | **Remote Toki Agent** | The supported stores above under the remote user's home/XDG directories | Optional outbound-only Linux/macOS Agent uses the same local reader registry and uploads per-device encrypted usage snapshots through a Hub. |
 
 ### Model Coverage

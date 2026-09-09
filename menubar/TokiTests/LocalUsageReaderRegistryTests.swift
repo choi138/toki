@@ -30,6 +30,7 @@ final class LocalUsageReaderRegistryTests: XCTestCase {
                 "Kimi CLI",
                 "Kimi Code",
                 "Qwen CLI",
+                "Grok CLI",
             ])
     }
 
@@ -48,6 +49,7 @@ final class LocalUsageReaderRegistryTests: XCTestCase {
         XCTAssertEqual(paths.factoryDroidSessions.path, "/tmp/toki-reader-home/.factory/sessions")
         XCTAssertEqual(paths.ampThreads.path, "/tmp/toki-xdg-data/amp/threads")
         XCTAssertEqual(paths.openCodeDatabase.path, "/tmp/toki-xdg-data/opencode/opencode.db")
+        XCTAssertEqual(paths.grokSessions.path, "/tmp/toki-reader-home/.grok/sessions")
         XCTAssertEqual(
             paths.senpiSessionDirectories.map(\.path),
             [

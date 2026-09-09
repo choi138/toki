@@ -141,6 +141,7 @@ extension LocalUsageReaderRegistry {
         copilotSourceLocations: [LocalUsageSourceLocation]) -> [LocalUsageReaderDescriptor] {
         let openCode = OpenCodeReader(homeDirectory: paths.homeDirectory, environment: environment)
         let openClaw = OpenClawReader(agentsRoots: OpenClawReader.defaultAgentsRoots(home: paths.homeDirectory))
+        let grok = GrokReader(sessionRootsOverride: [paths.grokSessions])
         return [
             LocalUsageReaderDescriptor(
                 reader: openCode,
@@ -172,6 +173,12 @@ extension LocalUsageReaderRegistry {
                 reader: QwenCLIReader(projectRoots: paths.qwenProjects),
                 sourceLocations: paths.qwenProjects.map { .directory($0, extensions: ["jsonl"]) },
                 sourceSignatureStrategy: .allFiles),
+            LocalUsageReaderDescriptor(
+                reader: grok,
+                sourceLocations: grok.sessionRoots.map { .directoryPresence($0) },
+                sourceSignatureStrategy: .allFiles,
+                collectorRevision: 1,
+                sourceLocationsResolver: grok.selectedSourceLocations),
         ]
     }
 

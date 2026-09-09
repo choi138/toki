@@ -14,6 +14,8 @@ func panelAccentColor(forSource source: String) -> Color {
         Color(red: 1.0, green: 0.72, blue: 0.35)
     case "OpenClaw":
         Color(red: 0.85, green: 0.68, blue: 1.0)
+    case "Grok CLI":
+        Color(red: 1.0, green: 0.8, blue: 0.2)
     default:
         Color.white.opacity(0.5)
     }

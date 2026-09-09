@@ -23,6 +23,7 @@ public struct LocalUsageReaderPaths: Equatable {
     private let kimiCodeHomeOverride: URL?
     private let qwenHomeOverride: URL?
     private let qwenRuntimeOverride: URL?
+    private let grokHome: URL
 
     public init(
         homeDirectory: URL = homeDir(),
@@ -94,6 +95,8 @@ public struct LocalUsageReaderPaths: Equatable {
         qwenRuntimeOverride = Self.absoluteEnvironmentDirectory(
             key: "QWEN_RUNTIME_DIR",
             environment: environment)
+        grokHome = Self.absoluteEnvironmentDirectory(key: "GROK_HOME", environment: environment)
+            ?? homeDirectory.appendingPathComponent(".grok")
     }
 
     public var claudeProjects: URL {
@@ -181,6 +184,10 @@ public struct LocalUsageReaderPaths: Equatable {
             [homeDirectory.appendingPathComponent(".qwen")]
                 + [qwenHomeOverride, qwenRuntimeOverride].compactMap { $0 })
             .map { $0.appendingPathComponent("projects") }
+    }
+
+    public var grokSessions: URL {
+        grokHome.appendingPathComponent("sessions")
     }
 
     public var agentCacheDirectory: URL {

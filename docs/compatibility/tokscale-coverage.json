@@ -1881,8 +1881,11 @@
       "pinnedSHA": "3bd6dceb98925edab4e149c9bb1cf3fec9123f17",
       "clientID": "grok",
       "os": {
-        "tokiTarget": [],
-        "executionEvidence": "unverified",
+        "tokiTarget": [
+          "macOS",
+          "Linux"
+        ],
+        "executionEvidence": "macOS core suite passed; no Linux or native UI execution evidence recorded for this reader",
         "upstreamRootKind": "EnvVar",
         "upstreamWindows": "Not a Toki target; no Windows runtime claim"
       },
@@ -1900,39 +1903,58 @@
         "upstreamRegistry": [
           "~/.grok/sessions"
         ],
-        "toki": []
+        "toki": [
+          "~/.grok/sessions/<percent-encoded cwd>/<session>/usage.json",
+          "~/.grok/sessions/<percent-encoded cwd>/<session>/summary.json"
+        ]
       },
       "overridePaths": {
         "upstreamRegistry": [
           "GROK_HOME"
         ],
-        "toki": []
+        "toki": [
+          "GROK_HOME selects the Grok home; only its sessions/ subtree is read",
+          "Explicit session-root initializer remains scoped to the requested roots"
+        ]
       },
       "formats": {
         "upstreamRegistryPattern": "updates.jsonl",
-        "toki": []
+        "toki": [
+          "Per-session usage.json turn deltas with per-model breakdown and reported costUsdTicks; sibling summary.json supplies cwd and session title"
+        ]
       },
-      "modelStatus": "not implemented",
-      "tokenStatus": "not implemented",
-      "pricingStatus": "not implemented; no catalog expansion",
-      "fixtureEvidence": [],
-      "reader": [],
-      "readerNames": [],
-      "status": "planned",
-      "disposition": "deferred-new-client",
+      "modelStatus": "Per-turn modelUsage keys retained verbatim; unknown price stays unknown",
+      "tokenStatus": "Turn deltas are summed after un-nesting cachedRead from input and reasoning from output; subagent sessions count once under their own session directory",
+      "pricingStatus": "Reported costUsdTicks retained at a billionth of a US dollar; no catalog expansion",
+      "fixtureEvidence": [
+        "core/Tests/TokiAgentTests/GrokDiscoveryTests.swift",
+        "core/Tests/TokiAgentTests/GrokReaderRegressionTests.swift",
+        "core/Tests/TokiAgentTests/GrokSnapshotTests.swift",
+        "core/Tests/TokiAgentTests/GrokTestSupport.swift"
+      ],
+      "reader": [
+        "core/Sources/TokiUsageReaders/GrokReader.swift"
+      ],
+      "readerNames": [
+        "Grok CLI"
+      ],
+      "status": "implemented",
+      "disposition": "common-existing-client",
       "limitations": [
-        "Not implemented in this M0–M2 candidate; separate client spec/fixture/authorization required.",
+        "Only usage.json is read; the much larger updates.jsonl turn_completed stream carries the same numbers and is not parsed.",
+        "Session discovery is fixed at sessions/<project>/<session>; deeper or relocated layouts are not discovered.",
+        "Costs come from Grok's reported costUsdTicks; models absent from the curated catalog stay unpriced rather than estimated.",
         "Registry metadata is provenance, not exhaustive product support or execution evidence."
       ],
       "verification": {
-        "worker": "source inspection only",
+        "worker": "source inspection plus a local real-store read reconciled against the on-disk usage records",
         "green": "unverified",
-        "consumer": "unverified",
+        "consumer": "Reader, registry and assembled snapshot suites passed on macOS",
         "nativeUI": "unverified",
         "linux": "unverified",
         "performance": "unverified"
       },
-      "fixtureEvidenceStatus": "No scoped fixture evidence listed; source inventory only"
+      "fixtureEvidenceStatus": "Listed synthetic fixtures executed in the macOS core suite; no production session data is committed"
     },
     {
       "pinnedSHA": "3bd6dceb98925edab4e149c9bb1cf3fec9123f17",
