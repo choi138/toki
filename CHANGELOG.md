@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Pricing for GPT-5.6 Cyber, including cache token cost calculations.
+
 ### Fixed
 
 - GPT-5.6 Sol, Terra, and Luna costs no longer use the launch rates for current
