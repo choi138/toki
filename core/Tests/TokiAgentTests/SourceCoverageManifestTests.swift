@@ -53,11 +53,11 @@ final class SourceCoverageManifestTests: XCTestCase {
         }
     }
 
-    func test_common17MapToAll18RegisteredReadersAndMissing36HaveNone() throws {
+    func test_common18MapToAll19RegisteredReadersAndMissing35HaveNone() throws {
         let clients = try XCTUnwrap(load("tokscale-coverage.json")["clients"] as? [[String: Any]])
         let common = clients.filter { !($0["readerNames"] as? [String] ?? []).isEmpty }
-        XCTAssertEqual(common.count, 17)
-        XCTAssertEqual(clients.count - common.count, 36)
+        XCTAssertEqual(common.count, 18)
+        XCTAssertEqual(clients.count - common.count, 35)
         let names = common.flatMap { $0["readerNames"] as? [String] ?? [] }
         let home = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         let actual = LocalUsageReaderRegistry.agentDescriptors(home: home, environment: [:]).map(\.name)

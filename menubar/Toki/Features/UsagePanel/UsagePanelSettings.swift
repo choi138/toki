@@ -25,6 +25,7 @@ final class UsagePanelSettings: ObservableObject {
         "Kimi CLI",
         "Kimi Code",
         "Qwen CLI",
+        "Grok CLI",
         "Remote Devices",
     ]
 

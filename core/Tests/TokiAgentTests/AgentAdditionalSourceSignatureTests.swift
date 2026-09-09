@@ -109,6 +109,7 @@ final class AgentAdditionalRegistryTests: XCTestCase {
                 "Kimi CLI",
                 "Kimi Code",
                 "Qwen CLI",
+                "Grok CLI",
             ])
         XCTAssertFalse(names.contains("Remote Devices"))
     }

@@ -9,8 +9,8 @@ Registry/scanner content hashes and all 53 registry entries are retained in
 [tokscale-clients.pinned.json](tokscale-clients.pinned.json).
 
 [tokscale-coverage.json](tokscale-coverage.json) is the machine-readable inventory:
-53 distinct upstream client IDs, 17 common clients corresponding to 18 default
-Toki readers, and 36 explicitly deferred new clients. Kimi CLI and Kimi Code map
+53 distinct upstream client IDs, 18 common clients corresponding to 19 default
+Toki readers, and 35 explicitly deferred new clients. Kimi CLI and Kimi Code map
 to the one upstream `kimi` ID. Desktop, headless, database and archive variants
 are format/product subfeatures; they do not increase the registry count.
 
@@ -48,6 +48,7 @@ rules remain in their dedicated resolver.
 | `opencode` → OpenCode | Registry uses injected home/environment: default and channel DBs, additive `OPENCODE_DB`, legacy `storage/message` JSON; fresh classifier-selected DB/sidecars/JSON feed signatures and mount validation. | Bounded v1/v2/legacy schemas; unknown schemas and wholly undecodable stores fail. Empty, user-only and mixed valid/invalid stores retain compatibility. No arbitrary replica relocation or pricing expansion. |
 | `openclaw` → OpenClaw | All four injected-home agents roots: `.openclaw`, `.clawdbot`, `.moltbot`, `.moldbot`; nested JSONL, arbitrary deleted/reset suffixes and SQLite transcript events. Same fresh bounded classifier supplies canonical mount/signature paths without mtime cutoff. | Compressed archives and embedded Codex/app-server reassignment remain deferred. Explicit root initializers remain exclusive. |
 | `cursor` → Cursor | Unmodified baseline OS-specific local Cursor SQLite reader. | Explicitly excluded. Upstream account-cache JSON/CSV is a different data surface; registry overlap does not imply equivalence. |
+| `grok` → Grok CLI | `GROK_HOME/sessions`, default `~/.grok/sessions`; per-session `usage.json` turn deltas with per-model breakdown and reported `costUsdTicks`, plus sibling `summary.json` for cwd and title. | Pinned upstream pattern is `updates.jsonl`; its `turn_completed` numbers duplicate `usage.json`, which is read instead. Discovery is fixed at `sessions/<project>/<session>`, so a session's own `subagents/` children are not rescanned; each subagent is counted once under its own session directory. No pricing expansion — unpriced models stay unpriced rather than estimated. |
 
 The audit includes the full pinned `clients.rs` registry and `scanner.rs`
 supplemental paths, plus the common clients' parsers. See
@@ -97,12 +98,12 @@ excluded; explicitly selected root symlinks are canonicalized at read time.
 
 ## Explicit new-client deferral
 
-Each of these 36 IDs has its own `planned` / `deferred-new-client` row, empty
+Each of these 35 IDs has its own `planned` / `deferred-new-client` row, empty
 reader list and stated limitation in the JSON manifest:
 
 ```text
 roocode kilocode mux kilo crush goose codebuff antigravity zed kiro trae warp
-cline grok jcode commandcode micode antigravity-cli junie zcode opencodereview
+cline jcode commandcode micode antigravity-cli junie zcode opencodereview
 codebuddy workbuddy devin-cli devin-desktop augment reasonix prime-agent freebuff
 cherrystudio dsh mcode fx lmstudio unsloth hindsight
 ```
