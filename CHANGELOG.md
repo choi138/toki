@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- GPT-5.6 Sol, Terra, and Luna costs no longer use the launch rates for current
+  usage. The post-launch cuts are scheduled at their effective dates
+  (Terra/Luna 2026-07-30, Sol 2026-08-21), so Luna in particular stops
+  overcounting by 5x while usage recorded before each cut keeps its own rate.
+
 ## [1.1.3] - 2026-07-10
 
 ### Added

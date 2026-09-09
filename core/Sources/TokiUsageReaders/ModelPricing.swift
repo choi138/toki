@@ -113,7 +113,9 @@ private let exactPricingTable: [String: ModelPrice] = [
     // bill at 2x input/cache and 1.5x output, and fast mode doubles every rate,
     // both under the same model ID, so those paths are under-estimated here.
     "gpt-6-astra": price(10.0, 50.0, 1.00, 12.50),
-    // GPT-5.6 standard short-context pricing.
+    // GPT-5.6 standard short-context pricing at launch. OpenAI cut all three
+    // rates after launch, so the reduced rates live in scheduledPriceChanges
+    // and usage recorded before each cut still bills at the launch rate.
     "gpt-5.6-sol": price(5.0, 30.0, 0.50, 6.25),
     "gpt-5.6-terra": price(2.50, 15.0, 0.25, 3.125),
     "gpt-5.6-luna": price(1.0, 6.0, 0.10, 1.25),
@@ -198,14 +200,37 @@ private struct ScheduledPriceChange {
     let price: ModelPrice
 }
 
+// Changes must be sorted by ascending effectiveFrom; the base table entry
+// applies before the earliest change.
+//
 // claude-sonnet-5 standard pricing replaces the introductory rate at
-// 2026-09-01T00:00:00Z. Changes must be sorted by ascending effectiveFrom;
-// the base table entry applies before the earliest change.
+// 2026-09-01T00:00:00Z.
+//
+// The GPT-5.6 rates were cut on separate dates: Terra and Luna at
+// 2026-07-30T00:00:00Z, Sol alone at 2026-08-21T00:00:00Z. Sol's reduced rate
+// is promotional and guaranteed only through 2026-11-21, but OpenAI publishes
+// no successor rate, so no revert is scheduled here.
+// https://developers.openai.com/api/docs/pricing
 private let scheduledPriceChanges: [String: [ScheduledPriceChange]] = [
     "claude-sonnet-5": [
         ScheduledPriceChange(
             effectiveFrom: Date(timeIntervalSince1970: 1_788_220_800),
             price: price(3.0, 15.0, 0.30, 3.75, 6.0)),
+    ],
+    "gpt-5.6-sol": [
+        ScheduledPriceChange(
+            effectiveFrom: Date(timeIntervalSince1970: 1_787_270_400),
+            price: price(4.0, 20.0, 0.40, 5.0)),
+    ],
+    "gpt-5.6-terra": [
+        ScheduledPriceChange(
+            effectiveFrom: Date(timeIntervalSince1970: 1_785_369_600),
+            price: price(2.0, 12.0, 0.20, 2.50)),
+    ],
+    "gpt-5.6-luna": [
+        ScheduledPriceChange(
+            effectiveFrom: Date(timeIntervalSince1970: 1_785_369_600),
+            price: price(0.20, 1.20, 0.02, 0.25)),
     ],
 ]
 
