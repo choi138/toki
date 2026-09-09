@@ -91,12 +91,25 @@ final class GrokFixture {
         return directory
     }
 
-    func writeRawUsage(_ contents: String, id: String, cwd: String = "/synthetic/project") throws {
+    /// Returns the usage.json URL so a test can pin its modification date, which the reader
+    /// uses as the fallback timestamp when a record carries no `endedAt` or `updatedAt`.
+    @discardableResult
+    func writeRawUsage(
+        _ contents: String,
+        id: String,
+        cwd: String = "/synthetic/project",
+        modifiedAt: Date? = nil) throws -> URL {
         let directory = sessionsRoot
             .appendingPathComponent(Self.encoded(cwd))
             .appendingPathComponent(id)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        try Data(contents.utf8).write(to: directory.appendingPathComponent("usage.json"))
+        let url = directory.appendingPathComponent("usage.json")
+        try Data(contents.utf8).write(to: url)
+        if let modifiedAt {
+            try FileManager.default.setAttributes(
+                [.modificationDate: modifiedAt], ofItemAtPath: url.path)
+        }
+        return url
     }
 
     private func write(_ value: [String: Any], to url: URL) throws {

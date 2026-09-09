@@ -103,6 +103,27 @@ final class GrokDiscoveryTests: XCTestCase {
         XCTAssertThrowsError(try GrokSessionDiscovery.sessions(in: [fixture.sessionsRoot], limits: limits))
     }
 
+    func test_visitedEntryCountAboveInjectedLimitIsRejected() throws {
+        let fixture = try GrokFixture()
+        defer { fixture.remove() }
+        // One session costs two visited entries: its project directory, then the session itself.
+        try fixture.writeSession(turns: [fixture.turn(endedAt: GrokFixture.date)])
+        let limits = Self.limits(maximumEntryCount: 1)
+
+        XCTAssertThrowsError(try GrokSessionDiscovery.sessions(in: [fixture.sessionsRoot], limits: limits))
+        XCTAssertNoThrow(try GrokSessionDiscovery.sessions(
+            in: [fixture.sessionsRoot], limits: Self.limits(maximumEntryCount: 2)))
+    }
+
+    private static func limits(maximumEntryCount: Int) -> PiCompatibleReadLimits {
+        PiCompatibleReadLimits(
+            maximumFileCount: PiCompatibleReadLimits.default.maximumFileCount,
+            maximumFileBytes: PiCompatibleReadLimits.default.maximumFileBytes,
+            maximumLineBytes: PiCompatibleReadLimits.default.maximumLineBytes,
+            maximumEventCount: PiCompatibleReadLimits.default.maximumEventCount,
+            maximumEntryCount: maximumEntryCount)
+    }
+
     func test_selectedSourceLocationsCoverRootAndSessionFiles() throws {
         let fixture = try GrokFixture()
         defer { fixture.remove() }

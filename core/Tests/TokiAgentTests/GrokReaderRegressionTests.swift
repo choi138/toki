@@ -191,15 +191,47 @@ final class GrokReaderRegressionTests: XCTestCase {
         defer { fixture.remove() }
         try fixture.writeRawUsage("not json at all", id: "session-broken")
         try fixture.writeRawUsage("{}", id: "session-empty")
-        try fixture.writeRawUsage("""
-        {"sessionId":"session-no-date","turns":[{"inputTokens":10,"outputTokens":5}]}
-        """, id: "session-no-date")
         try fixture.writeSession(id: "session-healthy", turns: [fixture.turn(endedAt: GrokFixture.date)])
 
         let usage = try await read(fixture)
 
         XCTAssertEqual(usage.totalTokens, 1200)
         XCTAssertEqual(Set(usage.tokenEvents.compactMap { $0.attribution?.sessionID }).count, 1)
+    }
+
+    func test_recordsWithoutAnyTimestampFallBackToTheFileModificationDate() async throws {
+        let fixture = try GrokFixture()
+        defer { fixture.remove() }
+        let modifiedAt = GrokFixture.date.addingTimeInterval(-120)
+        try fixture.writeRawUsage(
+            """
+            {"sessionId":"session-no-date","turns":[{"inputTokens":10,"outputTokens":5}]}
+            """,
+            id: "session-no-date",
+            modifiedAt: modifiedAt)
+
+        let usage = try await read(fixture)
+        let event = try XCTUnwrap(usage.tokenEvents.first)
+
+        XCTAssertEqual(usage.tokenEvents.count, 1)
+        XCTAssertEqual(event.timestamp, modifiedAt)
+        XCTAssertEqual(event.totalTokens, 15)
+    }
+
+    func test_timestamplessRecordsOutsideTheRequestedRangeAreExcluded() async throws {
+        let fixture = try GrokFixture()
+        defer { fixture.remove() }
+        try fixture.writeRawUsage(
+            """
+            {"sessionId":"session-no-date","turns":[{"inputTokens":10,"outputTokens":5}]}
+            """,
+            id: "session-no-date",
+            modifiedAt: wideRange.from.addingTimeInterval(-86400))
+
+        let usage = try await read(fixture)
+
+        XCTAssertTrue(usage.tokenEvents.isEmpty)
+        XCTAssertEqual(usage.totalTokens, 0)
     }
 
     fileprivate func read(_ fixture: GrokFixture) async throws -> RawTokenUsage {

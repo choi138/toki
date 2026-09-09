@@ -137,9 +137,10 @@ enum GrokSessionDiscovery {
         var sessions: [GrokSessionSource] = []
         for root in roots {
             try Task.checkCancellation()
-            for projectDirectory in try childDirectories(of: root, visitedEntryCount: &visitedEntryCount) {
+            for projectDirectory in try childDirectories(
+                of: root, limits: limits, visitedEntryCount: &visitedEntryCount) {
                 for sessionDirectory in try childDirectories(
-                    of: projectDirectory, visitedEntryCount: &visitedEntryCount) {
+                    of: projectDirectory, limits: limits, visitedEntryCount: &visitedEntryCount) {
                     let usageURL = sessionDirectory.appendingPathComponent("usage.json")
                     guard isRegularFile(usageURL) else { continue }
                     let canonicalPath = usageURL.resolvingSymlinksInPath().standardizedFileURL.path
@@ -160,6 +161,7 @@ enum GrokSessionDiscovery {
 
     private static func childDirectories(
         of directory: URL,
+        limits: PiCompatibleReadLimits,
         visitedEntryCount: inout Int) throws -> [URL] {
         let keys: [URLResourceKey] = [.isDirectoryKey, .isSymbolicLinkKey, .isHiddenKey]
         let entries: [URL]
@@ -180,7 +182,7 @@ enum GrokSessionDiscovery {
         var directories: [URL] = []
         for entry in entries {
             let (nextEntryCount, overflow) = visitedEntryCount.addingReportingOverflow(1)
-            guard !overflow, nextEntryCount <= PiCompatibleReadLimits.default.maximumEntryCount else {
+            guard !overflow, nextEntryCount <= limits.maximumEntryCount else {
                 throw PiCompatibleReaderError.tooManyEntries(overflow ? Int.max : nextEntryCount)
             }
             visitedEntryCount = nextEntryCount
