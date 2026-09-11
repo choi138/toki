@@ -106,7 +106,7 @@ final class HermesProfileConsumerTests: XCTestCase {
         do {
             _ = try await builder.build(configuration: fixture.configuration(), now: fixture.now)
             XCTFail("A partial profile read must not publish an apparently complete snapshot")
-        } catch let AgentSnapshotBuilderError.readerFailed(source) {
+        } catch let AgentSnapshotBuilderError.readerFailed(source, _) {
             XCTAssertEqual(source, HermesReader.sourceName)
         }
     }

@@ -213,7 +213,7 @@ final class AgentSourceMountMonitorTests: XCTestCase {
         XCTAssertTrue(AgentSnapshotBuilderError.sourceMountRefreshRequired.requiresProcessRestart)
         XCTAssertTrue(AgentSnapshotBuilderError.sourceInspectionFailed.requiresProcessRestart)
         XCTAssertFalse(AgentSnapshotBuilderError.sourceLimitExceeded.requiresProcessRestart)
-        XCTAssertFalse(AgentSnapshotBuilderError.readerFailed("Hermes").requiresProcessRestart)
+        XCTAssertFalse(AgentSnapshotBuilderError.readerFailed("Hermes", detail: "boom").requiresProcessRestart)
     }
 }
 

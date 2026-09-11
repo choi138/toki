@@ -204,10 +204,11 @@ final class AgentSyncServiceTests: XCTestCase {
             try await service.syncOnce(now: now)
             XCTFail("Expected the verification build to fail")
         } catch let error as AgentSnapshotBuilderError {
-            guard case let .readerFailed(name) = error else {
+            guard case let .readerFailed(name, detail) = error else {
                 return XCTFail("Expected readerFailed, got \(error)")
             }
             XCTAssertEqual(name, "Hermes")
+            XCTAssertFalse(detail.isEmpty)
         }
 
         let failedState = try AgentStateStore(paths: fixture.paths).load()
@@ -466,7 +467,7 @@ private final class FailAfterFirstAgentSnapshotBuilder: AgentSnapshotBuilding {
             return builds
         }
         guard buildNumber == 1 else {
-            throw AgentSnapshotBuilderError.readerFailed("Hermes")
+            throw AgentSnapshotBuilderError.readerFailed("Hermes", detail: "verification build")
         }
         return RemoteUsageSnapshot(
             device: RemoteDeviceDescriptor(
