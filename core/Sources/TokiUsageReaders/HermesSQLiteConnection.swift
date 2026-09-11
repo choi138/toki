@@ -9,11 +9,11 @@ import Foundation
 final class HermesSQLiteConnection {
     let database: OpaquePointer
 
-    private let immutableSnapshot: HermesDatabaseSourceSnapshot?
+    private let immutableSnapshot: SQLiteSourceSnapshot?
 
     private init(
         database: OpaquePointer,
-        immutableSnapshot: HermesDatabaseSourceSnapshot?) {
+        immutableSnapshot: SQLiteSourceSnapshot?) {
         self.database = database
         self.immutableSnapshot = immutableSnapshot
     }
@@ -42,15 +42,15 @@ final class HermesSQLiteConnection {
                 immutableSnapshot: nil)
         } catch let error as HermesSQLiteError {
             let databaseURL = URL(fileURLWithPath: path)
-            guard hermesSQLiteShouldRetryImmutableFallback(after: error.code),
-                  let snapshot = HermesDatabaseSourceSnapshot.captureForImmutableFallback(
+            guard sqliteShouldRetryImmutableFallback(after: error.code),
+                  let snapshot = SQLiteSourceSnapshot.captureForImmutableFallback(
                       databaseURL: databaseURL,
                       fileManager: fileManager) else {
                 throw error
             }
 
             return try openValidatedDatabase(
-                path: immutableDatabaseURI(for: databaseURL),
+                path: sqliteImmutableDatabaseURI(for: databaseURL),
                 flags: SQLITE_OPEN_READONLY | SQLITE_OPEN_URI,
                 immutableSnapshot: snapshot)
         }
@@ -59,7 +59,7 @@ final class HermesSQLiteConnection {
     private static func openValidatedDatabase(
         path: String,
         flags: Int32,
-        immutableSnapshot: HermesDatabaseSourceSnapshot?) throws -> HermesSQLiteConnection {
+        immutableSnapshot: SQLiteSourceSnapshot?) throws -> HermesSQLiteConnection {
         var database: OpaquePointer?
         let openStatus = sqlite3_open_v2(path, &database, flags, nil)
         guard openStatus == SQLITE_OK, let database else {
@@ -103,75 +103,6 @@ final class HermesSQLiteConnection {
             return stepStatus
         }
         return SQLITE_OK
-    }
-
-    private static func immutableDatabaseURI(for databaseURL: URL) -> String {
-        "\(databaseURL.absoluteString)?mode=ro&immutable=1"
-    }
-}
-
-func hermesSQLiteShouldRetryImmutableFallback(after resultCode: Int32) -> Bool {
-    let primaryResultCode = resultCode & 0xFF
-    return primaryResultCode == SQLITE_CANTOPEN
-        || primaryResultCode == SQLITE_READONLY
-}
-
-struct HermesDatabaseSourceSnapshot: Equatable {
-    let databaseURL: URL
-    let databaseSignature: HermesDatabaseFileSignature
-
-    static func captureForImmutableFallback(
-        databaseURL: URL,
-        fileManager: FileManager = .default) -> HermesDatabaseSourceSnapshot? {
-        guard !hasSQLiteSidecars(databaseURL: databaseURL, fileManager: fileManager),
-              let databaseSignature = HermesDatabaseFileSignature.capture(
-                  at: databaseURL,
-                  fileManager: fileManager),
-              !hasSQLiteSidecars(databaseURL: databaseURL, fileManager: fileManager) else {
-            return nil
-        }
-        return HermesDatabaseSourceSnapshot(
-            databaseURL: databaseURL,
-            databaseSignature: databaseSignature)
-    }
-
-    func isCurrent(fileManager: FileManager = .default) -> Bool {
-        guard let currentSnapshot = Self.captureForImmutableFallback(
-            databaseURL: databaseURL,
-            fileManager: fileManager) else {
-            return false
-        }
-        return currentSnapshot == self
-    }
-
-    private static func hasSQLiteSidecars(
-        databaseURL: URL,
-        fileManager: FileManager) -> Bool {
-        let path = databaseURL.path
-        return fileManager.fileExists(atPath: "\(path)-wal")
-            || fileManager.fileExists(atPath: "\(path)-shm")
-            || fileManager.fileExists(atPath: "\(path)-journal")
-    }
-}
-
-struct HermesDatabaseFileSignature: Equatable {
-    let systemNumber: UInt64?
-    let fileNumber: UInt64?
-    let size: UInt64
-    let modificationDate: Date?
-
-    static func capture(
-        at fileURL: URL,
-        fileManager: FileManager = .default) -> HermesDatabaseFileSignature? {
-        guard let attributes = try? fileManager.attributesOfItem(atPath: fileURL.path),
-              let size = (attributes[.size] as? NSNumber)?.uint64Value else {
-            return nil
-        }
-        return HermesDatabaseFileSignature(
-            systemNumber: (attributes[.systemNumber] as? NSNumber)?.uint64Value,
-            fileNumber: (attributes[.systemFileNumber] as? NSNumber)?.uint64Value,
-            size: size,
-            modificationDate: attributes[.modificationDate] as? Date)
     }
 }
 
