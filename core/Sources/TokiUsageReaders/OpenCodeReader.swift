@@ -84,7 +84,7 @@ public struct OpenCodeReader: TokenReader {
         var sessionNamespaces: [URL: [String: Set<String>]] = [:]
         for store in discovery.stores {
             try Task.checkCancellation()
-            let databaseMessages = try OpenCodeSQLiteReader(url: store.url, budget: budget).read(store: store)
+            let databaseMessages = try readDatabaseSnapshot(store: store, budget: budget)
             messages.append(contentsOf: databaseMessages)
             for message in databaseMessages {
                 try Task.checkCancellation()
@@ -114,6 +114,21 @@ public struct OpenCodeReader: TokenReader {
         usage.recomputeMergedActiveEstimate(source: name, clippingEndDate: endDate)
         try Task.checkCancellation()
         return usage
+    }
+
+    /// An immutable fallback read is only valid while the database stays sidecar-free.
+    /// One retry covers a writer that appeared between the open and the end of the read.
+    private func readDatabaseSnapshot(
+        store: OpenCodeDatabaseStore,
+        budget: OpenCodeReadBudget) throws -> [OpenCodeMessage] {
+        for attempt in 0..<2 {
+            try Task.checkCancellation()
+            let reader = try OpenCodeSQLiteReader(url: store.url, budget: budget)
+            let messages = try reader.read(store: store)
+            if reader.isSourceStateCurrent { return messages }
+            guard attempt == 0 else { break }
+        }
+        throw OpenCodeReaderError.sourceChangedDuringRead
     }
 
     private func legacyMessages(

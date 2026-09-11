@@ -11,26 +11,14 @@ import TokiUsageCore
 final class OpenCodeSQLiteReader {
     private let database: OpaquePointer
     private let budget: OpenCodeReadBudget
+    private let immutableSnapshot: SQLiteSourceSnapshot?
 
-    init(url: URL, budget: OpenCodeReadBudget) throws {
+    init(url: URL, budget: OpenCodeReadBudget, fileManager: FileManager = .default) throws {
         try Task.checkCancellation()
         self.budget = budget
-        var handle: OpaquePointer?
-        let status = sqlite3_open_v2(url.path, &handle, SQLITE_OPEN_READONLY, nil)
-        guard status == SQLITE_OK, let handle else {
-            sqlite3_close(handle)
-            throw OpenCodeReaderError.sqlite(operation: "open", code: status)
-        }
-        database = handle
-        sqlite3_busy_timeout(database, 2000)
-        // SQLite also includes the other row columns in SQLITE_LIMIT_LENGTH.
-        let rowLimit = min(budget.limits.maximumRecordBytes, Int(Int32.max) - 131_072) + 131_072
-        sqlite3_limit(database, SQLITE_LIMIT_LENGTH, Int32(rowLimit))
-        sqlite3_progress_handler(database, 1000, { context in
-            guard let context else { return 1 }
-            let budget = Unmanaged<OpenCodeReadBudget>.fromOpaque(context).takeUnretainedValue()
-            return budget.interruptSQLite() ? 1 : 0
-        }, Unmanaged.passUnretained(budget).toOpaque())
+        let connection = try OpenCodeSQLiteConnection.open(url: url, budget: budget, fileManager: fileManager)
+        database = connection.database
+        immutableSnapshot = connection.immutableSnapshot
     }
 
     deinit {
@@ -38,9 +26,16 @@ final class OpenCodeSQLiteReader {
         sqlite3_close(database)
     }
 
+    /// False once a writer reappeared under an immutable read, whose snapshot would then
+    /// be missing WAL rows. Always true for an ordinary read-only connection.
+    var isSourceStateCurrent: Bool {
+        immutableSnapshot?.isCurrent() ?? true
+    }
+
     func read(store: OpenCodeDatabaseStore) throws -> [OpenCodeMessage] {
         // A deferred read transaction pins schema, session metadata and both generations to
-        // one SQLite snapshot. Do not use immutable=1: it can omit live committed WAL rows.
+        // one SQLite snapshot. immutable=1 belongs only to the sidecar-free fallback in
+        // init, where there is no WAL to omit; never select it for a live database.
         try execute("BEGIN", operation: "begin")
         defer { sqlite3_exec(database, "ROLLBACK", nil, nil, nil) }
         let tables = try tableNames()

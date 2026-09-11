@@ -41,6 +41,7 @@ public enum OpenCodeReaderError: LocalizedError, Equatable {
     case invalidConfiguration
     case invalidDateRange
     case invalidAggregate
+    case sourceChangedDuringRead
     case sqlite(operation: String, code: Int32)
 
     public var errorDescription: String? {
@@ -51,6 +52,7 @@ public enum OpenCodeReaderError: LocalizedError, Equatable {
         case .invalidConfiguration: "OpenCode read limits or source locations are invalid."
         case .invalidDateRange: "OpenCode usage requires finite date boundaries."
         case .invalidAggregate: "OpenCode usage contains an invalid aggregate."
+        case .sourceChangedDuringRead: "An OpenCode database changed while it was being read."
         case let .sqlite(operation, code): "OpenCode SQLite \(operation) failed (code \(code))."
         }
     }
