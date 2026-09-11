@@ -245,4 +245,24 @@ extension RemoteUsageReaderTests {
             XCTAssertEqual(name, "build-server")
         }
     }
+
+    func test_staleDeviceStillPersistsTheFetchedManifest() async throws {
+        let fixture = try makeFixture()
+        let interval = TokiSyncLimits.minimumSyncIntervalSeconds
+        let lastSeenAt = Date().addingTimeInterval(
+            -TimeInterval(interval * TokiSyncLimits.staleIntervalMultiplier + 30))
+        let manifest = [fixture.device(lastSeenAt: lastSeenAt, syncIntervalSeconds: interval)]
+        let cache = InMemoryRemoteSnapshotCache()
+        let reader = fixture.makeReader(
+            client: fixture.makeClient(manifest: manifest),
+            cache: cache)
+
+        await XCTAssertThrowsErrorAsync {
+            _ = try await reader.readUsage(from: fixture.start, to: fixture.end)
+        }
+
+        let saved = try XCTUnwrap(cache.load())
+        XCTAssertEqual(cache.saveCallCount, 1)
+        XCTAssertEqual(saved.manifest.first?.lastSeenAt, lastSeenAt)
+    }
 }
