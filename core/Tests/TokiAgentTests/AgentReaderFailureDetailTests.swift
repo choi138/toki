@@ -40,6 +40,9 @@ final class AgentReaderFailureDetailTests: XCTestCase {
     }
 
     func test_refusedImmutableFallbackExplainsTheSidecar() throws {
+        // The refusal only surfaces where SQLite cannot create the missing -shm, which a
+        // read-only parent directory does not enforce against root.
+        try XCTSkipIf(geteuid() == 0, "A read-only directory does not stop root.")
         let root = FileManager.default.temporaryDirectory
             .resolvingSymlinksInPath()
             .appendingPathComponent("toki-hermes-sidecar-\(UUID().uuidString)", isDirectory: true)
@@ -57,9 +60,9 @@ final class AgentReaderFailureDetailTests: XCTestCase {
                 sqlite3_exec(handle, "PRAGMA journal_mode=WAL; CREATE TABLE t (id TEXT);", nil, nil, nil),
                 SQLITE_OK)
         }
-        // Closing the writer removes both sidecars. A stray empty -wal without its -shm is the
-        // state the Agent hits on a read-only mount: SQLite cannot recreate the -shm, and the
-        // immutable fallback refuses because the -wal may still hold unmerged pages.
+        // Closing the writer removes both sidecars. A stray empty -wal with no -shm on a read-only
+        // mount is the state the Agent hits: SQLite cannot recreate the -shm, and the immutable
+        // fallback refuses because the -wal may still hold unmerged pages.
         for suffix in ["-wal", "-shm"] {
             try? FileManager.default.removeItem(atPath: database.path + suffix)
         }
