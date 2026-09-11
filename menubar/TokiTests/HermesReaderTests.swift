@@ -560,12 +560,12 @@ final class HermesReaderTests: XCTestCase {
     }
 
     func test_hermesSQLiteConnection_retriesImmutableFallbackAfterReadOnlyProbeFailure() {
-        XCTAssertTrue(hermesSQLiteShouldRetryImmutableFallback(after: SQLITE_CANTOPEN))
-        XCTAssertTrue(hermesSQLiteShouldRetryImmutableFallback(after: SQLITE_READONLY))
+        XCTAssertTrue(sqliteShouldRetryImmutableFallback(after: SQLITE_CANTOPEN))
+        XCTAssertTrue(sqliteShouldRetryImmutableFallback(after: SQLITE_READONLY))
         XCTAssertTrue(
-            hermesSQLiteShouldRetryImmutableFallback(
+            sqliteShouldRetryImmutableFallback(
                 after: SQLITE_READONLY | Int32(2 << 8)))
-        XCTAssertFalse(hermesSQLiteShouldRetryImmutableFallback(after: SQLITE_BUSY))
+        XCTAssertFalse(sqliteShouldRetryImmutableFallback(after: SQLITE_BUSY))
     }
 
     func test_hermesReader_capturesObservationTimeAfterReadingSnapshot() async throws {
@@ -676,7 +676,7 @@ final class HermesReaderTests: XCTestCase {
             at: dbURL,
             rows: [hermesSingleCounterFixture(id: "snapshot", inputTokens: 1)])
         let snapshot = try XCTUnwrap(
-            HermesDatabaseSourceSnapshot.captureForImmutableFallback(databaseURL: dbURL))
+            SQLiteSourceSnapshot.captureForImmutableFallback(databaseURL: dbURL))
 
         try Data().write(to: URL(fileURLWithPath: "\(dbURL.path)-wal"))
 
@@ -694,7 +694,7 @@ final class HermesReaderTests: XCTestCase {
         try Data().write(to: URL(fileURLWithPath: "\(dbURL.path)-journal"))
 
         XCTAssertNil(
-            HermesDatabaseSourceSnapshot.captureForImmutableFallback(databaseURL: dbURL))
+            SQLiteSourceSnapshot.captureForImmutableFallback(databaseURL: dbURL))
     }
 }
 
