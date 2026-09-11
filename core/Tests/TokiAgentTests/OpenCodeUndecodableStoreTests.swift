@@ -128,7 +128,7 @@ final class OpenCodeUndecodableStoreTests: XCTestCase {
                 _ = try await builder.build(
                     configuration: configuration, now: OpenCodeFixture.date.addingTimeInterval(120))
                 XCTFail("An undecodable store must not be exported as complete empty coverage")
-            } catch let AgentSnapshotBuilderError.readerFailed(source) {
+            } catch let AgentSnapshotBuilderError.readerFailed(source, _) {
                 XCTAssertEqual(source, "OpenCode")
             }
         }

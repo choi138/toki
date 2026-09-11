@@ -42,11 +42,17 @@ final class HermesSQLiteConnection {
                 immutableSnapshot: nil)
         } catch let error as HermesSQLiteError {
             let databaseURL = URL(fileURLWithPath: path)
-            guard sqliteShouldRetryImmutableFallback(after: error.code),
-                  let snapshot = SQLiteSourceSnapshot.captureForImmutableFallback(
-                      databaseURL: databaseURL,
-                      fileManager: fileManager) else {
-                throw error
+            guard sqliteShouldRetryImmutableFallback(after: error.code) else { throw error }
+            guard let snapshot = SQLiteSourceSnapshot.captureForImmutableFallback(
+                databaseURL: databaseURL,
+                fileManager: fileManager) else {
+                // The immutable read is refused while a sidecar is present, so this is the
+                // one failure the operator cannot act on without knowing which side is wrong.
+                throw HermesSQLiteError(
+                    operation: error.operation,
+                    message: "\(error.message); a sidecar is present, so the read-only WAL "
+                        + "fallback was refused. Check that the database still has a -shm.",
+                    code: error.code)
             }
 
             return try openValidatedDatabase(

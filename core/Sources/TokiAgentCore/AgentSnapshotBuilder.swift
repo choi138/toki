@@ -191,7 +191,9 @@ private extension AgentSnapshotBuilder {
                     } catch is CancellationError {
                         throw CancellationError()
                     } catch {
-                        throw AgentSnapshotBuilderError.readerFailed(descriptor.name)
+                        throw AgentSnapshotBuilderError.readerFailed(
+                            descriptor.name,
+                            detail: AgentReaderFailureDetail.describe(error))
                     }
                 }
             }
