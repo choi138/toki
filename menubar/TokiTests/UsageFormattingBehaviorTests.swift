@@ -236,6 +236,40 @@ final class UsageFormattingBehaviorTests: XCTestCase {
 }
 
 extension UsageFormattingBehaviorTests {
+    func test_chatGPTUsageEstimateTreatsCacheWriteTokensAsUnpriced() {
+        let mixedEvent = TokenUsageEvent(
+            timestamp: Date(timeIntervalSince1970: 0),
+            source: "Codex",
+            model: "gpt-5.6-terra",
+            inputTokens: 1_000_000,
+            outputTokens: 0,
+            cacheReadTokens: 0,
+            cacheWriteTokens: 2_000_000,
+            reasoningTokens: 0,
+            cost: 0)
+        let cacheWriteOnlyEvent = TokenUsageEvent(
+            timestamp: Date(timeIntervalSince1970: 0),
+            source: "Codex",
+            model: "gpt-5.6-terra",
+            inputTokens: 0,
+            outputTokens: 0,
+            cacheReadTokens: 0,
+            cacheWriteTokens: 2_000_000,
+            reasoningTokens: 0,
+            cost: 0)
+
+        let mixedEstimate = chatGPTUsageEstimate(from: [mixedEvent])
+        let cacheWriteOnlyEstimate = chatGPTUsageEstimate(from: [cacheWriteOnlyEvent])
+
+        XCTAssertEqual(mixedEstimate.credits, 50, accuracy: 0.000_001)
+        XCTAssertEqual(mixedEstimate.creditsPerMillionTokens, 50, accuracy: 0.000_001)
+        XCTAssertEqual(mixedEstimate.pricedTokens, 1_000_000)
+        XCTAssertEqual(mixedEstimate.unpricedTokens, 2_000_000)
+        XCTAssertFalse(mixedEstimate.isComplete)
+        XCTAssertFalse(cacheWriteOnlyEstimate.hasPricedUsage)
+        XCTAssertEqual(cacheWriteOnlyEstimate.unpricedTokens, 2_000_000)
+    }
+
     func test_chatGPTUsageEstimateDoesNotApplyStandardRatesToGpt55Pro() {
         let event = TokenUsageEvent(
             timestamp: Date(timeIntervalSince1970: 0),

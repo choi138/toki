@@ -84,7 +84,8 @@ func chatGPTUsageEstimate(from events: [TokenUsageEvent]) -> ChatGPTUsageEstimat
             ? rate.fastMultiplier
             : 1
         credits += baseCredits * multiplier
-        pricedTokens += event.totalTokens
+        pricedTokens += event.totalTokens - event.cacheWriteTokens
+        unpricedTokens += event.cacheWriteTokens
     }
 
     return ChatGPTUsageEstimate(
