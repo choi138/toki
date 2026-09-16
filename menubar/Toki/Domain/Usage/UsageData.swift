@@ -151,6 +151,10 @@ struct ChatGPTUsageEstimate: Equatable {
         pricedTokens > 0 || unpricedTokens > 0
     }
 
+    var hasPricedUsage: Bool {
+        pricedTokens > 0
+    }
+
     var isComplete: Bool {
         hasUsage && unpricedTokens == 0
     }

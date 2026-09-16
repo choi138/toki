@@ -43,6 +43,7 @@ final class UsageSnapshotProviderTests: XCTestCase {
         let event = try TokiSyncCoding.makeDecoder().decode(RemoteTokenEvent.self, from: data)
 
         XCTAssertNil(event.provider)
+        XCTAssertNil(event.serviceTier)
         XCTAssertNil(event.costIsKnown)
         XCTAssertEqual(event.totalTokens, 3)
     }
@@ -65,6 +66,26 @@ final class UsageSnapshotProviderTests: XCTestCase {
 
         XCTAssertEqual(decoded, event)
         XCTAssertEqual(decoded.provider, "openrouter")
+    }
+
+    func test_remoteTokenEventRoundTripsServiceTier() throws {
+        let event = RemoteTokenEvent(
+            timestamp: Date(timeIntervalSince1970: 1_765_756_800),
+            source: "Codex",
+            model: "gpt-5.6-terra",
+            serviceTier: "priority",
+            inputTokens: 1,
+            outputTokens: 2,
+            cacheReadTokens: 3,
+            cacheWriteTokens: 0,
+            reasoningTokens: 0)
+
+        let decoded = try TokiSyncCoding.makeDecoder().decode(
+            RemoteTokenEvent.self,
+            from: TokiSyncCoding.makeEncoder().encode(event))
+
+        XCTAssertEqual(decoded, event)
+        XCTAssertEqual(decoded.serviceTier, "priority")
     }
 
     func test_snapshotValidationRequiresCostWhenPriceIsKnown() throws {

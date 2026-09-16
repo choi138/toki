@@ -400,6 +400,7 @@ private extension AgentSnapshotAssembler {
             source: event.source,
             model: remoteModel(event.model),
             provider: remoteProvider(event.provider),
+            serviceTier: event.serviceTier,
             inputTokens: event.inputTokens,
             outputTokens: event.outputTokens,
             cacheReadTokens: event.cacheReadTokens,

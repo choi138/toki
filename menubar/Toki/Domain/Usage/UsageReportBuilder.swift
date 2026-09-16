@@ -69,7 +69,7 @@ func chatGPTUsageEstimate(from events: [TokenUsageEvent]) -> ChatGPTUsageEstimat
     var pricedTokens = 0
     var unpricedTokens = 0
 
-    for event in events where event.source == "Codex" {
+    for event in events where isCodexUsageSource(event.source) {
         guard let model = event.model,
               let rate = chatGPTCreditRate(for: model) else {
             unpricedTokens += event.totalTokens
@@ -93,6 +93,10 @@ func chatGPTUsageEstimate(from events: [TokenUsageEvent]) -> ChatGPTUsageEstimat
         unpricedTokens: unpricedTokens)
 }
 
+private func isCodexUsageSource(_ source: String) -> Bool {
+    source == "Codex" || source.hasPrefix("Codex · ")
+}
+
 private let chatGPTFastServiceTiers: Set = ["fast", "priority"]
 
 private func chatGPTCreditRate(for model: String) -> ChatGPTCreditRate? {
@@ -114,6 +118,15 @@ private func chatGPTCreditRate(for model: String) -> ChatGPTCreditRate? {
     }
     if modelID.hasPrefix("gpt-5.4") {
         return ChatGPTCreditRate(input: 62.5, cachedInput: 6.25, output: 375, fastMultiplier: 2)
+    }
+    if modelID.hasPrefix("gpt-5.3-codex") {
+        return ChatGPTCreditRate(input: 43.75, cachedInput: 4.375, output: 350, fastMultiplier: 1)
+    }
+    if modelID.hasPrefix("gpt-5.2-pro") {
+        return nil
+    }
+    if modelID.hasPrefix("gpt-5.2") {
+        return ChatGPTCreditRate(input: 43.75, cachedInput: 4.375, output: 350, fastMultiplier: 1)
     }
     return nil
 }

@@ -105,7 +105,7 @@ struct PanelCreditUsageView: View {
 
     @ViewBuilder
     private var creditUsageContent: some View {
-        if usage.chatGPTUsageEstimate.hasUsage {
+        if usage.chatGPTUsageEstimate.hasPricedUsage {
             creditMetric(
                 value: "~\(usage.chatGPTUsageEstimate.credits.formattedCredits())",
                 unit: "Credits")
@@ -148,9 +148,15 @@ struct PanelCreditUsageView: View {
     }
 
     private var creditUsageHelp: String {
-        let coverage = usage.chatGPTUsageEstimate.isComplete
-            ? "All Codex tokens were priced."
-            : "Some Codex tokens use an unknown model and are excluded."
+        let coverage = if !usage.chatGPTUsageEstimate.hasUsage {
+            "No eligible Codex usage was recorded."
+        } else if !usage.chatGPTUsageEstimate.hasPricedUsage {
+            "Codex usage was found, but no supported model rate was available."
+        } else if usage.chatGPTUsageEstimate.isComplete {
+            "All Codex tokens were priced."
+        } else {
+            "Some Codex tokens use an unknown model and are excluded."
+        }
         return "Estimated from ChatGPT model credit rates and Fast mode. "
             + "Credits per 1M shows the average consumption intensity. \(coverage)"
     }

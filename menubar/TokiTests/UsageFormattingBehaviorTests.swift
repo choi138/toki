@@ -50,7 +50,48 @@ final class UsageFormattingBehaviorTests: XCTestCase {
 
         XCTAssertEqual(estimate.pricedTokens, 0)
         XCTAssertEqual(estimate.unpricedTokens, 100)
+        XCTAssertFalse(estimate.hasPricedUsage)
         XCTAssertFalse(estimate.isComplete)
+    }
+
+    func test_chatGPTUsageEstimatePricesLegacyCodexModels() {
+        for model in ["gpt-5.3-codex", "gpt-5.2", "gpt-5.2-codex"] {
+            let event = TokenUsageEvent(
+                timestamp: Date(timeIntervalSince1970: 0),
+                source: "Codex",
+                model: model,
+                serviceTier: "priority",
+                inputTokens: 1_000_000,
+                outputTokens: 1_000_000,
+                cacheReadTokens: 1_000_000,
+                cacheWriteTokens: 0,
+                reasoningTokens: 0,
+                cost: 0)
+
+            let estimate = chatGPTUsageEstimate(from: [event])
+
+            XCTAssertEqual(estimate.credits, 398.125, accuracy: 0.000_001, model)
+            XCTAssertEqual(estimate.pricedTokens, 3_000_000, model)
+            XCTAssertTrue(estimate.isComplete, model)
+        }
+    }
+
+    func test_chatGPTUsageEstimateDoesNotApplyStandardRatesToGpt52Pro() {
+        let event = TokenUsageEvent(
+            timestamp: Date(timeIntervalSince1970: 0),
+            source: "Codex",
+            model: "gpt-5.2-pro",
+            inputTokens: 1_000_000,
+            outputTokens: 0,
+            cacheReadTokens: 0,
+            cacheWriteTokens: 0,
+            reasoningTokens: 0,
+            cost: 0)
+
+        let estimate = chatGPTUsageEstimate(from: [event])
+
+        XCTAssertFalse(estimate.hasPricedUsage)
+        XCTAssertEqual(estimate.unpricedTokens, 1_000_000)
     }
 
     func test_formattedTokens_promotesRoundedBoundaryToNextSuffix() {
