@@ -5,6 +5,7 @@ private let codexTokenCountMarker = Array("\"token_count\"".utf8)
 private let codexSessionMetaMarker = Array("\"session_meta\"".utf8)
 private let codexTurnContextMarker = Array("\"turn_context\"".utf8)
 private let codexTaskStartedMarker = Array("\"task_started\"".utf8)
+private let codexThreadSettingsMarker = Array("\"thread_settings_applied\"".utf8)
 private let codexTypeKey = Array("type".utf8)
 private let codexCompactedType = Array("compacted".utf8)
 private let codexResponseItemType = Array("response_item".utf8)
@@ -12,6 +13,7 @@ private let codexTokenCountMarkerData = Data(codexTokenCountMarker)
 private let codexSessionMetaMarkerData = Data(codexSessionMetaMarker)
 private let codexTurnContextMarkerData = Data(codexTurnContextMarker)
 private let codexTaskStartedMarkerData = Data(codexTaskStartedMarker)
+private let codexThreadSettingsMarkerData = Data(codexThreadSettingsMarker)
 
 func codexRolloutSnapshots(fromRolloutLines lines: [String]) -> [CodexTimedSnapshot] {
     var selector = CodexRolloutSnapshotSelector()
@@ -40,6 +42,7 @@ struct CodexRolloutSnapshotSelectorState: Codable {
     var replaySessionID: String?
     var taskStartedTurnIDs: Set<String> = []
     var forkChildIsUserFork = false
+    var serviceTier: String?
 }
 
 struct CodexRolloutSnapshotSelector {
@@ -99,6 +102,11 @@ struct CodexRolloutSnapshotSelector {
             return nil
         }
 
+        if entry.type == "event_msg", entry.payload?.type == "thread_settings_applied" {
+            state.serviceTier = entry.payload?.threadSettings?.serviceTier?.trimmedNonEmpty
+            return nil
+        }
+
         guard let tokenCount = entry.tokenCount,
               let timestamp = entry.timestamp,
               let date = codexParseTimestamp(timestamp) else {
@@ -117,7 +125,11 @@ struct CodexRolloutSnapshotSelector {
             state.inheritedForkBaseline = nil
         }
 
-        return CodexTimedSnapshot(date: date, tokenCount: tokenCount, fileOrder: fileOrder)
+        return CodexTimedSnapshot(
+            date: date,
+            tokenCount: tokenCount,
+            fileOrder: fileOrder,
+            serviceTier: state.serviceTier)
     }
 
     private func isForkChildTurn(_ turnID: String?) -> Bool {
@@ -253,7 +265,8 @@ func codexDataContainsRelevantMarker(
     _ data: Data,
     includeForkMarkers: Bool) -> Bool {
     if data.range(of: codexTokenCountMarkerData) != nil
-        || data.range(of: codexSessionMetaMarkerData) != nil {
+        || data.range(of: codexSessionMetaMarkerData) != nil
+        || data.range(of: codexThreadSettingsMarkerData) != nil {
         return true
     }
     return includeForkMarkers
@@ -383,7 +396,8 @@ private func codexBufferContainsRelevantMarker(
     while offset < buffer.count {
         if buffer[offset] == 0x22 {
             if codexBuffer(buffer, matches: codexTokenCountMarker, at: offset)
-                || codexBuffer(buffer, matches: codexSessionMetaMarker, at: offset) {
+                || codexBuffer(buffer, matches: codexSessionMetaMarker, at: offset)
+                || codexBuffer(buffer, matches: codexThreadSettingsMarker, at: offset) {
                 return true
             }
 

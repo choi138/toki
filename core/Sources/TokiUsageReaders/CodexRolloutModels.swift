@@ -186,6 +186,7 @@ struct CodexRolloutEntry: Decodable {
         let type: String?
         let turnID: String?
         let info: Info?
+        let threadSettings: ThreadSettings?
 
         var forkParentID: String? {
             forkedFromID?.trimmedNonEmpty ?? source?.subagent?.threadSpawn?.parentThreadID?.trimmedNonEmpty
@@ -199,6 +200,15 @@ struct CodexRolloutEntry: Decodable {
             case type
             case turnID = "turn_id"
             case info
+            case threadSettings = "thread_settings"
+        }
+
+        struct ThreadSettings: Decodable {
+            let serviceTier: String?
+
+            enum CodingKeys: String, CodingKey {
+                case serviceTier = "service_tier"
+            }
         }
 
         struct ForkSource: Decodable {
@@ -452,6 +462,18 @@ struct CodexTimedSnapshot {
     let date: Date
     let tokenCount: CodexTokenCount
     let fileOrder: Int
+    let serviceTier: String?
+
+    init(
+        date: Date,
+        tokenCount: CodexTokenCount,
+        fileOrder: Int,
+        serviceTier: String? = nil) {
+        self.date = date
+        self.tokenCount = tokenCount
+        self.fileOrder = fileOrder
+        self.serviceTier = serviceTier
+    }
 
     var snapshot: CodexUsageSnapshot {
         tokenCount.totalSnapshot

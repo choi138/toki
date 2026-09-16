@@ -78,6 +78,84 @@ struct PanelHeroView: View {
     }
 }
 
+struct PanelCreditUsageView: View {
+    let usage: UsageData
+    let isLoading: Bool
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            PanelSectionCaption(title: "Credit Usage")
+
+            HStack(spacing: 0) {
+                if isLoading {
+                    loadingMetric
+                    metricDivider
+                    loadingMetric
+                } else {
+                    creditUsageContent
+                }
+            }
+            .frame(minHeight: 32)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 6)
+        }
+        .padding(.bottom, 12)
+        .help(creditUsageHelp)
+    }
+
+    @ViewBuilder
+    private var creditUsageContent: some View {
+        if usage.chatGPTUsageEstimate.hasUsage {
+            creditMetric(
+                value: "~\(usage.chatGPTUsageEstimate.credits.formattedCredits())",
+                unit: "Credits")
+            metricDivider
+            creditMetric(
+                value: usage.chatGPTUsageEstimate.creditsPerMillionTokens.formattedCredits(),
+                unit: "Credits/1M")
+        } else {
+            Text("No eligible Codex usage")
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(Color.white.opacity(0.3))
+            Spacer()
+        }
+    }
+
+    private var loadingMetric: some View {
+        VStack(alignment: .leading, spacing: 5) {
+            SkeletonBar(width: 78, height: 18, cornerRadius: 5)
+        }
+        .frame(maxWidth: .infinity, alignment: .center)
+    }
+
+    private var metricDivider: some View {
+        Rectangle()
+            .fill(Color.white.opacity(0.08))
+            .frame(width: 0.5, height: 28)
+            .padding(.horizontal, 10)
+    }
+
+    private func creditMetric(value: String, unit: String) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 4) {
+            Text(value)
+                .font(.system(size: 19, weight: .bold, design: .rounded))
+                .foregroundStyle(Color.white)
+            Text(unit)
+                .font(.system(size: 10, weight: .semibold, design: .rounded))
+                .foregroundStyle(Color.white.opacity(0.45))
+        }
+        .frame(maxWidth: .infinity, alignment: .center)
+    }
+
+    private var creditUsageHelp: String {
+        let coverage = usage.chatGPTUsageEstimate.isComplete
+            ? "All Codex tokens were priced."
+            : "Some Codex tokens use an unknown model and are excluded."
+        return "Estimated from ChatGPT model credit rates and Fast mode. "
+            + "Credits per 1M shows the average consumption intensity. \(coverage)"
+    }
+}
+
 struct PanelTokenBreakdownView: View {
     let usage: UsageData
     let liveTokensPerSecond: Double?

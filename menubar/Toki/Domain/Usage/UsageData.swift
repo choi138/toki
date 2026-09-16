@@ -137,6 +137,30 @@ struct UsageModelReport: Equatable {
     let usageData: UsageData
 }
 
+struct ChatGPTUsageEstimate: Equatable {
+    let credits: Double
+    let pricedTokens: Int
+    let unpricedTokens: Int
+
+    static let unavailable = ChatGPTUsageEstimate(
+        credits: 0,
+        pricedTokens: 0,
+        unpricedTokens: 0)
+
+    var hasUsage: Bool {
+        pricedTokens > 0 || unpricedTokens > 0
+    }
+
+    var isComplete: Bool {
+        hasUsage && unpricedTokens == 0
+    }
+
+    var creditsPerMillionTokens: Double {
+        guard pricedTokens > 0 else { return 0 }
+        return credits / Double(pricedTokens) * 1_000_000
+    }
+}
+
 struct SourceStat: Equatable {
     let source: String
     let inputTokens: Int
@@ -364,6 +388,7 @@ struct UsageData: Equatable {
     let contextOnlyModels: [ContextOnlyModelStat]
     let filteredModelID: String?
     let isModelAttributionComplete: Bool
+    let chatGPTUsageEstimate: ChatGPTUsageEstimate
 
     init(
         date: Date,
@@ -385,7 +410,8 @@ struct UsageData: Equatable {
         supplementalStats: [SupplementalStat] = [],
         contextOnlyModels: [ContextOnlyModelStat] = [],
         filteredModelID: String? = nil,
-        isModelAttributionComplete: Bool = true) {
+        isModelAttributionComplete: Bool = true,
+        chatGPTUsageEstimate: ChatGPTUsageEstimate = .unavailable) {
         self.date = date
         self.endDate = endDate ?? date
         self.inputTokens = inputTokens
@@ -406,6 +432,7 @@ struct UsageData: Equatable {
         self.contextOnlyModels = contextOnlyModels
         self.filteredModelID = filteredModelID
         self.isModelAttributionComplete = isModelAttributionComplete
+        self.chatGPTUsageEstimate = chatGPTUsageEstimate
     }
 
     var totalTokens: Int {

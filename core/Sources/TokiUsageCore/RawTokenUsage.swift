@@ -125,6 +125,7 @@ public struct TokenUsageEvent: Equatable, Codable {
     public let source: String
     public let model: String?
     public let provider: String?
+    public let serviceTier: String?
     public let inputTokens: Int
     public let outputTokens: Int
     public let cacheReadTokens: Int
@@ -139,6 +140,7 @@ public struct TokenUsageEvent: Equatable, Codable {
         source: String,
         model: String?,
         provider: String? = nil,
+        serviceTier: String? = nil,
         inputTokens: Int,
         outputTokens: Int,
         cacheReadTokens: Int,
@@ -151,6 +153,7 @@ public struct TokenUsageEvent: Equatable, Codable {
         self.source = source
         self.model = model
         self.provider = provider?.nilIfBlank
+        self.serviceTier = serviceTier?.nilIfBlank
         let counts = Self.sanitizedTokenCounts(
             input: inputTokens,
             output: outputTokens,
@@ -397,6 +400,7 @@ public struct RawTokenUsage {
         source: String,
         model: String?,
         provider: String? = nil,
+        serviceTier: String? = nil,
         inputTokens: Int,
         outputTokens: Int,
         cacheReadTokens: Int = 0,
@@ -418,6 +422,7 @@ public struct RawTokenUsage {
             source: source,
             model: model,
             provider: provider,
+            serviceTier: serviceTier,
             inputTokens: inputTokens,
             outputTokens: outputTokens,
             cacheReadTokens: cacheReadTokens,

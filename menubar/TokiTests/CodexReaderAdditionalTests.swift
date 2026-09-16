@@ -130,7 +130,7 @@ final class CodexReaderAdditionalTests: XCTestCase {
             CodexRolloutUsageCacheEntry.self,
             from: Data(legacyJSON.utf8))
 
-        XCTAssertEqual(CodexRolloutUsageCacheEntry.currentSchemaVersion, 3)
+        XCTAssertEqual(CodexRolloutUsageCacheEntry.currentSchemaVersion, 4)
         XCTAssertFalse(entry.isCurrentSchema)
     }
 

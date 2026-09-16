@@ -124,6 +124,10 @@ struct UsagePanelView: View {
                 .task {
                     await viewModel.refreshPeriodTokenTotalsIfNeeded()
                 }
+            panelDivider
+            PanelCreditUsageView(
+                usage: viewModel.usageData,
+                isLoading: isUsageUpdating)
             if showsDeviceBreakdown {
                 panelDivider
                 PanelDeviceBreakdownView(

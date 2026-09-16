@@ -15,6 +15,14 @@ extension Double {
         if roundedOneDecimal >= 10 { return String(format: "%.0f token/s", rounded()) }
         return String(format: "%.1f token/s", roundedOneDecimal)
     }
+
+    func formattedCredits() -> String {
+        if self >= 1000 { return String(format: "%.1fK", self / 1000) }
+        if self >= 100 { return String(format: "%.0f", self) }
+        if self >= 10 { return String(format: "%.1f", self) }
+        if self >= 1 { return String(format: "%.2f", self) }
+        return String(format: "%.3f", self)
+    }
 }
 
 extension Int {

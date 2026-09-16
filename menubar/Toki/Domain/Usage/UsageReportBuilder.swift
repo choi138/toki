@@ -52,8 +52,70 @@ enum UsageReportBuilder {
             supplementalStats: buildSupplementalStats(from: usage.supplemental),
             contextOnlyModels: buildContextOnlyModels(from: usage.supplemental),
             filteredModelID: filteredModelID,
-            isModelAttributionComplete: isModelAttributionComplete)
+            isModelAttributionComplete: isModelAttributionComplete,
+            chatGPTUsageEstimate: chatGPTUsageEstimate(from: usage.tokenEvents))
     }
+}
+
+private struct ChatGPTCreditRate {
+    let input: Double
+    let cachedInput: Double
+    let output: Double
+    let fastMultiplier: Double
+}
+
+func chatGPTUsageEstimate(from events: [TokenUsageEvent]) -> ChatGPTUsageEstimate {
+    var credits = 0.0
+    var pricedTokens = 0
+    var unpricedTokens = 0
+
+    for event in events where event.source == "Codex" {
+        guard let model = event.model,
+              let rate = chatGPTCreditRate(for: model) else {
+            unpricedTokens += event.totalTokens
+            continue
+        }
+
+        let baseCredits = (
+            Double(event.inputTokens) * rate.input
+                + Double(event.cacheReadTokens) * rate.cachedInput
+                + Double(event.outputTokens + event.reasoningTokens) * rate.output) / 1_000_000
+        let multiplier = chatGPTFastServiceTiers.contains(event.serviceTier?.lowercased() ?? "")
+            ? rate.fastMultiplier
+            : 1
+        credits += baseCredits * multiplier
+        pricedTokens += event.totalTokens
+    }
+
+    return ChatGPTUsageEstimate(
+        credits: credits,
+        pricedTokens: pricedTokens,
+        unpricedTokens: unpricedTokens)
+}
+
+private let chatGPTFastServiceTiers: Set = ["fast", "priority"]
+
+private func chatGPTCreditRate(for model: String) -> ChatGPTCreditRate? {
+    let modelID = model.lowercased()
+    if modelID.hasPrefix("gpt-5.6-sol") || modelID == "gpt-5.6" {
+        return ChatGPTCreditRate(input: 100, cachedInput: 10, output: 500, fastMultiplier: 2.5)
+    }
+    if modelID.hasPrefix("gpt-5.6-terra") {
+        return ChatGPTCreditRate(input: 50, cachedInput: 5, output: 300, fastMultiplier: 2.5)
+    }
+    if modelID.hasPrefix("gpt-5.6-luna") {
+        return ChatGPTCreditRate(input: 5, cachedInput: 0.5, output: 30, fastMultiplier: 2.5)
+    }
+    if modelID.hasPrefix("gpt-5.5") {
+        return ChatGPTCreditRate(input: 125, cachedInput: 12.5, output: 750, fastMultiplier: 2.5)
+    }
+    if modelID.hasPrefix("gpt-5.4-mini") {
+        return ChatGPTCreditRate(input: 18.75, cachedInput: 1.875, output: 113, fastMultiplier: 2)
+    }
+    if modelID.hasPrefix("gpt-5.4") {
+        return ChatGPTCreditRate(input: 62.5, cachedInput: 6.25, output: 375, fastMultiplier: 2)
+    }
+    return nil
 }
 
 private struct ProjectAggregateKey: Hashable {
