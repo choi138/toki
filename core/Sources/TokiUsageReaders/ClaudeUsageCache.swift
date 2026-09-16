@@ -10,17 +10,25 @@ public actor ClaudeUsageCache {
 
     private let cacheURL: URL
     private let maximumBytes: Int
+    private let maximumEntryCount: Int
     private var isLoaded = false
     private var entries: [String: ClaudeUsageCacheEntry] = [:]
+    private var entryByteCounts: [String: Int] = [:]
+    private var totalEntryBytes = 0
+    private var accessOrder: [String: UInt64] = [:]
+    private var accessCounter: UInt64 = 0
     private var batchDepth = 0
     private var hasPendingChanges = false
 
     public init(
         cacheURL: URL,
-        maximumBytes: Int = maximumClaudeUsageCacheBytes) {
+        maximumBytes: Int = maximumClaudeUsageCacheBytes,
+        maximumEntryCount: Int = 2048) {
         precondition(maximumBytes >= 0)
+        precondition(maximumEntryCount > 0)
         self.cacheURL = cacheURL
         self.maximumBytes = maximumBytes
+        self.maximumEntryCount = maximumEntryCount
     }
 
     func beginBatch() async {
@@ -42,10 +50,21 @@ public actor ClaudeUsageCache {
               cached.parserVersion == claudeUsageCacheParserVersion,
               cached.fileSize == fileSignature.fileSize,
               cached.modifiedAt == fileSignature.modifiedAt else {
+            removeEntry(path: url.path)
             return nil
         }
 
+        touch(url.path)
         return cached.records
+    }
+
+    func retainFiles(_ urls: Set<URL>) async {
+        await loadIfNeeded()
+        let retainedPaths = Set(urls.map(\.path))
+        for path in entries.keys where !retainedPaths.contains(path) {
+            removeEntry(path: path)
+        }
+        persistIfNeeded()
     }
 
     func store(records: [ClaudeCachedUsageRecord], for url: URL) async {
@@ -53,18 +72,34 @@ public actor ClaudeUsageCache {
 
         guard let fileSignature = claudeFileSignature(for: url) else { return }
 
-        entries[url.path] = ClaudeUsageCacheEntry(
+        let entry = ClaudeUsageCacheEntry(
             parserVersion: claudeUsageCacheParserVersion,
             fileSize: fileSignature.fileSize,
             modifiedAt: fileSignature.modifiedAt,
             records: records)
+        guard let byteCount = try? JSONEncoder().encode(entry).count,
+              byteCount <= maximumBytes else {
+            removeEntry(path: url.path)
+            persistIfNeeded()
+            return
+        }
 
+        totalEntryBytes -= entryByteCounts[url.path] ?? 0
+        entries[url.path] = entry
+        entryByteCounts[url.path] = byteCount
+        totalEntryBytes += byteCount
+        touch(url.path)
+        enforceMemoryLimit()
         hasPendingChanges = true
         persistIfNeeded()
     }
 
     public func reset() throws {
         entries = [:]
+        entryByteCounts = [:]
+        totalEntryBytes = 0
+        accessOrder = [:]
+        accessCounter = 0
         batchDepth = 0
         hasPendingChanges = false
         isLoaded = true
@@ -100,7 +135,20 @@ public actor ClaudeUsageCache {
             return
         }
 
-        entries = decoded.entries
+        for path in decoded.entries.keys.sorted() {
+            guard let entry = decoded.entries[path],
+                  let byteCount = try? JSONEncoder().encode(entry).count,
+                  byteCount <= maximumBytes else {
+                hasPendingChanges = true
+                continue
+            }
+            entries[path] = entry
+            entryByteCounts[path] = byteCount
+            totalEntryBytes += byteCount
+            touch(path)
+            enforceMemoryLimit()
+        }
+        persistIfNeeded()
     }
 
     private func persistIfNeeded() {
@@ -123,6 +171,25 @@ public actor ClaudeUsageCache {
         entries = [:]
         hasPendingChanges = true
         persistIfNeeded()
+    }
+
+    private func enforceMemoryLimit() {
+        while totalEntryBytes > maximumBytes || entries.count > maximumEntryCount {
+            guard let path = accessOrder.min(by: { $0.value < $1.value })?.key else { return }
+            removeEntry(path: path)
+        }
+    }
+
+    private func removeEntry(path: String) {
+        guard entries.removeValue(forKey: path) != nil else { return }
+        totalEntryBytes -= entryByteCounts.removeValue(forKey: path) ?? 0
+        accessOrder[path] = nil
+        hasPendingChanges = true
+    }
+
+    private func touch(_ path: String) {
+        accessCounter &+= 1
+        accessOrder[path] = accessCounter
     }
 }
 

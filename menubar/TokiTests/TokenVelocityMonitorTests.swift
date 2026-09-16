@@ -7,7 +7,7 @@ final class TokenVelocityMonitorTests: XCTestCase {
         let secondRequest = expectation(description: "second sample request entered monitor")
         let requests = TokenVelocityRequestCounter(secondRequest: secondRequest)
         let monitor = TokenVelocityMonitor(
-            readDailyOutputTokens: { _, _ in
+            readDailyOutputTokens: { _, _, _ in
                 await gate.read()
             },
             sampleRequestObserver: {
@@ -42,7 +42,7 @@ final class TokenVelocityMonitorTests: XCTestCase {
         calendar.timeZone = TimeZone(secondsFromGMT: 0) ?? calendar.timeZone
         let monitor = TokenVelocityMonitor(
             calendar: calendar,
-            readDailyOutputTokens: { start, _ in
+            readDailyOutputTokens: { _, start, _ in
                 await gate.read(start: start)
             })
 
@@ -71,7 +71,7 @@ final class TokenVelocityMonitorTests: XCTestCase {
 
     func test_firstSampleStartsAtZeroVelocity() async {
         let reader = TokenOutputSequence([120])
-        let monitor = TokenVelocityMonitor(readDailyOutputTokens: { _, _ in
+        let monitor = TokenVelocityMonitor(readDailyOutputTokens: { _, _, _ in
             await reader.next()
         })
 
@@ -85,7 +85,7 @@ final class TokenVelocityMonitorTests: XCTestCase {
         let reader = TokenOutputSequence([120, 180])
         let monitor = TokenVelocityMonitor(
             smoothingWeight: 1,
-            readDailyOutputTokens: { _, _ in
+            readDailyOutputTokens: { _, _, _ in
                 await reader.next()
             })
 
@@ -98,7 +98,7 @@ final class TokenVelocityMonitorTests: XCTestCase {
 
     func test_clampsNegativeOutputTokenDeltasToZero() async {
         let reader = TokenOutputSequence([180, 120])
-        let monitor = TokenVelocityMonitor(readDailyOutputTokens: { _, _ in
+        let monitor = TokenVelocityMonitor(readDailyOutputTokens: { _, _, _ in
             await reader.next()
         })
 
@@ -113,7 +113,7 @@ final class TokenVelocityMonitorTests: XCTestCase {
         let reader = TokenOutputSequence([100, 200, 200])
         let monitor = TokenVelocityMonitor(
             smoothingWeight: 0.5,
-            readDailyOutputTokens: { _, _ in
+            readDailyOutputTokens: { _, _, _ in
                 await reader.next()
             })
 
@@ -130,7 +130,7 @@ final class TokenVelocityMonitorTests: XCTestCase {
         let monitor = TokenVelocityMonitor(
             smoothingWeight: 1,
             minimumElapsedSeconds: 5,
-            readDailyOutputTokens: { _, _ in
+            readDailyOutputTokens: { _, _, _ in
                 await reader.next()
             })
 
@@ -146,7 +146,7 @@ final class TokenVelocityMonitorTests: XCTestCase {
 
     func test_resetsVelocityAcrossCalendarDays() async {
         let reader = TokenOutputSequence([1000, 20])
-        let monitor = TokenVelocityMonitor(readDailyOutputTokens: { _, _ in
+        let monitor = TokenVelocityMonitor(readDailyOutputTokens: { _, _, _ in
             await reader.next()
         })
 
@@ -159,7 +159,7 @@ final class TokenVelocityMonitorTests: XCTestCase {
 
     func test_resetDropsPreviousSample() async {
         let reader = TokenOutputSequence([100, 140])
-        let monitor = TokenVelocityMonitor(readDailyOutputTokens: { _, _ in
+        let monitor = TokenVelocityMonitor(readDailyOutputTokens: { _, _, _ in
             await reader.next()
         })
 
@@ -168,6 +168,21 @@ final class TokenVelocityMonitorTests: XCTestCase {
         let sample = await monitor.sample(at: tokiTestISODate("2026-04-10T10:00:05Z"))
 
         XCTAssertEqual(sample.outputTokens, 140)
+        XCTAssertEqual(sample.tokensPerSecond, 0)
+    }
+
+    func test_switchingActiveSourceResetsVelocity() async {
+        let reader = TokenOutputSequence([100, 200])
+        let monitor = TokenVelocityMonitor(
+            smoothingWeight: 1,
+            readDailyOutputTokens: { _, _, _ in
+                await reader.next()
+            })
+
+        _ = await monitor.sample(source: .codex, at: tokiTestISODate("2026-04-10T10:00:00Z"))
+        let sample = await monitor.sample(source: .openCode, at: tokiTestISODate("2026-04-10T10:00:05Z"))
+
+        XCTAssertEqual(sample.outputTokens, 200)
         XCTAssertEqual(sample.tokensPerSecond, 0)
     }
 
@@ -180,10 +195,10 @@ final class TokenVelocityMonitorTests: XCTestCase {
         let clampedBurst = RabbitRunAnimationSpeed.frameInterval(tokensPerSecond: 160)
 
         XCTAssertEqual(idle, RabbitRunAnimationSpeed.defaultFrameInterval)
-        XCTAssertEqual(fast, 0.055, accuracy: 0.000_001)
-        XCTAssertEqual(veryFast, 0.035, accuracy: 0.000_001)
-        XCTAssertEqual(flood, 0.023, accuracy: 0.000_001)
-        XCTAssertEqual(burst, 0.016, accuracy: 0.000_001)
+        XCTAssertEqual(fast, 1.0 / 12.0, accuracy: 0.000_001)
+        XCTAssertEqual(veryFast, 1.0 / 16.0, accuracy: 0.000_001)
+        XCTAssertEqual(flood, 1.0 / 20.0, accuracy: 0.000_001)
+        XCTAssertEqual(burst, 1.0 / 24.0, accuracy: 0.000_001)
         XCTAssertLessThan(fast, idle)
         XCTAssertLessThan(veryFast, fast)
         XCTAssertLessThan(flood, veryFast)

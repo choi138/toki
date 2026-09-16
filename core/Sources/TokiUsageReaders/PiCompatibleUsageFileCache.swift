@@ -2,7 +2,7 @@ import Foundation
 import TokiUsageCore
 
 final class PiCompatibleUsageFileCache: @unchecked Sendable {
-    static let shared = PiCompatibleUsageFileCache(maximumBytes: 512 * 1024 * 1024)
+    static let shared = PiCompatibleUsageFileCache(maximumBytes: 64 * 1024 * 1024)
 
     private struct Key: Hashable {
         let path: String
@@ -34,7 +34,7 @@ final class PiCompatibleUsageFileCache: @unchecked Sendable {
     private var accessOrder: [Key: UInt64] = [:]
     private var accessCounter: UInt64 = 0
 
-    init(maximumBytes: Int = 512 * 1024 * 1024) {
+    init(maximumBytes: Int = 64 * 1024 * 1024) {
         precondition(maximumBytes >= 0)
         self.maximumBytes = maximumBytes
     }
