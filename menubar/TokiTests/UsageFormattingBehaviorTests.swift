@@ -234,3 +234,23 @@ final class UsageFormattingBehaviorTests: XCTestCase {
         XCTAssertTrue(stat.isPriceKnown)
     }
 }
+
+extension UsageFormattingBehaviorTests {
+    func test_chatGPTUsageEstimateDoesNotApplyStandardRatesToGpt55Pro() {
+        let event = TokenUsageEvent(
+            timestamp: Date(timeIntervalSince1970: 0),
+            source: "Codex",
+            model: "gpt-5.5-pro",
+            inputTokens: 1_000_000,
+            outputTokens: 0,
+            cacheReadTokens: 0,
+            cacheWriteTokens: 0,
+            reasoningTokens: 0,
+            cost: 0)
+
+        let estimate = chatGPTUsageEstimate(from: [event])
+
+        XCTAssertFalse(estimate.hasPricedUsage)
+        XCTAssertEqual(estimate.unpricedTokens, 1_000_000)
+    }
+}

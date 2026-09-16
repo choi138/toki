@@ -110,6 +110,9 @@ private func chatGPTCreditRate(for model: String) -> ChatGPTCreditRate? {
     if modelID.hasPrefix("gpt-5.6-luna") {
         return ChatGPTCreditRate(input: 5, cachedInput: 0.5, output: 30, fastMultiplier: 2.5)
     }
+    if modelID.hasPrefix("gpt-5.5-pro") || modelID.hasPrefix("gpt-5.2-pro") {
+        return nil
+    }
     if modelID.hasPrefix("gpt-5.5") {
         return ChatGPTCreditRate(input: 125, cachedInput: 12.5, output: 750, fastMultiplier: 2.5)
     }
@@ -121,9 +124,6 @@ private func chatGPTCreditRate(for model: String) -> ChatGPTCreditRate? {
     }
     if modelID.hasPrefix("gpt-5.3-codex") {
         return ChatGPTCreditRate(input: 43.75, cachedInput: 4.375, output: 350, fastMultiplier: 1)
-    }
-    if modelID.hasPrefix("gpt-5.2-pro") {
-        return nil
     }
     if modelID.hasPrefix("gpt-5.2") {
         return ChatGPTCreditRate(input: 43.75, cachedInput: 4.375, output: 350, fastMultiplier: 1)

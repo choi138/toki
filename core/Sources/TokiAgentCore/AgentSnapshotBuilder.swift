@@ -470,15 +470,13 @@ private extension AgentSnapshotBuilder {
         if lhs.source != rhs.source { return lhs.source < rhs.source }
         if lhs.model != rhs.model { return (lhs.model ?? "") < (rhs.model ?? "") }
         if lhs.provider != rhs.provider { return (lhs.provider ?? "") < (rhs.provider ?? "") }
+        if lhs.serviceTier != rhs.serviceTier { return (lhs.serviceTier ?? "") < (rhs.serviceTier ?? "") }
         if lhs.inputTokens != rhs.inputTokens { return lhs.inputTokens < rhs.inputTokens }
         if lhs.outputTokens != rhs.outputTokens { return lhs.outputTokens < rhs.outputTokens }
         if lhs.cacheReadTokens != rhs.cacheReadTokens { return lhs.cacheReadTokens < rhs.cacheReadTokens }
         if lhs.cacheWriteTokens != rhs.cacheWriteTokens { return lhs.cacheWriteTokens < rhs.cacheWriteTokens }
         if lhs.reasoningTokens != rhs.reasoningTokens { return lhs.reasoningTokens < rhs.reasoningTokens }
         if lhs.cost != rhs.cost { return (lhs.cost ?? -1) < (rhs.cost ?? -1) }
-        let lhsProvider = (lhs.provider == nil ? 0 : 1, lhs.provider ?? "")
-        let rhsProvider = (rhs.provider == nil ? 0 : 1, rhs.provider ?? "")
-        if lhsProvider != rhsProvider { return lhsProvider < rhsProvider }
         return (lhs.costIsKnown.map { $0 ? 2 : 1 } ?? 0)
             < (rhs.costIsKnown.map { $0 ? 2 : 1 } ?? 0)
     }
@@ -530,7 +528,7 @@ private extension AgentSnapshotBuilder {
             source: event.source,
             model: remoteModel(event.model),
             provider: remoteProvider(event.provider),
-            serviceTier: event.serviceTier,
+            serviceTier: remoteServiceTier(event.serviceTier),
             inputTokens: event.inputTokens,
             outputTokens: event.outputTokens,
             cacheReadTokens: event.cacheReadTokens,
@@ -545,6 +543,12 @@ private extension AgentSnapshotBuilder {
     private func remoteProvider(_ provider: String?) -> String? {
         let normalized = provider?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         return normalized.flatMap { Self.remoteProviderIdentifiers.contains($0) ? $0 : nil }
+    }
+
+    private func remoteServiceTier(_ serviceTier: String?) -> String? {
+        guard let normalized = serviceTier?.trimmingCharacters(in: .whitespacesAndNewlines),
+              TokiSyncValidation.isSafeDisplayText(normalized, maximumLength: 32) else { return nil }
+        return normalized
     }
 
     private static let remoteProviderIdentifiers = Set([
