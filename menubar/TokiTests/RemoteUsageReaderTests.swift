@@ -204,6 +204,8 @@ extension RemoteUsageReaderTests {
     func test_remoteCodexMappingPreservesCreditEstimateAndServiceTier() throws {
         let fixture = try makeFixture()
         let original = try SnapshotCipher.open(fixture.envelope, key: fixture.encryptionKey)
+        let timestamp = fixture.start.addingTimeInterval(60)
+        let rate = try XCTUnwrap(chatGPTCreditRate(for: "gpt-5.6-terra", at: timestamp))
         let snapshot = RemoteUsageSnapshot(
             device: original.device,
             generatedAt: original.generatedAt,
@@ -211,7 +213,7 @@ extension RemoteUsageReaderTests {
             coveredTo: original.coveredTo,
             tokenEvents: [
                 RemoteTokenEvent(
-                    timestamp: fixture.start.addingTimeInterval(60),
+                    timestamp: timestamp,
                     source: "Codex",
                     model: "gpt-5.6-terra",
                     serviceTier: "priority",
@@ -231,7 +233,7 @@ extension RemoteUsageReaderTests {
 
         XCTAssertEqual(slice.usage.tokenEvents.first?.source, "Codex · build-server")
         XCTAssertEqual(slice.usage.tokenEvents.first?.serviceTier, "priority")
-        XCTAssertEqual(estimate.credits, 125, accuracy: 0.000_001)
+        XCTAssertEqual(estimate.credits, rate.input * rate.fastMultiplier, accuracy: 0.000_001)
         XCTAssertEqual(estimate.pricedTokens, 1_000_000)
     }
 
