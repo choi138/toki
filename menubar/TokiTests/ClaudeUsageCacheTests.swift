@@ -2,28 +2,6 @@ import XCTest
 @testable import TokiUsageReaders
 
 final class ClaudeUsageCacheTests: XCTestCase {
-    func test_evictsLeastRecentlyUsedEntryOverCountLimit() async throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("toki-claude-cache-\(UUID().uuidString)", isDirectory: true)
-        defer { try? FileManager.default.removeItem(at: root) }
-        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
-        let first = root.appendingPathComponent("first.jsonl")
-        let second = root.appendingPathComponent("second.jsonl")
-        try Data("{}\n".utf8).write(to: first)
-        try Data("{}\n".utf8).write(to: second)
-        let cache = ClaudeUsageCache(
-            cacheURL: root.appendingPathComponent("cache.json"),
-            maximumEntryCount: 1)
-
-        await cache.store(records: [cachedUsageRecord()], for: first)
-        await cache.store(records: [cachedUsageRecord()], for: second)
-        let firstRecords = await cache.records(for: first)
-        let secondRecords = await cache.records(for: second)
-
-        XCTAssertNil(firstRecords)
-        XCTAssertNotNil(secondRecords)
-    }
-
     func test_evictsUntilEncodedPayloadFitsAndPersists() async throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("toki-claude-cache-\(UUID().uuidString)", isDirectory: true)

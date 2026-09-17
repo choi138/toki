@@ -12,7 +12,6 @@ public actor ClaudeUsageCache {
 
     private let cacheURL: URL
     private let maximumBytes: Int
-    private let maximumEntryCount: Int
     private var isLoaded = false
     private var entries: [String: ClaudeUsageCacheEntry] = [:]
     private var entryByteCounts: [String: Int] = [:]
@@ -24,13 +23,10 @@ public actor ClaudeUsageCache {
 
     public init(
         cacheURL: URL,
-        maximumBytes: Int = maximumClaudeUsageCacheBytes,
-        maximumEntryCount: Int = 2048) {
+        maximumBytes: Int = maximumClaudeUsageCacheBytes) {
         precondition(maximumBytes >= 0)
-        precondition(maximumEntryCount > 0)
         self.cacheURL = cacheURL
         self.maximumBytes = maximumBytes
-        self.maximumEntryCount = maximumEntryCount
     }
 
     func beginBatch() async {
@@ -197,8 +193,7 @@ public actor ClaudeUsageCache {
     }
 
     private func enforceMemoryLimit() {
-        while claudeUsageCachePayloadEnvelopeBytes + totalPayloadBytes > maximumBytes
-            || entries.count > maximumEntryCount {
+        while claudeUsageCachePayloadEnvelopeBytes + totalPayloadBytes > maximumBytes {
             guard let path = leastRecentlyUsedPath else { return }
             removeEntry(path: path)
         }
