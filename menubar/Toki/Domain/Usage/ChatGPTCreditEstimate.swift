@@ -81,6 +81,7 @@ private let chatGPTCreditRateKeysLongestFirst = chatGPTBaseCreditRates.keys
 /// reduced rates live in scheduledChatGPTCreditRateChanges and usage recorded
 /// before each cut still bills at the launch rate.
 private let chatGPTBaseCreditRates: [String: ChatGPTCreditRate] = [
+    "gpt-6-astra": ChatGPTCreditRate(input: 250, cachedInput: 25, output: 1250, fastMultiplier: 2.5),
     "gpt-5.6-sol": ChatGPTCreditRate(input: 125, cachedInput: 12.5, output: 750, fastMultiplier: 2.5),
     "gpt-5.6-terra": ChatGPTCreditRate(input: 62.5, cachedInput: 6.25, output: 375, fastMultiplier: 2.5),
     "gpt-5.6-luna": ChatGPTCreditRate(input: 25, cachedInput: 2.5, output: 150, fastMultiplier: 2.5),

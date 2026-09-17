@@ -51,6 +51,29 @@ final class ChatGPTCreditEstimateBehaviorTests: XCTestCase {
             ChatGPTCreditRate(input: 62.5, cachedInput: 6.25, output: 375, fastMultiplier: 2))
     }
 
+    func test_astraBillsItsOwnRateWithFastMultiplier() {
+        let event = TokenUsageEvent(
+            timestamp: solCut,
+            source: "Codex",
+            model: "gpt-6-astra",
+            serviceTier: "fast",
+            inputTokens: 1_000_000,
+            outputTokens: 500_000,
+            cacheReadTokens: 1_000_000,
+            cacheWriteTokens: 0,
+            reasoningTokens: 500_000,
+            cost: 0)
+
+        let estimate = chatGPTUsageEstimate(from: [event])
+
+        XCTAssertEqual(
+            chatGPTCreditRate(for: "gpt-6-astra-2026-09-01", at: solCut),
+            ChatGPTCreditRate(input: 250, cachedInput: 25, output: 1250, fastMultiplier: 2.5))
+        XCTAssertEqual(estimate.credits, (250 + 25 + 1250) * 2.5, accuracy: 0.000_001)
+        XCTAssertEqual(estimate.pricedTokens, 3_000_000)
+        XCTAssertTrue(estimate.isComplete)
+    }
+
     private func makeSolEvent(at timestamp: Date) -> TokenUsageEvent {
         TokenUsageEvent(
             timestamp: timestamp,
