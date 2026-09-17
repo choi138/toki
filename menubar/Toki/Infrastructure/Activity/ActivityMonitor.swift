@@ -14,6 +14,7 @@ enum ActiveUsageSource: CaseIterable, Equatable {
 
 struct ActivityMonitorState: Equatable {
     let activeSources: Set<ActiveUsageSource>
+    let probedClaudeCode: Bool
 
     var isAnyToolActive: Bool {
         !activeSources.isEmpty
@@ -40,15 +41,21 @@ enum ActivityMonitor {
         currentState().isAnyToolActive
     }
 
-    static func currentState(now: Date = Date()) -> ActivityMonitorState {
+    /// The Claude probe walks every transcript under ~/.claude/projects, so callers
+    /// may skip it while a cheaper source already reports activity; it always runs
+    /// when nothing else is active.
+    static func currentState(
+        now: Date = Date(),
+        probesClaudeCodeAlongsideOtherSources: Bool = true) -> ActivityMonitorState {
         let threshold = now.addingTimeInterval(-activeWindowSeconds)
         let cursorThreshold = now.addingTimeInterval(-cursorActiveWindowSeconds)
         var activeSources: Set<ActiveUsageSource> = []
         if isCodexActive(since: threshold) { activeSources.insert(.codex) }
         if isCursorActive(since: cursorThreshold) { activeSources.insert(.cursor) }
         if isOpenCodeActive(since: threshold) { activeSources.insert(.openCode) }
-        if isClaudeCodeActive(since: threshold) { activeSources.insert(.claudeCode) }
-        return ActivityMonitorState(activeSources: activeSources)
+        let probesClaudeCode = activeSources.isEmpty || probesClaudeCodeAlongsideOtherSources
+        if probesClaudeCode, isClaudeCodeActive(since: threshold) { activeSources.insert(.claudeCode) }
+        return ActivityMonitorState(activeSources: activeSources, probedClaudeCode: probesClaudeCode)
     }
 
     // MARK: - Claude Code
@@ -305,6 +312,30 @@ extension ActivityMonitor {
         }
 
         return false
+    }
+}
+
+/// Decides when the expensive Claude probe runs while another tool is already active.
+/// Claude keeps being probed every poll once it was seen so it drops out promptly;
+/// otherwise it is re-probed once per activity window, which bounds how late a
+/// Claude session running alongside another tool is picked up.
+struct ClaudeCodeProbeThrottle: Equatable {
+    static let interval: TimeInterval = 30
+
+    private var lastProbeAt: Date?
+    private var wasClaudeCodeActive = false
+
+    func shouldProbeAlongsideOtherSources(now: Date) -> Bool {
+        if wasClaudeCodeActive { return true }
+        guard let lastProbeAt else { return true }
+        return now.timeIntervalSince(lastProbeAt) >= Self.interval
+    }
+
+    mutating func record(_ state: ActivityMonitorState, at now: Date) {
+        wasClaudeCodeActive = state.activeSources.contains(.claudeCode)
+        if state.probedClaudeCode {
+            lastProbeAt = now
+        }
     }
 }
 

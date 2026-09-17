@@ -79,6 +79,7 @@
 		65BEA24D6ED3ED62CFF15B89 /* ReaderUnattributedModelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3896CC7305256B664CA40B51 /* ReaderUnattributedModelTests.swift */; };
 		6751D862DC17A0DE9D1506BF /* MenuBarPanelEventPolicyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 397C529D1EF35B7EF722A1AD /* MenuBarPanelEventPolicyTests.swift */; };
 		6858D0524CF8B4E2AE04D3E5 /* Security.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 0B85308CE0483EBF29F028DD /* Security.framework */; };
+		69759CE80347A5F89D1B5737 /* ClaudeCodeProbeThrottleTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E2BCDDDCBFA1122B89F23157 /* ClaudeCodeProbeThrottleTests.swift */; };
 		6CB284FB3E39C5144377BBE1 /* FactoryDroidReaderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1B0A428E0D3E973E6F4EA84A /* FactoryDroidReaderTests.swift */; };
 		6CFA95243695415B46ED9010 /* PanelByModelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 86C783AE85726291211C84FF /* PanelByModelView.swift */; };
 		6D753446EBD2D0C4D34CB728 /* PanelUXBehaviorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0ED2530F4E6EEF1D2BC72036 /* PanelUXBehaviorTests.swift */; };
@@ -366,6 +367,7 @@
 		DE2A56D1AEAA751DA34A3B6B /* PanelDailyTokenChartView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PanelDailyTokenChartView.swift; sourceTree = "<group>"; };
 		DFA2DBD8FE3B6B7D1F66DEC3 /* RemoteUsageReaderValidationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteUsageReaderValidationTests.swift; sourceTree = "<group>"; };
 		E1DA65F57500D6F6BB7793AD /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		E2BCDDDCBFA1122B89F23157 /* ClaudeCodeProbeThrottleTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClaudeCodeProbeThrottleTests.swift; sourceTree = "<group>"; };
 		E3B2DEB3544111BFB20E87AA /* PanelSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PanelSettingsView.swift; sourceTree = "<group>"; };
 		E41E37DA37FF9E2357C6CF2D /* UsageServiceDiagnosticsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UsageServiceDiagnosticsTests.swift; sourceTree = "<group>"; };
 		E50483956143F3CE467BC5C7 /* LocalAgentIdentityProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalAgentIdentityProvider.swift; sourceTree = "<group>"; };
@@ -674,6 +676,7 @@
 				24185A0EE08976537324C8FA /* ChatGPTCreditEstimateBehaviorTests.swift */,
 				D8507A2215F3294EABC1B7A8 /* ChineseCLIUsageIntegrationTests.swift */,
 				BDD7891CB45C773154861D21 /* Claude5ModelPricingBehaviorTests.swift */,
+				E2BCDDDCBFA1122B89F23157 /* ClaudeCodeProbeThrottleTests.swift */,
 				6C701FB0F7AA1BCC13644B56 /* ClaudeCodeReaderActivityTests.swift */,
 				A46FEFC308879DA2FD276110 /* ClaudeUsageCacheTests.swift */,
 				6E340A3729BE52E196FCED49 /* CodexReaderAdditionalTests.swift */,
@@ -821,6 +824,7 @@
 				};
 			};
 			buildConfigurationList = BF8894522CD09D5EBB16FFE4 /* Build configuration list for PBXProject "Toki" */;
+			compatibilityVersion = "Xcode 14.0";
 			developmentRegion = en;
 			hasScannedForEncodings = 0;
 			knownRegions = (
@@ -833,7 +837,6 @@
 				F027C70C851D251F07A8B1B4 /* XCLocalSwiftPackageReference "../core" */,
 			);
 			preferredProjectObjectVersion = 77;
-			productRefGroup = D4F7CB66A43B020E76045F98 /* Products */;
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
@@ -961,6 +964,7 @@
 				ADF67A81EDD5AB7273FD2E85 /* ChatGPTCreditEstimateBehaviorTests.swift in Sources */,
 				DCE667F81BE19927F658234D /* ChineseCLIUsageIntegrationTests.swift in Sources */,
 				9ECB1D2E9867709AB53A9BAA /* Claude5ModelPricingBehaviorTests.swift in Sources */,
+				69759CE80347A5F89D1B5737 /* ClaudeCodeProbeThrottleTests.swift in Sources */,
 				A0410CD60E76BB566574000D /* ClaudeCodeReaderActivityTests.swift in Sources */,
 				DC755C64FFD08C632152A60A /* ClaudeUsageCacheTests.swift in Sources */,
 				6FA702A841904724B81370DC /* CodexReaderAdditionalTests.swift in Sources */,
