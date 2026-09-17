@@ -16,7 +16,7 @@ final class MenuBarActivityController {
     private var isActivityCheckInFlight = false
     private var isTokenVelocitySampleInFlight = false
     private var isAnyToolActive = false
-    private var activeSource: ActiveUsageSource?
+    private var activeSources: Set<ActiveUsageSource> = []
 
     init(
         statusItemController: MenuBarStatusItemController,
@@ -88,8 +88,8 @@ private extension MenuBarActivityController {
 
             Task {
                 let velocitySample: TokenVelocitySample
-                if let source = activityState.activeSource {
-                    velocitySample = await tokenVelocityMonitor.sample(source: source)
+                if activityState.isAnyToolActive {
+                    velocitySample = await tokenVelocityMonitor.sample(sources: activityState.activeSources)
                 } else {
                     await tokenVelocityMonitor.reset()
                     velocitySample = .zero()
@@ -99,7 +99,7 @@ private extension MenuBarActivityController {
                     guard let self else { return }
                     isActivityCheckInFlight = false
                     isAnyToolActive = activityState.isAnyToolActive
-                    activeSource = activityState.activeSource
+                    activeSources = activityState.activeSources
                     tokenVelocityState.update(velocitySample)
                     statusItemController.applyActivityState(
                         isActive: activityState.isAnyToolActive,
@@ -111,12 +111,13 @@ private extension MenuBarActivityController {
 
     func sampleTokenVelocityInBackground() {
         guard !isTokenVelocitySampleInFlight else { return }
-        guard let activeSource else { return }
+        guard !activeSources.isEmpty else { return }
         isTokenVelocitySampleInFlight = true
         let tokenVelocityMonitor = tokenVelocityMonitor
+        let activeSources = activeSources
 
         Task.detached(priority: .utility) { [weak self] in
-            let velocitySample = await tokenVelocityMonitor.sample(source: activeSource)
+            let velocitySample = await tokenVelocityMonitor.sample(sources: activeSources)
 
             await MainActor.run { [weak self] in
                 guard let self else { return }

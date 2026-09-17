@@ -5,7 +5,7 @@ import TokiUsageReaders
 
 // Detects whether any AI coding tool is currently active.
 
-enum ActiveUsageSource: Equatable {
+enum ActiveUsageSource: CaseIterable, Equatable {
     case codex
     case cursor
     case openCode
@@ -13,14 +13,14 @@ enum ActiveUsageSource: Equatable {
 }
 
 struct ActivityMonitorState: Equatable {
-    let activeSource: ActiveUsageSource?
+    let activeSources: Set<ActiveUsageSource>
 
     var isAnyToolActive: Bool {
-        activeSource != nil
+        !activeSources.isEmpty
     }
 
     var isCodexActive: Bool {
-        activeSource == .codex
+        activeSources.contains(.codex)
     }
 }
 
@@ -43,18 +43,12 @@ enum ActivityMonitor {
     static func currentState(now: Date = Date()) -> ActivityMonitorState {
         let threshold = now.addingTimeInterval(-activeWindowSeconds)
         let cursorThreshold = now.addingTimeInterval(-cursorActiveWindowSeconds)
-        let activeSource: ActiveUsageSource? = if isCodexActive(since: threshold) {
-            .codex
-        } else if isCursorActive(since: cursorThreshold) {
-            .cursor
-        } else if isOpenCodeActive(since: threshold) {
-            .openCode
-        } else if isClaudeCodeActive(since: threshold) {
-            .claudeCode
-        } else {
-            nil
-        }
-        return ActivityMonitorState(activeSource: activeSource)
+        var activeSources: Set<ActiveUsageSource> = []
+        if isCodexActive(since: threshold) { activeSources.insert(.codex) }
+        if isCursorActive(since: cursorThreshold) { activeSources.insert(.cursor) }
+        if isOpenCodeActive(since: threshold) { activeSources.insert(.openCode) }
+        if isClaudeCodeActive(since: threshold) { activeSources.insert(.claudeCode) }
+        return ActivityMonitorState(activeSources: activeSources)
     }
 
     // MARK: - Claude Code
@@ -328,11 +322,11 @@ struct TokenVelocitySample: Equatable {
 }
 
 actor TokenVelocityMonitor {
-    typealias DailyOutputTokenReader = (ActiveUsageSource, Date, Date) async -> Int
+    typealias DailyOutputTokenReader = (Set<ActiveUsageSource>, Date, Date) async -> Int
     typealias SampleRequestObserver = @Sendable () -> Void
 
     private struct SamplePoint {
-        let source: ActiveUsageSource
+        let sources: Set<ActiveUsageSource>
         let dayStart: Date
         let outputTokens: Int
         let sampledAt: Date
@@ -340,7 +334,7 @@ actor TokenVelocityMonitor {
 
     private struct InFlightSample {
         let id: UUID
-        let source: ActiveUsageSource
+        let sources: Set<ActiveUsageSource>
         let dayStart: Date
         let task: Task<TokenVelocitySample, Never>
     }
@@ -367,11 +361,11 @@ actor TokenVelocityMonitor {
         self.sampleRequestObserver = sampleRequestObserver
     }
 
-    func sample(source: ActiveUsageSource = .codex, at now: Date = Date()) async -> TokenVelocitySample {
+    func sample(sources: Set<ActiveUsageSource>, at now: Date = Date()) async -> TokenVelocitySample {
         sampleRequestObserver()
         let interval = dayInterval(containing: now)
         while let inFlightSample {
-            if inFlightSample.source == source, inFlightSample.dayStart == interval.start {
+            if inFlightSample.sources == sources, inFlightSample.dayStart == interval.start {
                 return await inFlightSample.task.value
             }
             _ = await inFlightSample.task.value
@@ -380,20 +374,20 @@ actor TokenVelocityMonitor {
         let id = UUID()
         let readDailyOutputTokens = readDailyOutputTokens
         let task = Task { [weak self] in
-            let outputTokens = await readDailyOutputTokens(source, interval.start, interval.end)
+            let outputTokens = await readDailyOutputTokens(sources, interval.start, interval.end)
             guard let self else {
                 return TokenVelocitySample.zero(outputTokens: outputTokens, sampledAt: now)
             }
             return await completeSample(
                 id: id,
-                source: source,
+                sources: sources,
                 dayStart: interval.start,
                 outputTokens: outputTokens,
                 sampledAt: now)
         }
         inFlightSample = InFlightSample(
             id: id,
-            source: source,
+            sources: sources,
             dayStart: interval.start,
             task: task)
         return await task.value
@@ -401,7 +395,7 @@ actor TokenVelocityMonitor {
 
     private func completeSample(
         id: UUID,
-        source: ActiveUsageSource,
+        sources: Set<ActiveUsageSource>,
         dayStart: Date,
         outputTokens: Int,
         sampledAt now: Date) -> TokenVelocitySample {
@@ -410,13 +404,13 @@ actor TokenVelocityMonitor {
         }
         inFlightSample = nil
         let currentPoint = SamplePoint(
-            source: source,
+            sources: sources,
             dayStart: dayStart,
             outputTokens: outputTokens,
             sampledAt: now)
 
         guard let previousPoint = lastPoint,
-              previousPoint.source == currentPoint.source,
+              previousPoint.sources == currentPoint.sources,
               previousPoint.dayStart == currentPoint.dayStart else {
             smoothedTokensPerSecond = 0
             lastPoint = currentPoint
@@ -470,21 +464,28 @@ actor TokenVelocityMonitor {
     }
 
     private static func defaultDailyOutputTokens(
-        source: ActiveUsageSource,
+        sources: Set<ActiveUsageSource>,
         from startDate: Date,
         to endDate: Date) async -> Int {
+        let readers = ActiveUsageSource.allCases
+            .filter(sources.contains)
+            .map(reader(for:))
+        guard !readers.isEmpty else { return 0 }
         let request = UsageAggregationRequest(
             start: startDate,
             end: endDate,
             enabledReaderNames: [:],
             includesEmptySourceRows: false)
-        let reader: any TokenReader = switch source {
+        return await UsageAggregator(readers: readers).aggregateOutputTokens(for: request)
+    }
+
+    private static func reader(for source: ActiveUsageSource) -> any TokenReader {
+        switch source {
         case .codex: CodexReader()
         case .cursor: CursorReader()
         case .openCode: OpenCodeReader()
         case .claudeCode: ClaudeCodeReader()
         }
-        return await UsageAggregator(readers: [reader]).aggregateOutputTokens(for: request)
     }
 }
 

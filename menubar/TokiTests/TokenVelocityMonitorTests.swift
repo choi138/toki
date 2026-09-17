@@ -15,11 +15,11 @@ final class TokenVelocityMonitorTests: XCTestCase {
             })
 
         let first = Task {
-            await monitor.sample(at: tokiTestISODate("2026-04-10T10:00:00Z"))
+            await monitor.sample(sources: [.codex], at: tokiTestISODate("2026-04-10T10:00:00Z"))
         }
         await gate.waitUntilStarted()
         let second = Task {
-            await monitor.sample(at: tokiTestISODate("2026-04-10T10:00:01Z"))
+            await monitor.sample(sources: [.codex], at: tokiTestISODate("2026-04-10T10:00:01Z"))
         }
         await fulfillment(of: [secondRequest], timeout: 1)
 
@@ -47,11 +47,11 @@ final class TokenVelocityMonitorTests: XCTestCase {
             })
 
         let first = Task {
-            await monitor.sample(at: tokiTestISODate("2026-04-10T23:59:59Z"))
+            await monitor.sample(sources: [.codex], at: tokiTestISODate("2026-04-10T23:59:59Z"))
         }
         await fulfillment(of: [firstRead], timeout: 1)
         let second = Task {
-            await monitor.sample(at: tokiTestISODate("2026-04-11T00:00:01Z"))
+            await monitor.sample(sources: [.codex], at: tokiTestISODate("2026-04-11T00:00:01Z"))
         }
 
         await gate.releaseRead(at: 0)
@@ -75,7 +75,7 @@ final class TokenVelocityMonitorTests: XCTestCase {
             await reader.next()
         })
 
-        let sample = await monitor.sample(at: tokiTestISODate("2026-04-10T10:00:00Z"))
+        let sample = await monitor.sample(sources: [.codex], at: tokiTestISODate("2026-04-10T10:00:00Z"))
 
         XCTAssertEqual(sample.outputTokens, 120)
         XCTAssertEqual(sample.tokensPerSecond, 0)
@@ -89,8 +89,8 @@ final class TokenVelocityMonitorTests: XCTestCase {
                 await reader.next()
             })
 
-        _ = await monitor.sample(at: tokiTestISODate("2026-04-10T10:00:00Z"))
-        let sample = await monitor.sample(at: tokiTestISODate("2026-04-10T10:00:05Z"))
+        _ = await monitor.sample(sources: [.codex], at: tokiTestISODate("2026-04-10T10:00:00Z"))
+        let sample = await monitor.sample(sources: [.codex], at: tokiTestISODate("2026-04-10T10:00:05Z"))
 
         XCTAssertEqual(sample.outputTokens, 180)
         XCTAssertEqual(sample.tokensPerSecond, 12, accuracy: 0.000_001)
@@ -102,8 +102,8 @@ final class TokenVelocityMonitorTests: XCTestCase {
             await reader.next()
         })
 
-        _ = await monitor.sample(at: tokiTestISODate("2026-04-10T10:00:00Z"))
-        let sample = await monitor.sample(at: tokiTestISODate("2026-04-10T10:00:05Z"))
+        _ = await monitor.sample(sources: [.codex], at: tokiTestISODate("2026-04-10T10:00:00Z"))
+        let sample = await monitor.sample(sources: [.codex], at: tokiTestISODate("2026-04-10T10:00:05Z"))
 
         XCTAssertEqual(sample.outputTokens, 120)
         XCTAssertEqual(sample.tokensPerSecond, 0)
@@ -117,9 +117,9 @@ final class TokenVelocityMonitorTests: XCTestCase {
                 await reader.next()
             })
 
-        _ = await monitor.sample(at: tokiTestISODate("2026-04-10T10:00:00Z"))
-        let activeSample = await monitor.sample(at: tokiTestISODate("2026-04-10T10:00:05Z"))
-        let quietSample = await monitor.sample(at: tokiTestISODate("2026-04-10T10:00:10Z"))
+        _ = await monitor.sample(sources: [.codex], at: tokiTestISODate("2026-04-10T10:00:00Z"))
+        let activeSample = await monitor.sample(sources: [.codex], at: tokiTestISODate("2026-04-10T10:00:05Z"))
+        let quietSample = await monitor.sample(sources: [.codex], at: tokiTestISODate("2026-04-10T10:00:10Z"))
 
         XCTAssertEqual(activeSample.tokensPerSecond, 20, accuracy: 0.000_001)
         XCTAssertEqual(quietSample.tokensPerSecond, 10, accuracy: 0.000_001)
@@ -134,9 +134,9 @@ final class TokenVelocityMonitorTests: XCTestCase {
                 await reader.next()
             })
 
-        _ = await monitor.sample(at: tokiTestISODate("2026-04-10T10:00:00Z"))
-        let earlySample = await monitor.sample(at: tokiTestISODate("2026-04-10T10:00:02Z"))
-        let elapsedSample = await monitor.sample(at: tokiTestISODate("2026-04-10T10:00:05Z"))
+        _ = await monitor.sample(sources: [.codex], at: tokiTestISODate("2026-04-10T10:00:00Z"))
+        let earlySample = await monitor.sample(sources: [.codex], at: tokiTestISODate("2026-04-10T10:00:02Z"))
+        let elapsedSample = await monitor.sample(sources: [.codex], at: tokiTestISODate("2026-04-10T10:00:05Z"))
 
         XCTAssertEqual(earlySample.outputTokens, 130)
         XCTAssertEqual(earlySample.tokensPerSecond, 0)
@@ -150,8 +150,8 @@ final class TokenVelocityMonitorTests: XCTestCase {
             await reader.next()
         })
 
-        _ = await monitor.sample(at: tokiTestISODate("2026-04-10T23:59:58Z"))
-        let sample = await monitor.sample(at: tokiTestISODate("2026-04-11T00:00:03Z"))
+        _ = await monitor.sample(sources: [.codex], at: tokiTestISODate("2026-04-10T23:59:58Z"))
+        let sample = await monitor.sample(sources: [.codex], at: tokiTestISODate("2026-04-11T00:00:03Z"))
 
         XCTAssertEqual(sample.outputTokens, 20)
         XCTAssertEqual(sample.tokensPerSecond, 0)
@@ -163,9 +163,9 @@ final class TokenVelocityMonitorTests: XCTestCase {
             await reader.next()
         })
 
-        _ = await monitor.sample(at: tokiTestISODate("2026-04-10T10:00:00Z"))
+        _ = await monitor.sample(sources: [.codex], at: tokiTestISODate("2026-04-10T10:00:00Z"))
         await monitor.reset()
-        let sample = await monitor.sample(at: tokiTestISODate("2026-04-10T10:00:05Z"))
+        let sample = await monitor.sample(sources: [.codex], at: tokiTestISODate("2026-04-10T10:00:05Z"))
 
         XCTAssertEqual(sample.outputTokens, 140)
         XCTAssertEqual(sample.tokensPerSecond, 0)
@@ -179,8 +179,8 @@ final class TokenVelocityMonitorTests: XCTestCase {
                 await reader.next()
             })
 
-        _ = await monitor.sample(source: .codex, at: tokiTestISODate("2026-04-10T10:00:00Z"))
-        let sample = await monitor.sample(source: .openCode, at: tokiTestISODate("2026-04-10T10:00:05Z"))
+        _ = await monitor.sample(sources: [.codex], at: tokiTestISODate("2026-04-10T10:00:00Z"))
+        let sample = await monitor.sample(sources: [.openCode], at: tokiTestISODate("2026-04-10T10:00:05Z"))
 
         XCTAssertEqual(sample.outputTokens, 200)
         XCTAssertEqual(sample.tokensPerSecond, 0)
@@ -204,6 +204,49 @@ final class TokenVelocityMonitorTests: XCTestCase {
         XCTAssertLessThan(flood, veryFast)
         XCTAssertLessThan(burst, flood)
         XCTAssertEqual(clampedBurst, burst)
+    }
+}
+
+extension TokenVelocityMonitorTests {
+    func test_readsEveryActiveSourceTogether() async {
+        let reader = TokenOutputSequence([100, 200])
+        let requestedSources = RequestedSourceLog()
+        let monitor = TokenVelocityMonitor(
+            smoothingWeight: 1,
+            readDailyOutputTokens: { sources, _, _ in
+                await requestedSources.append(sources)
+                return await reader.next()
+            })
+
+        _ = await monitor.sample(sources: [.codex, .cursor], at: tokiTestISODate("2026-04-10T10:00:00Z"))
+        let sample = await monitor.sample(sources: [.codex, .cursor], at: tokiTestISODate("2026-04-10T10:00:05Z"))
+
+        let logged = await requestedSources.values
+        XCTAssertEqual(logged, [[.codex, .cursor], [.codex, .cursor]])
+        XCTAssertEqual(sample.tokensPerSecond, 20, accuracy: 0.000_001)
+    }
+
+    func test_sourceSetChangeResetsVelocityBaseline() async {
+        let reader = TokenOutputSequence([100, 500])
+        let monitor = TokenVelocityMonitor(
+            smoothingWeight: 1,
+            readDailyOutputTokens: { _, _, _ in
+                await reader.next()
+            })
+
+        _ = await monitor.sample(sources: [.codex], at: tokiTestISODate("2026-04-10T10:00:00Z"))
+        let sample = await monitor.sample(sources: [.codex, .cursor], at: tokiTestISODate("2026-04-10T10:00:05Z"))
+
+        XCTAssertEqual(sample.outputTokens, 500)
+        XCTAssertEqual(sample.tokensPerSecond, 0)
+    }
+}
+
+private actor RequestedSourceLog {
+    private(set) var values: [Set<ActiveUsageSource>] = []
+
+    func append(_ sources: Set<ActiveUsageSource>) {
+        values.append(sources)
     }
 }
 
