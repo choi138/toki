@@ -24,6 +24,37 @@ final class ClaudeUsageCacheTests: XCTestCase {
         XCTAssertNotNil(secondRecords)
     }
 
+    func test_evictsUntilEncodedPayloadFitsAndPersists() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("toki-claude-cache-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let first = root.appendingPathComponent("aa.jsonl")
+        let second = root.appendingPathComponent("bb.jsonl")
+        try Data("{}\n".utf8).write(to: first)
+        try Data("{}\n".utf8).write(to: second)
+        let probeURL = root.appendingPathComponent("probe-cache.json")
+        await ClaudeUsageCache(cacheURL: probeURL).store(records: [cachedUsageRecord()], for: first)
+        let singleEntryPayloadBytes = try Data(contentsOf: probeURL).count
+
+        // Both entries alone fit, but the second key pushes the encoded file past the limit.
+        let cacheURL = root.appendingPathComponent("cache.json")
+        let maximumBytes = singleEntryPayloadBytes * 2 - 20
+        let cache = ClaudeUsageCache(cacheURL: cacheURL, maximumBytes: maximumBytes)
+        await cache.store(records: [cachedUsageRecord()], for: first)
+        await cache.store(records: [cachedUsageRecord()], for: second)
+
+        let firstRecords = await cache.records(for: first)
+        let secondRecords = await cache.records(for: second)
+        let reloadedRecords = await ClaudeUsageCache(cacheURL: cacheURL, maximumBytes: maximumBytes)
+            .records(for: second)
+
+        XCTAssertNil(firstRecords)
+        XCTAssertNotNil(secondRecords)
+        XCTAssertNotNil(reloadedRecords)
+        XCTAssertLessThanOrEqual(try Data(contentsOf: cacheURL).count, maximumBytes)
+    }
+
     func test_dropsEntriesForMissingFiles() async throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("toki-claude-cache-\(UUID().uuidString)", isDirectory: true)

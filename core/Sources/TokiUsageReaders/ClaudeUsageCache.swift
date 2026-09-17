@@ -4,6 +4,8 @@ import TokiDurableStorage
 // Reparse older entries through the bounded reader and its recording diagnostics.
 private let claudeUsageCacheParserVersion = 4
 public let maximumClaudeUsageCacheBytes = 64 * 1024 * 1024
+// `{"entries":{}}` around the persisted entries.
+private let claudeUsageCachePayloadEnvelopeBytes = 14
 
 public actor ClaudeUsageCache {
     public static let shared = ClaudeUsageCache(cacheURL: claudeUsageCacheURL())
@@ -14,7 +16,7 @@ public actor ClaudeUsageCache {
     private var isLoaded = false
     private var entries: [String: ClaudeUsageCacheEntry] = [:]
     private var entryByteCounts: [String: Int] = [:]
-    private var totalEntryBytes = 0
+    private var totalPayloadBytes = 0
     private var accessOrder: [String: UInt64] = [:]
     private var accessCounter: UInt64 = 0
     private var batchDepth = 0
@@ -77,17 +79,17 @@ public actor ClaudeUsageCache {
             fileSize: fileSignature.fileSize,
             modifiedAt: fileSignature.modifiedAt,
             records: records)
-        guard let byteCount = try? JSONEncoder().encode(entry).count,
-              byteCount <= maximumBytes else {
+        guard let byteCount = payloadByteCount(path: url.path, entry: entry),
+              claudeUsageCachePayloadEnvelopeBytes + byteCount <= maximumBytes else {
             removeEntry(path: url.path)
             persistIfNeeded()
             return
         }
 
-        totalEntryBytes -= entryByteCounts[url.path] ?? 0
+        totalPayloadBytes -= entryByteCounts[url.path] ?? 0
         entries[url.path] = entry
         entryByteCounts[url.path] = byteCount
-        totalEntryBytes += byteCount
+        totalPayloadBytes += byteCount
         touch(url.path)
         enforceMemoryLimit()
         hasPendingChanges = true
@@ -97,7 +99,7 @@ public actor ClaudeUsageCache {
     public func reset() throws {
         entries = [:]
         entryByteCounts = [:]
-        totalEntryBytes = 0
+        totalPayloadBytes = 0
         accessOrder = [:]
         accessCounter = 0
         batchDepth = 0
@@ -137,14 +139,14 @@ public actor ClaudeUsageCache {
 
         for path in decoded.entries.keys.sorted() {
             guard let entry = decoded.entries[path],
-                  let byteCount = try? JSONEncoder().encode(entry).count,
-                  byteCount <= maximumBytes else {
+                  let byteCount = payloadByteCount(path: path, entry: entry),
+                  claudeUsageCachePayloadEnvelopeBytes + byteCount <= maximumBytes else {
                 hasPendingChanges = true
                 continue
             }
             entries[path] = entry
             entryByteCounts[path] = byteCount
-            totalEntryBytes += byteCount
+            totalPayloadBytes += byteCount
             touch(path)
             enforceMemoryLimit()
         }
@@ -154,17 +156,38 @@ public actor ClaudeUsageCache {
     private func persistIfNeeded() {
         guard hasPendingChanges, batchDepth == 0 else { return }
 
-        let payload = ClaudeUsageCacheFile(entries: entries)
-        guard let data = try? JSONEncoder().encode(payload),
-              data.count <= maximumBytes else {
-            return
-        }
+        guard let data = encodedPayloadWithinLimit() else { return }
         do {
             try DurableFileIO.writePrivate(data, to: cacheURL)
         } catch {
             return
         }
         hasPendingChanges = false
+    }
+
+    private func encodedPayloadWithinLimit() -> Data? {
+        while true {
+            guard let data = try? JSONEncoder().encode(ClaudeUsageCacheFile(entries: entries)) else {
+                return nil
+            }
+            if data.count <= maximumBytes { return data }
+            // totalPayloadBytes is an upper bound on this size, so evicting here is
+            // only a safety net; without it an oversized cache would never persist.
+            guard let path = leastRecentlyUsedPath else { return nil }
+            removeEntry(path: path)
+        }
+    }
+
+    /// Bytes `"path":<entry>,` adds to the persisted object. `[path]` yields the
+    /// key exactly as JSONEncoder escapes it; its brackets stand in for the
+    /// colon and comma.
+    private func payloadByteCount(path: String, entry: ClaudeUsageCacheEntry) -> Int? {
+        let encoder = JSONEncoder()
+        guard let entryData = try? encoder.encode(entry),
+              let keyData = try? encoder.encode([path]) else {
+            return nil
+        }
+        return entryData.count + keyData.count
     }
 
     private func replaceInvalidCache() {
@@ -174,15 +197,20 @@ public actor ClaudeUsageCache {
     }
 
     private func enforceMemoryLimit() {
-        while totalEntryBytes > maximumBytes || entries.count > maximumEntryCount {
-            guard let path = accessOrder.min(by: { $0.value < $1.value })?.key else { return }
+        while claudeUsageCachePayloadEnvelopeBytes + totalPayloadBytes > maximumBytes
+            || entries.count > maximumEntryCount {
+            guard let path = leastRecentlyUsedPath else { return }
             removeEntry(path: path)
         }
     }
 
+    private var leastRecentlyUsedPath: String? {
+        accessOrder.min(by: { $0.value < $1.value })?.key
+    }
+
     private func removeEntry(path: String) {
         guard entries.removeValue(forKey: path) != nil else { return }
-        totalEntryBytes -= entryByteCounts.removeValue(forKey: path) ?? 0
+        totalPayloadBytes -= entryByteCounts.removeValue(forKey: path) ?? 0
         accessOrder[path] = nil
         hasPendingChanges = true
     }
