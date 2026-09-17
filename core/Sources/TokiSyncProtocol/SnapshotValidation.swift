@@ -43,6 +43,7 @@ public enum RemoteUsageSnapshotValidator {
                   TokiSyncValidation.isSafeDisplayText(event.source, maximumLength: 40),
                   isOptionalBoundedText(event.model, maximumLength: maximumModelLength),
                   isOptionalBoundedText(event.provider, maximumLength: 100),
+                  isOptionalBoundedText(event.serviceTier, maximumLength: 32),
                   validTokenCount(event.inputTokens),
                   validTokenCount(event.outputTokens),
                   validTokenCount(event.cacheReadTokens),

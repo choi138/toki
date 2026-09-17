@@ -370,7 +370,7 @@ public extension CodexRolloutUsageCache {
 }
 
 struct CodexRolloutUsageCacheEntry: Codable {
-    static let currentSchemaVersion = 3
+    static let currentSchemaVersion = 4
 
     let schemaVersion: Int
     let fileSize: Int
@@ -484,17 +484,18 @@ struct CodexCachedTokenUsageEvent: Codable {
     let outputTokens: Int
     let cacheReadTokens: Int
     let reasoningTokens: Int
-
+    let serviceTier: String?
     var totalTokens: Int {
         inputTokens + outputTokens + cacheReadTokens + reasoningTokens
     }
 
-    init(timestamp: Date, usage: RawTokenUsage) {
+    init(timestamp: Date, usage: RawTokenUsage, serviceTier: String? = nil) {
         self.timestamp = timestamp.timeIntervalSince1970
         inputTokens = usage.inputTokens
         outputTokens = usage.outputTokens
         cacheReadTokens = usage.cacheReadTokens
         reasoningTokens = usage.reasoningTokens
+        self.serviceTier = serviceTier
     }
 }
 

@@ -4,6 +4,27 @@ import XCTest
 @testable import TokiUsageReaders
 
 final class CodexReaderBehaviorTests: XCTestCase {
+    func test_codexReader_preservesFastServiceTierOnTokenEvents() throws {
+        let usage = CodexReader.usage(
+            fromRolloutLines: [
+                #"{"timestamp":"2026-04-10T00:00:00Z","type":"event_msg","payload":{"type":"thread_settings_applied","#
+                    + #""thread_settings":{"service_tier":"priority"}}}"#,
+                tokenCountLine(
+                    ts: "2026-04-10T00:00:01Z",
+                    input: 120,
+                    cachedInput: 20,
+                    output: 30,
+                    reasoning: 5,
+                    total: 150),
+            ],
+            model: "gpt-5.6-terra",
+            from: codexBehaviorISODate("2026-04-10T00:00:00Z"),
+            to: codexBehaviorISODate("2026-04-10T23:00:00Z"),
+            streamID: "rollout-fast")
+
+        XCTAssertEqual(try XCTUnwrap(usage.tokenEvents.first).serviceTier, "priority")
+    }
+
     func test_codexReader_keepsRolloutStreamsSeparatedWhenMergingActivity() {
         let first = CodexReader.usage(
             fromRolloutLines: [

@@ -3,6 +3,97 @@ import XCTest
 @testable import Toki
 
 final class UsageFormattingBehaviorTests: XCTestCase {
+    func test_chatGPTUsageEstimateWeightsModelTokenTypesAndFastMode() {
+        let event = TokenUsageEvent(
+            timestamp: Date(timeIntervalSince1970: 1_788_220_800),
+            source: "Codex",
+            model: "gpt-5.6-terra",
+            serviceTier: "priority",
+            inputTokens: 20000,
+            outputTokens: 60000,
+            cacheReadTokens: 10000,
+            cacheWriteTokens: 0,
+            reasoningTokens: 10000,
+            cost: 0)
+
+        let estimate = chatGPTUsageEstimate(from: [event])
+
+        XCTAssertEqual(estimate.credits, 55.125, accuracy: 0.000_001)
+        XCTAssertEqual(estimate.creditsPerMillionTokens, 551.25, accuracy: 0.000_001)
+        XCTAssertEqual(estimate.pricedTokens, 100_000)
+        XCTAssertTrue(estimate.isComplete)
+    }
+
+    func test_chatGPTUsageEstimateExcludesUnknownModelsAndNonCodexSources() {
+        let unknownCodex = TokenUsageEvent(
+            timestamp: Date(timeIntervalSince1970: 0),
+            source: "Codex",
+            model: "unknown-model",
+            inputTokens: 100,
+            outputTokens: 0,
+            cacheReadTokens: 0,
+            cacheWriteTokens: 0,
+            reasoningTokens: 0,
+            cost: 0)
+        let otherSource = TokenUsageEvent(
+            timestamp: Date(timeIntervalSince1970: 0),
+            source: "Claude Code",
+            model: "gpt-5.6-terra",
+            inputTokens: 200,
+            outputTokens: 0,
+            cacheReadTokens: 0,
+            cacheWriteTokens: 0,
+            reasoningTokens: 0,
+            cost: 0)
+
+        let estimate = chatGPTUsageEstimate(from: [unknownCodex, otherSource])
+
+        XCTAssertEqual(estimate.pricedTokens, 0)
+        XCTAssertEqual(estimate.unpricedTokens, 100)
+        XCTAssertFalse(estimate.hasPricedUsage)
+        XCTAssertFalse(estimate.isComplete)
+    }
+
+    func test_chatGPTUsageEstimatePricesLegacyCodexModels() {
+        for model in ["gpt-5.3-codex", "gpt-5.2", "gpt-5.2-codex"] {
+            let event = TokenUsageEvent(
+                timestamp: Date(timeIntervalSince1970: 0),
+                source: "Codex",
+                model: model,
+                serviceTier: "priority",
+                inputTokens: 1_000_000,
+                outputTokens: 1_000_000,
+                cacheReadTokens: 1_000_000,
+                cacheWriteTokens: 0,
+                reasoningTokens: 0,
+                cost: 0)
+
+            let estimate = chatGPTUsageEstimate(from: [event])
+
+            XCTAssertEqual(estimate.credits, 398.125, accuracy: 0.000_001, model)
+            XCTAssertEqual(estimate.pricedTokens, 3_000_000, model)
+            XCTAssertTrue(estimate.isComplete, model)
+        }
+    }
+
+    func test_chatGPTUsageEstimateDoesNotApplyStandardRatesToGpt52Pro() {
+        let event = TokenUsageEvent(
+            timestamp: Date(timeIntervalSince1970: 0),
+            source: "Codex",
+            model: "gpt-5.2-pro",
+            inputTokens: 1_000_000,
+            outputTokens: 0,
+            cacheReadTokens: 0,
+            cacheWriteTokens: 0,
+            reasoningTokens: 0,
+            cost: 0)
+
+        let estimate = chatGPTUsageEstimate(from: [event])
+
+        XCTAssertFalse(estimate.hasPricedUsage)
+        XCTAssertEqual(estimate.unpricedTokens, 1_000_000)
+    }
+
     func test_formattedTokens_promotesRoundedBoundaryToNextSuffix() {
         XCTAssertEqual(999_950.formattedTokens(), "1.0M")
         XCTAssertEqual(999_950_000.formattedTokens(), "1.0B")
@@ -141,5 +232,59 @@ final class UsageFormattingBehaviorTests: XCTestCase {
 
         XCTAssertEqual(stat.cost, 0)
         XCTAssertTrue(stat.isPriceKnown)
+    }
+}
+
+extension UsageFormattingBehaviorTests {
+    func test_chatGPTUsageEstimateTreatsCacheWriteTokensAsUnpriced() {
+        let mixedEvent = TokenUsageEvent(
+            timestamp: Date(timeIntervalSince1970: 1_788_220_800),
+            source: "Codex",
+            model: "gpt-5.6-terra",
+            inputTokens: 1_000_000,
+            outputTokens: 0,
+            cacheReadTokens: 0,
+            cacheWriteTokens: 2_000_000,
+            reasoningTokens: 0,
+            cost: 0)
+        let cacheWriteOnlyEvent = TokenUsageEvent(
+            timestamp: Date(timeIntervalSince1970: 1_788_220_800),
+            source: "Codex",
+            model: "gpt-5.6-terra",
+            inputTokens: 0,
+            outputTokens: 0,
+            cacheReadTokens: 0,
+            cacheWriteTokens: 2_000_000,
+            reasoningTokens: 0,
+            cost: 0)
+
+        let mixedEstimate = chatGPTUsageEstimate(from: [mixedEvent])
+        let cacheWriteOnlyEstimate = chatGPTUsageEstimate(from: [cacheWriteOnlyEvent])
+
+        XCTAssertEqual(mixedEstimate.credits, 50, accuracy: 0.000_001)
+        XCTAssertEqual(mixedEstimate.creditsPerMillionTokens, 50, accuracy: 0.000_001)
+        XCTAssertEqual(mixedEstimate.pricedTokens, 1_000_000)
+        XCTAssertEqual(mixedEstimate.unpricedTokens, 2_000_000)
+        XCTAssertFalse(mixedEstimate.isComplete)
+        XCTAssertFalse(cacheWriteOnlyEstimate.hasPricedUsage)
+        XCTAssertEqual(cacheWriteOnlyEstimate.unpricedTokens, 2_000_000)
+    }
+
+    func test_chatGPTUsageEstimateDoesNotApplyStandardRatesToGpt55Pro() {
+        let event = TokenUsageEvent(
+            timestamp: Date(timeIntervalSince1970: 0),
+            source: "Codex",
+            model: "gpt-5.5-pro",
+            inputTokens: 1_000_000,
+            outputTokens: 0,
+            cacheReadTokens: 0,
+            cacheWriteTokens: 0,
+            reasoningTokens: 0,
+            cost: 0)
+
+        let estimate = chatGPTUsageEstimate(from: [event])
+
+        XCTAssertFalse(estimate.hasPricedUsage)
+        XCTAssertEqual(estimate.unpricedTokens, 1_000_000)
     }
 }

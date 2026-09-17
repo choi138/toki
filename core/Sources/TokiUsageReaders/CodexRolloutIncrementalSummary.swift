@@ -183,7 +183,10 @@ func accumulateCodexSnapshots(
         if includingDerivedData {
             summary.dailyActivityTimestamps[dayKey, default: []].append(entry.date.timeIntervalSince1970)
             summary.dailyTokenUsageEvents[dayKey, default: []].append(
-                CodexCachedTokenUsageEvent(timestamp: entry.date, usage: usage))
+                CodexCachedTokenUsageEvent(
+                    timestamp: entry.date,
+                    usage: usage,
+                    serviceTier: entry.serviceTier))
         }
     }
 

@@ -10,7 +10,7 @@ extension TokenUsageEvent {
     }
 
     enum CodingKeys: String, CodingKey {
-        case timestamp, source, model, provider
+        case timestamp, source, model, provider, serviceTier
         case inputTokens, outputTokens, cacheReadTokens, cacheWriteTokens, reasoningTokens
         case cost, costIsKnown, attribution
     }
@@ -37,6 +37,7 @@ extension TokenUsageEvent {
             source: container.decode(String.self, forKey: .source),
             model: container.decodeIfPresent(String.self, forKey: .model),
             provider: container.decodeIfPresent(String.self, forKey: .provider),
+            serviceTier: container.decodeIfPresent(String.self, forKey: .serviceTier),
             inputTokens: input,
             outputTokens: output,
             cacheReadTokens: cacheRead,
@@ -53,6 +54,7 @@ extension TokenUsageEvent {
         try container.encode(source, forKey: .source)
         try container.encodeIfPresent(model, forKey: .model)
         try container.encodeIfPresent(provider, forKey: .provider)
+        try container.encodeIfPresent(serviceTier, forKey: .serviceTier)
         try container.encode(inputTokens, forKey: .inputTokens)
         try container.encode(outputTokens, forKey: .outputTokens)
         try container.encode(cacheReadTokens, forKey: .cacheReadTokens)

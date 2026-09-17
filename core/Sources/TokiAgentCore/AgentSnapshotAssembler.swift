@@ -336,6 +336,7 @@ private extension AgentSnapshotAssembler {
         if lhs.source != rhs.source { return lhs.source < rhs.source }
         if lhs.model != rhs.model { return (lhs.model ?? "") < (rhs.model ?? "") }
         if lhs.provider != rhs.provider { return (lhs.provider ?? "") < (rhs.provider ?? "") }
+        if lhs.serviceTier != rhs.serviceTier { return (lhs.serviceTier ?? "") < (rhs.serviceTier ?? "") }
         if lhs.inputTokens != rhs.inputTokens { return lhs.inputTokens < rhs.inputTokens }
         if lhs.outputTokens != rhs.outputTokens { return lhs.outputTokens < rhs.outputTokens }
         if lhs.cacheReadTokens != rhs.cacheReadTokens { return lhs.cacheReadTokens < rhs.cacheReadTokens }
@@ -400,6 +401,7 @@ private extension AgentSnapshotAssembler {
             source: event.source,
             model: remoteModel(event.model),
             provider: remoteProvider(event.provider),
+            serviceTier: remoteServiceTier(event.serviceTier),
             inputTokens: event.inputTokens,
             outputTokens: event.outputTokens,
             cacheReadTokens: event.cacheReadTokens,
@@ -412,6 +414,13 @@ private extension AgentSnapshotAssembler {
     private func remoteProvider(_ provider: String?) -> String? {
         let normalized = provider?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         return normalized.flatMap { Self.remoteProviderIdentifiers.contains($0) ? $0 : nil }
+    }
+
+    private func remoteServiceTier(_ serviceTier: String?) -> String? {
+        let normalized = serviceTier?.trimmingCharacters(in: .whitespacesAndNewlines)
+        return normalized.flatMap {
+            TokiSyncValidation.isSafeDisplayText($0, maximumLength: 32) ? $0 : nil
+        }
     }
 
     private static let remoteProviderIdentifiers = Set([

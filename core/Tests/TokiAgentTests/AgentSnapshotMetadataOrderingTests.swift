@@ -9,7 +9,16 @@ final class AgentSnapshotMetadataOrderingTests: XCTestCase {
         let fixture = try AgentSnapshotFixture()
         defer { fixture.remove() }
         let usages = [
-            usage(provider: "openrouter", costIsKnown: false, timestamp: fixture.latestEventDate),
+            usage(
+                provider: "openrouter",
+                serviceTier: "standard",
+                costIsKnown: false,
+                timestamp: fixture.latestEventDate),
+            usage(
+                provider: "openrouter",
+                serviceTier: "priority",
+                costIsKnown: false,
+                timestamp: fixture.latestEventDate),
             usage(provider: "openrouter", costIsKnown: true, timestamp: fixture.latestEventDate),
             usage(provider: "qwen", costIsKnown: false, timestamp: fixture.latestEventDate),
         ]
@@ -68,6 +77,7 @@ final class AgentSnapshotMetadataOrderingTests: XCTestCase {
 
     private func usage(
         provider: String,
+        serviceTier: String? = nil,
         costIsKnown: Bool,
         timestamp: Date) -> RawTokenUsage {
         var usage = RawTokenUsage()
@@ -76,6 +86,7 @@ final class AgentSnapshotMetadataOrderingTests: XCTestCase {
             source: "shared",
             model: "shared-model",
             provider: provider,
+            serviceTier: serviceTier,
             inputTokens: 1,
             outputTokens: 0,
             costIsKnown: costIsKnown)

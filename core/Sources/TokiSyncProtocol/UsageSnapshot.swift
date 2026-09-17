@@ -26,6 +26,7 @@ public struct RemoteTokenEvent: Codable, Equatable, Sendable {
     public let source: String
     public let model: String?
     public let provider: String?
+    public let serviceTier: String?
     public let inputTokens: Int
     public let outputTokens: Int
     public let cacheReadTokens: Int
@@ -39,6 +40,7 @@ public struct RemoteTokenEvent: Codable, Equatable, Sendable {
         source: String,
         model: String?,
         provider: String? = nil,
+        serviceTier: String? = nil,
         inputTokens: Int,
         outputTokens: Int,
         cacheReadTokens: Int,
@@ -50,6 +52,7 @@ public struct RemoteTokenEvent: Codable, Equatable, Sendable {
         self.source = source
         self.model = model
         self.provider = provider
+        self.serviceTier = serviceTier
         self.inputTokens = max(0, inputTokens)
         self.outputTokens = max(0, outputTokens)
         self.cacheReadTokens = max(0, cacheReadTokens)

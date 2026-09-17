@@ -52,7 +52,8 @@ enum UsageReportBuilder {
             supplementalStats: buildSupplementalStats(from: usage.supplemental),
             contextOnlyModels: buildContextOnlyModels(from: usage.supplemental),
             filteredModelID: filteredModelID,
-            isModelAttributionComplete: isModelAttributionComplete)
+            isModelAttributionComplete: isModelAttributionComplete,
+            chatGPTUsageEstimate: chatGPTUsageEstimate(from: usage.tokenEvents))
     }
 }
 
