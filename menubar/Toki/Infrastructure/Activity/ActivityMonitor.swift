@@ -395,11 +395,14 @@ actor TokenVelocityMonitor {
     func sample(sources: Set<ActiveUsageSource>, at now: Date = Date()) async -> TokenVelocitySample {
         sampleRequestObserver()
         let interval = dayInterval(containing: now)
-        while let inFlightSample {
+        if let inFlightSample {
             if inFlightSample.sources == sources, inFlightSample.dayStart == interval.start {
                 return await inFlightSample.task.value
             }
-            _ = await inFlightSample.task.value
+            // A stale read would only report a source set nobody is showing any more;
+            // superseding it lets completeSample drop its result by id.
+            inFlightSample.task.cancel()
+            self.inFlightSample = nil
         }
 
         let id = UUID()

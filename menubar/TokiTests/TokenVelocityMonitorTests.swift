@@ -226,6 +226,35 @@ extension TokenVelocityMonitorTests {
         XCTAssertEqual(sample.tokensPerSecond, 20, accuracy: 0.000_001)
     }
 
+    func test_changedSourceSetSupersedesInFlightSample() async {
+        let staleRead = expectation(description: "stale source read started")
+        let freshRead = expectation(description: "fresh source read started")
+        let gate = TokenOutputDayGate(
+            outputs: [120, 300],
+            readExpectations: [staleRead, freshRead])
+        let monitor = TokenVelocityMonitor(readDailyOutputTokens: { _, start, _ in
+            await gate.read(start: start)
+        })
+
+        let stale = Task {
+            await monitor.sample(sources: [.codex], at: tokiTestISODate("2026-04-10T10:00:00Z"))
+        }
+        await fulfillment(of: [staleRead], timeout: 1)
+        let fresh = Task {
+            await monitor.sample(sources: [.cursor], at: tokiTestISODate("2026-04-10T10:00:01Z"))
+        }
+        await fulfillment(of: [freshRead], timeout: 1)
+
+        await gate.releaseRead(at: 1)
+        let freshSample = await fresh.value
+        await gate.releaseRead(at: 0)
+        let staleSample = await stale.value
+
+        XCTAssertEqual(freshSample.outputTokens, 300)
+        XCTAssertEqual(staleSample.outputTokens, 120)
+        XCTAssertEqual(staleSample.tokensPerSecond, 0)
+    }
+
     func test_sourceSetChangeResetsVelocityBaseline() async {
         let reader = TokenOutputSequence([100, 500])
         let monitor = TokenVelocityMonitor(
