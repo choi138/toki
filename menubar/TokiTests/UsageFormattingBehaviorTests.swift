@@ -5,7 +5,7 @@ import XCTest
 final class UsageFormattingBehaviorTests: XCTestCase {
     func test_chatGPTUsageEstimateWeightsModelTokenTypesAndFastMode() {
         let event = TokenUsageEvent(
-            timestamp: Date(timeIntervalSince1970: 0),
+            timestamp: Date(timeIntervalSince1970: 1_788_220_800),
             source: "Codex",
             model: "gpt-5.6-terra",
             serviceTier: "priority",
@@ -238,7 +238,7 @@ final class UsageFormattingBehaviorTests: XCTestCase {
 extension UsageFormattingBehaviorTests {
     func test_chatGPTUsageEstimateTreatsCacheWriteTokensAsUnpriced() {
         let mixedEvent = TokenUsageEvent(
-            timestamp: Date(timeIntervalSince1970: 0),
+            timestamp: Date(timeIntervalSince1970: 1_788_220_800),
             source: "Codex",
             model: "gpt-5.6-terra",
             inputTokens: 1_000_000,
@@ -248,7 +248,7 @@ extension UsageFormattingBehaviorTests {
             reasoningTokens: 0,
             cost: 0)
         let cacheWriteOnlyEvent = TokenUsageEvent(
-            timestamp: Date(timeIntervalSince1970: 0),
+            timestamp: Date(timeIntervalSince1970: 1_788_220_800),
             source: "Codex",
             model: "gpt-5.6-terra",
             inputTokens: 0,
