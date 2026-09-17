@@ -69,7 +69,7 @@ class SecurityAuditScannerTestCase: XCTestCase {
             pattern: #"cache-secret-[A-Z]{16}"#,
             prefilter: { $0.contains("cache-secret-") },
             validator: { _ in
-                counter.count += 1
+                counter.increment()
                 return true
             })
     }
@@ -156,7 +156,16 @@ enum SecurityAuditTestSecret {
 }
 
 final class SecurityAuditValidatorCounter {
-    var count = 0
+    private let stateQueue = DispatchQueue(label: "toki.tests.security-audit-validator-counter")
+    private var value = 0
+
+    var count: Int {
+        stateQueue.sync { value }
+    }
+
+    func increment() {
+        stateQueue.sync { value += 1 }
+    }
 }
 
 final class SecurityAuditValidatorGate {
