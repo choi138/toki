@@ -55,6 +55,7 @@ public struct ClaudeCodeReader: TokenReader {
                 throw PiCompatibleReaderError.tooManyFiles(files.count)
             }
         }
+        await usageCache.retainFiles(files)
         await usageCache.beginBatch()
         var sessions: [(streamID: String, records: [ClaudeCachedUsageRecord])] = []
         var recordCount = 0

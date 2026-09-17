@@ -199,15 +199,15 @@ struct RabbitRunAnimationLifecycle {
 }
 
 enum RabbitRunAnimationSpeed {
-    static let defaultFrameInterval: TimeInterval = 0.09
+    static let defaultFrameInterval: TimeInterval = 1.0 / 8.0
     static let changeThreshold: TimeInterval = 0.006
 
     private static let speedBands: [(tokensPerSecond: Double, frameInterval: TimeInterval)] = [
-        (0, 0.09),
-        (20, 0.055),
-        (40, 0.035),
-        (60, 0.023),
-        (80, 0.016),
+        (0, 1.0 / 8.0),
+        (20, 1.0 / 12.0),
+        (40, 1.0 / 16.0),
+        (60, 1.0 / 20.0),
+        (80, 1.0 / 24.0),
     ]
 
     static func frameInterval(tokensPerSecond: Double) -> TimeInterval {

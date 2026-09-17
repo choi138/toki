@@ -3,7 +3,7 @@ import Foundation
 @MainActor
 final class MenuBarActivityController {
     private enum Timing {
-        static let activityCheck: TimeInterval = 5.0
+        static let activityCheck: TimeInterval = 10.0
         static let panelTokenVelocitySample: TimeInterval = 2.0
     }
 
@@ -16,6 +16,8 @@ final class MenuBarActivityController {
     private var isActivityCheckInFlight = false
     private var isTokenVelocitySampleInFlight = false
     private var isAnyToolActive = false
+    private var activeSources: Set<ActiveUsageSource> = []
+    private var claudeCodeProbeThrottle = ClaudeCodeProbeThrottle()
 
     init(
         statusItemController: MenuBarStatusItemController,
@@ -81,14 +83,22 @@ private extension MenuBarActivityController {
         guard !isActivityCheckInFlight else { return }
         isActivityCheckInFlight = true
         let tokenVelocityMonitor = tokenVelocityMonitor
+        let now = Date()
+        let probesClaudeCode = claudeCodeProbeThrottle.shouldProbeAlongsideOtherSources(now: now)
 
         DispatchQueue.global(qos: .utility).async {
-            let activityState = ActivityMonitor.currentState()
+            let activityState = ActivityMonitor.currentState(
+                now: now,
+                probesClaudeCodeAlongsideOtherSources: probesClaudeCode)
 
             Task {
+                await MainActor.run { [weak self] in
+                    self?.publishActivityState(activityState, at: now)
+                }
+
                 let velocitySample: TokenVelocitySample
                 if activityState.isAnyToolActive {
-                    velocitySample = await tokenVelocityMonitor.sample()
+                    velocitySample = await tokenVelocityMonitor.sample(sources: activityState.activeSources)
                 } else {
                     await tokenVelocityMonitor.reset()
                     velocitySample = .zero()
@@ -97,7 +107,6 @@ private extension MenuBarActivityController {
                 await MainActor.run { [weak self] in
                     guard let self else { return }
                     isActivityCheckInFlight = false
-                    isAnyToolActive = activityState.isAnyToolActive
                     tokenVelocityState.update(velocitySample)
                     statusItemController.applyActivityState(
                         isActive: activityState.isAnyToolActive,
@@ -107,13 +116,26 @@ private extension MenuBarActivityController {
         }
     }
 
+    /// Published before the velocity read so a slow reader cannot keep the status
+    /// item and panel sampling on the previous tool.
+    func publishActivityState(_ activityState: ActivityMonitorState, at now: Date) {
+        claudeCodeProbeThrottle.record(activityState, at: now)
+        isAnyToolActive = activityState.isAnyToolActive
+        activeSources = activityState.activeSources
+        statusItemController.applyActivityState(
+            isActive: activityState.isAnyToolActive,
+            tokenVelocity: tokenVelocityState.liveTokensPerSecond)
+    }
+
     func sampleTokenVelocityInBackground() {
         guard !isTokenVelocitySampleInFlight else { return }
+        guard !activeSources.isEmpty else { return }
         isTokenVelocitySampleInFlight = true
         let tokenVelocityMonitor = tokenVelocityMonitor
+        let activeSources = activeSources
 
         Task.detached(priority: .utility) { [weak self] in
-            let velocitySample = await tokenVelocityMonitor.sample()
+            let velocitySample = await tokenVelocityMonitor.sample(sources: activeSources)
 
             await MainActor.run { [weak self] in
                 guard let self else { return }

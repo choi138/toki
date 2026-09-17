@@ -4,6 +4,8 @@ import TokiDurableStorage
 // Reparse older entries through the bounded reader and its recording diagnostics.
 private let claudeUsageCacheParserVersion = 4
 public let maximumClaudeUsageCacheBytes = 64 * 1024 * 1024
+// `{"entries":{}}` around the persisted entries.
+private let claudeUsageCachePayloadEnvelopeBytes = 14
 
 public actor ClaudeUsageCache {
     public static let shared = ClaudeUsageCache(cacheURL: claudeUsageCacheURL())
@@ -12,6 +14,10 @@ public actor ClaudeUsageCache {
     private let maximumBytes: Int
     private var isLoaded = false
     private var entries: [String: ClaudeUsageCacheEntry] = [:]
+    private var entryByteCounts: [String: Int] = [:]
+    private var totalPayloadBytes = 0
+    private var accessOrder: [String: UInt64] = [:]
+    private var accessCounter: UInt64 = 0
     private var batchDepth = 0
     private var hasPendingChanges = false
 
@@ -42,10 +48,21 @@ public actor ClaudeUsageCache {
               cached.parserVersion == claudeUsageCacheParserVersion,
               cached.fileSize == fileSignature.fileSize,
               cached.modifiedAt == fileSignature.modifiedAt else {
+            removeEntry(path: url.path)
             return nil
         }
 
+        touch(url.path)
         return cached.records
+    }
+
+    func retainFiles(_ urls: Set<URL>) async {
+        await loadIfNeeded()
+        let retainedPaths = Set(urls.map(\.path))
+        for path in entries.keys where !retainedPaths.contains(path) {
+            removeEntry(path: path)
+        }
+        persistIfNeeded()
     }
 
     func store(records: [ClaudeCachedUsageRecord], for url: URL) async {
@@ -53,18 +70,34 @@ public actor ClaudeUsageCache {
 
         guard let fileSignature = claudeFileSignature(for: url) else { return }
 
-        entries[url.path] = ClaudeUsageCacheEntry(
+        let entry = ClaudeUsageCacheEntry(
             parserVersion: claudeUsageCacheParserVersion,
             fileSize: fileSignature.fileSize,
             modifiedAt: fileSignature.modifiedAt,
             records: records)
+        guard let byteCount = payloadByteCount(path: url.path, entry: entry),
+              claudeUsageCachePayloadEnvelopeBytes + byteCount <= maximumBytes else {
+            removeEntry(path: url.path)
+            persistIfNeeded()
+            return
+        }
 
+        totalPayloadBytes -= entryByteCounts[url.path] ?? 0
+        entries[url.path] = entry
+        entryByteCounts[url.path] = byteCount
+        totalPayloadBytes += byteCount
+        touch(url.path)
+        enforceMemoryLimit()
         hasPendingChanges = true
         persistIfNeeded()
     }
 
     public func reset() throws {
         entries = [:]
+        entryByteCounts = [:]
+        totalPayloadBytes = 0
+        accessOrder = [:]
+        accessCounter = 0
         batchDepth = 0
         hasPendingChanges = false
         isLoaded = true
@@ -100,17 +133,26 @@ public actor ClaudeUsageCache {
             return
         }
 
-        entries = decoded.entries
+        for path in decoded.entries.keys.sorted() {
+            guard let entry = decoded.entries[path],
+                  let byteCount = payloadByteCount(path: path, entry: entry),
+                  claudeUsageCachePayloadEnvelopeBytes + byteCount <= maximumBytes else {
+                hasPendingChanges = true
+                continue
+            }
+            entries[path] = entry
+            entryByteCounts[path] = byteCount
+            totalPayloadBytes += byteCount
+            touch(path)
+            enforceMemoryLimit()
+        }
+        persistIfNeeded()
     }
 
     private func persistIfNeeded() {
         guard hasPendingChanges, batchDepth == 0 else { return }
 
-        let payload = ClaudeUsageCacheFile(entries: entries)
-        guard let data = try? JSONEncoder().encode(payload),
-              data.count <= maximumBytes else {
-            return
-        }
+        guard let data = encodedPayloadWithinLimit() else { return }
         do {
             try DurableFileIO.writePrivate(data, to: cacheURL)
         } catch {
@@ -119,10 +161,58 @@ public actor ClaudeUsageCache {
         hasPendingChanges = false
     }
 
+    private func encodedPayloadWithinLimit() -> Data? {
+        while true {
+            guard let data = try? JSONEncoder().encode(ClaudeUsageCacheFile(entries: entries)) else {
+                return nil
+            }
+            if data.count <= maximumBytes { return data }
+            // totalPayloadBytes is an upper bound on this size, so evicting here is
+            // only a safety net; without it an oversized cache would never persist.
+            guard let path = leastRecentlyUsedPath else { return nil }
+            removeEntry(path: path)
+        }
+    }
+
+    /// Bytes `"path":<entry>,` adds to the persisted object. `[path]` yields the
+    /// key exactly as JSONEncoder escapes it; its brackets stand in for the
+    /// colon and comma.
+    private func payloadByteCount(path: String, entry: ClaudeUsageCacheEntry) -> Int? {
+        let encoder = JSONEncoder()
+        guard let entryData = try? encoder.encode(entry),
+              let keyData = try? encoder.encode([path]) else {
+            return nil
+        }
+        return entryData.count + keyData.count
+    }
+
     private func replaceInvalidCache() {
         entries = [:]
         hasPendingChanges = true
         persistIfNeeded()
+    }
+
+    private func enforceMemoryLimit() {
+        while claudeUsageCachePayloadEnvelopeBytes + totalPayloadBytes > maximumBytes {
+            guard let path = leastRecentlyUsedPath else { return }
+            removeEntry(path: path)
+        }
+    }
+
+    private var leastRecentlyUsedPath: String? {
+        accessOrder.min(by: { $0.value < $1.value })?.key
+    }
+
+    private func removeEntry(path: String) {
+        guard entries.removeValue(forKey: path) != nil else { return }
+        totalPayloadBytes -= entryByteCounts.removeValue(forKey: path) ?? 0
+        accessOrder[path] = nil
+        hasPendingChanges = true
+    }
+
+    private func touch(_ path: String) {
+        accessCounter &+= 1
+        accessOrder[path] = accessCounter
     }
 }
 

@@ -5,9 +5,24 @@ import TokiUsageReaders
 
 // Detects whether any AI coding tool is currently active.
 
+enum ActiveUsageSource: CaseIterable, Equatable {
+    case codex
+    case cursor
+    case openCode
+    case claudeCode
+}
+
 struct ActivityMonitorState: Equatable {
-    let isAnyToolActive: Bool
-    let isCodexActive: Bool
+    let activeSources: Set<ActiveUsageSource>
+    let probedClaudeCode: Bool
+
+    var isAnyToolActive: Bool {
+        !activeSources.isEmpty
+    }
+
+    var isCodexActive: Bool {
+        activeSources.contains(.codex)
+    }
 }
 
 enum ActivityMonitor {
@@ -26,18 +41,21 @@ enum ActivityMonitor {
         currentState().isAnyToolActive
     }
 
-    static func currentState(now: Date = Date()) -> ActivityMonitorState {
+    /// The Claude probe walks every transcript under ~/.claude/projects, so callers
+    /// may skip it while a cheaper source already reports activity; it always runs
+    /// when nothing else is active.
+    static func currentState(
+        now: Date = Date(),
+        probesClaudeCodeAlongsideOtherSources: Bool = true) -> ActivityMonitorState {
         let threshold = now.addingTimeInterval(-activeWindowSeconds)
         let cursorThreshold = now.addingTimeInterval(-cursorActiveWindowSeconds)
-        let codexActive = isCodexActive(since: threshold)
-        // Cheap DB queries first; expensive directory scan last
-        let anyToolActive = codexActive
-            || isCursorActive(since: cursorThreshold)
-            || isOpenCodeActive(since: threshold)
-            || isClaudeCodeActive(since: threshold)
-        return ActivityMonitorState(
-            isAnyToolActive: anyToolActive,
-            isCodexActive: codexActive)
+        var activeSources: Set<ActiveUsageSource> = []
+        if isCodexActive(since: threshold) { activeSources.insert(.codex) }
+        if isCursorActive(since: cursorThreshold) { activeSources.insert(.cursor) }
+        if isOpenCodeActive(since: threshold) { activeSources.insert(.openCode) }
+        let probesClaudeCode = activeSources.isEmpty || probesClaudeCodeAlongsideOtherSources
+        if probesClaudeCode, isClaudeCodeActive(since: threshold) { activeSources.insert(.claudeCode) }
+        return ActivityMonitorState(activeSources: activeSources, probedClaudeCode: probesClaudeCode)
     }
 
     // MARK: - Claude Code
@@ -297,6 +315,30 @@ extension ActivityMonitor {
     }
 }
 
+/// Decides when the expensive Claude probe runs while another tool is already active.
+/// Claude keeps being probed every poll once it was seen so it drops out promptly;
+/// otherwise it is re-probed once per activity window, which bounds how late a
+/// Claude session running alongside another tool is picked up.
+struct ClaudeCodeProbeThrottle: Equatable {
+    static let interval: TimeInterval = 30
+
+    private var lastProbeAt: Date?
+    private var wasClaudeCodeActive = false
+
+    func shouldProbeAlongsideOtherSources(now: Date) -> Bool {
+        if wasClaudeCodeActive { return true }
+        guard let lastProbeAt else { return true }
+        return now.timeIntervalSince(lastProbeAt) >= Self.interval
+    }
+
+    mutating func record(_ state: ActivityMonitorState, at now: Date) {
+        wasClaudeCodeActive = state.activeSources.contains(.claudeCode)
+        if state.probedClaudeCode {
+            lastProbeAt = now
+        }
+    }
+}
+
 struct TokenVelocitySample: Equatable {
     let outputTokens: Int
     let sampledAt: Date
@@ -311,10 +353,11 @@ struct TokenVelocitySample: Equatable {
 }
 
 actor TokenVelocityMonitor {
-    typealias DailyOutputTokenReader = (Date, Date) async -> Int
+    typealias DailyOutputTokenReader = (Set<ActiveUsageSource>, Date, Date) async -> Int
     typealias SampleRequestObserver = @Sendable () -> Void
 
     private struct SamplePoint {
+        let sources: Set<ActiveUsageSource>
         let dayStart: Date
         let outputTokens: Int
         let sampledAt: Date
@@ -322,6 +365,7 @@ actor TokenVelocityMonitor {
 
     private struct InFlightSample {
         let id: UUID
+        let sources: Set<ActiveUsageSource>
         let dayStart: Date
         let task: Task<TokenVelocitySample, Never>
     }
@@ -348,31 +392,36 @@ actor TokenVelocityMonitor {
         self.sampleRequestObserver = sampleRequestObserver
     }
 
-    func sample(at now: Date = Date()) async -> TokenVelocitySample {
+    func sample(sources: Set<ActiveUsageSource>, at now: Date = Date()) async -> TokenVelocitySample {
         sampleRequestObserver()
         let interval = dayInterval(containing: now)
-        while let inFlightSample {
-            if inFlightSample.dayStart == interval.start {
+        if let inFlightSample {
+            if inFlightSample.sources == sources, inFlightSample.dayStart == interval.start {
                 return await inFlightSample.task.value
             }
-            _ = await inFlightSample.task.value
+            // A stale read would only report a source set nobody is showing any more;
+            // superseding it lets completeSample drop its result by id.
+            inFlightSample.task.cancel()
+            self.inFlightSample = nil
         }
 
         let id = UUID()
         let readDailyOutputTokens = readDailyOutputTokens
         let task = Task { [weak self] in
-            let outputTokens = await readDailyOutputTokens(interval.start, interval.end)
+            let outputTokens = await readDailyOutputTokens(sources, interval.start, interval.end)
             guard let self else {
                 return TokenVelocitySample.zero(outputTokens: outputTokens, sampledAt: now)
             }
             return await completeSample(
                 id: id,
+                sources: sources,
                 dayStart: interval.start,
                 outputTokens: outputTokens,
                 sampledAt: now)
         }
         inFlightSample = InFlightSample(
             id: id,
+            sources: sources,
             dayStart: interval.start,
             task: task)
         return await task.value
@@ -380,6 +429,7 @@ actor TokenVelocityMonitor {
 
     private func completeSample(
         id: UUID,
+        sources: Set<ActiveUsageSource>,
         dayStart: Date,
         outputTokens: Int,
         sampledAt now: Date) -> TokenVelocitySample {
@@ -388,11 +438,13 @@ actor TokenVelocityMonitor {
         }
         inFlightSample = nil
         let currentPoint = SamplePoint(
+            sources: sources,
             dayStart: dayStart,
             outputTokens: outputTokens,
             sampledAt: now)
 
         guard let previousPoint = lastPoint,
+              previousPoint.sources == currentPoint.sources,
               previousPoint.dayStart == currentPoint.dayStart else {
             smoothedTokensPerSecond = 0
             lastPoint = currentPoint
@@ -445,18 +497,29 @@ actor TokenVelocityMonitor {
             + (1 - smoothingWeight) * smoothedTokensPerSecond
     }
 
-    private static func defaultDailyOutputTokens(from startDate: Date, to endDate: Date) async -> Int {
+    private static func defaultDailyOutputTokens(
+        sources: Set<ActiveUsageSource>,
+        from startDate: Date,
+        to endDate: Date) async -> Int {
+        let readers = ActiveUsageSource.allCases
+            .filter(sources.contains)
+            .map(reader(for:))
+        guard !readers.isEmpty else { return 0 }
         let request = UsageAggregationRequest(
             start: startDate,
             end: endDate,
             enabledReaderNames: [:],
             includesEmptySourceRows: false)
-        return await UsageAggregator(readers: [
-            ClaudeCodeReader(),
-            CodexReader(),
-            CursorReader(),
-            OpenCodeReader(),
-        ]).aggregateOutputTokens(for: request)
+        return await UsageAggregator(readers: readers).aggregateOutputTokens(for: request)
+    }
+
+    private static func reader(for source: ActiveUsageSource) -> any TokenReader {
+        switch source {
+        case .codex: CodexReader()
+        case .cursor: CursorReader()
+        case .openCode: OpenCodeReader()
+        case .claudeCode: ClaudeCodeReader()
+        }
     }
 }
 
