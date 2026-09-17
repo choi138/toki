@@ -257,8 +257,14 @@ extension RemoteUsageReaderTests {
             client: fixture.makeClient(manifest: manifest),
             cache: cache)
 
-        await XCTAssertThrowsErrorAsync {
+        do {
             _ = try await reader.readUsage(from: fixture.start, to: fixture.end)
+            XCTFail("Expected stale remote device data to fail")
+        } catch let error as RemoteUsageReaderError {
+            guard case let .staleDevice(name) = error else {
+                return XCTFail("Expected staleDevice, got \(error)")
+            }
+            XCTAssertEqual(name, "build-server")
         }
 
         let saved = try XCTUnwrap(cache.load())
