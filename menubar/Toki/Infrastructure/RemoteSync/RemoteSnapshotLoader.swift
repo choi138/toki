@@ -289,7 +289,6 @@ private extension RemoteSnapshotLoader {
             manifestEntityTag: reconciliation.didAdvance ? nil : manifestResult.entityTag,
             fetchedAt: now,
             snapshotCacheIdentifier: configuration.snapshotCacheIdentifier), now: now)
-        try RemoteDeviceFreshness.validate(entry.manifest, now: now)
 
         let authenticatedChanges = try authenticate(fetchedEnvelopes)
         var encryptionKeysByDevice = cachedState?.encryptionKeysByDevice ?? [:]
@@ -313,6 +312,11 @@ private extension RemoteSnapshotLoader {
                 }
                 try cache.save(entry, changedDeviceIDs: changedDeviceIDs.union(removedDeviceIDs))
             }
+
+        // Staleness is a fact about the device, not about this fetch, so it is judged only after
+        // the authenticated result is on disk. Throwing first left the cache frozen at the last
+        // fetch that happened to be fresh, which makes its timestamps read as a dead fetch loop.
+        try RemoteDeviceFreshness.validate(entry.manifest, now: now)
 
         var snapshotsByDevice = cachedState?.snapshotsByDevice ?? [:]
         for deviceID in removedDeviceIDs {
