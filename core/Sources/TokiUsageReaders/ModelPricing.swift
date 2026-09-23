@@ -113,6 +113,8 @@ private let exactPricingTable: [String: ModelPrice] = [
     // bill at 2x input/cache and 1.5x output, and fast mode doubles every rate,
     // both under the same model ID, so those paths are under-estimated here.
     "gpt-6-astra": price(10.0, 50.0, 1.00, 12.50),
+    "gpt-6-sol": price(2.0, 10.0, 0.20, 2.50),
+    "gpt-6-luna": price(0.10, 0.50, 0.01, 0.125),
     // GPT-5.6 standard short-context pricing at launch. OpenAI cut all three
     // rates after launch, so the reduced rates live in scheduledPriceChanges
     // and usage recorded before each cut still bills at the launch rate.
@@ -252,6 +254,28 @@ private func matchedPricingKey(for match: ModelPriceLookup.Match) -> String? {
 
 // MARK: - Lookup
 
+/// Shares the pricing-ID policy with credit estimates. GPT-6 accepts only the
+/// base ID or an ASCII Gregorian date suffix, never an unknown product tier.
+/// Other model families retain their existing prefix behavior.
+public func modelIDMatchesPricingPrefix(_ modelID: String, prefix: String) -> Bool {
+    guard modelID.hasPrefix(prefix) else { return false }
+    guard ["gpt-6-astra", "gpt-6-sol", "gpt-6-luna"].contains(prefix) else { return true }
+    let suffix = Array(modelID.dropFirst(prefix.count).utf8)
+    if suffix.isEmpty { return true }
+    guard suffix.count == 11,
+          suffix[0] == 45, suffix[5] == 45, suffix[8] == 45,
+          [1, 2, 3, 4, 6, 7, 9, 10].allSatisfy({ (48...57).contains(suffix[$0]) }) else {
+        return false
+    }
+    let year = suffix[1...4].reduce(0) { $0 * 10 + Int($1 - 48) }
+    let month = Int(suffix[6] - 48) * 10 + Int(suffix[7] - 48)
+    let day = Int(suffix[9] - 48) * 10 + Int(suffix[10] - 48)
+    guard year > 0, (1...12).contains(month) else { return false }
+    let leapYear = year % 4 == 0 && (year % 100 != 0 || year % 400 == 0)
+    let monthLengths = [31, leapYear ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
+    return (1...monthLengths[month - 1]).contains(day)
+}
+
 /// Resolves the price effective at the given usage timestamp. Cost
 /// computation for usage events must pass the event timestamp so that
 /// scheduled price changes bill each event at its own effective rate.
@@ -290,7 +314,7 @@ public func modelPriceIsKnown(
     for modelId: String,
     throughout interval: DateInterval) -> Bool {
     if exactPricingTable[modelId] != nil
-        || sortedPrefixPricingKeys.contains(where: { modelId.hasPrefix($0.key) }) {
+        || sortedPrefixPricingKeys.contains(where: { modelIDMatchesPricingPrefix(modelId, prefix: $0.key) }) {
         return true
     }
     return ModelPricingSupplement.hasPrice(for: modelId, throughout: interval)
@@ -304,7 +328,7 @@ private func baseModelPriceLookup(for modelId: String, at timestamp: Date) -> Mo
             match: .exact(modelId: modelId))
     }
 
-    if let match = sortedPrefixPricingKeys.first(where: { modelId.hasPrefix($0.key) }) {
+    if let match = sortedPrefixPricingKeys.first(where: { modelIDMatchesPricingPrefix(modelId, prefix: $0.key) }) {
         return ModelPriceLookup(
             modelId: modelId,
             price: match.value,
