@@ -25,6 +25,48 @@ final class CodexReaderBehaviorTests: XCTestCase {
         XCTAssertEqual(try XCTUnwrap(usage.tokenEvents.first).serviceTier, "priority")
     }
 
+    func test_codexReader_pricesGpt6SolAndLunaRolloutUsage() throws {
+        let from = codexBehaviorISODate("2026-04-10T00:00:00Z")
+        let to = codexBehaviorISODate("2026-04-10T23:00:00Z")
+        let lines = [
+            tokenCountLine(
+                ts: "2026-04-10T00:00:01Z",
+                input: 1_000_000,
+                cachedInput: 1_000_000,
+                output: 1_000_000,
+                reasoning: 0,
+                total: 2_000_000),
+            tokenCountLine(
+                ts: "2026-04-10T00:00:02Z",
+                input: 1_000_000,
+                cachedInput: 1_000_000,
+                output: 1_000_000,
+                reasoning: 0,
+                total: 2_000_000),
+        ]
+
+        let sol = CodexReader.usage(
+            fromRolloutLines: [lines[0]],
+            model: "gpt-6-sol",
+            from: from,
+            to: to,
+            streamID: "sol")
+        let luna = CodexReader.usage(
+            fromRolloutLines: [lines[1]],
+            model: "gpt-6-luna",
+            from: from,
+            to: to,
+            streamID: "luna")
+
+        // Codex input includes cached tokens: these fixtures have no uncached input.
+        XCTAssertEqual(sol.cost, 10.2, accuracy: 0.000_001)
+        XCTAssertEqual(luna.cost, 0.51, accuracy: 0.000_001)
+        XCTAssertEqual(try XCTUnwrap(sol.tokenEvents.first).cost, sol.cost, accuracy: 0.000_001)
+        XCTAssertEqual(try XCTUnwrap(luna.tokenEvents.first).cost, luna.cost, accuracy: 0.000_001)
+        XCTAssertEqual(sol.inputTokens, 0)
+        XCTAssertEqual(luna.cacheReadTokens, 1_000_000)
+    }
+
     func test_codexReader_keepsRolloutStreamsSeparatedWhenMergingActivity() {
         let first = CodexReader.usage(
             fromRolloutLines: [

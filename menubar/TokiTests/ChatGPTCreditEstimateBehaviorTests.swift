@@ -74,11 +74,73 @@ final class ChatGPTCreditEstimateBehaviorTests: XCTestCase {
         XCTAssertTrue(estimate.isComplete)
     }
 
+    func test_gpt6SolAndLunaUseStandardAndPriorityCreditRates() {
+        let timestamp = solCut
+        let events = [
+            makeGpt6Event(model: "gpt-6-sol", serviceTier: nil, at: timestamp),
+            makeGpt6Event(model: "GPT-6-LUNA-2024-02-29", serviceTier: "priority", at: timestamp),
+        ]
+
+        let estimate = chatGPTUsageEstimate(from: events)
+
+        XCTAssertEqual(estimate.credits, 305 + 15.25 * 2.5, accuracy: 0.000_001)
+        XCTAssertEqual(estimate.pricedTokens, 6_000_000)
+        XCTAssertEqual(estimate.unpricedTokens, 0)
+        XCTAssertTrue(estimate.isComplete)
+    }
+
+    func test_gpt6InvalidDerivativesAreUnpriced() {
+        let invalidSuffixes = [
+            "-mini", "-pro", "-preview", "-fast", "-experimental", "junk", " ", "\n",
+            "-2024-02-30", "-2023-02-29", "-1900-02-29", "-0000-01-01",
+            "-2024-00-01", "-2024-13-01", "-2024-01-00", "-2024-04-31",
+            "-２０２４-０２-２９", "-2024-02-29-extra", "-2024-02-29\n",
+            "-2024-2-29", "-2024-02-9", "-10000-01-01", "-2024/02/29",
+        ]
+        let invalidModels = ["gpt-6-astra", "gpt-6-sol", "gpt-6-luna"].flatMap { model in
+            invalidSuffixes.map { model + $0 }
+        } + ["gpt-6", "gpt-6-pro", "gpt-6-terra"]
+        let events = invalidModels.map { makeGpt6Event(model: $0, serviceTier: nil, at: solCut) }
+
+        let estimate = chatGPTUsageEstimate(from: events)
+
+        XCTAssertEqual(estimate.credits, 0)
+        XCTAssertEqual(estimate.pricedTokens, 0)
+        XCTAssertEqual(estimate.unpricedTokens, invalidModels.count * 3_000_000)
+        XCTAssertFalse(estimate.isComplete)
+    }
+
+    func test_gpt6SolAndLunaEachSupportStandardFastAndPriority() {
+        for (model, standard) in [("gpt-6-sol", 305.0), ("gpt-6-luna", 15.25)] {
+            for tier: String? in [nil, "fast", "priority"] {
+                let estimate = chatGPTUsageEstimate(from: [makeGpt6Event(model: model, serviceTier: tier, at: solCut)])
+                XCTAssertEqual(estimate.credits, standard * (tier == nil ? 1 : 2.5), accuracy: 0.000_001)
+                XCTAssertEqual(estimate.pricedTokens, 3_000_000)
+                XCTAssertEqual(estimate.unpricedTokens, 0)
+                XCTAssertTrue(estimate.isComplete)
+            }
+        }
+    }
+
     private func makeSolEvent(at timestamp: Date) -> TokenUsageEvent {
         TokenUsageEvent(
             timestamp: timestamp,
             source: "Codex",
             model: "gpt-5.6-sol",
+            inputTokens: 1_000_000,
+            outputTokens: 1_000_000,
+            cacheReadTokens: 1_000_000,
+            cacheWriteTokens: 0,
+            reasoningTokens: 0,
+            cost: 0)
+    }
+
+    private func makeGpt6Event(model: String, serviceTier: String?, at timestamp: Date) -> TokenUsageEvent {
+        TokenUsageEvent(
+            timestamp: timestamp,
+            source: "Codex",
+            model: model,
+            serviceTier: serviceTier,
             inputTokens: 1_000_000,
             outputTokens: 1_000_000,
             cacheReadTokens: 1_000_000,

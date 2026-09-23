@@ -1,5 +1,6 @@
 import Foundation
 import TokiUsageCore
+import TokiUsageReaders
 
 struct ChatGPTCreditRate: Equatable {
     let input: Double
@@ -64,7 +65,7 @@ private func chatGPTCreditRateKey(for model: String) -> String? {
     if modelID == "gpt-5.6" {
         return "gpt-5.6-sol"
     }
-    return chatGPTCreditRateKeysLongestFirst.first { modelID.hasPrefix($0) }
+    return chatGPTCreditRateKeysLongestFirst.first { modelIDMatchesPricingPrefix(modelID, prefix: $0) }
 }
 
 /// Longest prefix wins so gpt-5.4-mini is not captured by gpt-5.4.
@@ -82,6 +83,8 @@ private let chatGPTCreditRateKeysLongestFirst = chatGPTBaseCreditRates.keys
 /// before each cut still bills at the launch rate.
 private let chatGPTBaseCreditRates: [String: ChatGPTCreditRate] = [
     "gpt-6-astra": ChatGPTCreditRate(input: 250, cachedInput: 25, output: 1250, fastMultiplier: 2.5),
+    "gpt-6-sol": ChatGPTCreditRate(input: 50, cachedInput: 5, output: 250, fastMultiplier: 2.5),
+    "gpt-6-luna": ChatGPTCreditRate(input: 2.5, cachedInput: 0.25, output: 12.5, fastMultiplier: 2.5),
     "gpt-5.6-sol": ChatGPTCreditRate(input: 125, cachedInput: 12.5, output: 750, fastMultiplier: 2.5),
     "gpt-5.6-terra": ChatGPTCreditRate(input: 62.5, cachedInput: 6.25, output: 375, fastMultiplier: 2.5),
     "gpt-5.6-luna": ChatGPTCreditRate(input: 25, cachedInput: 2.5, output: 150, fastMultiplier: 2.5),
