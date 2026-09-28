@@ -82,6 +82,10 @@ private let exactPricingTable: [String: ModelPrice] = [
     "claude-fable-5-1": price(10.0, 50.0, 0.25, 12.5, 20.0),
     "claude-fable-5": price(10.0, 50.0, 1.00, 12.5, 20.0),
     "claude-opus-5": price(5.0, 25.0, 0.50, 6.25, 10.0),
+    // Standard pricing; fast/batch usage under this same ID is not tier-adjusted.
+    // Unregistered aliases remain unpriced unless explicitly supplied by the catalog.
+    // https://platform.claude.com/docs/en/build-with-claude/prompt-caching.md
+    "claude-opus-5-5": price(4.0, 20.0, 0.20, 5.0, 8.0),
     // Reported by the custom billing provider as its own catalog entry rather
     // than as a provider prefix on claude-opus-5, so it needs an explicit key.
     // Rates match claude-opus-5; it is exact-only for the same reason.
@@ -180,6 +184,7 @@ private let exactOnlyPricingKeys: Set = [
     "claude-fable-5-1",
     "claude-fable-5",
     "claude-opus-5",
+    "claude-opus-5-5",
     "kr/claude-opus-5",
     "claude-sonnet-5",
     "claude-opus-4",
