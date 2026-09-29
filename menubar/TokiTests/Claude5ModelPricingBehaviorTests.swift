@@ -30,6 +30,12 @@ final class Claude5ModelPricingBehaviorTests: XCTestCase {
                 cacheReadPerMillion: 0.50,
                 cacheWritePerMillion: 6.25,
                 cacheWriteOneHourPerMillion: 10.0),
+            "claude-opus-5-5": ModelPrice(
+                inputPerMillion: 4.0,
+                outputPerMillion: 20.0,
+                cacheReadPerMillion: 0.20,
+                cacheWritePerMillion: 5.0,
+                cacheWriteOneHourPerMillion: 8.0),
             "claude-sonnet-5": ModelPrice(
                 inputPerMillion: 2.0,
                 outputPerMillion: 10.0,
@@ -56,6 +62,7 @@ final class Claude5ModelPricingBehaviorTests: XCTestCase {
             ("claude-fable-5-1", 92.75),
             ("claude-fable-5", 93.5),
             ("claude-opus-5", 46.75),
+            ("claude-opus-5-5", 37.2),
             ("claude-sonnet-5", 18.7),
         ]
 
@@ -168,6 +175,10 @@ final class Claude5ModelPricingBehaviorTests: XCTestCase {
         XCTAssertNil(modelPrice(for: "claude-fable-5-1-preview"))
         XCTAssertNil(modelPrice(for: "claude-opus-5-1"))
         XCTAssertNil(modelPrice(for: "claude-opus-5-mini"))
+        for suffix in ["-mini", "-preview", "-fast", "-20260922", "-50", "-kr"] {
+            XCTAssertNil(modelPrice(for: "claude-opus-5-5\(suffix)"))
+        }
+        XCTAssertNil(modelPrice(for: "kr/claude-opus-5-5"))
         XCTAssertNil(modelPrice(for: "claude-sonnet-5-1"))
     }
 
@@ -226,6 +237,42 @@ final class Claude5ModelPricingBehaviorTests: XCTestCase {
 }
 
 extension Claude5ModelPricingBehaviorTests {
+    func test_claudeCodeReader_usesOpus55PricingOnColdAndWarmCacheReads() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("toki-opus55-cache-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let projects = root.appendingPathComponent("projects", isDirectory: true)
+        try FileManager.default.createDirectory(at: projects, withIntermediateDirectories: true)
+        let transcript = projects.appendingPathComponent("session.jsonl")
+        let json = [
+            "{\"type\":\"assistant\",\"timestamp\":\"2026-09-28T00:00:00Z\",",
+            "\"requestId\":\"opus55-cache-request\",\"message\":{\"id\":\"opus55-cache-message\",",
+            "\"model\":\"claude-opus-5-5\",\"usage\":{\"input_tokens\":1000000,",
+            "\"output_tokens\":1000000,\"cache_read_input_tokens\":1000000,",
+            "\"cache_creation_input_tokens\":2000000,\"cache_creation\":{",
+            "\"ephemeral_5m_input_tokens\":1000000,\"ephemeral_1h_input_tokens\":1000000}}}}",
+        ].joined()
+        try Data(json.utf8).write(to: transcript)
+
+        let cacheURL = root.appendingPathComponent("claude-usage-cache.json")
+        let firstReader = ClaudeCodeReader(
+            projectsURLOverride: projects,
+            usageCache: ClaudeUsageCache(cacheURL: cacheURL))
+        let from = Date(timeIntervalSince1970: 1_790_553_600)
+        let to = from.addingTimeInterval(86400)
+        let cold = try await firstReader.readUsage(from: from, to: to)
+
+        let warmReader = ClaudeCodeReader(
+            projectsURLOverride: projects,
+            usageCache: ClaudeUsageCache(cacheURL: cacheURL))
+        let warm = try await warmReader.readUsage(from: from, to: to)
+
+        XCTAssertEqual(cold.cost, 37.2, accuracy: 0.0001)
+        XCTAssertEqual(warm.cost, 37.2, accuracy: 0.0001)
+        XCTAssertEqual(try XCTUnwrap(cold.perModel["claude-opus-5-5"]?.cost), 37.2, accuracy: 0.0001)
+        XCTAssertEqual(try XCTUnwrap(warm.perModel["claude-opus-5-5"]?.cost), 37.2, accuracy: 0.0001)
+    }
+
     func test_modelPrice_setsOneHourCacheWriteRatesForClaudeCatalog() throws {
         let expectedRates: [String: Double] = [
             "claude-opus-4-8": 10.0,
@@ -243,6 +290,7 @@ extension Claude5ModelPricingBehaviorTests {
             "claude-4.5-sonnet-thinking": 6.0,
             "claude-4.5-sonnet": 6.0,
             "kr/claude-opus-5": 10.0,
+            "claude-opus-5-5": 8.0,
         ]
 
         for (modelID, expectedRate) in expectedRates {
