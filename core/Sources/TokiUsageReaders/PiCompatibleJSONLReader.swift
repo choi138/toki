@@ -79,20 +79,11 @@ func forEachBoundedJSONLLine(
         throw PiCompatibleReaderError.unreadableFile(url)
     }
     defer { try? handle.close() }
-    do {
-        let fileSize = try handle.seekToEnd()
-        guard fileSize <= UInt64(limits.maximumFileBytes) else {
-            throw PiCompatibleReaderError.fileTooLarge(url)
-        }
-        try handle.seek(toOffset: 0)
-    } catch let error as PiCompatibleReaderError {
-        throw error
-    } catch {
-        throw PiCompatibleReaderError.unreadableFile(url)
-    }
+    try validateFileSizeAndRewind(handle, at: url, limits: limits)
 
     var lineIndex = 0
     var pending = Data()
+    var newlineSearchOffset = 0
     var consumedBytes = 0
 
     while true {
@@ -114,13 +105,16 @@ func forEachBoundedJSONLLine(
         }
         consumedBytes = nextConsumedBytes
         pending.append(chunk)
-        while let newlineIndex = pending.firstIndex(of: 0x0A) {
-            guard pending.distance(from: pending.startIndex, to: newlineIndex)
+        var lineStartIndex = pending.startIndex
+        var newlineSearchIndex = pending.index(pending.startIndex, offsetBy: newlineSearchOffset)
+        while let newlineIndex = pending[newlineSearchIndex...].firstIndex(of: 0x0A) {
+            guard pending.distance(from: lineStartIndex, to: newlineIndex)
                 <= limits.maximumLineBytes else {
                 throw PiCompatibleReaderError.lineTooLong(url)
             }
-            let lineData = pending.subdata(in: pending.startIndex..<newlineIndex)
-            pending.removeSubrange(pending.startIndex...newlineIndex)
+            let lineData = pending.subdata(in: lineStartIndex..<newlineIndex)
+            lineStartIndex = pending.index(after: newlineIndex)
+            newlineSearchIndex = lineStartIndex
             try consumeJSONLLine(
                 lineData,
                 at: url,
@@ -129,6 +123,8 @@ func forEachBoundedJSONLLine(
                 body)
             lineIndex += 1
         }
+        pending.removeSubrange(pending.startIndex..<lineStartIndex)
+        newlineSearchOffset = pending.count
         guard pending.count <= limits.maximumLineBytes else {
             throw PiCompatibleReaderError.lineTooLong(url)
         }
@@ -151,6 +147,22 @@ func forEachBoundedJSONLLine(
             lineIndex: lineIndex,
             limits: limits,
             body)
+    }
+}
+
+private func validateFileSizeAndRewind(
+    _ handle: FileHandle,
+    at url: URL,
+    limits: PiCompatibleReadLimits) throws {
+    do {
+        guard try handle.seekToEnd() <= UInt64(limits.maximumFileBytes) else {
+            throw PiCompatibleReaderError.fileTooLarge(url)
+        }
+        try handle.seek(toOffset: 0)
+    } catch let error as PiCompatibleReaderError {
+        throw error
+    } catch {
+        throw PiCompatibleReaderError.unreadableFile(url)
     }
 }
 

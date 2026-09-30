@@ -245,6 +245,7 @@ private func readLines(
     defer { try? handle.close() }
 
     var pending = Data()
+    var newlineSearchOffset = 0
     var lineIndex = initialLineIndex
     var remaining = endOffset - startOffset
     var lastByte: UInt8?
@@ -267,9 +268,12 @@ private func readLines(
         lastByte = chunk.last
         pending.append(chunk)
 
-        while let newlineIndex = pending.firstIndex(of: 0x0A) {
-            let lineData = pending.subdata(in: pending.startIndex..<newlineIndex)
-            pending.removeSubrange(pending.startIndex...newlineIndex)
+        var lineStartIndex = pending.startIndex
+        var newlineSearchIndex = pending.index(pending.startIndex, offsetBy: newlineSearchOffset)
+        while let newlineIndex = pending[newlineSearchIndex...].firstIndex(of: 0x0A) {
+            let lineData = pending.subdata(in: lineStartIndex..<newlineIndex)
+            lineStartIndex = pending.index(after: newlineIndex)
+            newlineSearchIndex = lineStartIndex
             try consumeCachedLine(
                 lineData,
                 at: url,
@@ -278,6 +282,8 @@ private func readLines(
                 body: body)
             lineIndex += 1
         }
+        pending.removeSubrange(pending.startIndex..<lineStartIndex)
+        newlineSearchOffset = pending.count
         guard pending.count <= limits.maximumLineBytes else {
             throw PiCompatibleReaderError.lineTooLong(url)
         }
