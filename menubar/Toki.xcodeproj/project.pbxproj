@@ -147,6 +147,7 @@
 		C51D063F04218FF9A6A23A0F /* SecurityAuditViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4360CAF6769074C64EB0F300 /* SecurityAuditViewModel.swift */; };
 		C74B36023221B03A893000FD /* RemoteUsageReader.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1081585613F3D38A303C7B0 /* RemoteUsageReader.swift */; };
 		C81FDB77EFDDB4D8D738F47B /* PairingBundleClipboard.swift in Sources */ = {isa = PBXBuildFile; fileRef = B6BAE1901B6B63C2F72788B4 /* PairingBundleClipboard.swift */; };
+		C9782FF3DBD785F204B89559 /* CursorReaderWALTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 30A4B7AD48C99A69A06FC028 /* CursorReaderWALTests.swift */; };
 		CA7BC8750CD31AE49C75F11F /* RemoteUsageReaderFetchReuseTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D793B660094D95240AF5DD23 /* RemoteUsageReaderFetchReuseTests.swift */; };
 		CB2B57AF9540E6D529CCFF0F /* PanelSupportViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6C7BC82ACA2362A5775D0BDD /* PanelSupportViews.swift */; };
 		CD20EDD2032FA89F064BFC05 /* UsageCoverageIntegrationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6B7885029254103D6149AA2E /* UsageCoverageIntegrationTests.swift */; };
@@ -236,6 +237,7 @@
 		2B2E791E9576F6E07FBEAD30 /* RemoteSyncLifecycleTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteSyncLifecycleTests.swift; sourceTree = "<group>"; };
 		2BE1C427456BB8200627AEE4 /* HermesPricingRefreshTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HermesPricingRefreshTests.swift; sourceTree = "<group>"; };
 		2FBB437F13EB6BA54025319B /* PanelModelDetailRangeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PanelModelDetailRangeTests.swift; sourceTree = "<group>"; };
+		30A4B7AD48C99A69A06FC028 /* CursorReaderWALTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CursorReaderWALTests.swift; sourceTree = "<group>"; };
 		3542FE2DBB444D4843D16F5D /* UsageServiceBehaviorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UsageServiceBehaviorTests.swift; sourceTree = "<group>"; };
 		36330D960147799B00A54231 /* RemotePricingCatalogReviewRegressionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemotePricingCatalogReviewRegressionTests.swift; sourceTree = "<group>"; };
 		3896CC7305256B664CA40B51 /* ReaderUnattributedModelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReaderUnattributedModelTests.swift; sourceTree = "<group>"; };
@@ -686,6 +688,7 @@
 				BA802AE850834E1B7E21D90B /* CodexRolloutIncrementalCacheTests.swift */,
 				A946F016E11E141AF844E414 /* CopilotCLIReaderTests.swift */,
 				A2648C9A747404CF8E5E81E0 /* CursorReaderTests.swift */,
+				30A4B7AD48C99A69A06FC028 /* CursorReaderWALTests.swift */,
 				557BF6BDA123C204DA4DBE1A /* DroidAmpIntegrationTests.swift */,
 				1B0A428E0D3E973E6F4EA84A /* FactoryDroidReaderTests.swift */,
 				62EA09E68E4376A474428CB6 /* GJCReaderTests.swift */,
@@ -974,6 +977,7 @@
 				DD707B410EEBA96A2D34BCE1 /* CodexRolloutIncrementalCacheTests.swift in Sources */,
 				D54163C0549A61D6D5E25892 /* CopilotCLIReaderTests.swift in Sources */,
 				0F7159AD505B6504367C7BAE /* CursorReaderTests.swift in Sources */,
+				C9782FF3DBD785F204B89559 /* CursorReaderWALTests.swift in Sources */,
 				5A04C5F3A301AC45D753865B /* DroidAmpIntegrationTests.swift in Sources */,
 				6CB284FB3E39C5144377BBE1 /* FactoryDroidReaderTests.swift in Sources */,
 				BBBA1E0981491A3D5D6000B8 /* GJCReaderTests.swift in Sources */,
@@ -1082,14 +1086,14 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 9;
+				CURRENT_PROJECT_VERSION = 10;
 				INFOPLIST_FILE = Toki/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 13.0;
-				MARKETING_VERSION = 1.4.2;
+				MARKETING_VERSION = 1.4.3;
 				PRODUCT_BUNDLE_IDENTIFIER = com.toki.app;
 				SDKROOT = macosx;
 				SWIFT_VERSION = 5.9;
@@ -1185,14 +1189,14 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 9;
+				CURRENT_PROJECT_VERSION = 10;
 				INFOPLIST_FILE = Toki/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 13.0;
-				MARKETING_VERSION = 1.4.2;
+				MARKETING_VERSION = 1.4.3;
 				PRODUCT_BUNDLE_IDENTIFIER = com.toki.app;
 				SDKROOT = macosx;
 				SWIFT_VERSION = 5.9;
