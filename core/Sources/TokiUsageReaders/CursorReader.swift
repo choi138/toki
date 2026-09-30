@@ -542,15 +542,20 @@ private func cursorOpenProbed(path: String, flags: Int32) throws -> OpaquePointe
     }
     sqlite3_busy_timeout(db, 2000)
     var statement: OpaquePointer?
-    defer { sqlite3_finalize(statement) }
     var status = sqlite3_prepare_v2(db, "PRAGMA schema_version", -1, &statement, nil)
     if status == SQLITE_OK {
         status = sqlite3_step(statement)
-        if status == SQLITE_ROW || status == SQLITE_DONE { return db }
     }
-    let error = CursorSQLiteError(operation: "prepare", database: db)
-    sqlite3_close(db)
-    throw error
+    let error = status == SQLITE_ROW || status == SQLITE_DONE
+        ? nil
+        : CursorSQLiteError(operation: "prepare", database: db)
+    // sqlite3_close returns SQLITE_BUSY and leaks the connection while a statement is live.
+    sqlite3_finalize(statement)
+    if let error {
+        sqlite3_close(db)
+        throw error
+    }
+    return db
 }
 
 private struct CursorSQLiteError: LocalizedError {
