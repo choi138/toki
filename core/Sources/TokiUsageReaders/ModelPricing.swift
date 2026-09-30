@@ -86,6 +86,9 @@ private let exactPricingTable: [String: ModelPrice] = [
     // Unregistered aliases remain unpriced unless explicitly supplied by the catalog.
     // https://platform.claude.com/docs/en/build-with-claude/prompt-caching.md
     "claude-opus-5-5": price(4.0, 20.0, 0.20, 5.0, 8.0),
+    // Standard pricing; batch usage under this same ID is not tier-adjusted.
+    // https://platform.claude.com/docs/en/about-claude/pricing
+    "claude-sonnet-5-5": price(2.0, 10.0, 0.20, 2.50, 4.0),
     // Reported by the custom billing provider as its own catalog entry rather
     // than as a provider prefix on claude-opus-5, so it needs an explicit key.
     // Rates match claude-opus-5; it is exact-only for the same reason.
@@ -119,6 +122,9 @@ private let exactPricingTable: [String: ModelPrice] = [
     "gpt-6-astra": price(10.0, 50.0, 1.00, 12.50),
     "gpt-6-sol": price(2.0, 10.0, 0.20, 2.50),
     "gpt-6-luna": price(0.10, 0.50, 0.01, 0.125),
+    // Exact-only: same short-context rates as gpt-6-sol with cached input halved.
+    // https://developers.openai.com/api/docs/models/gpt-6.1-sol
+    "gpt-6.1-sol": price(2.0, 10.0, 0.10, 2.50),
     // GPT-5.6 standard short-context pricing at launch. OpenAI cut all three
     // rates after launch, so the reduced rates live in scheduledPriceChanges
     // and usage recorded before each cut still bills at the launch rate.
@@ -187,6 +193,8 @@ private let exactOnlyPricingKeys: Set = [
     "claude-opus-5-5",
     "kr/claude-opus-5",
     "claude-sonnet-5",
+    "claude-sonnet-5-5",
+    "gpt-6.1-sol",
     "claude-opus-4",
     "gpt-5",
     "gemini-3",
