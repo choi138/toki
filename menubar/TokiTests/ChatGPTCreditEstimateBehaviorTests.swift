@@ -122,6 +122,21 @@ final class ChatGPTCreditEstimateBehaviorTests: XCTestCase {
         }
     }
 
+    func test_gpt61SolUsesHalvedCachedCreditRateAndStaysExactOnly() {
+        let event = makeGpt6Event(model: "GPT-6.1-Sol", serviceTier: nil, at: solCut)
+        let estimate = chatGPTUsageEstimate(from: [event])
+
+        XCTAssertEqual(estimate.credits, 50 + 2.5 + 250, accuracy: 0.000_001)
+        XCTAssertEqual(estimate.pricedTokens, 3_000_000)
+        XCTAssertTrue(estimate.isComplete)
+
+        let derivatives = ["gpt-6.1-sol-mini", "gpt-6.1-sol-2026-09-30", "gpt-6.1"]
+        let unpriced = chatGPTUsageEstimate(
+            from: derivatives.map { makeGpt6Event(model: $0, serviceTier: nil, at: solCut) })
+        XCTAssertEqual(unpriced.pricedTokens, 0)
+        XCTAssertEqual(unpriced.unpricedTokens, derivatives.count * 3_000_000)
+    }
+
     private func makeSolEvent(at timestamp: Date) -> TokenUsageEvent {
         TokenUsageEvent(
             timestamp: timestamp,
