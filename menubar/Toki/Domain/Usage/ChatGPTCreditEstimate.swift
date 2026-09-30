@@ -65,11 +65,17 @@ private func chatGPTCreditRateKey(for model: String) -> String? {
     if modelID == "gpt-5.6" {
         return "gpt-5.6-sol"
     }
+    if chatGPTExactOnlyCreditRateKeys.contains(modelID) {
+        return modelID
+    }
     return chatGPTCreditRateKeysLongestFirst.first { modelIDMatchesPricingPrefix(modelID, prefix: $0) }
 }
 
+private let chatGPTExactOnlyCreditRateKeys: Set = ["gpt-6.1-sol"]
+
 /// Longest prefix wins so gpt-5.4-mini is not captured by gpt-5.4.
 private let chatGPTCreditRateKeysLongestFirst = chatGPTBaseCreditRates.keys
+    .filter { !chatGPTExactOnlyCreditRateKeys.contains($0) }
     .sorted { $0.count > $1.count }
 
 /// Credits per 1M tokens from the ChatGPT rate card. One credit is $0.04, so each
@@ -85,6 +91,7 @@ private let chatGPTBaseCreditRates: [String: ChatGPTCreditRate] = [
     "gpt-6-astra": ChatGPTCreditRate(input: 250, cachedInput: 25, output: 1250, fastMultiplier: 2.5),
     "gpt-6-sol": ChatGPTCreditRate(input: 50, cachedInput: 5, output: 250, fastMultiplier: 2.5),
     "gpt-6-luna": ChatGPTCreditRate(input: 2.5, cachedInput: 0.25, output: 12.5, fastMultiplier: 2.5),
+    "gpt-6.1-sol": ChatGPTCreditRate(input: 50, cachedInput: 2.5, output: 250, fastMultiplier: 2.5),
     "gpt-5.6-sol": ChatGPTCreditRate(input: 125, cachedInput: 12.5, output: 750, fastMultiplier: 2.5),
     "gpt-5.6-terra": ChatGPTCreditRate(input: 62.5, cachedInput: 6.25, output: 375, fastMultiplier: 2.5),
     "gpt-5.6-luna": ChatGPTCreditRate(input: 25, cachedInput: 2.5, output: 150, fastMultiplier: 2.5),
