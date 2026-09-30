@@ -476,7 +476,7 @@ private func tokiTestEpochMillis(_ value: String) -> Int64 {
     Int64(tokiTestISODate(value).timeIntervalSince1970 * 1000)
 }
 
-private func cursorTokenBubble(
+func cursorTokenBubble(
     bubbleId: String,
     usageUuid: String,
     createdAt: String,
@@ -488,7 +488,7 @@ private func cursorTokenBubble(
     """
 }
 
-private func cursorModelBubble(
+func cursorModelBubble(
     bubbleId: String,
     requestId: String,
     createdAt: String,
@@ -534,7 +534,7 @@ private func cursorComposerData(
 
 private let cursorTestSQLiteTransient = unsafeBitCast(-1, to: sqlite3_destructor_type.self)
 
-private func createCursorStateDB(
+func createCursorStateDB(
     at url: URL,
     rows: [(key: String, value: String)]) throws {
     var db: OpaquePointer?

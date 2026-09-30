@@ -47,12 +47,9 @@ public struct CursorReader: TokenReader, LiveContextConfigurableTokenReader {
             return RawTokenUsage()
         }
 
-        var db: OpaquePointer?
+        let connection = try cursorOpenDatabase(at: URL(fileURLWithPath: dbPath))
+        let db = connection.database
         defer { sqlite3_close(db) }
-        guard sqlite3_open_v2(dbPath, &db, SQLITE_OPEN_READONLY, nil) == SQLITE_OK else {
-            throw CursorSQLiteError(operation: "open", database: db)
-        }
-        sqlite3_busy_timeout(db, 2000)
         guard sqlite3_exec(db, "BEGIN DEFERRED TRANSACTION", nil, nil, nil) == SQLITE_OK else {
             throw CursorSQLiteError(operation: "begin read transaction", database: db)
         }
@@ -78,6 +75,12 @@ public struct CursorReader: TokenReader, LiveContextConfigurableTokenReader {
             []
         }
         guard !Task.isCancelled else { return RawTokenUsage() }
+
+        if let snapshot = connection.immutableSnapshot, !snapshot.isCurrent() {
+            throw CursorSQLiteError(
+                operation: "read",
+                message: "the database changed while it was read without its WAL")
+        }
 
         var usage = Self.usage(
             fromBubblePayloads: bubblePayloads,
@@ -511,11 +514,62 @@ private func cursorQueryPayloads(
     return payloads
 }
 
+/// A WAL database whose -shm is gone opens fine but fails at the first statement, so the
+/// open is probed and retried immutably, which is only allowed while no sidecar exists.
+private func cursorOpenDatabase(
+    at url: URL) throws -> (database: OpaquePointer?, immutableSnapshot: SQLiteSourceSnapshot?) {
+    do {
+        return try (cursorOpenProbed(path: url.path, flags: SQLITE_OPEN_READONLY), nil)
+    } catch let error as CursorSQLiteError {
+        guard let code = error.code,
+              sqliteShouldRetryImmutableFallback(after: code),
+              let snapshot = SQLiteSourceSnapshot.captureForImmutableFallback(databaseURL: url) else {
+            throw error
+        }
+        let database = try cursorOpenProbed(
+            path: sqliteImmutableDatabaseURI(for: url),
+            flags: SQLITE_OPEN_READONLY | SQLITE_OPEN_URI)
+        return (database, snapshot)
+    }
+}
+
+private func cursorOpenProbed(path: String, flags: Int32) throws -> OpaquePointer? {
+    var db: OpaquePointer?
+    guard sqlite3_open_v2(path, &db, flags, nil) == SQLITE_OK else {
+        let error = CursorSQLiteError(operation: "open", database: db)
+        sqlite3_close(db)
+        throw error
+    }
+    sqlite3_busy_timeout(db, 2000)
+    var statement: OpaquePointer?
+    var status = sqlite3_prepare_v2(db, "PRAGMA schema_version", -1, &statement, nil)
+    if status == SQLITE_OK {
+        status = sqlite3_step(statement)
+    }
+    let error = status == SQLITE_ROW || status == SQLITE_DONE
+        ? nil
+        : CursorSQLiteError(operation: "prepare", database: db)
+    // sqlite3_close returns SQLITE_BUSY and leaks the connection while a statement is live.
+    sqlite3_finalize(statement)
+    if let error {
+        sqlite3_close(db)
+        throw error
+    }
+    return db
+}
+
 private struct CursorSQLiteError: LocalizedError {
     let operation: String
     let message: String
+    var code: Int32?
+
+    init(operation: String, message: String) {
+        self.operation = operation
+        self.message = message
+    }
 
     init(operation: String, database: OpaquePointer?) {
+        code = database.map { sqlite3_errcode($0) }
         self.operation = operation
         if let database, let errorMessage = sqlite3_errmsg(database) {
             message = String(cString: errorMessage)
