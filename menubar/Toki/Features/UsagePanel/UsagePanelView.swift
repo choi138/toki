@@ -9,6 +9,7 @@ enum UsagePanelLayout {
 struct UsagePanelView: View {
     @StateObject private var viewModel = UsagePanelViewModel()
     @ObservedObject private var tokenVelocityState: TokenVelocityState
+    private let cpuUsageState: ProcessCPUUsageState
     @State private var activeTab: PanelTab = .overview
     @State private var tabOrder: [PanelTab] = PanelTab.allCases
     @State private var selectedModelsTabModelID: String?
@@ -16,13 +17,17 @@ struct UsagePanelView: View {
     @State private var isShowingSettings = false
     @State private var refreshCoordinator = UsagePanelRefreshCoordinator()
 
+    /// Creates independent usage state for standalone panel previews and default construction.
     @MainActor
     init() {
         tokenVelocityState = TokenVelocityState()
+        cpuUsageState = ProcessCPUUsageState()
     }
 
-    init(tokenVelocityState: TokenVelocityState) {
+    /// Uses the app-owned velocity and process-resource state in the panel.
+    init(tokenVelocityState: TokenVelocityState, cpuUsageState: ProcessCPUUsageState) {
         self.tokenVelocityState = tokenVelocityState
+        self.cpuUsageState = cpuUsageState
     }
 
     var body: some View {
@@ -63,7 +68,7 @@ struct UsagePanelView: View {
             .usagePanelScrollIndicators()
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             panelDivider
-            PanelFooterView()
+            PanelFooterView(cpuUsageState: cpuUsageState)
         }
         .frame(
             width: UsagePanelLayout.width,

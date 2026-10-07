@@ -61,6 +61,23 @@ final class UsageAggregator {
         readers.map(\.name)
     }
 
+    /// Runs a bounded refresh with one persistence group per unique Codex cache, flushing on return.
+    func withDeferredCodexPersistence<Result>(_ operation: () async -> Result) async -> Result {
+        var seen: Set<ObjectIdentifier> = []
+        let caches = readers.compactMap { ($0 as? CodexReader)?.rolloutUsageCache }
+            .filter { seen.insert(ObjectIdentifier($0)).inserted }
+        var batches: [(CodexRolloutUsageCache, UUID)] = []
+        for cache in caches {
+            await batches.append((cache, cache.beginPersistenceBatch()))
+        }
+        // The operation returns on cancellation too, so every opened batch is flushed.
+        let result = await operation()
+        for (cache, token) in batches {
+            await cache.endPersistenceBatch(token)
+        }
+        return result
+    }
+
     func aggregateUsage(for request: UsageAggregationRequest) async -> UsageAggregationResult {
         let summary = await fetchRange(for: request)
         return UsageAggregationResult(

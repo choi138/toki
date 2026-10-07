@@ -110,6 +110,7 @@ enum MenuBarPanelPresentationPolicy {
 @MainActor
 final class MenuBarPanelController {
     private let tokenVelocityState: TokenVelocityState
+    private let cpuUsageState: ProcessCPUUsageState
     private let visibilityDidChange: (Bool) -> Void
 
     private var panel: NSPanel?
@@ -117,13 +118,17 @@ final class MenuBarPanelController {
     private var localEventMonitor: Any?
     private var globalEventMonitor: Any?
 
+    /// Shares live usage state with the panel and reports visibility changes to app-owned monitors.
     init(
         tokenVelocityState: TokenVelocityState,
+        cpuUsageState: ProcessCPUUsageState,
         visibilityDidChange: @escaping (Bool) -> Void) {
         self.tokenVelocityState = tokenVelocityState
+        self.cpuUsageState = cpuUsageState
         self.visibilityDidChange = visibilityDidChange
     }
 
+    /// Creates the floating panel and hosts its usage view with shared measurement state.
     func setup() {
         guard panel == nil else { return }
         let panel = MenuBarPanel(
@@ -135,7 +140,7 @@ final class MenuBarPanelController {
         panel.becomesKeyOnlyIfNeeded = false
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         panel.contentViewController = NSHostingController(
-            rootView: UsagePanelView(tokenVelocityState: tokenVelocityState))
+            rootView: UsagePanelView(tokenVelocityState: tokenVelocityState, cpuUsageState: cpuUsageState))
         panel.hasShadow = true
         panel.isMovable = false
         panel.isOpaque = false
