@@ -118,6 +118,7 @@ final class MenuBarPanelController {
     private var localEventMonitor: Any?
     private var globalEventMonitor: Any?
 
+    /// Shares live usage state with the panel and reports visibility changes to app-owned monitors.
     init(
         tokenVelocityState: TokenVelocityState,
         cpuUsageState: ProcessCPUUsageState,
@@ -127,6 +128,7 @@ final class MenuBarPanelController {
         self.visibilityDidChange = visibilityDidChange
     }
 
+    /// Creates the floating panel and hosts its usage view with shared measurement state.
     func setup() {
         guard panel == nil else { return }
         let panel = MenuBarPanel(

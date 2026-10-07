@@ -162,6 +162,7 @@ extension PiFamilyReaderTests {
         XCTAssertEqual(cache.cachedFileCount, 1)
     }
 
+    /// Verifies that parsed-entry memory charges enforce the cache eviction budget.
     func test_piCacheEvictsLeastRecentlyUsedEntriesOverByteLimit() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("toki-pi-cache-byte-limit-\(UUID().uuidString)")
@@ -190,6 +191,7 @@ extension PiFamilyReaderTests {
         XCTAssertLessThanOrEqual(cache.estimatedMemoryBytes, max(firstBytes, secondBytes))
     }
 
+    /// Verifies reuse of large transcripts with small parsed results and append-only reads.
     func test_piCacheRetainsLargeTranscriptAndReadsOnlyAppendedBytes() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("toki-pi-retained-memory-\(UUID().uuidString)")
@@ -224,6 +226,7 @@ extension PiFamilyReaderTests {
         XCTAssertEqual(cache.estimatedMemoryBytes, 0)
     }
 
+    /// Verifies that one oversized parsed result does not evict a useful smaller cached entry.
     func test_piCacheRejectsOversizedResultWithoutEvictingUsefulEntries() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("toki-pi-cache-oversized-\(UUID().uuidString)")

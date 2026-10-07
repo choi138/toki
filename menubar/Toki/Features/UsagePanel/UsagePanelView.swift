@@ -17,12 +17,14 @@ struct UsagePanelView: View {
     @State private var isShowingSettings = false
     @State private var refreshCoordinator = UsagePanelRefreshCoordinator()
 
+    /// Creates independent usage state for standalone panel previews and default construction.
     @MainActor
     init() {
         tokenVelocityState = TokenVelocityState()
         cpuUsageState = ProcessCPUUsageState()
     }
 
+    /// Uses the app-owned velocity and process-resource state in the panel.
     init(tokenVelocityState: TokenVelocityState, cpuUsageState: ProcessCPUUsageState) {
         self.tokenVelocityState = tokenVelocityState
         self.cpuUsageState = cpuUsageState

@@ -38,6 +38,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    /// Stops app-owned monitors, panel controllers, and pending pricing work during termination.
     func applicationWillTerminate(_ notification: Notification) {
         summaryController.stop()
         panelController.stop()

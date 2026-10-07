@@ -272,12 +272,14 @@ private extension UsagePanelViewModel {
             modelScope: selectedModelScope)
     }
 
+    /// Groups Codex persistence while collecting all requested period totals.
     func periodTokenTotals(for request: PeriodTokenTotalsRequest) async -> [TokenTotalSummary]? {
         await aggregator.withDeferredCodexPersistence {
             await self.fetchPeriodTokenTotals(for: request)
         }
     }
 
+    /// Collects period totals, returning partial results on cancellation or nil when selection needs fallback.
     private func fetchPeriodTokenTotals(for request: PeriodTokenTotalsRequest) async -> [TokenTotalSummary]? {
         var summaries: [TokenTotalSummary] = []
 

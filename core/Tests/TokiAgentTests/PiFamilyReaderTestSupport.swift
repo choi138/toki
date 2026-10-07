@@ -1,9 +1,11 @@
 import Foundation
 
+/// Parses a synthetic fixture date, falling back to the distant past for invalid input.
 func piFamilyDate(_ value: String) -> Date {
     ISO8601DateFormatter().date(from: value) ?? .distantPast
 }
 
+/// Builds a synthetic assistant usage message with explicit token categories.
 func piFamilyMessage(
     id: String,
     timestamp: String = "2026-08-20T12:00:00Z",
@@ -30,6 +32,7 @@ func piFamilyMessage(
     """
 }
 
+/// Writes a synthetic session header and one assistant usage message, creating parent directories.
 func writePiFamilySession(
     to url: URL,
     sessionID: String,
@@ -51,6 +54,7 @@ func writePiFamilySession(
     try Data(content.utf8).write(to: url)
 }
 
+/// Writes a fixture whose response ID supplies identity when the message has no ID.
 func writePiFamilyIdlessSession(
     to url: URL,
     sessionID: String,
@@ -69,6 +73,7 @@ func writePiFamilyIdlessSession(
     try Data(content.utf8).write(to: url)
 }
 
+/// Writes a synthetic session header without usage events.
 func writePiFamilySessionHeader(to url: URL, sessionID: String) throws {
     try FileManager.default.createDirectory(
         at: url.deletingLastPathComponent(),

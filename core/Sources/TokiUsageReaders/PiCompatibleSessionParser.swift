@@ -74,6 +74,7 @@ struct PiCompatibleSessionParser {
             : nil
     }
 
+    /// Conservative retained parser-state estimate including session metadata and response-provider lookup storage.
     var estimatedCacheMemoryBytes: Int {
         MemoryLayout<Self>.stride + 256
             + PiCompatibleCacheMemory.stringBytes(streamID)

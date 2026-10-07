@@ -3,6 +3,7 @@ import XCTest
 @testable import TokiUsageReaders
 
 final class CodexRolloutIncrementalCacheTests: XCTestCase {
+    /// Verifies that cancellation still closes the aggregator's persistence group and saves completed work.
     func test_aggregatorFlushesDeferredPersistenceWhenOperationIsCancelled() async throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("toki-rollout-cancelled-group-\(UUID().uuidString)")
@@ -29,6 +30,7 @@ final class CodexRolloutIncrementalCacheTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: cacheURL.path))
     }
 
+    /// Verifies nested persistence groups and the absence of disk writes for unchanged reads.
     func test_persistenceGroupsFlushOnlyAfterLastGroupAndSkipUnchangedReads() async throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("toki-rollout-persistence-group-\(UUID().uuidString)")

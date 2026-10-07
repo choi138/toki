@@ -55,6 +55,7 @@ public actor CodexRolloutUsageCache {
         return token
     }
 
+    /// Closes a refresh group and flushes changes after the final group finishes.
     public func endPersistenceBatch(_ token: UUID) {
         guard persistenceBatches.remove(token) != nil else { return }
         persistIfNeeded(allowActiveBatches: true)
@@ -213,6 +214,7 @@ private extension CodexRolloutUsageCache {
         return cached
     }
 
+    /// Writes pending changes when persistence groups permit it, preserving reader checkpoints.
     private func persistIfNeeded(allowActiveBatches: Bool = false) {
         guard hasPendingChanges, persistenceBatches.isEmpty,
               allowActiveBatches || activeBatches.isEmpty else { return }
@@ -294,6 +296,7 @@ private extension CodexRolloutUsageCache {
         #endif
     }
 
+    /// Encodes bounded pending updates, releasing temporary Foundation objects before returning.
     private func encodedUpdates() -> Data? {
         // Per-entry encoded sizes include wrapper overhead, giving a conservative
         // bound before allocating the entire updates JSON representation.
@@ -381,6 +384,7 @@ extension CodexRolloutUsageCache {
 }
 
 public extension CodexRolloutUsageCache {
+    /// Clears cached entries and batch state, then removes both persisted cache files.
     func reset() throws {
         isLoaded = true
         entries = [:]

@@ -52,6 +52,7 @@ final class PiCompatibleUsageFileCache: @unchecked Sendable {
         return entries.count
     }
 
+    /// Sum of retained parsed-entry estimates, read under the cache lock.
     var estimatedMemoryBytes: Int {
         lock.lock()
         defer { lock.unlock() }
@@ -182,6 +183,7 @@ final class PiCompatibleUsageFileCache: @unchecked Sendable {
             prefixFingerprint: fingerprint(url, byteCount: signature.fileSize) ?? 0)
     }
 
+    /// Stores a parsed entry within the estimated memory budget, evicting least recently used entries.
     private func store(_ entry: Entry, for key: Key) {
         let byteCount = MemoryLayout<Entry>.stride + 256
             + PiCompatibleCacheMemory.stringBytes(key.path)
@@ -210,6 +212,7 @@ final class PiCompatibleUsageFileCache: @unchecked Sendable {
         accessOrder[key] = accessCounter
     }
 
+    /// Removes an entry and its memory charge and access-order metadata together.
     private func removeEntry(for key: Key) {
         entries[key] = nil
         totalEntryBytes -= entryByteCounts.removeValue(forKey: key) ?? 0
@@ -324,6 +327,7 @@ private func readLines(
         endedWithNewline: endOffset == 0 || lastByte == 0x0A)
 }
 
+/// Validates a cached-read line and scopes temporary Foundation objects to its parsing callback.
 private func consumeCachedLine(
     _ rawData: Data,
     at url: URL,

@@ -5,6 +5,7 @@ struct ProcessCPUUsageSample: Equatable {
     let systemSeconds: TimeInterval
     let uptimeSeconds: TimeInterval
 
+    /// Whether all cumulative counters and uptime are finite and nonnegative.
     var isValid: Bool {
         userSeconds.isFinite && userSeconds >= 0
             && systemSeconds.isFinite && systemSeconds >= 0
@@ -15,10 +16,12 @@ struct ProcessCPUUsageSample: Equatable {
 struct ProcessCPUUsageCalculator {
     private var baseline: ProcessCPUUsageSample?
 
+    /// Discards the CPU baseline so the next valid sample starts a new measurement interval.
     mutating func reset() {
         baseline = nil
     }
 
+    /// Returns CPU time divided by elapsed uptime, or nil while establishing or resetting the baseline.
     mutating func percentage(for sample: ProcessCPUUsageSample?) -> Double? {
         guard let sample, sample.isValid else {
             reset()

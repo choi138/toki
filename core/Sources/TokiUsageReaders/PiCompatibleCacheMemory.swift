@@ -3,11 +3,13 @@ import Foundation
 /// Conservative estimates include collection slack and count shared strings more than once.
 /// The cache budget bounds retained parsed results, rather than unrelated transcript bytes.
 enum PiCompatibleCacheMemory {
+    /// Estimates retained string storage with allocation headroom; nil consumes no string storage.
     static func stringBytes(_ value: String?) -> Int {
         guard let value else { return 0 }
         return 32 + value.utf8.count * 2
     }
 
+    /// Estimates the heap storage owned by strings in a deduplication key.
     static func keyBytes(_ key: PiCompatibleDeduplicationKey) -> Int {
         switch key {
         case let .message(message):
@@ -25,6 +27,7 @@ enum PiCompatibleCacheMemory {
         }
     }
 
+    /// Estimates the heap storage owned by strings in a merge alias.
     static func aliasBytes(_ alias: PiCompatibleMergeAlias) -> Int {
         switch alias {
         case let .sessionMessage(session, message):
@@ -40,6 +43,7 @@ enum PiCompatibleCacheMemory {
 }
 
 extension PiCompatibleUsageRecord {
+    /// Conservative retained storage estimate including record, identity, attribution, and merge aliases.
     var estimatedCacheMemoryBytes: Int {
         // Array growth, set buckets and the three fixed-size revision digests need headroom.
         MemoryLayout<Self>.stride * 2 + 512

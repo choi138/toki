@@ -97,6 +97,7 @@ struct StatRowView: View {
 struct PanelFooterView: View {
     @ObservedObject var cpuUsageState: ProcessCPUUsageState
 
+    /// Renders process resource readings alongside the quit action, observing only footer measurement state.
     var body: some View {
         HStack {
             HStack(spacing: 12) {

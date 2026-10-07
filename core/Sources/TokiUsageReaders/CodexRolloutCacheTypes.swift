@@ -6,6 +6,7 @@ struct CodexRolloutDailySummary {
     var dailyActivityTimestamps: [String: [TimeInterval]] = [:]
     var dailyTokenUsageEvents: [String: [CodexCachedTokenUsageEvent]] = [:]
 
+    /// Whether the summary has neither usage totals nor derived activity and token events.
     var isEmpty: Bool {
         dailyUsage.isEmpty
             && dailyActivityTimestamps.isEmpty
@@ -22,10 +23,12 @@ struct CodexCachedDailyUsage: Codable {
 
     static let zero = CodexCachedDailyUsage()
 
+    /// Total daily tokens across input, output, cached input, and reasoning categories.
     var totalTokens: Int {
         inputTokens + outputTokens + cacheReadTokens + reasoningTokens
     }
 
+    /// Adds token categories from a parsed usage result to this daily aggregate.
     mutating func accumulate(_ usage: RawTokenUsage) {
         inputTokens += usage.inputTokens
         outputTokens += usage.outputTokens
@@ -41,10 +44,12 @@ struct CodexCachedTokenUsageEvent: Codable {
     let cacheReadTokens: Int
     let reasoningTokens: Int
     let serviceTier: String?
+    /// Total tokens represented by this timestamped event.
     var totalTokens: Int {
         inputTokens + outputTokens + cacheReadTokens + reasoningTokens
     }
 
+    /// Captures a token event using an absolute timestamp and optional service tier.
     init(timestamp: Date, usage: RawTokenUsage, serviceTier: String? = nil) {
         self.timestamp = timestamp.timeIntervalSince1970
         inputTokens = usage.inputTokens

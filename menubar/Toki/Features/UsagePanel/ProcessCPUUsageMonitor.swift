@@ -6,11 +6,13 @@ final class ProcessCPUUsageState: ObservableObject {
     @Published private(set) var percentage: Double?
     @Published private(set) var memoryBytes: UInt64?
 
+    /// CPU percentage with one decimal place, or a placeholder before a complete interval is sampled.
     var formattedPercentage: String {
         guard let percentage else { return "—" }
         return percentage.formatted(.number.precision(.fractionLength(1))) + "%"
     }
 
+    /// Physical footprint in decimal MB or GB, or a placeholder when unavailable.
     var formattedMemoryUsage: String {
         guard let memoryBytes else { return "—" }
         let usesGigabytes = memoryBytes >= 1_000_000_000
@@ -19,11 +21,13 @@ final class ProcessCPUUsageState: ObservableObject {
         return value + (usesGigabytes ? " GB" : " MB")
     }
 
+    /// Publishes a changed CPU percentage; nil marks the reading as unavailable.
     func update(_ percentage: Double?) {
         guard self.percentage != percentage else { return }
         self.percentage = percentage
     }
 
+    /// Publishes a changed memory footprint; nil marks the reading as unavailable.
     func updateMemory(_ memoryBytes: UInt64?) {
         guard self.memoryBytes != memoryBytes else { return }
         self.memoryBytes = memoryBytes
@@ -45,6 +49,7 @@ final class ProcessCPUUsageMonitor: NSObject {
     private var isSleeping = false
     private var isStopped = false
 
+    /// Injects measurement sources and registers one-argument workspace sleep and wake observers.
     init(
         state: ProcessCPUUsageState,
         readSample: @escaping () -> ProcessCPUUsageSample? = ProcessCPUUsageReader.sample,
@@ -61,21 +66,23 @@ final class ProcessCPUUsageMonitor: NSObject {
         super.init()
         workspaceNotifications.addObserver(
             self,
-            selector: #selector(systemWillSleep),
+            selector: #selector(systemWillSleep(_:)),
             name: NSWorkspace.willSleepNotification,
             object: nil)
         workspaceNotifications.addObserver(
             self,
-            selector: #selector(systemDidWake),
+            selector: #selector(systemDidWake(_:)),
             name: NSWorkspace.didWakeNotification,
             object: nil)
     }
 
+    /// Cancels pending sampling and removes workspace observers when the monitor is released.
     deinit {
         samplingTask?.cancel()
         workspaceNotifications.removeObserver(self)
     }
 
+    /// Starts sampling for a visible, awake panel and clears readings when the panel is hidden.
     func setPanelVisible(_ isVisible: Bool) {
         guard !isStopped, isPanelVisible != isVisible else { return }
         isPanelVisible = isVisible
@@ -86,6 +93,7 @@ final class ProcessCPUUsageMonitor: NSObject {
         }
     }
 
+    /// Permanently stops sampling, clears readings, and unregisters workspace observers.
     func stop() {
         isStopped = true
         isPanelVisible = false
@@ -93,6 +101,7 @@ final class ProcessCPUUsageMonitor: NSObject {
         workspaceNotifications.removeObserver(self)
     }
 
+    /// Establishes a fresh CPU baseline and starts the cancellable periodic sampling task.
     private func startSampling() {
         guard samplingTask == nil else { return }
         calculator.reset()
@@ -116,6 +125,7 @@ final class ProcessCPUUsageMonitor: NSObject {
         }
     }
 
+    /// Invalidates pending ticks, cancels sampling, and clears the CPU baseline and displayed readings.
     private func pauseSampling() {
         generation += 1
         samplingTask?.cancel()
@@ -125,17 +135,20 @@ final class ProcessCPUUsageMonitor: NSObject {
         state.updateMemory(nil)
     }
 
+    /// Reads this process's CPU counters and memory footprint into the footer state.
     private func takeSample() {
         state.update(calculator.percentage(for: readSample()))
         state.updateMemory(readMemoryUsage())
     }
 
-    @objc private func systemWillSleep() {
+    /// Handles a workspace sleep notification by pausing sampling and clearing displayed values.
+    @objc private func systemWillSleep(_ notification: Notification) {
         isSleeping = true
         pauseSampling()
     }
 
-    @objc private func systemDidWake() {
+    /// Handles a workspace wake notification by restarting only a visible, active monitor.
+    @objc private func systemDidWake(_ notification: Notification) {
         isSleeping = false
         guard isPanelVisible, !isStopped else { return }
         startSampling()

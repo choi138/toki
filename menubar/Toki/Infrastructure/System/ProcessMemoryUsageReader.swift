@@ -1,6 +1,7 @@
 import Darwin
 
 enum ProcessMemoryUsageReader {
+    /// Reads physical footprint including compressed memory, or nil if task_info fails.
     static func footprintBytes() -> UInt64? {
         var info = task_vm_info_data_t()
         var count = mach_msg_type_number_t(

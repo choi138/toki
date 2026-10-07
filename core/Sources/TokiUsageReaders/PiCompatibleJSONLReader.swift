@@ -166,6 +166,7 @@ private func validateFileSizeAndRewind(
     }
 }
 
+/// Validates and trims a bounded UTF-8 line, then releases transient JSON objects after its callback.
 private func consumeJSONLLine(
     _ rawData: Data,
     at url: URL,
