@@ -7,13 +7,18 @@ func shouldStartPricingCatalogRefresh(isXCTestLoaded: Bool = NSClassFromString("
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private let tokenVelocityState = TokenVelocityState()
+    private let cpuUsageState = ProcessCPUUsageState()
     private let statusItemController = MenuBarStatusItemController()
+
+    private lazy var cpuUsageMonitor = ProcessCPUUsageMonitor(state: cpuUsageState)
 
     private lazy var activityController = MenuBarActivityController(
         statusItemController: statusItemController,
         tokenVelocityState: tokenVelocityState)
     private lazy var panelController = MenuBarPanelController(
-        tokenVelocityState: tokenVelocityState) { [weak self] isVisible in
+        tokenVelocityState: tokenVelocityState,
+        cpuUsageState: cpuUsageState) { [weak self] isVisible in
+            self?.cpuUsageMonitor.setPanelVisible(isVisible)
             self?.activityController.setPanelVisible(isVisible)
             self?.summaryController.setPanelVisible(isVisible)
         }
@@ -36,6 +41,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationWillTerminate(_ notification: Notification) {
         summaryController.stop()
         panelController.stop()
+        cpuUsageMonitor.stop()
         activityController.stop()
         statusItemController.stop()
         pricingCatalogRefreshTask?.cancel()

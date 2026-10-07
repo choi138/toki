@@ -171,8 +171,12 @@ extension PiFamilyReaderTests {
         let secondData = Data((#"{"type":"session","id":"second","cwd":"/tmp/project"}"# + "\n").utf8)
         try firstData.write(to: root.appendingPathComponent("first.jsonl"))
         try secondData.write(to: root.appendingPathComponent("second.jsonl"))
-        let cache = PiCompatibleUsageFileCache(
-            maximumBytes: max(firstData.count, secondData.count))
+        let probe = PiCompatibleUsageFileCache()
+        _ = try probe.records(for: root.appendingPathComponent("first.jsonl"), source: .pi, agentKind: .main)
+        let firstBytes = probe.estimatedMemoryBytes
+        _ = try probe.records(for: root.appendingPathComponent("second.jsonl"), source: .pi, agentKind: .main)
+        let secondBytes = probe.estimatedMemoryBytes - firstBytes
+        let cache = PiCompatibleUsageFileCache(maximumBytes: max(firstBytes, secondBytes))
         let reader = PiCompatibleReader(
             source: .pi,
             sessionRoots: [root],
@@ -183,6 +187,63 @@ extension PiFamilyReaderTests {
             to: piFamilyDate("2026-08-21T00:00:00Z"))
 
         XCTAssertEqual(cache.cachedFileCount, 1)
+        XCTAssertLessThanOrEqual(cache.estimatedMemoryBytes, max(firstBytes, secondBytes))
+    }
+
+    func test_piCacheRetainsLargeTranscriptAndReadsOnlyAppendedBytes() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("toki-pi-retained-memory-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let url = root.appendingPathComponent("session.jsonl")
+        let lines = [
+            #"{"type":"session","id":"large","cwd":"/tmp/project"}"#,
+            #"{"type":"irrelevant","text":""# + String(repeating: "x", count: 1024 * 1024) + #""}"#,
+            piFamilyMessage(id: "first", input: 11, output: 7),
+        ]
+        let data = Data((lines.joined(separator: "\n") + "\n").utf8)
+        try data.write(to: url)
+        let cache = PiCompatibleUsageFileCache(maximumBytes: 32 * 1024)
+        let first = try cache.records(for: url, source: .pi, agentKind: .main)
+        XCTAssertEqual(first.count, 1)
+        XCTAssertEqual(cache.cachedFileCount, 1)
+        XCTAssertLessThan(cache.estimatedMemoryBytes, data.count)
+        _ = try cache.records(for: url, source: .pi, agentKind: .main)
+        XCTAssertEqual(cache.bytesRead, data.count)
+
+        let appended = Data((piFamilyMessage(id: "second", input: 3, output: 2) + "\n").utf8)
+        let handle = try FileHandle(forWritingTo: url)
+        try handle.seekToEnd()
+        try handle.write(contentsOf: appended)
+        try handle.close()
+        let updated = try cache.records(for: url, source: .pi, agentKind: .main)
+        XCTAssertEqual(updated.count, 2)
+        XCTAssertEqual(cache.bytesRead, data.count + appended.count)
+        cache.retainFiles([], source: .pi)
+        XCTAssertEqual(cache.cachedFileCount, 0)
+        XCTAssertEqual(cache.estimatedMemoryBytes, 0)
+    }
+
+    func test_piCacheRejectsOversizedResultWithoutEvictingUsefulEntries() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("toki-pi-cache-oversized-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let small = root.appendingPathComponent("small.jsonl")
+        let large = root.appendingPathComponent("large.jsonl")
+        let header = #"{"type":"session","id":"cache-test","cwd":"/tmp/project"}"# + "\n"
+        try Data((header + piFamilyMessage(id: "small", input: 1, output: 1) + "\n").utf8).write(to: small)
+        let messages = (0..<100).map { piFamilyMessage(id: "large-\($0)", input: 1, output: 1) }
+        try Data((header + messages.joined(separator: "\n") + "\n").utf8).write(to: large)
+        let cache = PiCompatibleUsageFileCache(maximumBytes: 16 * 1024)
+        _ = try cache.records(for: small, source: .pi, agentKind: .main)
+        let smallBytes = cache.estimatedMemoryBytes
+        _ = try cache.records(for: large, source: .pi, agentKind: .main)
+        XCTAssertEqual(cache.cachedFileCount, 1)
+        XCTAssertEqual(cache.estimatedMemoryBytes, smallBytes)
+        let readBytes = cache.bytesRead
+        _ = try cache.records(for: small, source: .pi, agentKind: .main)
+        XCTAssertEqual(cache.bytesRead, readBytes)
     }
 
     func test_revisionSpanningDateBoundaryIsCountedInOnlyOneWindow() async throws {
@@ -507,80 +568,4 @@ extension PiFamilyReaderTests {
         XCTAssertEqual(usage.tokenEvents.first?.model, "kimi-k2.6")
         XCTAssertEqual(usage.tokenEvents.first?.provider, "kimchi-dev")
     }
-}
-
-private func piFamilyDate(_ value: String) -> Date {
-    ISO8601DateFormatter().date(from: value) ?? .distantPast
-}
-
-private func piFamilyMessage(
-    id: String,
-    timestamp: String = "2026-08-20T12:00:00Z",
-    model: String = "gpt-5.6-sol",
-    provider: String = "openai",
-    input: Int,
-    output: Int,
-    cacheRead: Int = 0,
-    cacheWrite: Int = 0,
-    reasoning: Int? = nil) -> String {
-    var usage = [
-        #""input":\#(input)"#,
-        #""output":\#(output)"#,
-        #""cacheRead":\#(cacheRead)"#,
-        #""cacheWrite":\#(cacheWrite)"#,
-    ]
-    if let reasoning {
-        usage.append(#""reasoning":\#(reasoning)"#)
-    }
-    return """
-    {"type":"message","id":"\(id)","timestamp":"\(timestamp)","message":\
-    {"role":"assistant","model":"\(model)","provider":"\(provider)",\
-    "usage":{\(usage.joined(separator: ","))}}}
-    """
-}
-
-private func writePiFamilySession(
-    to url: URL,
-    sessionID: String,
-    messageID: String,
-    input: Int,
-    output: Int,
-    cwd: String? = "/tmp/project") throws {
-    try FileManager.default.createDirectory(
-        at: url.deletingLastPathComponent(),
-        withIntermediateDirectories: true)
-    var sessionFields = [#""type":"session""#, #""id":"\#(sessionID)""#]
-    if let cwd {
-        sessionFields.append(#""cwd":"\#(cwd)""#)
-    }
-    let content = [
-        "{\(sessionFields.joined(separator: ","))}",
-        piFamilyMessage(id: messageID, input: input, output: output),
-    ].joined(separator: "\n")
-    try Data(content.utf8).write(to: url)
-}
-
-private func writePiFamilyIdlessSession(
-    to url: URL,
-    sessionID: String,
-    responseID: String) throws {
-    try FileManager.default.createDirectory(
-        at: url.deletingLastPathComponent(),
-        withIntermediateDirectories: true)
-    let content = [
-        #"{"type":"session","id":"\#(sessionID)","cwd":"/tmp/project"}"#,
-        """
-        {"type":"message","timestamp":"2026-08-20T12:00:00Z","message":\
-        {"role":"assistant","model":"gpt-5.6-sol","provider":"openai",\
-        "responseId":"\(responseID)","usage":{"input":3,"output":2}}}
-        """,
-    ].joined(separator: "\n")
-    try Data(content.utf8).write(to: url)
-}
-
-private func writePiFamilySessionHeader(to url: URL, sessionID: String) throws {
-    try FileManager.default.createDirectory(
-        at: url.deletingLastPathComponent(),
-        withIntermediateDirectories: true)
-    try Data(#"{"type":"session","id":"\#(sessionID)"}"#.utf8).write(to: url)
 }

@@ -9,6 +9,7 @@ enum UsagePanelLayout {
 struct UsagePanelView: View {
     @StateObject private var viewModel = UsagePanelViewModel()
     @ObservedObject private var tokenVelocityState: TokenVelocityState
+    private let cpuUsageState: ProcessCPUUsageState
     @State private var activeTab: PanelTab = .overview
     @State private var tabOrder: [PanelTab] = PanelTab.allCases
     @State private var selectedModelsTabModelID: String?
@@ -19,10 +20,12 @@ struct UsagePanelView: View {
     @MainActor
     init() {
         tokenVelocityState = TokenVelocityState()
+        cpuUsageState = ProcessCPUUsageState()
     }
 
-    init(tokenVelocityState: TokenVelocityState) {
+    init(tokenVelocityState: TokenVelocityState, cpuUsageState: ProcessCPUUsageState) {
         self.tokenVelocityState = tokenVelocityState
+        self.cpuUsageState = cpuUsageState
     }
 
     var body: some View {
@@ -63,7 +66,7 @@ struct UsagePanelView: View {
             .usagePanelScrollIndicators()
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             panelDivider
-            PanelFooterView()
+            PanelFooterView(cpuUsageState: cpuUsageState)
         }
         .frame(
             width: UsagePanelLayout.width,

@@ -273,6 +273,12 @@ private extension UsagePanelViewModel {
     }
 
     func periodTokenTotals(for request: PeriodTokenTotalsRequest) async -> [TokenTotalSummary]? {
+        await aggregator.withDeferredCodexPersistence {
+            await self.fetchPeriodTokenTotals(for: request)
+        }
+    }
+
+    private func fetchPeriodTokenTotals(for request: PeriodTokenTotalsRequest) async -> [TokenTotalSummary]? {
         var summaries: [TokenTotalSummary] = []
 
         for period in TokenTotalPeriod.allCases {

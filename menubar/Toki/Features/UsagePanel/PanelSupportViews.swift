@@ -95,8 +95,23 @@ struct StatRowView: View {
 }
 
 struct PanelFooterView: View {
+    @ObservedObject var cpuUsageState: ProcessCPUUsageState
+
     var body: some View {
         HStack {
+            HStack(spacing: 12) {
+                Text("Toki CPU \(cpuUsageState.formattedPercentage)")
+                    .help("Toki CPU usage. One fully used CPU core is 100%; multiple cores can exceed 100%.")
+                    .accessibilityLabel("Toki CPU usage")
+                    .accessibilityValue(cpuUsageState.formattedPercentage)
+                Text("Memory \(cpuUsageState.formattedMemoryUsage)")
+                    .help("Toki memory footprint, including compressed memory. Shared clean pages are excluded.")
+                    .accessibilityLabel("Toki memory usage")
+                    .accessibilityValue(cpuUsageState.formattedMemoryUsage)
+            }
+            .font(.system(size: 11).monospacedDigit())
+            .foregroundStyle(Color.white.opacity(0.45))
+            .padding(.leading, 16)
             Spacer()
             Button(action: { NSApplication.shared.terminate(nil) }) {
                 Text("Quit")

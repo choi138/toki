@@ -74,6 +74,21 @@ struct PiCompatibleSessionParser {
             : nil
     }
 
+    var estimatedCacheMemoryBytes: Int {
+        MemoryLayout<Self>.stride + 256
+            + PiCompatibleCacheMemory.stringBytes(streamID)
+            + PiCompatibleCacheMemory.stringBytes(replicaScope)
+            + PiCompatibleCacheMemory.stringBytes(agentName)
+            + PiCompatibleCacheMemory.stringBytes(sessionContext?.id)
+            + PiCompatibleCacheMemory.stringBytes(sessionContext?.cwd)
+            + responseProviders.reduce(0) { total, item in
+                total + 128
+                    + PiCompatibleCacheMemory.stringBytes(item.key.sessionID)
+                    + PiCompatibleCacheMemory.stringBytes(item.key.responseID)
+                    + PiCompatibleCacheMemory.stringBytes(item.value)
+            }
+    }
+
     static func records(
         fromJSONLLines lines: [String],
         streamID: String,
@@ -547,54 +562,4 @@ private struct PiCompatibleCost: Decodable {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         total = try? container.decodeIfPresent(Double.self, forKey: .total)
     }
-}
-
-private func nonEmptyPiValue(_ value: String?) -> String? {
-    guard let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines),
-          !trimmed.isEmpty else {
-        return nil
-    }
-    return trimmed
-}
-
-private func isGloballyUniquePiMessageID(_ value: String) -> Bool {
-    UUID(uuidString: value) != nil
-}
-
-private func strictPiSubagentName(from value: String?) -> String? {
-    guard var name = nonEmptyPiValue(value),
-          name.hasPrefix("subagent-") else {
-        return nil
-    }
-    name.removeFirst("subagent-".count)
-    if let parsed = piAgentName(fromGeneratedSuffix: name) {
-        return parsed
-    }
-    guard let index = name.lastIndex(of: "-") else { return nil }
-    let numericSuffix = name[name.index(after: index)...]
-    guard !numericSuffix.isEmpty,
-          numericSuffix.allSatisfy(\.isNumber) else {
-        return nil
-    }
-    return piAgentName(fromGeneratedSuffix: String(name[..<index]))
-}
-
-private func piAgentName(fromGeneratedSuffix name: String) -> String? {
-    if name.count > 36 {
-        let suffixStart = name.index(name.endIndex, offsetBy: -36)
-        let separator = name.index(before: suffixStart)
-        let suffix = String(name[suffixStart...])
-        if name[separator] == "-", UUID(uuidString: suffix) != nil {
-            return nonEmptyPiValue(String(name[..<separator]))
-        }
-    }
-    guard name.count > 8 else { return nil }
-    let suffixStart = name.index(name.endIndex, offsetBy: -8)
-    let separator = name.index(before: suffixStart)
-    let suffix = name[suffixStart...]
-    guard name[separator] == "-",
-          suffix.allSatisfy(\.isHexDigit) else {
-        return nil
-    }
-    return nonEmptyPiValue(String(name[..<separator]))
 }

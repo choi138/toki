@@ -110,6 +110,7 @@ enum MenuBarPanelPresentationPolicy {
 @MainActor
 final class MenuBarPanelController {
     private let tokenVelocityState: TokenVelocityState
+    private let cpuUsageState: ProcessCPUUsageState
     private let visibilityDidChange: (Bool) -> Void
 
     private var panel: NSPanel?
@@ -119,8 +120,10 @@ final class MenuBarPanelController {
 
     init(
         tokenVelocityState: TokenVelocityState,
+        cpuUsageState: ProcessCPUUsageState,
         visibilityDidChange: @escaping (Bool) -> Void) {
         self.tokenVelocityState = tokenVelocityState
+        self.cpuUsageState = cpuUsageState
         self.visibilityDidChange = visibilityDidChange
     }
 
@@ -135,7 +138,7 @@ final class MenuBarPanelController {
         panel.becomesKeyOnlyIfNeeded = false
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         panel.contentViewController = NSHostingController(
-            rootView: UsagePanelView(tokenVelocityState: tokenVelocityState))
+            rootView: UsagePanelView(tokenVelocityState: tokenVelocityState, cpuUsageState: cpuUsageState))
         panel.hasShadow = true
         panel.isMovable = false
         panel.isOpaque = false

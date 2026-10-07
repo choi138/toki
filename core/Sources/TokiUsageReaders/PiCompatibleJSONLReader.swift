@@ -185,7 +185,11 @@ private func consumeJSONLLine(
     }
     let trimmed = line.trimmingCharacters(in: .whitespaces)
     guard !trimmed.isEmpty else { return }
-    try body(trimmed, lineIndex)
+    #if canImport(ObjectiveC)
+        try autoreleasepool { try body(trimmed, lineIndex) }
+    #else
+        try body(trimmed, lineIndex)
+    #endif
 }
 
 func boundedUsageTokenCount(_ value: Int?) -> Int {

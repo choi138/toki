@@ -1,7 +1,66 @@
 import XCTest
+@testable import Toki
 @testable import TokiUsageReaders
 
 final class CodexRolloutIncrementalCacheTests: XCTestCase {
+    func test_aggregatorFlushesDeferredPersistenceWhenOperationIsCancelled() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("toki-rollout-cancelled-group-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let rolloutURL = directory.appendingPathComponent("rollout.jsonl")
+        let cacheURL = directory.appendingPathComponent("cache.json")
+        try Data((tokenCountLine(
+            ts: "2026-04-10T08:00:00Z", input: 100, cachedInput: 20,
+            output: 10, reasoning: 2, total: 110) + "\n").utf8).write(to: rolloutURL)
+        let cache = CodexRolloutUsageCache(cacheURL: cacheURL)
+        let aggregator = UsageAggregator(readers: [CodexReader(
+            dbPath: directory.appendingPathComponent("unused.sqlite").path, rolloutUsageCache: cache)])
+        let task = Task {
+            await aggregator.withDeferredCodexPersistence {
+                _ = await cache.dailySummary(for: rolloutURL)
+                XCTAssertFalse(FileManager.default.fileExists(atPath: cacheURL.path))
+                withUnsafeCurrentTask { $0?.cancel() }
+                return 123
+            }
+        }
+        let result = await task.value
+        XCTAssertEqual(result, 123)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: cacheURL.path))
+    }
+
+    func test_persistenceGroupsFlushOnlyAfterLastGroupAndSkipUnchangedReads() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("toki-rollout-persistence-group-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let rolloutURL = directory.appendingPathComponent("rollout.jsonl")
+        let cacheURL = directory.appendingPathComponent("cache.json")
+        try Data((tokenCountLine(
+            ts: "2026-04-10T08:00:00Z", input: 100, cachedInput: 20,
+            output: 10, reasoning: 2, total: 110) + "\n").utf8).write(to: rolloutURL)
+        let cache = CodexRolloutUsageCache(cacheURL: cacheURL)
+        let outer = await cache.beginPersistenceBatch()
+        let inner = await cache.beginPersistenceBatch()
+        let readerBatch = await cache.beginBatch(retaining: [rolloutURL.path])
+        _ = await cache.dailySummary(for: rolloutURL)
+        await cache.endBatch(readerBatch)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: cacheURL.path))
+        await cache.endPersistenceBatch(inner)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: cacheURL.path))
+        await cache.endPersistenceBatch(outer)
+        let baseline = try Data(contentsOf: cacheURL)
+        let modifiedAt = try cacheURL.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate
+        let unchanged = await cache.beginPersistenceBatch()
+        _ = await cache.dailySummary(for: rolloutURL)
+        await cache.endPersistenceBatch(unchanged)
+        XCTAssertEqual(try Data(contentsOf: cacheURL), baseline)
+        XCTAssertEqual(
+            try cacheURL.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate,
+            modifiedAt)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: cacheURL.appendingPathExtension("updates").path))
+    }
+
     func test_appendedRolloutPersistsWithoutRewritingBaselineCache() async throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("toki-rollout-delta-persistence-tests-\(UUID().uuidString)", isDirectory: true)

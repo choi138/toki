@@ -29,6 +29,7 @@ final class PiCompatibleUsageFileCache: @unchecked Sendable {
     private let lock = NSLock()
     private let maximumBytes: Int
     private var entries: [Key: Entry] = [:]
+    private var entryByteCounts: [Key: Int] = [:]
     private var totalBytesRead = 0
     private var totalEntryBytes = 0
     private var accessOrder: [Key: UInt64] = [:]
@@ -49,6 +50,12 @@ final class PiCompatibleUsageFileCache: @unchecked Sendable {
         lock.lock()
         defer { lock.unlock() }
         return entries.count
+    }
+
+    var estimatedMemoryBytes: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return totalEntryBytes
     }
 
     func retainFiles(_ urls: [URL], source: PiCompatibleSource) {
@@ -176,9 +183,21 @@ final class PiCompatibleUsageFileCache: @unchecked Sendable {
     }
 
     private func store(_ entry: Entry, for key: Key) {
-        totalEntryBytes -= entries[key]?.signature.fileSize ?? 0
+        let byteCount = MemoryLayout<Entry>.stride + 256
+            + PiCompatibleCacheMemory.stringBytes(key.path)
+            + PiCompatibleCacheMemory.stringBytes(key.source)
+            + PiCompatibleCacheMemory.stringBytes(key.replicaScope)
+            + entry.parser.estimatedCacheMemoryBytes
+            + entry.records.reduce(0) { $0 + $1.estimatedCacheMemoryBytes }
+        // An oversized result must not evict every useful smaller entry.
+        guard byteCount <= maximumBytes else {
+            removeEntry(for: key)
+            return
+        }
+        totalEntryBytes -= entryByteCounts[key] ?? 0
         entries[key] = entry
-        totalEntryBytes += entry.signature.fileSize
+        entryByteCounts[key] = byteCount
+        totalEntryBytes += byteCount
         touch(key)
         while totalEntryBytes > maximumBytes,
               let leastRecentlyUsed = accessOrder.min(by: { $0.value < $1.value })?.key {
@@ -192,7 +211,8 @@ final class PiCompatibleUsageFileCache: @unchecked Sendable {
     }
 
     private func removeEntry(for key: Key) {
-        totalEntryBytes -= entries.removeValue(forKey: key)?.signature.fileSize ?? 0
+        entries[key] = nil
+        totalEntryBytes -= entryByteCounts.removeValue(forKey: key) ?? 0
         accessOrder[key] = nil
     }
 }
@@ -324,7 +344,11 @@ private func consumeCachedLine(
     }
     let trimmed = line.trimmingCharacters(in: .whitespaces)
     if !trimmed.isEmpty {
-        try body(trimmed, lineIndex)
+        #if canImport(ObjectiveC)
+            try autoreleasepool { try body(trimmed, lineIndex) }
+        #else
+            try body(trimmed, lineIndex)
+        #endif
     }
 }
 

@@ -19,6 +19,7 @@ public actor CodexRolloutUsageCache {
     private var accessOrder: [String: UInt64] = [:]
     private var accessCounter: UInt64 = 0
     private var activeBatches: [UUID: Set<String>] = [:]
+    private var persistenceBatches: Set<UUID> = []
     private var hasPendingChanges = false
     private var dirtyPaths: Set<String> = []
     private var persistedChanges: [String: CodexRolloutUsageCacheChange] = [:]
@@ -44,6 +45,18 @@ public actor CodexRolloutUsageCache {
     func endBatch(_ token: UUID) {
         loadIfNeeded()
         guard activeBatches.removeValue(forKey: token) != nil else { return }
+        persistIfNeeded(allowActiveBatches: true)
+    }
+
+    /// Groups reader checkpoints across a bounded refresh without changing file retention.
+    public func beginPersistenceBatch() -> UUID {
+        let token = UUID()
+        persistenceBatches.insert(token)
+        return token
+    }
+
+    public func endPersistenceBatch(_ token: UUID) {
+        guard persistenceBatches.remove(token) != nil else { return }
         persistIfNeeded(allowActiveBatches: true)
     }
 
@@ -201,7 +214,8 @@ private extension CodexRolloutUsageCache {
     }
 
     private func persistIfNeeded(allowActiveBatches: Bool = false) {
-        guard hasPendingChanges, allowActiveBatches || activeBatches.isEmpty else { return }
+        guard hasPendingChanges, persistenceBatches.isEmpty,
+              allowActiveBatches || activeBatches.isEmpty else { return }
 
         guard !entries.isEmpty else {
             do {
@@ -220,8 +234,7 @@ private extension CodexRolloutUsageCache {
 
         let cacheExists = FileManager.default.fileExists(atPath: cacheURL.path)
         if cacheExists,
-           let updatesData = try? JSONEncoder().encode(
-               CodexRolloutUsageCacheUpdates(changes: persistedChanges)),
+           let updatesData = encodedUpdates(),
            updatesData.count <= maximumUpdatesBytes {
             do {
                 try DurableFileIO.writePrivate(updatesData, to: updatesURL)
@@ -278,6 +291,22 @@ private extension CodexRolloutUsageCache {
             }
         #else
             return try? JSONEncoder().encode(CodexRolloutUsageCacheFile(entries: entries))
+        #endif
+    }
+
+    private func encodedUpdates() -> Data? {
+        // Per-entry encoded sizes include wrapper overhead, giving a conservative
+        // bound before allocating the entire updates JSON representation.
+        let estimatedBytes = persistedChanges.reduce(0) { total, change in
+            total + (entryByteCounts[change.key] ?? change.key.utf8.count * 6 + 128)
+        }
+        guard estimatedBytes <= maximumUpdatesBytes else { return nil }
+        #if canImport(ObjectiveC)
+            return autoreleasepool {
+                try? JSONEncoder().encode(CodexRolloutUsageCacheUpdates(changes: persistedChanges))
+            }
+        #else
+            return try? JSONEncoder().encode(CodexRolloutUsageCacheUpdates(changes: persistedChanges))
         #endif
     }
 }
@@ -360,6 +389,7 @@ public extension CodexRolloutUsageCache {
         accessOrder = [:]
         accessCounter = 0
         activeBatches = [:]
+        persistenceBatches = []
         hasPendingChanges = false
         dirtyPaths = []
         persistedChanges = [:]
@@ -442,60 +472,6 @@ struct CodexRolloutUsageCacheEntry: Codable {
     var hasCompleteDerivedData: Bool {
         let hasUsage = dailyUsage.values.contains { $0.totalTokens > 0 }
         return !hasUsage || (!dailyActivityTimestamps.isEmpty && !dailyTokenUsageEvents.isEmpty)
-    }
-}
-
-struct CodexRolloutDailySummary {
-    var dailyUsage: [String: CodexCachedDailyUsage] = [:]
-    var dailyActivityTimestamps: [String: [TimeInterval]] = [:]
-    var dailyTokenUsageEvents: [String: [CodexCachedTokenUsageEvent]] = [:]
-
-    var isEmpty: Bool {
-        dailyUsage.isEmpty
-            && dailyActivityTimestamps.isEmpty
-            && dailyTokenUsageEvents.isEmpty
-    }
-}
-
-struct CodexCachedDailyUsage: Codable {
-    var inputTokens = 0
-    var outputTokens = 0
-    var cacheReadTokens = 0
-    var reasoningTokens = 0
-    var activeSeconds: TimeInterval = 0
-
-    static let zero = CodexCachedDailyUsage()
-
-    var totalTokens: Int {
-        inputTokens + outputTokens + cacheReadTokens + reasoningTokens
-    }
-
-    mutating func accumulate(_ usage: RawTokenUsage) {
-        inputTokens += usage.inputTokens
-        outputTokens += usage.outputTokens
-        cacheReadTokens += usage.cacheReadTokens
-        reasoningTokens += usage.reasoningTokens
-    }
-}
-
-struct CodexCachedTokenUsageEvent: Codable {
-    let timestamp: TimeInterval
-    let inputTokens: Int
-    let outputTokens: Int
-    let cacheReadTokens: Int
-    let reasoningTokens: Int
-    let serviceTier: String?
-    var totalTokens: Int {
-        inputTokens + outputTokens + cacheReadTokens + reasoningTokens
-    }
-
-    init(timestamp: Date, usage: RawTokenUsage, serviceTier: String? = nil) {
-        self.timestamp = timestamp.timeIntervalSince1970
-        inputTokens = usage.inputTokens
-        outputTokens = usage.outputTokens
-        cacheReadTokens = usage.cacheReadTokens
-        reasoningTokens = usage.reasoningTokens
-        self.serviceTier = serviceTier
     }
 }
 
