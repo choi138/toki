@@ -295,6 +295,25 @@ the unit. Relative XDG paths are ignored in favor of the default directories.
 The supplied unit mounts only the default Oh My Pi session directories. When
 using a named OMP profile, add that active profile's exact `sessions` directory
 to a systemd override rather than exposing the complete `profiles` tree.
+The supplied unit likewise mounts only the default Hermes ledger at
+`~/.hermes/state.db`. Hermes profiles under `~/.hermes/profiles/NAME` are not
+visible inside the service namespace, so their usage is silently skipped.
+`toki-agent status` runs outside that namespace and can still report such a
+profile as initialized after a shell `sync-once`, so do not rely on it to detect
+a missing mount. For each profile in use, add its `state.db`, `state.db-wal`,
+and `state.db-shm` to a systemd override, then reload and restart the unit:
+
+```ini
+[Service]
+BindReadOnlyPaths=%h/.hermes/profiles/NAME/state.db
+BindReadOnlyPaths=-%h/.hermes/profiles/NAME/state.db-wal
+BindReadOnlyPaths=-%h/.hermes/profiles/NAME/state.db-shm
+```
+
+Keep `state.db` mandatory so a misspelled or removed profile stops the unit
+instead of silently dropping its usage; only the WAL and SHM sidecars are
+optional. Do not mount the whole profile directory; it holds the profile's
+`.env` and configuration credentials.
 
 The Copilot, Kimi, and Qwen readers also support
 `COPILOT_OTEL_FILE_EXPORTER_PATH`, `KIMI_SHARE_DIR`, `KIMI_CODE_HOME`,
