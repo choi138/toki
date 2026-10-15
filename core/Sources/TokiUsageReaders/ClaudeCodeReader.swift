@@ -28,6 +28,10 @@ public struct ClaudeCodeReader: TokenReader {
     }
 
     public func readUsage(from startDate: Date, to endDate: Date) async throws -> RawTokenUsage {
+        try await readUsage(from: startDate, to: endDate, scope: .allFiles)
+    }
+
+    func readUsage(from startDate: Date, to endDate: Date, scope: FileScope) async throws -> RawTokenUsage {
         let limits = PiCompatibleReadLimits.default
         var visitedEntryCount = 0
         var files = Set<URL>()
@@ -55,7 +59,13 @@ public struct ClaudeCodeReader: TokenReader {
                 throw PiCompatibleReaderError.tooManyFiles(files.count)
             }
         }
-        await usageCache.retainFiles(files)
+        switch scope {
+        case .allFiles:
+            await usageCache.retainFiles(files)
+        case .filesModifiedSinceStart:
+            files = Self.filesModified(since: startDate, in: files)
+        }
+        let persistsCache = scope == .allFiles
         await usageCache.beginBatch()
         var sessions: [(streamID: String, records: [ClaudeCachedUsageRecord])] = []
         var recordCount = 0
@@ -69,11 +79,11 @@ public struct ClaudeCodeReader: TokenReader {
             }
             try Task.checkCancellation()
         } catch {
-            await usageCache.endBatch()
+            await usageCache.endBatch(persisting: persistsCache)
             throw ClaudeReadDiagnostic.redactingPaths(in: error)
         }
 
-        await usageCache.endBatch()
+        await usageCache.endBatch(persisting: persistsCache)
         let result = Self.usage(
             fromSessions: sessions,
             from: startDate,

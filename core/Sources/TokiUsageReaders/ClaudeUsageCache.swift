@@ -34,10 +34,12 @@ public actor ClaudeUsageCache {
         batchDepth += 1
     }
 
-    func endBatch() async {
+    func endBatch(persisting: Bool = true) async {
         await loadIfNeeded()
         batchDepth = max(0, batchDepth - 1)
-        persistIfNeeded()
+        if persisting {
+            persistIfNeeded()
+        }
     }
 
     func records(for url: URL) async -> [ClaudeCachedUsageRecord]? {
