@@ -53,6 +53,73 @@ final class ClaudeUsageCacheTests: XCTestCase {
         XCTAssertNotNil(retainedRecords)
         XCTAssertNil(removedRecords)
     }
+
+    func test_readOutputTokensMatchesFullReadForOldMTimeAndDefersPersistence() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("toki-claude-cache-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let projects = root.appendingPathComponent("projects", isDirectory: true)
+        try FileManager.default.createDirectory(at: projects, withIntermediateDirectories: true)
+        let now = Date()
+        let start = now.addingTimeInterval(-3600)
+        let recent = projects.appendingPathComponent("recent.jsonl")
+        let restored = projects.appendingPathComponent("restored.jsonl")
+        try Data(assistantLine(id: "recent", at: now.addingTimeInterval(-60), output: 7).utf8)
+            .write(to: recent)
+        try Data(assistantLine(id: "restored", at: now.addingTimeInterval(-60), output: 100).utf8)
+            .write(to: restored)
+        try FileManager.default.setAttributes(
+            [.modificationDate: start.addingTimeInterval(-60)],
+            ofItemAtPath: restored.path)
+        let cacheURL = root.appendingPathComponent("cache.json")
+        let reader = ClaudeCodeReader(
+            projectsURLOverride: projects,
+            usageCache: ClaudeUsageCache(cacheURL: cacheURL))
+
+        let outputTokens = try await reader.readOutputTokens(from: start, to: now)
+        let cacheWrittenByOutputRead = FileManager.default.fileExists(atPath: cacheURL.path)
+        let fullUsage = try await reader.readUsage(from: start, to: now)
+
+        XCTAssertEqual(outputTokens, 107)
+        XCTAssertFalse(cacheWrittenByOutputRead)
+        XCTAssertEqual(fullUsage.outputTokens, 107)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: cacheURL.path))
+    }
+
+    func test_persistingBatchFlushesWhenOverlappingNonPersistingBatchEndsLast() async throws {
+        let wasPersisted = try await persistsAfterOverlappingBatches(endingOrder: [true, false])
+        XCTAssertTrue(wasPersisted)
+    }
+
+    func test_persistingBatchFlushesWhenItEndsLast() async throws {
+        let wasPersisted = try await persistsAfterOverlappingBatches(endingOrder: [false, true])
+        XCTAssertTrue(wasPersisted)
+    }
+
+    func test_nonPersistingBatchAloneDefersPersistence() async throws {
+        let wasPersisted = try await persistsAfterOverlappingBatches(endingOrder: [false])
+        XCTAssertFalse(wasPersisted)
+    }
+
+    private func persistsAfterOverlappingBatches(endingOrder: [Bool]) async throws -> Bool {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("toki-claude-cache-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let transcript = root.appendingPathComponent("session.jsonl")
+        try Data("{}\n".utf8).write(to: transcript)
+        let cacheURL = root.appendingPathComponent("cache.json")
+        let cache = ClaudeUsageCache(cacheURL: cacheURL)
+
+        for _ in endingOrder {
+            await cache.beginBatch()
+        }
+        await cache.store(records: [cachedUsageRecord()], for: transcript)
+        for persisting in endingOrder {
+            await cache.endBatch(persisting: persisting)
+        }
+        return FileManager.default.fileExists(atPath: cacheURL.path)
+    }
 }
 
 private func cachedUsageRecord() -> ClaudeCachedUsageRecord {
@@ -68,4 +135,12 @@ private func cachedUsageRecord() -> ClaudeCachedUsageRecord {
         output: 2,
         cacheRead: 0,
         cacheWrite: 0)
+}
+
+private func assistantLine(id: String, at date: Date, output: Int) -> String {
+    let timestamp = ISO8601DateFormatter().string(from: date)
+    return #"{"type":"assistant","timestamp":"\#(timestamp)","requestId":"\#(id)","#
+        + #""message":{"id":"\#(id)","model":"claude-sonnet-4-6","#
+        + #""usage":{"input_tokens":1,"output_tokens":\#(output)}}}"#
+        + "\n"
 }

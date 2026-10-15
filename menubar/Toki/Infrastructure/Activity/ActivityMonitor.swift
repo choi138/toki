@@ -159,74 +159,75 @@ enum ActivityMonitor {
 
     // MARK: - JSONL tool use detection
 
-    private static func hasRecentToolUse(in url: URL, since threshold: Date) -> Bool {
+    static func hasRecentToolUse(
+        in url: URL,
+        since threshold: Date,
+        initialReadSize: UInt64 = 262_144,
+        maximumReadSize: UInt64 = 16 * 1_048_576) -> Bool {
         guard let handle = try? FileHandle(forReadingFrom: url) else { return false }
         defer { try? handle.close() }
 
         let fileSize = (try? handle.seekToEnd()) ?? 0
         guard fileSize > 0 else { return false }
 
+        let readLimit = min(fileSize, maximumReadSize)
         let decoder = JSONDecoder()
-
-        // Start at 256 KB; double until recent records are complete or we reach the file start.
-        var readSize = UInt64(min(262_144, fileSize))
+        var readSize = min(initialReadSize, readLimit)
         while true {
-            let readOffset = fileSize - readSize
-            let startsAtRecordBoundary = isJSONLRecordBoundary(handle: handle, offset: readOffset)
-            try? handle.seek(toOffset: readOffset)
-            var data = handle.readDataToEndOfFile()
-
-            // If the window starts mid-record, skip the truncated prefix for this pass,
-            // but keep growing until that newest omitted record becomes complete.
-            if !startsAtRecordBoundary,
-               let firstNewline = data.firstIndex(of: UInt8(ascii: "\n")) {
-                data = Data(data[(firstNewline + 1)...])
+            let result = autoreleasepool {
+                scanTail(of: handle, fileSize: fileSize, readSize: readSize, since: threshold, decoder: decoder)
             }
-
-            // If Claude is mid-write the last record may be incomplete.
-            // Fall back to trimming up to the last complete newline and retrying.
-            let text: String
-            if let decoded = String(data: data, encoding: .utf8) {
-                text = decoded
-            } else if let lastNewline = data.lastIndex(of: UInt8(ascii: "\n")),
-                      let decoded = String(data: Data(data[...lastNewline]), encoding: .utf8) {
-                text = decoded
-            } else if readSize < fileSize {
-                readSize = min(readSize * 2, fileSize)
-                continue
-            } else {
-                return false
-            }
-
-            let lines = text.components(separatedBy: .newlines).filter { !$0.isEmpty }
-
-            // No complete lines in the window — grow and retry if possible.
-            let hasCompleteLine = lines.contains { $0.hasPrefix("{") }
-            if !hasCompleteLine, readSize < fileSize {
-                readSize = min(readSize * 2, fileSize)
-                continue
-            }
-
-            if lines.reversed().contains(where: { line in
-                guard let lineData = line.data(using: .utf8),
-                      let entry = try? decoder.decode(JSONLEntry.self, from: lineData),
-                      let tsStr = entry.timestamp,
-                      let date = DateParser.parse(tsStr),
-                      date >= threshold else { return false }
-                return entry.hasToolActivity
-            }) {
+            switch result {
+            case .foundToolUse:
                 return true
+            case .reachedOlderRecords:
+                return false
+            case .needsMoreContext:
+                // A large recent tool_result can start before the window; stop once the cap is hit
+                // so one huge transcript cannot be loaded whole every probe.
+                guard readSize < readLimit else { return false }
+                readSize = min(readSize * 2, readLimit)
             }
-
-            // Later lines were complete but the newest omitted record was still truncated.
-            // Keep expanding so a large recent tool_use/tool_result line is retried.
-            if !startsAtRecordBoundary, readSize < fileSize {
-                readSize = min(readSize * 2, fileSize)
-                continue
-            }
-
-            return false
         }
+    }
+
+    private enum TailScanResult {
+        case foundToolUse
+        case reachedOlderRecords
+        case needsMoreContext
+    }
+
+    private static func scanTail(
+        of handle: FileHandle,
+        fileSize: UInt64,
+        readSize: UInt64,
+        since threshold: Date,
+        decoder: JSONDecoder) -> TailScanResult {
+        let readOffset = fileSize - readSize
+        let startsAtRecordBoundary = isJSONLRecordBoundary(handle: handle, offset: readOffset)
+        try? handle.seek(toOffset: readOffset)
+        guard let data = try? handle.read(upToCount: Int(readSize)), !data.isEmpty else {
+            return .reachedOlderRecords
+        }
+
+        let newline = UInt8(ascii: "\n")
+        var body = data[...]
+        if !startsAtRecordBoundary {
+            guard let firstNewline = data.firstIndex(of: newline) else { return .needsMoreContext }
+            body = data[(firstNewline + 1)...]
+        }
+
+        var sawOlderRecord = false
+        for line in body.split(separator: newline).reversed() {
+            guard let entry = try? decoder.decode(JSONLEntry.self, from: Data(line)),
+                  let date = entry.timestamp.flatMap(DateParser.parse) else { continue }
+            if date < threshold {
+                sawOlderRecord = true
+            } else if entry.hasToolActivity {
+                return .foundToolUse
+            }
+        }
+        return sawOlderRecord ? .reachedOlderRecords : .needsMoreContext
     }
 
     private static func isJSONLRecordBoundary(handle: FileHandle, offset: UInt64) -> Bool {

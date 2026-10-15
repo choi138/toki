@@ -219,3 +219,86 @@ final class ActivityMonitorTests: XCTestCase {
         return formatter
     }()
 }
+
+extension ActivityMonitorTests {
+    func test_claudeToolProbe_detectsRecentToolResultLargerThanInitialWindow() throws {
+        let now = Date()
+        let url = try makeClaudeTranscript(lines: [
+            claudeLine(at: now.addingTimeInterval(-600), contentType: "text"),
+            claudeLine(at: now.addingTimeInterval(-5), contentType: "tool_result", padding: 8192),
+            claudeLine(at: now.addingTimeInterval(-1), contentType: "text"),
+        ])
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+
+        XCTAssertTrue(ActivityMonitor.hasRecentToolUse(
+            in: url,
+            since: now.addingTimeInterval(-30),
+            initialReadSize: 512))
+    }
+
+    func test_claudeToolProbe_ignoresToolUseOlderThanThreshold() throws {
+        let now = Date()
+        let url = try makeClaudeTranscript(lines: [
+            claudeLine(at: now.addingTimeInterval(-600), contentType: "tool_use"),
+            claudeLine(at: now.addingTimeInterval(-1), contentType: "text"),
+        ])
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+
+        XCTAssertFalse(ActivityMonitor.hasRecentToolUse(
+            in: url,
+            since: now.addingTimeInterval(-30),
+            initialReadSize: 64))
+    }
+
+    func test_claudeToolProbe_stopsGrowingOnceOlderRecordsAreVisible() throws {
+        let now = Date()
+        let olderLines = (0..<200).map { _ in
+            claudeLine(at: now.addingTimeInterval(-600), contentType: "text", padding: 256)
+        }
+        let url = try makeClaudeTranscript(lines:
+            [claudeLine(at: now.addingTimeInterval(-2), contentType: "tool_use")]
+                + olderLines
+                + [claudeLine(at: now.addingTimeInterval(-1), contentType: "text")])
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+
+        XCTAssertFalse(ActivityMonitor.hasRecentToolUse(
+            in: url,
+            since: now.addingTimeInterval(-30),
+            initialReadSize: 1024))
+    }
+
+    func test_claudeToolProbe_stopsAtMaximumReadSize() throws {
+        let now = Date()
+        let recentTextLines = (0..<200).map { _ in
+            claudeLine(at: now.addingTimeInterval(-1), contentType: "text", padding: 256)
+        }
+        let url = try makeClaudeTranscript(lines:
+            [claudeLine(at: now.addingTimeInterval(-2), contentType: "tool_use")] + recentTextLines)
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+
+        XCTAssertFalse(ActivityMonitor.hasRecentToolUse(
+            in: url,
+            since: now.addingTimeInterval(-30),
+            initialReadSize: 1024,
+            maximumReadSize: 8192))
+        XCTAssertTrue(ActivityMonitor.hasRecentToolUse(
+            in: url,
+            since: now.addingTimeInterval(-30),
+            initialReadSize: 1024))
+    }
+
+    private func makeClaudeTranscript(lines: [String]) throws -> URL {
+        let directoryURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("toki-claude-activity-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
+        let url = directoryURL.appendingPathComponent("session.jsonl")
+        try Data((lines.joined(separator: "\n") + "\n").utf8).write(to: url)
+        return url
+    }
+
+    private func claudeLine(at date: Date, contentType: String, padding: Int = 0) -> String {
+        let timestamp = Self.cursorBubbleFormatter.string(from: date)
+        let text = String(repeating: "x", count: padding)
+        return #"{"timestamp":"\#(timestamp)","message":{"content":[{"type":"\#(contentType)","text":"\#(text)"}]}}"#
+    }
+}

@@ -20,6 +20,7 @@ public actor ClaudeUsageCache {
     private var accessCounter: UInt64 = 0
     private var batchDepth = 0
     private var hasPendingChanges = false
+    private var hasPersistRequest = false
 
     public init(
         cacheURL: URL,
@@ -34,9 +35,13 @@ public actor ClaudeUsageCache {
         batchDepth += 1
     }
 
-    func endBatch() async {
+    func endBatch(persisting: Bool = true) async {
         await loadIfNeeded()
         batchDepth = max(0, batchDepth - 1)
+        // A persisting batch may finish while a non-persisting one is still open; honor it when the last ends.
+        hasPersistRequest = hasPersistRequest || persisting
+        guard batchDepth == 0, hasPersistRequest else { return }
+        hasPersistRequest = false
         persistIfNeeded()
     }
 
@@ -100,6 +105,7 @@ public actor ClaudeUsageCache {
         accessCounter = 0
         batchDepth = 0
         hasPendingChanges = false
+        hasPersistRequest = false
         isLoaded = true
 
         let fileManager = FileManager.default
