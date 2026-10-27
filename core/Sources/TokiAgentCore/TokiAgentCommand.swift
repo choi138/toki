@@ -338,7 +338,7 @@ extension TokiAgentCommand {
                         expectsDirectory: false,
                         countsAsReadable: false)
                 }
-            case let .directory(url, _, _):
+            case let .directory(url, _, _), let .hermesDelegateDirectory(url):
                 inspect(url, expectsDirectory: true, countsAsReadable: true)
             case let .directoryPresence(url):
                 // A discovery root only records that a client's home exists; the readable

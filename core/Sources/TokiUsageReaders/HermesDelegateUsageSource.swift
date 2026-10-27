@@ -17,24 +17,13 @@ struct HermesDelegateUsageSource {
     private let cache = HermesDelegateLogCache()
 
     static func locations(root: URL) -> [LocalUsageSourceLocation] {
-        [.directory(root, extensions: ["jsonl", "out", "json", ""])]
+        [.hermesDelegateDirectory(root)]
     }
 
     func read(limits: PiCompatibleReadLimits = .default) async throws -> HermesDelegateUsage {
         do {
-            var visited = 0
-            var files: [URL] = []
-            // Scan once per extension; discovery skips child symlinks and enforces shared bounds.
-            for ext in ["jsonl", "out"] {
-                files += try findUsageFiles(
-                    in: root, withExtension: ext, maximumFileCount: limits.maximumFileCount + 1,
-                    maximumEntryCount: limits.maximumEntryCount, visitedEntryCount: &visited)
-                guard files.count <= limits.maximumFileCount else {
-                    throw HermesDelegateReadError()
-                }
-            }
-            let names: Set = ["events.jsonl", "claude.out", "review.out", "qa.out"]
-            files = files.filter { names.contains($0.lastPathComponent) }
+            let files = try hermesDelegateLogFiles(
+                in: root, maximumFileCount: limits.maximumFileCount, maximumEntryCount: limits.maximumEntryCount)
             var logs: [HermesDelegateParsedLog] = []
             var eventCount = 0
             for file in files.sorted(by: { $0.path < $1.path }) {
@@ -53,6 +42,40 @@ struct HermesDelegateUsageSource {
             throw HermesDelegateReadError()
         }
     }
+}
+
+private let hermesDelegateMetadataNames = ["meta.json", "status.json", "ended_at"]
+
+/// Count bounded log candidates, then attach only metadata consumed by those logs.
+/// Missing metadata is retained so its later creation invalidates the source signature.
+package func hermesDelegateSignatureFiles(
+    in root: URL, maximumFileCount: Int, maximumEntryCount: Int) throws -> [URL] {
+    let logs = try hermesDelegateLogFiles(
+        in: root, maximumFileCount: maximumFileCount, maximumEntryCount: maximumEntryCount)
+    var files = Set(logs)
+    for log in logs {
+        let directory = log.deletingLastPathComponent()
+        files.formUnion(hermesDelegateMetadataNames.map { directory.appendingPathComponent($0) })
+    }
+    return files.sorted { $0.path < $1.path }
+}
+
+private func hermesDelegateLogFiles(
+    in root: URL, maximumFileCount: Int, maximumEntryCount: Int) throws -> [URL] {
+    guard maximumFileCount >= 0, maximumFileCount < Int.max, maximumEntryCount >= 0 else {
+        throw HermesDelegateReadError()
+    }
+    var visited = 0
+    var files: [URL] = []
+    // Reject truncation before filtering names; both extensions share the same bounds.
+    for ext in ["jsonl", "out"] {
+        files += try findUsageFiles(
+            in: root, withExtension: ext, maximumFileCount: maximumFileCount + 1,
+            maximumEntryCount: maximumEntryCount, visitedEntryCount: &visited)
+        guard files.count <= maximumFileCount else { throw HermesDelegateReadError() }
+    }
+    let names: Set = ["events.jsonl", "claude.out", "review.out", "qa.out"]
+    return files.filter { names.contains($0.lastPathComponent) }
 }
 
 struct HermesDelegateReadError: LocalizedError {
@@ -164,7 +187,7 @@ private actor HermesDelegateLogCache {
 
     func log(at file: URL) throws -> HermesDelegateParsedLog {
         let directory = file.deletingLastPathComponent()
-        let files = [file] + ["meta.json", "status.json", "started_at", "ended_at"].map {
+        let files = [file] + hermesDelegateMetadataNames.map {
             directory.appendingPathComponent($0)
         }
         let fingerprint = try files.map { url -> String in

@@ -12,6 +12,7 @@ extension LocalUsageSourceLocation {
         case let .directory(_, extensions, identity):
             .directory(canonical, extensions: extensions, selectionIdentity: identity)
         case .directoryPresence: .directoryPresence(canonical)
+        case .hermesDelegateDirectory: .hermesDelegateDirectory(canonical)
         }
     }
 }
@@ -23,10 +24,13 @@ package enum LocalUsageSourceLocation: Equatable {
     case directory(URL, extensions: Set<String>, selectionIdentity: String? = nil)
     /// A selected discovery root; its contents are already classified by the reader.
     case directoryPresence(URL)
+    /// Bounded worker logs plus their consumed metadata, counted separately from native files.
+    case hermesDelegateDirectory(URL)
 
     package var url: URL {
         switch self {
-        case let .file(url, _, _), let .directory(url, _, _), let .directoryPresence(url):
+        case let .file(url, _, _), let .directory(url, _, _), let .directoryPresence(url),
+             let .hermesDelegateDirectory(url):
             url
         }
     }

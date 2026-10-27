@@ -223,8 +223,7 @@ private extension AgentSnapshotBuilder {
     private func standardSourceRecords(
         locations: [LocalUsageSourceLocation],
         modifiedOnOrAfter minimumDate: Date,
-        maximumFileCount: Int? = nil,
-        maximumEntryCount: Int? = nil) throws -> [String] {
+        maximumFileCount: Int? = nil, maximumEntryCount: Int? = nil) throws -> [String] {
         guard maximumFileCount.map({ $0 >= 0 }) ?? true,
               maximumEntryCount.map({ $0 >= 0 }) ?? true else {
             throw AgentSnapshotBuilderError.sourceLimitExceeded
@@ -246,6 +245,11 @@ private extension AgentSnapshotBuilder {
                 }
             case let .directoryPresence(url):
                 try records.append(directoryPresenceRecord(url))
+            case let .hermesDelegateDirectory(url):
+                try records.append(directoryPresenceRecord(url))
+                try records.append(contentsOf: hermesDelegateSignatureFiles(
+                    in: url, maximumFileCount: maximumFileCount ?? 50000,
+                    maximumEntryCount: maximumEntryCount ?? 500_000).map(fileSignatureRecord))
             case let .directory(url, extensions, selectionIdentity):
                 try records.append(directoryPresenceRecord(url))
                 if let selectionIdentity {
@@ -275,9 +279,7 @@ private extension AgentSnapshotBuilder {
             URL(fileURLWithPath: databaseURL.path + "-shm"),
         ]
 
-        let reader = CodexReader(
-            dbPath: databaseURL.path,
-            rolloutUsageCache: rolloutUsageCache)
+        let reader = CodexReader(dbPath: databaseURL.path, rolloutUsageCache: rolloutUsageCache)
         sourceURLs.formUnion(reader.databaseRolloutPaths(from: window.start, to: window.end).map {
             URL(fileURLWithPath: $0).standardizedFileURL
         })
@@ -285,11 +287,9 @@ private extension AgentSnapshotBuilder {
             sourceURLs.insert(directory)
             try sourceURLs.formUnion(jsonlFiles(in: directory))
         }
-        try sourceURLs.formUnion(jsonlFiles(
-            in: paths.codexArchivedSessions,
-            modifiedOnOrAfter: window.start))
+        try sourceURLs.formUnion(jsonlFiles(in: paths.codexArchivedSessions, modifiedOnOrAfter: window.start))
         return try sourceURLs.map(fileSignatureRecord) + standardSourceRecords(
-            locations: [.directory(paths.hermesDelegateState, extensions: ["jsonl", "out", "json", ""])],
+            locations: [.hermesDelegateDirectory(paths.hermesDelegateState)],
             modifiedOnOrAfter: .distantPast, maximumFileCount: 50000, maximumEntryCount: 500_000)
     }
 

@@ -263,6 +263,35 @@ extension HermesDelegateUsageTests {
         }
     }
 
+    func testSourceSignatureCountsLogsSeparatelyFromTheirMetadata() async throws {
+        let configuration = try AgentSyncFixture().configuration
+        for name in ["Codex", "Claude Code"] {
+            let fixture = try DelegateUsageFixture()
+            defer { fixture.remove() }
+            try fixture.writeCodex("run/events.jsonl", session: "worker")
+            let original = try XCTUnwrap(LocalUsageReaderRegistry.agentDescriptors(
+                home: fixture.home, environment: [:]).first { $0.name == name })
+            let descriptor = LocalUsageReaderDescriptor(
+                reader: original.reader, sourceLocations: original.sourceLocations,
+                sourceSignatureStrategy: .boundedAllFiles(maximumFileCount: 1, maximumEntryCount: 100))
+            let builder = AgentSnapshotBuilder(
+                home: fixture.home, environment: [:], readerDescriptors: [descriptor])
+            var signature = try await builder.sourceSignature(configuration: configuration, now: fixture.end)
+            let directory = fixture.delegates.appendingPathComponent("run")
+            for name in ["unrelated.json", "stdout", "started_at"] {
+                try Data("ignored".utf8).write(to: directory.appendingPathComponent(name))
+            }
+            let unchanged = try await builder.sourceSignature(configuration: configuration, now: fixture.end)
+            XCTAssertEqual(signature, unchanged)
+            for name in ["meta.json", "status.json", "ended_at"] {
+                try Data("changed".utf8).write(to: directory.appendingPathComponent(name))
+                let changed = try await builder.sourceSignature(configuration: configuration, now: fixture.end)
+                XCTAssertNotEqual(signature, changed, name)
+                signature = changed
+            }
+        }
+    }
+
     /// Opt-in local QA, using injected private caches; normal CI never reads a user's logs.
     func testLocalLogQAWhenExplicitlyEnabled() async throws {
         let env = ProcessInfo.processInfo.environment
