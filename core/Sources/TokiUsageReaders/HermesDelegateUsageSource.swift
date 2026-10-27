@@ -26,15 +26,25 @@ struct HermesDelegateUsageSource {
                 in: root, maximumFileCount: limits.maximumFileCount, maximumEntryCount: limits.maximumEntryCount)
             var logs: [HermesDelegateParsedLog] = []
             var eventCount = 0
+            var unreadableLogCount = 0
             for file in files.sorted(by: { $0.path < $1.path }) {
                 try Task.checkCancellation()
-                let log = try await cache.log(at: file)
+                let log: HermesDelegateParsedLog
+                do {
+                    log = try await cache.log(at: file)
+                } catch is CancellationError {
+                    throw CancellationError()
+                } catch {
+                    unreadableLogCount += 1
+                    continue
+                }
                 guard log.provider == provider else { continue }
                 try recordUsageEvents(log.entries.count, total: &eventCount, maximum: limits.maximumEventCount)
                 logs.append(log)
             }
             await cache.retain(files: Set(files))
-            return HermesDelegateUsage(provider: provider, logs: logs)
+            try Task.checkCancellation()
+            return HermesDelegateUsage(provider: provider, logs: logs, unreadableLogCount: unreadableLogCount)
         } catch is CancellationError {
             throw CancellationError()
         } catch {
@@ -87,6 +97,7 @@ struct HermesDelegateReadError: LocalizedError {
 struct HermesDelegateUsage {
     let provider: HermesDelegateProvider
     let logs: [HermesDelegateParsedLog]
+    let unreadableLogCount: Int
 
     /// Workers start fresh sessions. A completed worker's final counters own that session;
     /// its normal transcript, when present, must not also contribute tokens.
@@ -119,6 +130,12 @@ struct HermesDelegateUsage {
             result.supplemental.append(SupplementalUsage(
                 id: "hermes-delegate-incomplete-\(provider.rawValue)",
                 label: "Delegated runs with incomplete usage", value: incompleteCount,
+                unit: .count, source: provider.source, model: nil, includedInTotals: false, quality: .contextOnly))
+        }
+        if unreadableLogCount > 0 {
+            result.supplemental.append(SupplementalUsage(
+                id: "hermes-delegate-unreadable-\(provider.rawValue)",
+                label: "Delegated logs that could not be read", value: unreadableLogCount,
                 unit: .count, source: provider.source, model: nil, includedInTotals: false, quality: .contextOnly))
         }
         return result

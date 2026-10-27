@@ -38,8 +38,9 @@ enum HermesDelegateLogParser {
     private static func completionDate(directory: URL, file: URL) throws -> Date {
         let ended = directory.appendingPathComponent("ended_at")
         if FileManager.default.fileExists(atPath: ended.path) {
-            let values = try ended.resourceValues(forKeys: [.fileSizeKey, .isSymbolicLinkKey])
-            guard values.isSymbolicLink != true, (values.fileSize ?? Int.max) < 128 else {
+            let values = try ended.resourceValues(forKeys: [.fileSizeKey, .isSymbolicLinkKey, .isRegularFileKey])
+            guard values.isSymbolicLink != true, values.isRegularFile == true,
+                  (values.fileSize ?? Int.max) < 128 else {
                 throw HermesDelegateReadError()
             }
             let value = try String(contentsOf: ended, encoding: .utf8).trimmingCharacters(in: .whitespacesAndNewlines)
