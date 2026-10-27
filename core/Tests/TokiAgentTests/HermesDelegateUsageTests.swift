@@ -203,6 +203,38 @@ final class HermesDelegateUsageTests: XCTestCase {
 }
 
 extension HermesDelegateUsageTests {
+    func testDiscoveryRejectsOverflowBeforeFilteringLogNamesAcrossExtensions() async throws {
+        let limits = PiCompatibleReadLimits(
+            maximumFileCount: 2, maximumFileBytes: 1024, maximumLineBytes: 1024,
+            maximumEventCount: 100, maximumEntryCount: 100)
+        for extensions in [["jsonl", "jsonl", "jsonl"], ["out", "out", "out"], ["jsonl", "out", "out"]] {
+            let fixture = try DelegateUsageFixture()
+            defer { fixture.remove() }
+            for (index, ext) in extensions.enumerated() {
+                try fixture.writeLog("run-\(index)/ignored.\(ext)", lines: [])
+            }
+            do {
+                _ = try await HermesDelegateUsageSource(root: fixture.delegates, provider: .codex).read(limits: limits)
+                XCTFail("Truncated discovery must not appear complete: \(extensions)")
+            } catch is HermesDelegateReadError {
+                // Bounds failures are deliberately path-free.
+            }
+        }
+    }
+
+    func testDiscoveryAcceptsExactlyTheFileLimitAcrossExtensions() async throws {
+        let fixture = try DelegateUsageFixture()
+        defer { fixture.remove() }
+        try fixture.writeCodex("codex/run/events.jsonl", session: "codex-worker")
+        try fixture.writeClaude("claude/run/claude.out", session: "claude-worker", completed: true)
+        let limits = PiCompatibleReadLimits(
+            maximumFileCount: 2, maximumFileBytes: 1024, maximumLineBytes: 1024,
+            maximumEventCount: 100, maximumEntryCount: 100)
+        let usage = try await HermesDelegateUsageSource(root: fixture.delegates, provider: .codex)
+            .read(limits: limits).usage(from: fixture.start, to: fixture.end)
+        XCTAssertEqual(usage.totalTokens, 120)
+    }
+
     func testRegisteredSourcesDetectOutFilesAndCompletionMetadataChanges() async throws {
         let agent = try AgentSyncFixture()
         defer { agent.remove() }

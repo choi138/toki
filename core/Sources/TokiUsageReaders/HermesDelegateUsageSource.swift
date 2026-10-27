@@ -20,22 +20,21 @@ struct HermesDelegateUsageSource {
         [.directory(root, extensions: ["jsonl", "out", "json", ""])]
     }
 
-    func read() async throws -> HermesDelegateUsage {
+    func read(limits: PiCompatibleReadLimits = .default) async throws -> HermesDelegateUsage {
         do {
-            let limits = PiCompatibleReadLimits.default
             var visited = 0
             var files: [URL] = []
             // Scan once per extension; discovery skips child symlinks and enforces shared bounds.
             for ext in ["jsonl", "out"] {
                 files += try findUsageFiles(
-                    in: root, withExtension: ext, maximumFileCount: limits.maximumFileCount,
+                    in: root, withExtension: ext, maximumFileCount: limits.maximumFileCount + 1,
                     maximumEntryCount: limits.maximumEntryCount, visitedEntryCount: &visited)
+                guard files.count <= limits.maximumFileCount else {
+                    throw HermesDelegateReadError()
+                }
             }
             let names: Set = ["events.jsonl", "claude.out", "review.out", "qa.out"]
             files = files.filter { names.contains($0.lastPathComponent) }
-            guard files.count <= limits.maximumFileCount else {
-                throw HermesDelegateReadError()
-            }
             var logs: [HermesDelegateParsedLog] = []
             var eventCount = 0
             for file in files.sorted(by: { $0.path < $1.path }) {
