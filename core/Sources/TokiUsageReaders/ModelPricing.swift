@@ -125,6 +125,11 @@ private let exactPricingTable: [String: ModelPrice] = [
     // Exact-only: same short-context rates as gpt-6-sol with cached input halved.
     // https://developers.openai.com/api/docs/models/gpt-6.1-sol
     "gpt-6.1-sol": price(2.0, 10.0, 0.10, 2.50),
+    // Exact-only, Standard short-context rates with 30-minute cache writes.
+    // Long-context, service-tier, regional, and 12-hour cache-write adjustments
+    // are not represented by this table; the Claude 1-hour field is not 12-hour retention.
+    // https://developers.openai.com/api/docs/models/gpt-6.1-terra
+    "gpt-6.1-terra": price(1.0, 5.0, 0.05, 1.25),
     // GPT-5.6 standard short-context pricing at launch. OpenAI cut all three
     // rates after launch, so the reduced rates live in scheduledPriceChanges
     // and usage recorded before each cut still bills at the launch rate.
@@ -195,6 +200,7 @@ private let exactOnlyPricingKeys: Set = [
     "claude-sonnet-5",
     "claude-sonnet-5-5",
     "gpt-6.1-sol",
+    "gpt-6.1-terra",
     "claude-opus-4",
     "gpt-5",
     "gemini-3",
