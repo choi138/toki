@@ -113,7 +113,16 @@ private extension HermesDelegateLogParser {
                 modelEntries.reduce(Decimal.zero) { $0 + Decimal($1[keyPath: field]) }
                     == Decimal(aggregate[keyPath: field])
             }
-            entries = !modelEntries.isEmpty && matches ? modelEntries : [aggregate]
+            if matches, modelEntries.count == 1, let modelEntry = modelEntries.first,
+               let reconciled = entry(
+                   usage, key: modelEntry.identity, date: modelEntry.timestamp, modelOverride: modelEntry.model) {
+                entries = [reconciled]
+            } else {
+                // A mixed-model breakdown has no per-model cache TTLs. Retain the
+                // aggregate when splitting it would discard one-hour cache writes.
+                entries = !modelEntries.isEmpty && matches && aggregate.cacheWriteOneHour == 0
+                    ? modelEntries : [aggregate]
+            }
             completed = true
         }
 

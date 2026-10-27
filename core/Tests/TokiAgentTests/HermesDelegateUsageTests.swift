@@ -138,6 +138,53 @@ final class HermesDelegateUsageTests: XCTestCase {
         XCTAssertEqual(usage.tokenEvents.count, 1)
     }
 
+    func testCompletedClaudePreservesOneHourCacheWritesWithMatchingModelCounters() async throws {
+        let fixture = try DelegateUsageFixture()
+        defer { fixture.remove() }
+        let model = "claude-sonnet-4-6"
+        try fixture.writeLog("claude/run/claude.out", lines: [[
+            "type": "result", "session_id": "worker",
+            "usage": [
+                "input_tokens": 10, "output_tokens": 20, "cache_creation_input_tokens": 1000,
+                "cache_creation": ["ephemeral_1h_input_tokens": 800],
+            ],
+            "modelUsage": [model: ["inputTokens": 10, "outputTokens": 20, "cacheCreationInputTokens": 1000]],
+        ]])
+        let reader = try fixture.reader("Claude Code")
+        let price = try XCTUnwrap(modelPrice(for: model, at: fixture.start))
+        let expectedCost = price.cost(input: 10, output: 20, cacheRead: 0, cacheWrite: 200, cacheWriteOneHour: 800)
+        for _ in 0..<2 {
+            let usage = try await reader.readUsage(from: fixture.start, to: fixture.end)
+            XCTAssertEqual(usage.totalTokens, 1030)
+            XCTAssertEqual(usage.cacheWriteTokens, 1000)
+            XCTAssertEqual(usage.cost, expectedCost, accuracy: 0.000_001)
+            XCTAssertEqual(usage.tokenEvents.first?.model, model)
+            XCTAssertEqual(try XCTUnwrap(usage.tokenEvents.first).cost, expectedCost, accuracy: 0.000_001)
+        }
+    }
+
+    func testMixedModelResultRetainsAggregateWhenPerModelCacheTTLsAreUnavailable() throws {
+        let fixture = try DelegateUsageFixture()
+        defer { fixture.remove() }
+        let path = "claude/run/claude.out"
+        try fixture.writeLog(path, lines: [[
+            "type": "result", "session_id": "worker",
+            "usage": [
+                "input_tokens": 10, "output_tokens": 20, "cache_creation_input_tokens": 1000,
+                "cache_creation": ["ephemeral_1h_input_tokens": 800],
+            ],
+            "modelUsage": [
+                "claude-sonnet-4-6": ["inputTokens": 5, "outputTokens": 10, "cacheCreationInputTokens": 500],
+                "claude-opus-4-6": ["inputTokens": 5, "outputTokens": 10, "cacheCreationInputTokens": 500],
+            ],
+        ]])
+        let parsed = try HermesDelegateLogParser.parse(file: fixture.delegates.appendingPathComponent(path))
+        XCTAssertTrue(parsed.isComplete)
+        XCTAssertEqual(parsed.entries.count, 1)
+        XCTAssertEqual(parsed.entries.first?.totalTokens, 1030)
+        XCTAssertEqual(parsed.entries.first?.cacheWriteOneHour, 800)
+    }
+
     func testInvalidCountersAndChildSymlinksCannotInflateTotals() async throws {
         let fixture = try DelegateUsageFixture()
         defer { fixture.remove() }
