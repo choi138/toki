@@ -383,6 +383,55 @@ extension CodexReaderBehaviorTests {
     }
 }
 
+extension CodexReaderBehaviorTests {
+    func test_codexReader_pricesGpt61TerraOnColdWarmAndPersistedReads() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("toki-terra-pricing-\(UUID().uuidString)")
+        let codexHome = directory.appendingPathComponent(".codex")
+        let sessions = codexHome.appendingPathComponent("sessions/2026/10/26")
+        try FileManager.default.createDirectory(at: sessions, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let rollout = sessions.appendingPathComponent("terra.jsonl")
+        let lines = [
+            #"{"timestamp":"2026-10-26T01:00:00Z","type":"session_meta","payload":{"id":"terra","source":"cli"}}"#,
+            #"{"timestamp":"2026-10-26T01:00:00Z","type":"turn_context","payload":{"model":"gpt-6.1-terra"}}"#,
+            tokenCountLine(
+                ts: "2026-10-26T01:00:01Z", input: 2000, cachedInput: 1000,
+                output: 1000, reasoning: 400, total: 3000),
+        ]
+        try Data((lines.joined(separator: "\n") + "\n").utf8).write(to: rollout)
+        let cacheURL = directory.appendingPathComponent("cache.json")
+        let cache = CodexRolloutUsageCache(cacheURL: cacheURL)
+        let reader = CodexReader(
+            dbPath: codexHome.appendingPathComponent("state_5.sqlite").path, rolloutUsageCache: cache)
+        let from = codexBehaviorISODate("2026-10-26T00:00:00Z")
+        let to = codexBehaviorISODate("2026-10-27T00:00:00Z")
+        let cold = try await reader.readUsage(from: from, to: to)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: cacheURL.path))
+        let warm = try await reader.readUsage(from: from, to: to)
+        let reloadedReader = CodexReader(
+            dbPath: reader.dbPath, rolloutUsageCache: CodexRolloutUsageCache(cacheURL: cacheURL))
+        let persisted = try await reloadedReader.readUsage(from: from, to: to)
+
+        for usage in [cold, warm, persisted] {
+            XCTAssertEqual(usage.totalTokens, 3000)
+            XCTAssertEqual(usage.inputTokens, 1000)
+            XCTAssertEqual(usage.cacheReadTokens, 1000)
+            XCTAssertEqual(usage.outputTokens, 600)
+            XCTAssertEqual(usage.reasoningTokens, 400)
+            // Cached input is separate; reasoning is charged once at the output rate.
+            XCTAssertEqual(usage.cost, 0.00605, accuracy: 0.000_001)
+            XCTAssertEqual(usage.perModel.values.reduce(0) { $0 + $1.cost }, usage.cost, accuracy: 0.000_001)
+            XCTAssertEqual(try XCTUnwrap(usage.tokenEvents.first).cost, usage.cost, accuracy: 0.000_001)
+            let modelStat = try XCTUnwrap(UsageReportBuilder.buildModelStats(
+                from: usage, startDate: from, endDate: to).first)
+            XCTAssertEqual(modelStat.modelID, "gpt-6.1-terra")
+            XCTAssertTrue(modelStat.isPriceKnown)
+            XCTAssertEqual(modelStat.cost, usage.cost, accuracy: 0.000_001)
+        }
+    }
+}
+
 private func codexBehaviorISODate(_ value: String) -> Date {
     guard let date = DateParser.parse(value) else {
         XCTFail("Failed to parse ISO date: \(value)")
