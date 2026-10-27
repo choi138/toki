@@ -89,7 +89,7 @@ public enum LocalUsageReaderRegistry {
             return LocalUsageReaderDescriptor(
                 reader: descriptor.reader, sourceLocations: descriptor.sourceLocations,
                 sourceSignatureStrategy: descriptor.sourceSignatureStrategy,
-                collectorRevision: 1,
+                collectorRevision: ["Claude Code", "Codex"].contains(descriptor.name) ? 2 : 1,
                 sourceLocationsResolver: {
                     try descriptor.resolvedSourceLocations().map(\.canonicalSelectedLocation)
                 })
@@ -108,23 +108,25 @@ private extension LocalUsageReaderRegistry {
                     projectsURLOverride: paths.claudeProjects,
                     usageCache: claudeCache,
                     transcriptsURLOverride: paths.claudeTranscripts,
-                    attributionHomeDirectory: paths.homeDirectory),
+                    attributionHomeDirectory: paths.homeDirectory,
+                    delegatedLogsURL: paths.hermesDelegateState),
                 sourceLocations: [
                     .directory(paths.claudeProjects, extensions: ["jsonl"]),
                     .directory(paths.claudeTranscripts, extensions: ["jsonl"]),
-                ],
+                ] + HermesDelegateUsageSource.locations(root: paths.hermesDelegateState),
                 sourceSignatureStrategy: .boundedAllFiles(
                     maximumFileCount: PiCompatibleReadLimits.default.maximumFileCount,
                     maximumEntryCount: PiCompatibleReadLimits.default.maximumEntryCount)),
             LocalUsageReaderDescriptor(
                 reader: CodexReader(
                     dbPath: paths.codexDatabase.path,
-                    rolloutUsageCache: codexCache),
+                    rolloutUsageCache: codexCache,
+                    delegatedLogsURL: paths.hermesDelegateState),
                 sourceLocations: [
                     .file(paths.codexDatabase, includesSQLiteSidecars: true),
                     .directory(paths.codexSessions, extensions: ["jsonl"]),
                     .directory(paths.codexArchivedSessions, extensions: ["jsonl"]),
-                ],
+                ] + HermesDelegateUsageSource.locations(root: paths.hermesDelegateState),
                 sourceSignatureStrategy: .codexRollouts),
             hermesReaderDescriptor(paths: paths, usageLedger: hermesLedger, cacheScope: cacheScope),
             LocalUsageReaderDescriptor(

@@ -288,8 +288,9 @@ private extension AgentSnapshotBuilder {
         try sourceURLs.formUnion(jsonlFiles(
             in: paths.codexArchivedSessions,
             modifiedOnOrAfter: window.start))
-
-        return try sourceURLs.map(fileSignatureRecord)
+        return try sourceURLs.map(fileSignatureRecord) + standardSourceRecords(
+            locations: [.directory(paths.hermesDelegateState, extensions: ["jsonl", "out", "json", ""])],
+            modifiedOnOrAfter: .distantPast, maximumFileCount: 50000, maximumEntryCount: 500_000)
     }
 
     private func retainedSessionDirectories(window: DateInterval) -> [URL] {

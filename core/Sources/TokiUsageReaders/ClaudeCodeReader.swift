@@ -9,18 +9,21 @@ public struct ClaudeCodeReader: TokenReader {
     private let transcriptsURLOverride: URL?
     private let usageCache: ClaudeUsageCache
     private let attributionHomeDirectory: URL
+    private let delegatedUsageSource: HermesDelegateUsageSource?
 
     public init(
         projectsURLOverride: URL? = nil,
         usageCache: ClaudeUsageCache = .shared,
         transcriptsURLOverride: URL? = nil,
-        attributionHomeDirectory: URL? = nil) {
+        attributionHomeDirectory: URL? = nil,
+        delegatedLogsURL: URL? = nil) {
         self.projectsURLOverride = projectsURLOverride
         self.transcriptsURLOverride = transcriptsURLOverride
             ?? (projectsURLOverride == nil ? homeDir().appendingPathComponent(".claude/transcripts") : nil)
         self.usageCache = usageCache
         self.attributionHomeDirectory = attributionHomeDirectory
             ?? Self.resolveAttributionHomeDirectory(projectsURLOverride: projectsURLOverride)
+        delegatedUsageSource = delegatedLogsURL.map { HermesDelegateUsageSource(root: $0, provider: .claude) }
     }
 
     private var projectsURL: URL {
@@ -33,6 +36,8 @@ public struct ClaudeCodeReader: TokenReader {
 
     func readUsage(from startDate: Date, to endDate: Date, maintainsCache: Bool) async throws -> RawTokenUsage {
         let limits = PiCompatibleReadLimits.default
+        let delegated = try await delegatedUsageSource?.read()
+        let completedIDs = delegated?.completedSessionIDs ?? []
         var visitedEntryCount = 0
         var files = Set<URL>()
         var seenRoots = Set<URL>()
@@ -65,10 +70,12 @@ public struct ClaudeCodeReader: TokenReader {
         await usageCache.beginBatch()
         var sessions: [(streamID: String, records: [ClaudeCachedUsageRecord])] = []
         var recordCount = 0
+        var nativeIDs = Set<String>()
         do {
             for file in files.sorted(by: { $0.path < $1.path }) {
                 try Task.checkCancellation()
                 let records = try await cachedUsageRecords(at: file)
+                nativeIDs.formUnion(records.map { $0.sessionID ?? usageSessionID(fromPath: file.path) })
                 try recordUsageEvents(
                     records.count, total: &recordCount, maximum: limits.maximumUnreconciledEventCount)
                 sessions.append((streamID: file.path, records: records))
@@ -80,13 +87,11 @@ public struct ClaudeCodeReader: TokenReader {
         }
 
         await usageCache.endBatch(persisting: maintainsCache)
-        let result = Self.usage(
-            fromSessions: sessions,
-            from: startDate,
-            to: endDate,
-            source: name,
-            attributionHomeDirectory: attributionHomeDirectory,
-            transcriptStreamIDs: transcriptStreamIDs)
+        var result = Self.usage(
+            fromSessions: sessions, from: startDate, to: endDate,
+            source: name, attributionHomeDirectory: attributionHomeDirectory,
+            transcriptStreamIDs: transcriptStreamIDs, excludingSessionIDs: completedIDs)
+        result += delegated?.usage(from: startDate, to: endDate, nativeSessionIDs: nativeIDs) ?? RawTokenUsage()
         try Task.checkCancellation()
         guard result.tokenEvents.count <= limits.maximumEventCount else {
             throw PiCompatibleReaderError.tooManyEvents(result.tokenEvents.count)
@@ -191,7 +196,8 @@ extension ClaudeCodeReader {
         to endDate: Date,
         source: String,
         attributionHomeDirectory: URL,
-        transcriptStreamIDs: Set<String> = []) -> RawTokenUsage {
+        transcriptStreamIDs: Set<String> = [],
+        excludingSessionIDs: Set<String> = []) -> RawTokenUsage {
         var dedup: [String: Entry] = [:]
         var activityByKey: [String: ActivitySeries] = [:]
 
@@ -208,7 +214,7 @@ extension ClaudeCodeReader {
         }
 
         return usage(
-            fromDedupedEntries: dedup,
+            fromDedupedEntries: dedup.filter { !excludingSessionIDs.contains($0.value.attribution?.sessionID ?? "") },
             activityEvents: activityByKey.values.flatMap(\.events),
             source: source,
             clippingEndDate: endDate)

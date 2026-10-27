@@ -13,12 +13,15 @@ public struct CodexReader: TokenReader {
     public let name = "Codex"
     public let dbPath: String
     public let rolloutUsageCache: CodexRolloutUsageCache
+    private let delegatedUsageSource: HermesDelegateUsageSource?
 
     public init(
         dbPath: String = homeDir().appendingPathComponent(".codex/state_5.sqlite").path,
-        rolloutUsageCache: CodexRolloutUsageCache = .shared) {
+        rolloutUsageCache: CodexRolloutUsageCache = .shared,
+        delegatedLogsURL: URL? = nil) {
         self.dbPath = dbPath
         self.rolloutUsageCache = rolloutUsageCache
+        delegatedUsageSource = delegatedLogsURL.map { HermesDelegateUsageSource(root: $0, provider: .codex) }
     }
 
     public func readUsage(from startDate: Date, to endDate: Date) async throws -> RawTokenUsage {
@@ -26,10 +29,15 @@ public struct CodexReader: TokenReader {
             return RawTokenUsage()
         }
 
+        let delegated = try await delegatedUsageSource?.read()
+        let completedIDs = delegated?.completedSessionIDs ?? []
         let sessions = overlappingSessions(from: startDate, to: endDate)
-        guard !Task.isCancelled, !sessions.isEmpty else { return RawTokenUsage() }
+        guard !Task.isCancelled else { return RawTokenUsage() }
 
-        var result = RawTokenUsage()
+        let nativeIDs = Set(sessions.filter { FileManager.default.fileExists(atPath: $0.rolloutPath) }
+            .map(\.upstreamSessionID))
+        var result = delegated?.usage(from: startDate, to: endDate, nativeSessionIDs: nativeIDs) ?? RawTokenUsage()
+        guard !sessions.isEmpty else { return result }
         var activityEvents: [ActivityTimeEvent<String>] = []
         let cacheBatch = await rolloutUsageCache.beginBatch(retaining: sessions.map(\.rolloutPath))
         for session in sessions {
@@ -59,7 +67,7 @@ public struct CodexReader: TokenReader {
             let sessionUsage = Self.strippingCachedActiveTime(
                 from: cachedUsageForSession,
                 whenActivityEventsExist: sessionEvents)
-            result += sessionUsage
+            if !completedIDs.contains(session.upstreamSessionID) { result += sessionUsage }
             activityEvents.append(contentsOf: sessionEvents)
         }
         await rolloutUsageCache.endBatch(cacheBatch)
@@ -99,13 +107,19 @@ public struct CodexReader: TokenReader {
             return try await fallbackValue(readUsage(from: startDate, to: endDate))
         }
 
+        let delegated = try await delegatedUsageSource?.read()
+        let completedIDs = delegated?.completedSessionIDs ?? []
         let sessions = overlappingSessions(
             from: startDate,
             to: endDate,
-            requiresProjectAttribution: false)
-        guard !Task.isCancelled, !sessions.isEmpty else { return 0 }
+            requiresProjectAttribution: false).filter { !completedIDs.contains($0.upstreamSessionID) }
+        guard !Task.isCancelled else { return 0 }
 
-        var outputTokens = 0
+        let nativeIDs = Set(sessions.filter { FileManager.default.fileExists(atPath: $0.rolloutPath) }
+            .map(\.upstreamSessionID))
+        var outputTokens = fallbackValue(
+            delegated?.usage(from: startDate, to: endDate, nativeSessionIDs: nativeIDs) ?? RawTokenUsage())
+        guard !sessions.isEmpty else { return outputTokens }
         let cacheBatch = await rolloutUsageCache.beginBatch(retaining: sessions.map(\.rolloutPath))
         for session in sessions {
             guard !Task.isCancelled else { break }

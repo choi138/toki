@@ -103,6 +103,10 @@ public struct LocalUsageReaderPaths: Equatable {
         claudeHome.appendingPathComponent("projects")
     }
 
+    public var hermesDelegateState: URL {
+        homeDirectory.appendingPathComponent(".local/state/hermes-delegate")
+    }
+
     public var claudeTranscripts: URL {
         claudeHome.appendingPathComponent("transcripts")
     }
